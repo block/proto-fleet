@@ -77,7 +77,20 @@ const combinePointValues = (metricName: KpiMetricName, values: number[]) => {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 };
 
-export const aggregateMetricTimeSeries = (
+const averagePointValues = (points: { value: number | null; sampleCount?: number }[]) => {
+  const values = points.filter((point): point is typeof point & { value: number } => point.value !== null);
+  if (!values.length) return undefined;
+  const weighted = values.filter(
+    (point): point is typeof point & { value: number; sampleCount: number } =>
+      point.sampleCount !== undefined && point.sampleCount > 0,
+  );
+  const sampleCount = weighted.reduce((sum, point) => sum + point.sampleCount, 0);
+  return weighted.length === values.length && sampleCount > 0
+    ? weighted.reduce((sum, point) => sum + point.value * point.sampleCount, 0) / sampleCount
+    : values.reduce((sum, point) => sum + point.value, 0) / values.length;
+};
+
+const aggregateMetricTimeSeriesByValue = (
   metricName: KpiMetricName,
   metrics: (MetricTelemetry | undefined)[],
 ): MetricTimeSeries | undefined => {
@@ -116,6 +129,73 @@ export const aggregateMetricTimeSeries = (
         }
       : undefined,
   };
+};
+
+const aggregateEfficiencyTimeSeries = (
+  metrics: (MetricTelemetry | undefined)[],
+  relatedMetrics: ({ hashrate?: MetricTelemetry; power?: MetricTelemetry } | undefined)[],
+): MetricTimeSeries | undefined => {
+  const totalsByTimestamp = new Map<number, { power: number; hashrate: number; sampleCount: number }>();
+  relatedMetrics.forEach((metric) => {
+    const { hashrate, power } = metric ?? {};
+    const powerPoints = power?.timeSeries?.points;
+    const hashratePoints = hashrate?.timeSeries?.points;
+    if (!powerPoints?.length || !hashratePoints?.length) return;
+
+    const hashrateByTime = new Map(hashratePoints.map((point) => [point.timestampMs, point]));
+    powerPoints.forEach((powerPoint) => {
+      const hashratePoint = hashrateByTime.get(powerPoint.timestampMs);
+      if (powerPoint.value === null || !hashratePoint?.value) return;
+      const totals = totalsByTimestamp.get(powerPoint.timestampMs) ?? { power: 0, hashrate: 0, sampleCount: 0 };
+      totals.power += powerPoint.value;
+      totals.hashrate += hashratePoint.value;
+      totals.sampleCount += Math.min(powerPoint.sampleCount ?? 1, hashratePoint.sampleCount ?? 1);
+      totalsByTimestamp.set(powerPoint.timestampMs, totals);
+    });
+  });
+
+  if (!totalsByTimestamp.size) {
+    return aggregateMetricTimeSeriesByValue("efficiency", metrics);
+  }
+
+  const points = [...totalsByTimestamp.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([timestampMs, totals]) => ({
+      timestampMs,
+      value: totals.hashrate > 0 ? totals.power / totals.hashrate : null,
+      sampleCount: totals.sampleCount || undefined,
+    }));
+  const values = points.map((point) => point.value).filter((value): value is number => value !== null);
+  const units = kpiMetricUnits.efficiency;
+
+  return {
+    points,
+    bucketSizeMs:
+      relatedMetrics.find((metric) => metric?.power?.timeSeries?.bucketSizeMs !== undefined)?.power?.timeSeries
+        ?.bucketSizeMs ??
+      relatedMetrics.find((metric) => metric?.hashrate?.timeSeries?.bucketSizeMs !== undefined)?.hashrate?.timeSeries
+        ?.bucketSizeMs,
+    units,
+    aggregates: values.length
+      ? {
+          min: { value: Math.min(...values), units },
+          avg: { value: averagePointValues(points)!, units },
+          max: { value: Math.max(...values), units },
+        }
+      : undefined,
+  };
+};
+
+export const aggregateMetricTimeSeries = (
+  metricName: KpiMetricName,
+  metrics: (MetricTelemetry | undefined)[],
+  relatedMetrics: ({ hashrate?: MetricTelemetry; power?: MetricTelemetry } | undefined)[] = [],
+): MetricTimeSeries | undefined => {
+  if (metricName === "efficiency" && relatedMetrics.length) {
+    return aggregateEfficiencyTimeSeries(metrics, relatedMetrics);
+  }
+
+  return aggregateMetricTimeSeriesByValue(metricName, metrics);
 };
 
 export const moduleHashboardIds = (
@@ -227,11 +307,13 @@ const moduleChartResult = (
   duration: Duration,
 ) => {
   const hashboardIds = moduleHashboardIds(topology, moduleId);
+  const hashboardMetrics = hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId));
   const aggregateMetric =
     rollups.get(asEntityKey(String(moduleId)))?.[metricName]?.timeSeries ??
     aggregateMetricTimeSeries(
       metricName,
-      hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId)?.[metricName]),
+      hashboardMetrics.map((metrics) => metrics?.[metricName]),
+      hashboardMetrics,
     );
 
   return chartResultFromSegments(
@@ -258,11 +340,15 @@ const tankChartResult = (
   const tankMetrics = new Map(
     tanks.map((tank) => {
       const tankRollupMetric = rollups.get(asEntityKey(String(tank.id)))?.[metricName];
+      const hashboardMetrics = tankHashboardIds(topology, tank).map((hashboardId) =>
+        hashboardsTelemetry.get(hashboardId),
+      );
       const timeSeries =
         tankRollupMetric?.timeSeries ??
         aggregateMetricTimeSeries(
           metricName,
-          tankHashboardIds(topology, tank).map((hashboardId) => hashboardsTelemetry.get(hashboardId)?.[metricName]),
+          hashboardMetrics.map((metrics) => metrics?.[metricName]),
+          hashboardMetrics,
         );
       return [String(tank.id), { latest: tankRollupMetric?.latest, timeSeries }] as const;
     }),

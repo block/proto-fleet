@@ -54,9 +54,11 @@ const withDerivedModuleHistory = (
   (Object.keys(kpiMetricUnits) as KpiMetricName[]).forEach((metricName) => {
     const existing = rollup?.[metricName];
     if (existing?.timeSeries) return;
+    const selectedHashboardMetrics = hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId));
     const timeSeries = aggregateMetricTimeSeries(
       metricName,
-      hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId)?.[metricName]),
+      selectedHashboardMetrics.map((metrics) => metrics?.[metricName]),
+      selectedHashboardMetrics,
     );
     if (timeSeries) derived[metricName] = { ...existing, timeSeries };
   });

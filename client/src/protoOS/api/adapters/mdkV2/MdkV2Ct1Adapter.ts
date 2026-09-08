@@ -39,10 +39,12 @@ import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
 
 export type MdkV2Client = InstanceType<typeof Api>["api"];
+type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
 
 const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
 const HASHBOARD_CONCURRENCY = 8;
+const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -112,6 +114,7 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Ct1Adapter implements MinerAdapter {
   private deviceId: string | undefined;
+  private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
   constructor(
     private readonly client: MdkV2Client,
@@ -333,21 +336,33 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     const end = request.endTime ?? (windowMs === undefined ? undefined : new Date(startMs + windowMs).toISOString());
     const bucket = bucketConfig(request.interval);
     const decorated = this.decorate(params);
+    const queryTimeSeries = async (query: TelemetryServiceQueryTimeSeriesParams, cacheKey?: string) => {
+      const now = Date.now();
+      const cached = cacheKey ? this.hashboardTimeSeriesCache.get(cacheKey) : undefined;
+      if (cached && cached.expiresAtMs > now) return cached.data;
+
+      const response = await this.client.telemetryServiceQueryTimeSeries(query, decorated);
+      if (cacheKey) {
+        this.hashboardTimeSeriesCache.set(cacheKey, {
+          expiresAtMs: now + HASHBOARD_TIMESERIES_CACHE_MS,
+          data: response.data,
+        });
+      }
+      return response.data;
+    };
     const queryFields = async (fields: Set<ContainerSeriesField>, identifier?: string) =>
       Object.fromEntries(
         await Promise.all(
           [...fields].map(async (field) => {
-            const response = await this.client.telemetryServiceQueryTimeSeries(
-              {
-                metric: SERIES_METRICS[field],
-                "range.start": request.startTime,
-                "range.end": end,
-                bucketSize: bucket.size,
-                identifier,
-              },
-              decorated,
-            );
-            return [field, response.data] as const;
+            const query = {
+              metric: SERIES_METRICS[field],
+              "range.start": request.startTime,
+              "range.end": end,
+              bucketSize: bucket.size,
+              identifier,
+            };
+            const cacheKey = identifier ? JSON.stringify(query) : undefined;
+            return [field, await queryTimeSeries(query, cacheKey)] as const;
           }),
         ),
       );

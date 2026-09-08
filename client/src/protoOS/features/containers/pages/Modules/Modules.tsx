@@ -44,9 +44,17 @@ const Modules = () => {
   const handleSelectModule = selectedTank
     ? (id: string) => navigate(`${minerRoot}/tanks/${selectedTank.slot ?? tankRouteValue}/modules/${id}`)
     : undefined;
+  const breadcrumbs = selectedTank
+    ? [
+        { label: "Home", to: `${minerRoot}/` },
+        { label: "Tanks", to: `${minerRoot}/tanks` },
+        { label: selectedTank.label?.trim() || title },
+      ]
+    : [];
 
   return (
     <ContainerInventoryPage
+      breadcrumbs={breadcrumbs}
       title={title}
       items={items}
       emptyMessage="No modules found."

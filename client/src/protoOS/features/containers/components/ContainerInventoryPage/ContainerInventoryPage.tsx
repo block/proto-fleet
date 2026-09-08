@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import Card, { cardType } from "@/shared/components/Card";
 
 export interface ContainerInventoryItem {
@@ -6,15 +8,43 @@ export interface ContainerInventoryItem {
   details: string[];
 }
 
+export interface ContainerInventoryBreadcrumb {
+  label: string;
+  to?: string;
+}
+
 interface ContainerInventoryPageProps {
+  breadcrumbs?: ContainerInventoryBreadcrumb[];
   emptyMessage: string;
   items: ContainerInventoryItem[];
   onSelectItem?: (id: string) => void;
   title: string;
 }
 
-const ContainerInventoryPage = ({ emptyMessage, items, onSelectItem, title }: ContainerInventoryPageProps) => (
+const ContainerInventoryPage = ({
+  breadcrumbs = [],
+  emptyMessage,
+  items,
+  onSelectItem,
+  title,
+}: ContainerInventoryPageProps) => (
   <div className="flex flex-col gap-6" data-testid="container-inventory-page">
+    {breadcrumbs.length ? (
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-300 text-text-primary-70">
+        {breadcrumbs.map((breadcrumb, index) => (
+          <span key={`${breadcrumb.label}-${index}`} className="flex items-center gap-2">
+            {breadcrumb.to ? (
+              <Link className="hover:text-text-primary" to={breadcrumb.to}>
+                {breadcrumb.label}
+              </Link>
+            ) : (
+              <span className="text-text-primary">{breadcrumb.label}</span>
+            )}
+            {index < breadcrumbs.length - 1 ? <span>/</span> : null}
+          </span>
+        ))}
+      </nav>
+    ) : null}
     <h1 className="text-heading-300">{title}</h1>
     {items.length ? (
       <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-3">

@@ -20,6 +20,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
   const { isFleetHosted } = useMinerHosting();
   const deviceType = useDeviceType();
+  const homeNavigationItem = deviceType === "container" ? navigationItems.containerHome : navigationItems.home;
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -41,7 +42,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
 
   return (
     <>
-      <NavigationItem id={navigationItems.home} text="Home" onClick={handleClick} pageName={pageName} />
+      <NavigationItem id={homeNavigationItem} text="Home" onClick={handleClick} pageName={pageName} />
       <NavigationItem id={navigationItems.diagnostics} text="Diagnostics" onClick={handleClick} pageName={pageName} />
       {deviceType === "container" ? (
         <>

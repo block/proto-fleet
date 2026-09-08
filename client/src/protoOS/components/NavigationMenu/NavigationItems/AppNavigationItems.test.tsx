@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 
 import AppNavigationItems from "./AppNavigationItems";
@@ -55,6 +55,18 @@ describe("AppNavigationItems", () => {
 
     expect(screen.getByText("Tanks")).toBeInTheDocument();
     expect(screen.getByText("Modules")).toBeInTheDocument();
+  });
+
+  test("uses the container index route for Home in container mode", () => {
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
+    (useDeviceType as Mock).mockReturnValue("container");
+    const onClick = vi.fn();
+
+    render(<AppNavigationItems onClick={onClick} pageName="" />);
+
+    fireEvent.click(screen.getByText("Home"));
+
+    expect(onClick).toHaveBeenCalledWith("");
   });
 
   test("keeps the rig navigation unchanged", () => {

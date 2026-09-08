@@ -21,6 +21,7 @@ import {
 } from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
+import { aggregateMetricTimeSeries } from "./kpiChartData";
 import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } from "./useHardware";
 import { useChartDataForMetric, useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
@@ -572,6 +573,29 @@ describe("useMiner", () => {
     const { result: moduleMiner } = renderHook(() => useMiner(moduleSelection));
     expect(moduleMiner.current?.hashboardSerials).toEqual(["HB-1"]);
     expect(moduleMiner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 11, units: "TH/s" });
+  });
+
+  it("derives aggregate efficiency history from total power and hashrate", () => {
+    const efficiency = aggregateMetricTimeSeries(
+      "efficiency",
+      [
+        { timeSeries: { points: [{ timestampMs: 1_000, value: 100 }], units: "J/TH" } },
+        { timeSeries: { points: [{ timestampMs: 1_000, value: 10 }], units: "J/TH" } },
+      ],
+      [
+        {
+          power: { timeSeries: { points: [{ timestampMs: 1_000, value: 100 }], units: "W" } },
+          hashrate: { timeSeries: { points: [{ timestampMs: 1_000, value: 1 }], units: "TH/s" } },
+        },
+        {
+          power: { timeSeries: { points: [{ timestampMs: 1_000, value: 100 }], units: "W" } },
+          hashrate: { timeSeries: { points: [{ timestampMs: 1_000, value: 10 }], units: "TH/s" } },
+        },
+      ],
+    );
+
+    expect(efficiency?.points).toEqual([{ timestampMs: 1_000, value: 200 / 11, sampleCount: 2 }]);
+    expect(efficiency?.aggregates?.avg).toEqual({ value: 200 / 11, units: "J/TH" });
   });
 
   it("derives fallback bays from one-based hashboard slots", () => {

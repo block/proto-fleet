@@ -313,6 +313,37 @@ describe("MdkV2Ct1Adapter", () => {
     });
   });
 
+  test("caches selected hashboard histories between polling intervals", async () => {
+    const getContainerMap = vi.fn().mockResolvedValue({
+      data: {
+        containerMap: {
+          tanks: [{ id: 1, modules: [{ id: 1, slots: [{ hashboard: { macAddress: "26:B0:3F:F0:D7:92" } }] }] }],
+        },
+      },
+    });
+    const queryTimeSeries = vi.fn().mockResolvedValue({
+      data: {
+        buckets: [{ time: "2026-09-02T11:00:00Z", avg: 2, count: "10" }],
+      },
+    });
+    const adapter = new MdkV2Ct1Adapter(
+      client({ hashboardServiceGetContainerMap: getContainerMap, telemetryServiceQueryTimeSeries: queryTimeSeries }),
+      { deviceId: "ct1-a" },
+    );
+    const request = {
+      startTime: "2026-09-02T11:00:00Z",
+      duration: "PT1H",
+      interval: "PT5M",
+      levels: [{ type: "hashboard" as const, indexes: [0], fields: ["hashrate" as const, "power" as const] }],
+    };
+
+    await adapter.getTimeSeries(request);
+    await adapter.getTimeSeries(request);
+
+    expect(getContainerMap).toHaveBeenCalledTimes(2);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(2);
+  });
+
   test("returns CT1 plant fans from the cooling-status adapter method", async () => {
     const getContainerHealth = vi.fn().mockResolvedValue({
       data: { coolingFans: [{ componentId: "dry-cooler-1", powerW: 400, speedPercent: 75 }] },

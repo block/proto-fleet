@@ -1,4 +1,5 @@
 export const navigationItems = {
+  containerHome: "",
   home: "hashrate",
   diagnostics: "diagnostics",
   tanks: "tanks",

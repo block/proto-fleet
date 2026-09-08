@@ -16,6 +16,7 @@ import type { VersionInfoProps } from "./InfoItem/VersionInfo";
 import { AppNavigationItems, OnboardingNavigationItems } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -41,6 +42,8 @@ const Navigation = ({
   const isApp = useMemo(() => type === navigationMenuTypes.app, [type]);
 
   const { minerRoot, closeButton } = useMinerHosting();
+  const deviceType = useDeviceType();
+  const appHomeItem = deviceType === "container" ? navigationItems.containerHome : navigationItems.home;
 
   const isOnboarding = useMemo(() => type === navigationMenuTypes.onboarding, [type]);
 
@@ -53,9 +56,9 @@ const Navigation = ({
     if (route.length) {
       return route;
     } else {
-      return isApp ? navigationItems.home : navigationItems.onboarding;
+      return isApp ? appHomeItem : navigationItems.onboarding;
     }
-  }, [pathname, isApp]);
+  }, [pathname, isApp, appHomeItem]);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
@@ -77,7 +80,7 @@ const Navigation = ({
           {closeButton ? (
             closeButton
           ) : (
-            <Link to={isApp ? `${minerRoot}/${navigationItems.home}` : `${minerRoot}/${navigationItems.onboarding}`}>
+            <Link to={isApp ? `${minerRoot}/${appHomeItem}` : `${minerRoot}/${navigationItems.onboarding}`}>
               <Logo className="text-text-primary hover:cursor-pointer" />
             </Link>
           )}

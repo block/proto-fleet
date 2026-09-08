@@ -1,9 +1,10 @@
 import { useMemo } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import type { TelemetryLevel, TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import { useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
 import { useDuration, useMinerStore, usePoolsInfo, useSetDuration } from "@/protoOS/store";
@@ -17,7 +18,30 @@ const KpiLayout = () => {
   const selection = useKpiViewSelection();
   const isContainer = useMinerStore((state) => state.hardware.topology?.kind === "container");
   const hardware = useMinerStore((state) => state.hardware);
+  const { minerRoot } = useMinerHosting();
   const { pathname } = useLocation();
+
+  const heading = useMemo(() => {
+    if (selection?.level !== "module") return "Home";
+    const module = hardware.topology?.modules.get(selection.moduleId);
+    return `Module ${module?.location?.moduleSlot ?? ""}`.trim();
+  }, [hardware.topology, selection]);
+
+  const breadcrumbs = useMemo(() => {
+    if (selection?.level !== "module") return [];
+    if (hardware.topology?.kind !== "container") return [];
+    const module = hardware.topology?.modules.get(selection.moduleId);
+    const tank = module?.tankId ? hardware.topology.tanks.get(module.tankId) : undefined;
+    if (!tank) return [{ label: "Home", to: `${minerRoot}/` }, { label: heading }];
+
+    const tankLabel = tank.label?.trim() || `Tank ${tank.slot ?? ""}`.trim();
+    const tankRouteValue = encodeURIComponent(String(tank.slot ?? tank.id));
+    return [
+      { label: "Home", to: `${minerRoot}/` },
+      { label: tankLabel, to: `${minerRoot}/tanks/${tankRouteValue}` },
+      { label: heading },
+    ];
+  }, [hardware.topology, heading, minerRoot, selection]);
 
   const telemetryLevels = useMemo<TelemetryLevel[]>(
     () => (selection?.level === "module" ? ["hashboard", "miner"] : ["miner"]),
@@ -74,10 +98,27 @@ const KpiLayout = () => {
 
         <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
           <div className="flex items-center pb-6">
-            <div className="grow text-heading-300">
-              {selection?.level === "module"
-                ? `Module ${hardware.topology?.modules.get(selection.moduleId)?.location?.moduleSlot ?? ""}`.trim()
-                : "Home"}
+            <div className="grow">
+              {breadcrumbs.length ? (
+                <nav
+                  aria-label="Breadcrumb"
+                  className="mb-2 flex flex-wrap items-center gap-2 text-300 text-text-primary-70"
+                >
+                  {breadcrumbs.map((breadcrumb, index) => (
+                    <span key={`${breadcrumb.label}-${index}`} className="flex items-center gap-2">
+                      {breadcrumb.to ? (
+                        <Link className="hover:text-text-primary" to={breadcrumb.to}>
+                          {breadcrumb.label}
+                        </Link>
+                      ) : (
+                        <span className="text-text-primary">{breadcrumb.label}</span>
+                      )}
+                      {index < breadcrumbs.length - 1 ? <span>/</span> : null}
+                    </span>
+                  ))}
+                </nav>
+              ) : null}
+              <div className="text-heading-300">{heading}</div>
             </div>
             <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
           </div>
