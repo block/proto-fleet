@@ -63,9 +63,11 @@ The configured subnet is validated the same way as an auto-detected local subnet
 
 1. Agent dials gateway, sends `ControlHello`.
 2. Server replies `ControlAccepted`; stream stays open.
-3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `pairing.v1.DiscoverRequest`.
-4. Agent runs the scan locally (plugin probes for `IPList`/`Mdns`, nmap for `Nmap`), batches results, and sends each batch via `ReportDiscoveredDevices` with `command_id` set.
+3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
+4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
+
+Discovery and pairing share one exclusive process-wide slot. All other commands share 16 process-wide slots. Telemetry, `GetCoolingMode`, and `GetErrors` additionally share an 8-slot low-priority limit, leaving at least eight ordinary slots available when those background reads are stuck. General commands can use all otherwise-idle ordinary slots. Commands that exceed either applicable limit receive `BUSY` immediately instead of blocking the stream receive loop. These limits persist across reconnects until the admitted handlers return.
 
 If the server side is older than RFC-0001 phase 2, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
 

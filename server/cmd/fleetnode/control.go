@@ -52,6 +52,9 @@ const (
 	// has its own process-wide exclusive slot (see runControlSession). Commands
 	// past the ceiling are acked BUSY.
 	commandPoolSize = 16
+	// lowPriorityCommandPoolSize prevents background reads from consuming every
+	// ordinary command slot. General commands may still use all idle capacity.
+	lowPriorityCommandPoolSize = 8
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -250,12 +253,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		sender.Close()
 	}()
 
-	// Two process-wide lanes owned by RunCmd:
+	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
 	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
 	//     doubling the load.
-	//   - quick per-miner commands use a broader pool, so they run concurrently and a
-	//     long discovery never head-of-line-blocks them.
+	//   - ordinary commands share a broader pool, so they run concurrently and a
+	//     long discovery never head-of-line-blocks them. Selected background reads
+	//     also draw from a smaller pool so they cannot consume every ordinary slot.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
 	for {
@@ -282,21 +286,17 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		slot := r.controlCommandSlots
-		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
-			slot = r.controlDiscoverySlot
-		}
-		select {
-		case slot <- struct{}{}:
+		releaseSlot, acquired := r.tryAcquireControlCommandSlot(env, parseErr)
+		if acquired {
 			r.controlWorkers.Add(1)
-			// All loop-scoped values the handler needs are passed as arguments,
-			// including the acquired lane, so each goroutine releases the same lane.
-			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
+			// All loop-scoped values the handler needs are passed as arguments so each
+			// goroutine releases exactly the permits acquired for that command class.
+			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func()) {
 				defer r.controlWorkers.Done()
-				defer func() { <-lane }()
+				defer release()
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
-			}(cmd, env, parseErr, slot)
-		default:
+			}(cmd, env, parseErr, releaseSlot)
+		} else {
 			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
@@ -336,6 +336,57 @@ func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 		return nil, fmt.Errorf("decode server-to-node command envelope: %w", err)
 	}
 	return env, nil
+}
+
+func isLowPriorityControlCommand(command *pb.AgentCommand) bool {
+	if command.GetTelemetry() != nil {
+		return true
+	}
+	minerCommand := command.GetMinerCommand()
+	if minerCommand == nil {
+		return false
+	}
+	switch minerCommand.GetAction().(type) {
+	case *pb.MinerCommand_GetCoolingMode, *pb.MinerCommand_GetErrors:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *RunCmd) tryAcquireControlCommandSlot(command *pb.AgentCommand, parseErr error) (func(), bool) {
+	if parseErr == nil && (command.GetDiscover() != nil || command.GetPair() != nil) {
+		if !tryAcquireControlSlot(r.controlDiscoverySlot) {
+			return nil, false
+		}
+		return func() { <-r.controlDiscoverySlot }, true
+	}
+	if parseErr == nil && isLowPriorityControlCommand(command) {
+		if !tryAcquireControlSlot(r.controlLowPrioritySlots) {
+			return nil, false
+		}
+		if !tryAcquireControlSlot(r.controlCommandSlots) {
+			<-r.controlLowPrioritySlots
+			return nil, false
+		}
+		return func() {
+			<-r.controlCommandSlots
+			<-r.controlLowPrioritySlots
+		}, true
+	}
+	if !tryAcquireControlSlot(r.controlCommandSlots) {
+		return nil, false
+	}
+	return func() { <-r.controlCommandSlots }, true
+}
+
+func tryAcquireControlSlot(slot chan struct{}) bool {
+	select {
+	case slot <- struct{}{}:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pb.AgentCommand, parseErr error, logger *slog.Logger) {
