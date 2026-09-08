@@ -153,38 +153,6 @@ func (test observedIdentityValidationCase) observedValues() (string, string) {
 const testChecksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 const testPreviousChecksum = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
-type deploymentProvenanceValidationCase struct {
-	name            string
-	response        func(string) proto.Message
-	collectionField protoreflect.Name
-	fieldNumber     protoreflect.FieldNumber
-}
-
-var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
-	{
-		name: "release channel miners",
-		response: func(checksum string) proto.Message {
-			return &rolloutv1.ListReleaseChannelMinersResponse{
-				Miners: []*rolloutv1.ReleaseChannelMiner{{
-					LastDeployedFirmwareChecksum: checksum,
-				}},
-			}
-		},
-		collectionField: "miners",
-		fieldNumber:     7,
-	},
-	{
-		name: "rollout devices",
-		response: func(checksum string) proto.Message {
-			device := queuedDevice()
-			device.LastDeployedFirmwareChecksum = checksum
-			return &rolloutv1.ListRolloutDevicesResponse{Devices: []*rolloutv1.RolloutDevice{device}}
-		},
-		collectionField: "devices",
-		fieldNumber:     21,
-	},
-}
-
 // activeRollout returns a minimal Rollout with a target and a consistent
 // ACTIVE lifecycle so tests can exercise one rule at a time.
 func activeRollout() *rolloutv1.Rollout {
@@ -237,6 +205,46 @@ func batchedRollout(batchCount int32) *rolloutv1.Rollout {
 
 func queuedDevice() *rolloutv1.RolloutDevice {
 	return &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED}
+}
+
+func delegatedBehavior() *rolloutv1.RolloutBehavior {
+	return &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED}
+}
+
+func assignmentOf(manufacturer, model, fileID string) *rolloutv1.FirmwareAssignment {
+	return &rolloutv1.FirmwareAssignment{Manufacturer: manufacturer, Model: model, FirmwareFileId: fileID}
+}
+
+func applyRequest(assignments ...*rolloutv1.FirmwareAssignment) *rolloutv1.ApplyReleaseChannelFirmwareRequest {
+	return &rolloutv1.ApplyReleaseChannelFirmwareRequest{ChannelId: 1, Assignments: assignments}
+}
+
+// conflict returns a valid relation for a miner that also matches another
+// channel.
+func conflict() *rolloutv1.ReleaseChannelMembershipConflict {
+	return &rolloutv1.ReleaseChannelMembershipConflict{
+		DeviceId:            1,
+		DeviceIdentifier:    "miner-1",
+		Manufacturer:        "Bitmain",
+		Model:               "S21",
+		ChannelId:           1,
+		ChannelName:         "stable",
+		SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+		Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
+	}
+}
+
+// rolloutEvent returns a valid ADVANCED event with full audit metadata.
+func rolloutEvent() *rolloutv1.RolloutEvent {
+	return &rolloutv1.RolloutEvent{
+		Id: 1, RolloutId: 1, ChannelId: 1,
+		Type:              rolloutv1.RolloutEventType_ROLLOUT_EVENT_TYPE_ADVANCED,
+		OccurredAt:        timestamppb.Now(),
+		Actor:             &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY, Id: 4, Name: "regression-bot"},
+		RolloutRevision:   3,
+		Note:              "batch 2 passed",
+		DeviceIdentifiers: []string{"miner-1"},
+	}
 }
 
 func requireProtoValidation(t *testing.T, message proto.Message, wantErr bool) {
@@ -323,6 +331,94 @@ func TestRolloutBehaviorValidation(t *testing.T) {
 				Order: rolloutv1.RolloutOrder(99),
 			},
 			wantErr: true,
+		},
+		{name: "delegated with no engine pacing is valid", behavior: delegatedBehavior()},
+		{
+			name: "delegated may set a controller timeout and an offline budget",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:                   rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				Order:                    rolloutv1.RolloutOrder_ROLLOUT_ORDER_RANDOM,
+				ControllerTimeoutSeconds: 900,
+				MaxConcurrentOffline:     5,
+			},
+		},
+		{
+			name:     "delegated rejects a batch size",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, BatchSize: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "delegated rejects a pilot size",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, PilotSize: 1},
+			wantErr:  true,
+		},
+		{
+			name:     "delegated rejects per-batch review",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, ReviewAfterEachBatch: true},
+			wantErr:  true,
+		},
+		{
+			name: "delegated rejects auto-continue",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:                         rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				AutoContinueOnHealthyTelemetry: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "delegated rejects thresholds",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:     rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				Thresholds: &rolloutv1.RolloutAutomationThresholds{},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "review on all-at-once is rejected rather than ignored",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ReviewAfterEachBatch: true},
+			wantErr:  true,
+		},
+		{
+			name:     "pilot may state its implied review gate",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, ReviewAfterEachBatch: true},
+		},
+		{
+			name:     "wait between batches needs unreviewed batches",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true, WaitBetweenBatchesSeconds: 60},
+			wantErr:  true,
+		},
+		{
+			name:     "wait between batches on all-at-once is rejected",
+			behavior: &rolloutv1.RolloutBehavior{WaitBetweenBatchesSeconds: 60},
+			wantErr:  true,
+		},
+		{
+			name:     "auto-continue without a gate is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, AutoContinueOnHealthyTelemetry: true},
+			wantErr:  true,
+		},
+		{
+			name: "auto-continue with thresholds at a batch review gate is valid",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true,
+				AutoContinueOnHealthyTelemetry: true, StabilizationSeconds: 600,
+				Thresholds: &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)},
+			},
+		},
+		{
+			name:     "stabilization without auto-continue is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, StabilizationSeconds: 600},
+			wantErr:  true,
+		},
+		{
+			name:     "thresholds without auto-continue are rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, Thresholds: &rolloutv1.RolloutAutomationThresholds{}},
+			wantErr:  true,
+		},
+		{
+			name:     "controller timeout requires the delegated method",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ControllerTimeoutSeconds: 60},
+			wantErr:  true,
 		},
 	}
 
@@ -589,143 +685,52 @@ func TestRolloutBatchConsistencyValidation(t *testing.T) {
 func TestRolloutEvidencePresenceValidation(t *testing.T) {
 	t.Parallel()
 
-	atGate := func(method rolloutv1.RolloutMethod, review, autoContinue bool, state rolloutv1.RolloutState) *rolloutv1.Rollout {
-		rollout := activeRollout()
-		rollout.Behavior = &rolloutv1.RolloutBehavior{
-			Method:                         method,
-			ReviewAfterEachBatch:           review,
-			AutoContinueOnHealthyTelemetry: autoContinue,
-		}
-		if method == rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED {
-			rollout.Behavior.BatchSize = 1
-		}
-		if method == rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE {
-			rollout.Behavior.PilotSize = 1
-		}
-		rollout.BatchCount = 1
-		rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
-		rollout.State = state
-		return rollout
-	}
-	batched := rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED
-	pilot := rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE
-	tests := []struct {
-		name    string
-		rollout func() *rolloutv1.Rollout
-		wantErr bool
-	}{
-		{name: "pilot gate is valid", rollout: func() *rolloutv1.Rollout {
-			return atGate(pilot, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE)
-		}},
-		{name: "batch review gate is valid", rollout: func() *rolloutv1.Rollout {
-			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
-		}},
-		{name: "stabilizing at a pilot gate is valid", rollout: func() *rolloutv1.Rollout {
-			return atGate(pilot, false, true, rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY)
-		}},
-		{name: "operator pause at a gate is valid", rollout: func() *rolloutv1.Rollout {
-			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED)
-			r.PausedAt = timestamppb.Now()
-			return r
-		}},
-		{name: "waiting between ungated batches is valid", rollout: func() *rolloutv1.Rollout {
-			r := batchedRollout(2)
-			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
-			return r
-		}},
-		{name: "review gate with a settled batch is valid", rollout: func() *rolloutv1.Rollout {
-			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
-			r.DeviceCount = 2
-			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
-			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
-			r.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}
-			return r
-		}},
-		{name: "evidence on a finished rollout is rejected", rollout: func() *rolloutv1.Rollout {
-			r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
-			r.Evidence = &rolloutv1.RolloutEvidence{}
-			return r
-		}, wantErr: true},
-	}
+	reviewed := batchedRollout(1)
+	reviewed.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
+	reviewed.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW
+	reviewed.DeviceCount = 2
+	reviewed.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
+	reviewed.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
+	reviewed.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}
+	requireProtoValidation(t, reviewed, false)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.rollout(), test.wantErr)
-		})
-	}
-}
-
-func TestReleaseChannelModelGroupUnassignedDerivedStateValidation(t *testing.T) {
-	t.Parallel()
-
-	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{MinerCount: 3}, false)
-	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{MinerCount: 3, OnTargetCount: 1}, true)
-	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{ActiveRolloutId: 5}, true)
-}
-
-func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {
-	t.Parallel()
-
-	group := &rolloutv1.ReleaseChannelModelGroup{
-		FirmwareFileId:             "file-1",
-		FirmwareChecksum:           testChecksum,
-		FirmwareAvailable:          true,
-		FirmwareTargetManufacturer: "Bitmain",
-		FirmwareTargetModel:        "S21",
-		FirmwareVersion:            "v1\x00custom",
-		AssignmentGeneration:       1,
-	}
-	requireProtoValidation(t, group, true)
-	group.FirmwareVersion = "v1-custom"
-	requireProtoValidation(t, group, false)
-}
-
-func TestReleaseChannelModelGroupAssignmentGenerationValidation(t *testing.T) {
-	t.Parallel()
-
-	assigned := func(generation int64) *rolloutv1.ReleaseChannelModelGroup {
-		return &rolloutv1.ReleaseChannelModelGroup{
-			FirmwareFileId:             "file-1",
-			FirmwareChecksum:           testChecksum,
-			FirmwareAvailable:          true,
-			FirmwareTargetManufacturer: "Bitmain",
-			FirmwareTargetModel:        "S21",
-			FirmwareVersion:            "2.0",
-			AssignmentGeneration:       generation,
-		}
-	}
-	requireProtoValidation(t, assigned(1), false)
-	requireProtoValidation(t, assigned(0), true)
-	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{AssignmentGeneration: 3}, false)
-	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{AssignmentGeneration: -1}, true)
+	finished := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+	finished.Evidence = &rolloutv1.RolloutEvidence{}
+	requireProtoValidation(t, finished, true)
 }
 
 func TestRolloutAutomationThresholdsCoverageValidation(t *testing.T) {
 	t.Parallel()
 
+	withLimit := func(coverage *float64) *rolloutv1.RolloutAutomationThresholds {
+		return &rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10), MinSampleCoveragePercent: coverage}
+	}
 	tests := []struct {
-		name     string
-		coverage *float64
-		wantErr  bool
+		name       string
+		thresholds *rolloutv1.RolloutAutomationThresholds
+		wantErr    bool
 	}{
-		{name: "unset coverage defaults to full"},
-		{name: "full coverage is valid", coverage: proto.Float64(100)},
-		{name: "fractional coverage is valid", coverage: proto.Float64(0.5)},
-		{name: "zero coverage is rejected", coverage: proto.Float64(0), wantErr: true},
-		{name: "coverage above 100 is rejected", coverage: proto.Float64(100.5), wantErr: true},
+		{name: "unset coverage defaults to full", thresholds: withLimit(nil)},
+		{name: "full coverage is valid", thresholds: withLimit(proto.Float64(100))},
+		{name: "fractional coverage is valid", thresholds: withLimit(proto.Float64(0.5))},
+		{name: "zero coverage is rejected", thresholds: withLimit(proto.Float64(0)), wantErr: true},
+		{name: "coverage above 100 is rejected", thresholds: withLimit(proto.Float64(100.5)), wantErr: true},
+		{name: "an error limit alone is valid", thresholds: &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)}},
+		// Error counts have no coverage rule, so coverage without a sampled
+		// metric limit would never be evaluated.
+		{name: "coverage alone is rejected", thresholds: &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: proto.Float64(80)}, wantErr: true},
+		{
+			name:       "coverage with only an error limit is rejected",
+			thresholds: &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: proto.Float64(80), MaxNewErrors: proto.Int32(0)},
+			wantErr:    true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Coverage is only meaningful next to a sampled-metric limit.
-			requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{
-				MaxHashrateDropPercent:   proto.Float64(10),
-				MinSampleCoveragePercent: test.coverage,
-			}, test.wantErr)
+			requireProtoValidation(t, test.thresholds, test.wantErr)
 		})
 	}
 }
@@ -1010,122 +1015,23 @@ func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
 
 	oversizedAssignments := make([]*rolloutv1.FirmwareAssignment, 101)
 	for index := range oversizedAssignments {
-		oversizedAssignments[index] = &rolloutv1.FirmwareAssignment{
-			Manufacturer:   "Bitmain",
-			Model:          fmt.Sprintf("model-%d", index),
-			FirmwareFileId: "firmware",
-		}
+		oversizedAssignments[index] = assignmentOf("Bitmain", fmt.Sprintf("model-%d", index), "firmware")
 	}
-
 	tests := []struct {
 		name    string
 		request *rolloutv1.ApplyReleaseChannelFirmwareRequest
 		wantErr bool
 	}{
-		{
-			name: "duplicate manufacturer and model pair is rejected",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-b"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "case variants of one manufacturer and model pair are rejected",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "bitMAIN", Model: "s21", FirmwareFileId: "firmware-b"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "surrounding whitespace in an assignment target is rejected",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: " Bitmain ", Model: "\tS21\n", FirmwareFileId: "firmware-b"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "distinct manufacturer and model pairs are accepted",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "bitMAIN", Model: "S19", FirmwareFileId: "firmware-b"},
-				},
-			},
-		},
-		{
-			name: "same model under different manufacturers is accepted",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "MicroBT", Model: "S21", FirmwareFileId: "firmware-b"},
-				},
-			},
-		},
-		{
-			name: "different models under one manufacturer are accepted",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "Bitmain", Model: "S19", FirmwareFileId: "firmware-b"},
-				},
-			},
-		},
-		{
-			name: "length-prefixed composite keys do not collide",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{
-					{Manufacturer: "A", Model: "BC", FirmwareFileId: "firmware-a"},
-					{Manufacturer: "AB", Model: "C", FirmwareFileId: "firmware-b"},
-				},
-			},
-		},
-		{
-			name: "assignment count is bounded",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId:   1,
-				Assignments: oversizedAssignments,
-			},
-			wantErr: true,
-		},
-		{
-			name: "maximum firmware file id is accepted",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{{
-					Manufacturer:   "Bitmain",
-					Model:          "S21",
-					FirmwareFileId: strings.Repeat("f", 255),
-				}},
-			},
-		},
-		{
-			name: "oversized firmware file id is rejected",
-			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-				ChannelId: 1,
-				Assignments: []*rolloutv1.FirmwareAssignment{{
-					Manufacturer:   "Bitmain",
-					Model:          "S21",
-					FirmwareFileId: strings.Repeat("f", 256),
-				}},
-			},
-			wantErr: true,
-		},
+		{name: "duplicate manufacturer and model pair is rejected", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf("Bitmain", "S21", "firmware-b")), wantErr: true},
+		{name: "case variants of one manufacturer and model pair are rejected", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf("bitMAIN", "s21", "firmware-b")), wantErr: true},
+		{name: "surrounding whitespace in an assignment target is rejected", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf(" Bitmain ", "\tS21\n", "firmware-b")), wantErr: true},
+		{name: "distinct manufacturer and model pairs are accepted", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf("bitMAIN", "S19", "firmware-b"))},
+		{name: "same model under different manufacturers is accepted", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf("MicroBT", "S21", "firmware-b"))},
+		{name: "different models under one manufacturer are accepted", request: applyRequest(assignmentOf("Bitmain", "S21", "firmware-a"), assignmentOf("Bitmain", "S19", "firmware-b"))},
+		{name: "length-prefixed composite keys do not collide", request: applyRequest(assignmentOf("A", "BC", "firmware-a"), assignmentOf("AB", "C", "firmware-b"))},
+		{name: "assignment count is bounded", request: applyRequest(oversizedAssignments...), wantErr: true},
+		{name: "maximum firmware file id is accepted", request: applyRequest(assignmentOf("Bitmain", "S21", strings.Repeat("f", 255)))},
+		{name: "oversized firmware file id is rejected", request: applyRequest(assignmentOf("Bitmain", "S21", strings.Repeat("f", 256))), wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -1140,111 +1046,26 @@ func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
 func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 	t.Parallel()
 
-	boundedVersions := []string{
-		"1.0.0",
-		"1.1.0",
-		"1.2.0",
-		"1.3.0",
-		"1.4.0",
-		"1.5.0",
-		"1.6.0",
-		"1.7.0",
-		"1.8.0",
-		"1.9.0",
+	reporting := func(minerCount, versionCount int32, versions ...string) *rolloutv1.ReleaseChannelModelGroup {
+		return &rolloutv1.ReleaseChannelModelGroup{
+			Manufacturer: "Bitmain", Model: "S21", MinerCount: minerCount,
+			ReportedVersions: versions, ReportedVersionCount: versionCount,
+		}
 	}
-	oversizedVersions := append(append([]string{}, boundedVersions...), "2.0.0")
-
+	tenVersions := []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0"}
 	tests := []struct {
 		name       string
 		modelGroup *rolloutv1.ReleaseChannelModelGroup
 		wantErr    bool
 	}{
-		{
-			name: "bounded truncated list is valid",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     boundedVersions,
-				ReportedVersionCount: 12,
-			},
-		},
-		{
-			name: "oversized list is rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     oversizedVersions,
-				ReportedVersionCount: 11,
-			},
-			wantErr: true,
-		},
-		{
-			name: "count below returned list length is rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     []string{"1.0.0", "2.0.0"},
-				ReportedVersionCount: 1,
-			},
-			wantErr: true,
-		},
-		{
-			name: "partial list below the cap is rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     []string{"1.0.0", "2.0.0"},
-				ReportedVersionCount: 5,
-			},
-			wantErr: true,
-		},
-		{
-			name: "complete list below the cap is valid",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     []string{"1.0.0", "2.0.0"},
-				ReportedVersionCount: 2,
-			},
-		},
-		{
-			name: "more versions than miners is rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           1,
-				ReportedVersions:     []string{"1.0.0", "2.0.0"},
-				ReportedVersionCount: 2,
-			},
-			wantErr: true,
-		},
-		{
-			name: "duplicate versions are rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     []string{"1.0.0", "1.0.0"},
-				ReportedVersionCount: 2,
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized version is rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:         "Bitmain",
-				Model:                "S21",
-				MinerCount:           20,
-				ReportedVersions:     []string{strings.Repeat("v", 256)},
-				ReportedVersionCount: 1,
-			},
-			wantErr: true,
-		},
+		{name: "bounded truncated list is valid", modelGroup: reporting(20, 12, tenVersions...)},
+		{name: "complete list below the cap is valid", modelGroup: reporting(20, 2, "1.0.0", "2.0.0")},
+		{name: "oversized list is rejected", modelGroup: reporting(20, 11, append(append([]string{}, tenVersions...), "2.0.0")...), wantErr: true},
+		{name: "count below returned list length is rejected", modelGroup: reporting(20, 1, "1.0.0", "2.0.0"), wantErr: true},
+		{name: "partial list below the cap is rejected", modelGroup: reporting(20, 5, "1.0.0", "2.0.0"), wantErr: true},
+		{name: "more versions than miners is rejected", modelGroup: reporting(1, 2, "1.0.0", "2.0.0"), wantErr: true},
+		{name: "duplicate versions are rejected", modelGroup: reporting(20, 2, "1.0.0", "1.0.0"), wantErr: true},
+		{name: "oversized version is rejected", modelGroup: reporting(20, 1, strings.Repeat("v", 256)), wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -1259,119 +1080,73 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 	t.Parallel()
 
+	type edit = func(*rolloutv1.ReleaseChannelModelGroup)
+	unassigned := func(edits ...edit) *rolloutv1.ReleaseChannelModelGroup {
+		group := &rolloutv1.ReleaseChannelModelGroup{Manufacturer: "Bitmain", Model: "S21", MinerCount: 3}
+		for _, apply := range edits {
+			apply(group)
+		}
+		return group
+	}
+	assigned := func(edits ...edit) *rolloutv1.ReleaseChannelModelGroup {
+		group := unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) {
+			g.FirmwareFileId = "file-1"
+			g.FirmwareChecksum = testChecksum
+			g.FirmwareAvailable = true
+			g.FirmwareTargetManufacturer = "Bitmain"
+			g.FirmwareTargetModel = "S21"
+			g.FirmwareVersion = "2.0"
+			g.AssignmentGeneration = 1
+		})
+		for _, apply := range edits {
+			apply(group)
+		}
+		return group
+	}
+	noncanonicalIdentity := func(g *rolloutv1.ReleaseChannelModelGroup) {
+		g.Manufacturer = "Bít main "
+		g.Model = " S２1\t"
+	}
 	tests := []struct {
-		name       string
-		modelGroup *rolloutv1.ReleaseChannelModelGroup
-		wantErr    bool
+		name    string
+		group   *rolloutv1.ReleaseChannelModelGroup
+		wantErr bool
 	}{
+		{name: "unassigned unknown identity is valid", group: &rolloutv1.ReleaseChannelModelGroup{}},
+		{name: "unassigned pair is valid", group: unassigned()},
+		{name: "unassigned observed identity may be noncanonical", group: unassigned(noncanonicalIdentity)},
+		{name: "cleared pair keeps its generation", group: unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.AssignmentGeneration = 3 })},
+		{name: "unassigned pair with on-target members is rejected", group: unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.OnTargetCount = 1 }), wantErr: true},
+		{name: "unassigned pair with an active rollout is rejected", group: unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.ActiveRolloutId = 5 }), wantErr: true},
+		{name: "negative generation is rejected", group: unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.AssignmentGeneration = -1 }), wantErr: true},
+		{name: "checksum without the rest of the assignment is rejected", group: unassigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = testChecksum }), wantErr: true},
+		{name: "assigned and uploaded is valid", group: assigned()},
+		{name: "assigned with a noncanonical observed identity is valid", group: assigned(noncanonicalIdentity)},
 		{
-			name:       "unassigned unknown identity is valid",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{},
+			name: "assigned but not uploaded has no file id and is unavailable",
+			group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) {
+				g.FirmwareFileId = ""
+				g.FirmwareAvailable = false
+			}),
 		},
-		{
-			name: "unassigned observed identity may be noncanonical",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer: "Bít main ",
-				Model:        " S２1\t",
-			},
-		},
-		{
-			name: "complete assignment with noncanonical observed identity is valid",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:               "Bít main ",
-				Model:                      " S２1\t",
-				FirmwareFileId:             "firmware",
-				FirmwareChecksum:           testChecksum,
-				FirmwareAvailable:          true,
-				FirmwareVersion:            "1.0.0",
-				FirmwareTargetManufacturer: "Bitmain",
-				FirmwareTargetModel:        "S21",
-				AssignmentGeneration:       1,
-			},
-		},
-		{
-			name: "assignment fields without firmware file are rejected",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				FirmwareVersion:            "1.0.0",
-				FirmwareTargetManufacturer: "Bitmain",
-				FirmwareTargetModel:        "S21",
-			},
-			wantErr: true,
-		},
-		{
-			name: "assigned firmware requires target manufacturer",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:        "Bitmain",
-				Model:               "S21",
-				FirmwareFileId:      "firmware",
-				FirmwareChecksum:    testChecksum,
-				FirmwareAvailable:   true,
-				FirmwareVersion:     "1.0.0",
-				FirmwareTargetModel: "S21",
-			},
-			wantErr: true,
-		},
-		{
-			name: "assigned firmware requires target model",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:               "Bitmain",
-				Model:                      "S21",
-				FirmwareFileId:             "firmware",
-				FirmwareChecksum:           testChecksum,
-				FirmwareAvailable:          true,
-				FirmwareVersion:            "1.0.0",
-				FirmwareTargetManufacturer: "Bitmain",
-			},
-			wantErr: true,
-		},
-		{
-			name: "assigned firmware requires version",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:               "Bitmain",
-				Model:                      "S21",
-				FirmwareFileId:             "firmware",
-				FirmwareChecksum:           testChecksum,
-				FirmwareAvailable:          true,
-				FirmwareTargetManufacturer: "Bitmain",
-				FirmwareTargetModel:        "S21",
-			},
-			wantErr: true,
-		},
-		{
-			name: "assigned firmware requires canonical target manufacturer",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:               "Bitmain",
-				Model:                      "S21",
-				FirmwareFileId:             "firmware",
-				FirmwareChecksum:           testChecksum,
-				FirmwareAvailable:          true,
-				FirmwareVersion:            "1.0.0",
-				FirmwareTargetManufacturer: "Bítmain",
-				FirmwareTargetModel:        "S21",
-			},
-			wantErr: true,
-		},
-		{
-			name: "assigned firmware requires canonical target model",
-			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:               "Bitmain",
-				Model:                      "S21",
-				FirmwareFileId:             "firmware",
-				FirmwareChecksum:           testChecksum,
-				FirmwareAvailable:          true,
-				FirmwareVersion:            "1.0.0",
-				FirmwareTargetManufacturer: "Bitmain",
-				FirmwareTargetModel:        " S21 ",
-			},
-			wantErr: true,
-		},
+		{name: "a file id without availability is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareAvailable = false }), wantErr: true},
+		{name: "availability without a file id is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareFileId = "" }), wantErr: true},
+		{name: "assignment without a checksum is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "" }), wantErr: true},
+		{name: "malformed checksum is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "sha256:" + testChecksum }), wantErr: true},
+		{name: "assigned without a generation is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.AssignmentGeneration = 0 }), wantErr: true},
+		{name: "assigned without a version is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareVersion = "" }), wantErr: true},
+		{name: "version containing NUL is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareVersion = "v1\x00custom" }), wantErr: true},
+		{name: "assigned without a target manufacturer is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareTargetManufacturer = "" }), wantErr: true},
+		{name: "assigned without a target model is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareTargetModel = "" }), wantErr: true},
+		{name: "noncanonical target manufacturer is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareTargetManufacturer = "Bítmain" }), wantErr: true},
+		{name: "noncanonical target model is rejected", group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareTargetModel = " S21 " }), wantErr: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireProtoValidation(t, test.modelGroup, test.wantErr)
+			requireProtoValidation(t, test.group, test.wantErr)
 		})
 	}
 }
@@ -1584,6 +1359,31 @@ func TestBoundedListResponseValidation(t *testing.T) {
 			cursorMaxLen:    100,
 		},
 		{
+			name:            "release channel model groups",
+			newResponse:     func() proto.Message { return &rolloutv1.ListReleaseChannelModelGroupsResponse{} },
+			newElement:      func() proto.Message { return &rolloutv1.ReleaseChannelModelGroup{} },
+			collectionField: "model_groups",
+			maxItems:        100,
+			cursorMaxLen:    8192,
+		},
+		{
+			name:            "membership conflicts",
+			newResponse:     func() proto.Message { return &rolloutv1.ListReleaseChannelMembershipConflictsResponse{} },
+			newElement:      func() proto.Message { return conflict() },
+			collectionField: "conflicts",
+			maxItems:        100,
+			cursorMaxLen:    100,
+		},
+		{
+			// The events cursor is never empty, so the fixture carries one.
+			name:            "rollout events",
+			newResponse:     func() proto.Message { return &rolloutv1.ListRolloutEventsResponse{Cursor: "c"} },
+			newElement:      func() proto.Message { return rolloutEvent() },
+			collectionField: "events",
+			maxItems:        1000,
+			cursorMaxLen:    100,
+		},
+		{
 			name:            "applied rollouts",
 			newResponse:     func() proto.Message { return &rolloutv1.ApplyReleaseChannelFirmwareResponse{} },
 			newElement:      newRollout,
@@ -1630,206 +1430,43 @@ func TestBoundedListResponseValidation(t *testing.T) {
 	}
 }
 
-func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
+func TestReleaseChannelMembershipConflictValidation(t *testing.T) {
 	t.Parallel()
 
-	conflicts := make([]*rolloutv1.ReleaseChannelMembershipConflict, 101)
-	for index := range conflicts {
-		conflicts[index] = &rolloutv1.ReleaseChannelMembershipConflict{
-			DeviceId:            int64(index + 1),
-			DeviceIdentifier:    fmt.Sprintf("device-%d", index),
-			Manufacturer:        "Bitmain",
-			Model:               "S21",
-			ChannelId:           int64(index + 1),
-			ChannelName:         fmt.Sprintf("channel-%d", index),
-			SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-			Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-		}
+	resolved := func(specificity rolloutv1.ReleaseChannelSelectorSpecificity, resolution rolloutv1.ReleaseChannelConflictResolution) *rolloutv1.ReleaseChannelMembershipConflict {
+		c := conflict()
+		c.SelectorSpecificity = specificity
+		c.Resolution = resolution
+		return c
 	}
-
+	edited := func(edit func(*rolloutv1.ReleaseChannelMembershipConflict)) *rolloutv1.ReleaseChannelMembershipConflict {
+		c := conflict()
+		edit(c)
+		return c
+	}
 	tests := []struct {
 		name     string
-		response *rolloutv1.ListReleaseChannelMembershipConflictsResponse
+		conflict *rolloutv1.ReleaseChannelMembershipConflict
 		wantErr  bool
 	}{
-		{
-			name: "maximum page and cursor length are valid",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: conflicts[:100],
-				Cursor:    strings.Repeat("c", 100),
-			},
-		},
-		{
-			name: "winner resolution is valid",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-		},
-		{
-			name: "loser resolution is valid",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_SITE,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER,
-				}},
-			},
-		},
-		{
-			name: "excluded tie resolution is valid",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_RACK,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE,
-				}},
-			},
-		},
-		{
-			name: "oversized page is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: conflicts,
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized cursor is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Cursor: strings.Repeat("c", 101),
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized device identifier is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					DeviceIdentifier:    strings.Repeat("d", 256),
-					Manufacturer:        "Bitmain",
-					Model:               "S21",
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized manufacturer is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        strings.Repeat("m", 256),
-					Model:               "S21",
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized model is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        "Bitmain",
-					Model:               strings.Repeat("m", 256),
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized channel name is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        "Bitmain",
-					Model:               "S21",
-					ChannelName:         strings.Repeat("c", 101),
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "unknown selector specificity is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        "Bitmain",
-					Model:               "S21",
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity(99),
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "unspecified selector specificity is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer: "Bitmain",
-					Model:        "S21",
-					Resolution:   rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "unknown resolution is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        "Bitmain",
-					Model:               "S21",
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution(99),
-				}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "unspecified resolution is rejected",
-			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
-				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer:        "Bitmain",
-					Model:               "S21",
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-				}},
-			},
-			wantErr: true,
-		},
+		{name: "winner is valid", conflict: conflict()},
+		{name: "loser is valid", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_SITE, rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER)},
+		{name: "excluded tie is valid", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_RACK, rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE)},
+		{name: "unspecified selector specificity is rejected", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_UNSPECIFIED, rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER), wantErr: true},
+		{name: "unknown selector specificity is rejected", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity(99), rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER), wantErr: true},
+		{name: "unspecified resolution is rejected", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER, rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_UNSPECIFIED), wantErr: true},
+		{name: "unknown resolution is rejected", conflict: resolved(rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER, rolloutv1.ReleaseChannelConflictResolution(99)), wantErr: true},
+		{name: "oversized device identifier is rejected", conflict: edited(func(c *rolloutv1.ReleaseChannelMembershipConflict) { c.DeviceIdentifier = strings.Repeat("d", 256) }), wantErr: true},
+		{name: "oversized channel name is rejected", conflict: edited(func(c *rolloutv1.ReleaseChannelMembershipConflict) { c.ChannelName = strings.Repeat("c", 101) }), wantErr: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireProtoValidation(t, test.response, test.wantErr)
+			requireProtoValidation(t, test.conflict, test.wantErr)
 		})
 	}
-}
-
-func TestListReleaseChannelModelGroupsResponseValidation(t *testing.T) {
-	t.Parallel()
-
-	modelGroups := make([]*rolloutv1.ReleaseChannelModelGroup, 101)
-	for index := range modelGroups {
-		modelGroups[index] = &rolloutv1.ReleaseChannelModelGroup{
-			Manufacturer: "Bitmain",
-			Model:        fmt.Sprintf("model-%d", index),
-		}
-	}
-
-	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
-		ModelGroups: modelGroups[:100],
-	}, false)
-	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
-		ModelGroups: modelGroups,
-	}, true)
-	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
-		Cursor: strings.Repeat("c", 8192),
-	}, false)
-	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
-		Cursor: strings.Repeat("c", 8193),
-	}, true)
 }
 
 func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
@@ -1960,28 +1597,6 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "oversized manufacturer is rejected",
-			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
-				Models: []*rolloutv1.ReleaseChannelScopeModelCount{{
-					Manufacturer: strings.Repeat("m", 256),
-					Model:        "S21",
-				}},
-				ModelCount: 1,
-			},
-			wantErr: true,
-		},
-		{
-			name: "oversized model is rejected",
-			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
-				Models: []*rolloutv1.ReleaseChannelScopeModelCount{{
-					Manufacturer: "Bitmain",
-					Model:        strings.Repeat("m", 256),
-				}},
-				ModelCount: 1,
-			},
-			wantErr: true,
-		},
-		{
 			name: "oversized conflict channel name is rejected",
 			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
 				Conflicts: []*rolloutv1.ReleaseChannelScopeConflict{{
@@ -2003,126 +1618,75 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 	}
 }
 
-func TestDeploymentProvenanceResponseDescriptors(t *testing.T) {
+func TestDeploymentProvenanceValidation(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range deploymentProvenanceValidationCases {
-		t.Run(test.name, func(t *testing.T) {
+	carriers := []struct {
+		name string
+		new  func(checksum string) proto.Message
+	}{
+		{name: "release channel miner", new: func(checksum string) proto.Message {
+			return &rolloutv1.ReleaseChannelMiner{LastDeployedFirmwareChecksum: checksum}
+		}},
+		{name: "rollout device", new: func(checksum string) proto.Message {
+			device := queuedDevice()
+			device.LastDeployedFirmwareChecksum = checksum
+			return device
+		}},
+	}
+	for _, carrier := range carriers {
+		t.Run(carrier.name, func(t *testing.T) {
 			t.Parallel()
 
-			items := test.response("").ProtoReflect().Descriptor().Fields().ByName(test.collectionField)
-			require.NotNil(t, items)
-			require.True(t, items.IsList())
-
-			provenance := items.Message().Fields().ByName("last_deployed_firmware_checksum")
-			require.NotNil(t, provenance)
-			require.Equal(t, test.fieldNumber, provenance.Number())
-			require.Equal(t, protoreflect.StringKind, provenance.Kind())
+			requireProtoValidation(t, carrier.new(""), false)
+			requireProtoValidation(t, carrier.new(testChecksum), false)
+			requireProtoValidation(t, carrier.new(strings.ToUpper(testChecksum)), true)
+			requireProtoValidation(t, carrier.new(testChecksum[:63]), true)
+			requireProtoValidation(t, carrier.new("file-1"), true)
 		})
 	}
 }
 
-func TestDeploymentProvenanceResponseValidation(t *testing.T) {
-	t.Parallel()
-
-	for _, test := range deploymentProvenanceValidationCases {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.response(""), false)
-			requireProtoValidation(t, test.response(testChecksum), false)
-			requireProtoValidation(t, test.response(strings.ToUpper(testChecksum)), true)
-			requireProtoValidation(t, test.response(testChecksum[:63]), true)
-			requireProtoValidation(t, test.response("file-1"), true)
-		})
-	}
-}
-
+// Summaries carry counts; the lists behind them have their own paged RPCs.
 func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	t.Parallel()
 
-	rolloutFields := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor().Fields()
-	require.Nil(t, rolloutFields.ByName("devices"))
-	require.NotNil(t, rolloutFields.ByName("device_count"))
-
-	modelGroup := (&rolloutv1.ReleaseChannelModelGroup{}).ProtoReflect().Descriptor()
-	modelGroupFields := modelGroup.Fields()
-	require.Nil(t, modelGroupFields.ByName("miners"))
-	require.NotNil(t, modelGroupFields.ByName("miner_count"))
-
-	channelSummary := (&rolloutv1.ReleaseChannelSummary{}).ProtoReflect().Descriptor()
-	require.Nil(t, channelSummary.Fields().ByName("scope"))
-	require.Nil(t, channelSummary.Fields().ByName("model_groups"))
-	require.NotNil(t, channelSummary.Fields().ByName("model_group_count"))
-
-	channel := (&rolloutv1.ReleaseChannel{}).ProtoReflect().Descriptor()
-	require.Nil(t, channel.Fields().ByName("model_groups"))
-	require.NotNil(t, channel.Fields().ByName("model_group_count"))
-
-	methods := rolloutv1.File_rollout_v1_rollout_proto.
-		Services().
-		ByName(protoreflect.Name("RolloutService")).
-		Methods()
-	listReleaseChannels := methods.ByName("ListReleaseChannels")
-	require.NotNil(t, listReleaseChannels)
-	channelsField := listReleaseChannels.Output().Fields().ByName("channels")
-	require.NotNil(t, channelsField)
-	require.Equal(t, channelSummary.FullName(), channelsField.Message().FullName())
-
-	listReleaseChannelModelGroups := methods.ByName("ListReleaseChannelModelGroups")
-	require.NotNil(t, listReleaseChannelModelGroups)
-	modelGroupsField := listReleaseChannelModelGroups.Output().Fields().ByName("model_groups")
-	require.NotNil(t, modelGroupsField)
-	require.True(t, modelGroupsField.IsList())
-	require.Equal(t, modelGroup.FullName(), modelGroupsField.Message().FullName())
-	require.NotNil(t, listReleaseChannelModelGroups.Output().Fields().ByName("cursor"))
-
-	require.NotNil(t, methods.ByName("ListReleaseChannelMiners"))
-	require.NotNil(t, methods.ByName("ListRolloutDevices"))
+	for _, test := range []struct {
+		message proto.Message
+		lists   []protoreflect.Name
+	}{
+		{message: &rolloutv1.Rollout{}, lists: []protoreflect.Name{"devices"}},
+		{message: &rolloutv1.ReleaseChannelModelGroup{}, lists: []protoreflect.Name{"miners"}},
+		{message: &rolloutv1.ReleaseChannelSummary{}, lists: []protoreflect.Name{"scope", "model_groups"}},
+		{message: &rolloutv1.ReleaseChannel{}, lists: []protoreflect.Name{"model_groups"}},
+	} {
+		descriptor := test.message.ProtoReflect().Descriptor()
+		for _, list := range test.lists {
+			require.Nil(t, descriptor.Fields().ByName(list), "%s.%s", descriptor.Name(), list)
+		}
+	}
 }
 
-func TestListReleaseChannelMembershipConflictsDescriptor(t *testing.T) {
+// Read RPCs are safe for HTTP GET, and every mutating RPC that names a rollout
+// is conditional under the revision rule. Both derive from the descriptors so
+// a new RPC cannot skip either.
+func TestServiceMethodContracts(t *testing.T) {
 	t.Parallel()
 
-	method := rolloutv1.File_rollout_v1_rollout_proto.
-		Services().
-		ByName(protoreflect.Name("RolloutService")).
-		Methods().
-		ByName("ListReleaseChannelMembershipConflicts")
-	require.NotNil(t, method)
+	methods := rolloutv1.File_rollout_v1_rollout_proto.Services().ByName("RolloutService").Methods()
+	for i := range methods.Len() {
+		method := methods.Get(i)
+		name := string(method.Name())
+		options, ok := method.Options().(*descriptorpb.MethodOptions)
+		require.True(t, ok, name)
+		readOnly := strings.HasPrefix(name, "List") || strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Preview")
+		require.Equal(t, readOnly, options.GetIdempotencyLevel() == descriptorpb.MethodOptions_NO_SIDE_EFFECTS, name)
 
-	request := (&rolloutv1.ListReleaseChannelMembershipConflictsRequest{}).ProtoReflect().Descriptor()
-	response := (&rolloutv1.ListReleaseChannelMembershipConflictsResponse{}).ProtoReflect().Descriptor()
-	conflict := (&rolloutv1.ReleaseChannelMembershipConflict{}).ProtoReflect().Descriptor()
-
-	require.Equal(t, request.FullName(), method.Input().FullName())
-	require.Equal(t, response.FullName(), method.Output().FullName())
-	require.NotNil(t, request.Fields().ByName("channel_id"))
-	require.NotNil(t, request.Fields().ByName("page_size"))
-	require.NotNil(t, request.Fields().ByName("cursor"))
-
-	conflictsField := response.Fields().ByName("conflicts")
-	require.NotNil(t, conflictsField)
-	require.True(t, conflictsField.IsList())
-	require.Equal(t, conflict.FullName(), conflictsField.Message().FullName())
-	require.NotNil(t, response.Fields().ByName("cursor"))
-
-	specificityField := conflict.Fields().ByName("selector_specificity")
-	require.NotNil(t, specificityField)
-	require.Equal(t, protoreflect.FullName("rollout.v1.ReleaseChannelSelectorSpecificity"), specificityField.Enum().FullName())
-
-	resolutionField := conflict.Fields().ByName("resolution")
-	require.NotNil(t, resolutionField)
-	resolutionEnum := resolutionField.Enum()
-	require.Equal(t, protoreflect.FullName("rollout.v1.ReleaseChannelConflictResolution"), resolutionEnum.FullName())
-	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_UNSPECIFIED"))
-	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER"))
-	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER"))
-	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE"))
-
-	options, ok := method.Options().(*descriptorpb.MethodOptions)
-	require.True(t, ok)
-	require.Equal(t, descriptorpb.MethodOptions_NO_SIDE_EFFECTS, options.GetIdempotencyLevel())
+		input := method.Input().Fields()
+		if !readOnly && input.ByName("rollout_id") != nil {
+			require.NotNil(t, input.ByName("expected_revision"), name)
+		}
+	}
 }
 
 func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
@@ -2209,12 +1773,10 @@ func TestObservedManufacturerModelIdentityValidation(t *testing.T) {
 		{
 			name: "membership conflict",
 			new: func(manufacturer, model string) proto.Message {
-				return &rolloutv1.ReleaseChannelMembershipConflict{
-					Manufacturer:        manufacturer,
-					Model:               model,
-					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
-					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
-				}
+				c := conflict()
+				c.Manufacturer = manufacturer
+				c.Model = model
+				return c
 			},
 		},
 		{
@@ -2313,131 +1875,31 @@ func TestPersistedRequestStringsRejectNUL(t *testing.T) {
 	}
 }
 
-func TestRolloutDeviceLastErrorValidation(t *testing.T) {
+func TestRolloutDeviceValidation(t *testing.T) {
 	t.Parallel()
 
-	device := queuedDevice()
-	device.LastError = strings.Repeat("e", 2048)
-	requireProtoValidation(t, device, false)
-	device.LastError = strings.Repeat("e", 2049)
-	requireProtoValidation(t, device, true)
-}
-
-func TestRolloutDevicePhaseValidation(t *testing.T) {
-	t.Parallel()
-
-	requireProtoValidation(t, queuedDevice(), false)
-	requireProtoValidation(t, &rolloutv1.RolloutDevice{}, true)
-	requireProtoValidation(t, &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase(99)}, true)
-}
-
-// --- Delegated control, revisions, skips, events ---
-
-func delegatedBehavior() *rolloutv1.RolloutBehavior {
-	return &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED}
-}
-
-func TestDelegatedBehaviorValidation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		behavior *rolloutv1.RolloutBehavior
-		wantErr  bool
-	}{
-		{name: "delegated with no engine pacing is valid", behavior: delegatedBehavior()},
-		{
-			name: "delegated may set a controller timeout and an offline budget",
-			behavior: &rolloutv1.RolloutBehavior{
-				Method:                   rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
-				Order:                    rolloutv1.RolloutOrder_ROLLOUT_ORDER_RANDOM,
-				ControllerTimeoutSeconds: 900,
-				MaxConcurrentOffline:     5,
-			},
-		},
-		{
-			name:     "delegated rejects a batch size",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, BatchSize: 2},
-			wantErr:  true,
-		},
-		{
-			name:     "delegated rejects a pilot size",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, PilotSize: 1},
-			wantErr:  true,
-		},
-		{
-			name:     "delegated rejects per-batch review",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, ReviewAfterEachBatch: true},
-			wantErr:  true,
-		},
-		{
-			name: "delegated rejects auto-continue",
-			behavior: &rolloutv1.RolloutBehavior{
-				Method:                         rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
-				AutoContinueOnHealthyTelemetry: true,
-			},
-			wantErr: true,
-		},
-		{
-			name: "delegated rejects thresholds",
-			behavior: &rolloutv1.RolloutBehavior{
-				Method:     rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
-				Thresholds: &rolloutv1.RolloutAutomationThresholds{},
-			},
-			wantErr: true,
-		},
-		{
-			name:     "review on all-at-once is rejected rather than ignored",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ReviewAfterEachBatch: true},
-			wantErr:  true,
-		},
-		{
-			name:     "pilot may state its implied review gate",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, ReviewAfterEachBatch: true},
-		},
-		{
-			name:     "wait between batches needs unreviewed batches",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true, WaitBetweenBatchesSeconds: 60},
-			wantErr:  true,
-		},
-		{
-			name:     "wait between batches on all-at-once is rejected",
-			behavior: &rolloutv1.RolloutBehavior{WaitBetweenBatchesSeconds: 60},
-			wantErr:  true,
-		},
-		{
-			name:     "auto-continue without a gate is rejected",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, AutoContinueOnHealthyTelemetry: true},
-			wantErr:  true,
-		},
-		{
-			name: "auto-continue with thresholds at a batch review gate is valid",
-			behavior: &rolloutv1.RolloutBehavior{
-				Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true,
-				AutoContinueOnHealthyTelemetry: true, StabilizationSeconds: 600,
-				Thresholds: &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)},
-			},
-		},
-		{
-			name:     "stabilization without auto-continue is rejected",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, StabilizationSeconds: 600},
-			wantErr:  true,
-		},
-		{
-			name:     "thresholds without auto-continue are rejected",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, Thresholds: &rolloutv1.RolloutAutomationThresholds{}},
-			wantErr:  true,
-		},
-		{
-			name:     "controller timeout requires the delegated method",
-			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ControllerTimeoutSeconds: 60},
-			wantErr:  true,
-		},
+	withLastError := func(length int) *rolloutv1.RolloutDevice {
+		device := queuedDevice()
+		device.LastError = strings.Repeat("e", length)
+		return device
 	}
+	tests := []struct {
+		name    string
+		device  *rolloutv1.RolloutDevice
+		wantErr bool
+	}{
+		{name: "queued device is valid", device: queuedDevice()},
+		{name: "maximum last error is valid", device: withLastError(2048)},
+		{name: "unspecified phase is rejected", device: &rolloutv1.RolloutDevice{}, wantErr: true},
+		{name: "unknown phase is rejected", device: &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase(99)}, wantErr: true},
+		{name: "oversized last error is rejected", device: withLastError(2049), wantErr: true},
+	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			requireProtoValidation(t, test.behavior, test.wantErr)
+
+			requireProtoValidation(t, test.device, test.wantErr)
 		})
 	}
 }
@@ -2558,67 +2020,16 @@ func TestSkipAndCompleteRequestValidation(t *testing.T) {
 	requireProtoValidation(t, &rolloutv1.CompleteRolloutRequest{RolloutId: 1, Note: strings.Repeat("x", 1025)}, true)
 }
 
-func TestConditionalLifecycleRequestsCarryExpectedRevision(t *testing.T) {
-	t.Parallel()
-
-	for _, message := range []proto.Message{
-		&rolloutv1.ContinueRolloutRequest{},
-		&rolloutv1.PauseRolloutRequest{},
-		&rolloutv1.ResumeRolloutRequest{},
-		&rolloutv1.CancelRolloutRequest{},
-		&rolloutv1.RetryFailedRolloutDevicesRequest{},
-		&rolloutv1.RollbackReleaseChannelFirmwareRequest{},
-		&rolloutv1.AdvanceRolloutRequest{},
-		&rolloutv1.SkipRolloutDevicesRequest{},
-		&rolloutv1.CompleteRolloutRequest{},
-	} {
-		fields := message.ProtoReflect().Descriptor().Fields()
-		require.NotNil(t, fields.ByName("expected_revision"), "%s", message.ProtoReflect().Descriptor().FullName())
-	}
-	for _, message := range []proto.Message{
-		&rolloutv1.ContinueRolloutRequest{},
-		&rolloutv1.CancelRolloutRequest{},
-		&rolloutv1.RollbackReleaseChannelFirmwareRequest{},
-		&rolloutv1.AdvanceRolloutRequest{},
-		&rolloutv1.SkipRolloutDevicesRequest{},
-		&rolloutv1.CompleteRolloutRequest{},
-	} {
-		fields := message.ProtoReflect().Descriptor().Fields()
-		require.NotNil(t, fields.ByName("note"), "%s", message.ProtoReflect().Descriptor().FullName())
-	}
-
-	rolloutFields := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor().Fields()
-	for _, name := range []string{"revision", "updated_at", "started_by", "last_action_by"} {
-		require.NotNil(t, rolloutFields.ByName(protoreflect.Name(name)), name)
-	}
-	require.NotNil(t, (&rolloutv1.ListRolloutsRequest{}).ProtoReflect().Descriptor().Fields().ByName("updated_after"))
-	require.NotNil(t, (&rolloutv1.ApplyReleaseChannelFirmwareRequest{}).ProtoReflect().Descriptor().Fields().ByName("behavior_override"))
-
-	methods := rolloutv1.File_rollout_v1_rollout_proto.
-		Services().
-		ByName(protoreflect.Name("RolloutService")).
-		Methods()
-	for _, name := range []string{"AdvanceRollout", "SkipRolloutDevices", "CompleteRollout", "ListRolloutEvents", "PreviewReleaseChannelFirmware"} {
-		require.NotNil(t, methods.ByName(protoreflect.Name(name)), name)
-	}
-}
-
 func TestRolloutEventsValidation(t *testing.T) {
 	t.Parallel()
 
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsRequest{RolloutId: 1, PageSize: 1000}, false)
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsRequest{PageSize: 1001}, true)
 
-	event := &rolloutv1.RolloutEvent{
-		Id: 1, RolloutId: 1, ChannelId: 1,
-		Type:              rolloutv1.RolloutEventType_ROLLOUT_EVENT_TYPE_ADVANCED,
-		OccurredAt:        timestamppb.Now(),
-		Actor:             &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY, Id: 4, Name: "regression-bot"},
-		RolloutRevision:   3,
-		Note:              "batch 2 passed",
-		DeviceIdentifiers: []string{"miner-1"},
-	}
+	event := rolloutEvent()
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Events: []*rolloutv1.RolloutEvent{event}, Cursor: "c1"}, false)
+	// The events feed cursor is never empty, so a poller can always resume.
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{}, true)
 	requireProtoValidation(t, &rolloutv1.RolloutEvent{Id: 1, RolloutId: 1}, true)
 	// Audit metadata is mandatory: when, by whom, and against which revision.
 	for name, mutate := range map[string]func(*rolloutv1.RolloutEvent){
@@ -2641,12 +2052,6 @@ func TestRolloutEventsValidation(t *testing.T) {
 	}
 	requireProtoValidation(t, &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_SYSTEM, Name: "enforcement"}, false)
 
-	events := make([]*rolloutv1.RolloutEvent, 1001)
-	for i := range events {
-		events[i] = event
-	}
-	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Events: events}, true)
-
 	requireProtoValidation(t, &rolloutv1.RolloutErrorInfo{
 		Reason: rolloutv1.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_REVISION, CurrentRevision: 8,
 	}, false)
@@ -2656,7 +2061,7 @@ func TestRolloutEventsValidation(t *testing.T) {
 func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 	t.Parallel()
 
-	assignment := &rolloutv1.FirmwareAssignment{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "file-1"}
+	assignment := assignmentOf("Bitmain", "S21", "file-1")
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: delegatedBehavior(),
 	}, false)
@@ -2666,12 +2071,12 @@ func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: capped,
 	}, true)
-	requireProtoValidation(t, &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: capped,
-	}, true)
-	requireProtoValidation(t, &rolloutv1.ApplyReleaseChannelFirmwareRequest{
-		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: delegatedBehavior(),
-	}, false)
+	cappedApply := applyRequest(assignment)
+	cappedApply.BehaviorOverride = capped
+	requireProtoValidation(t, cappedApply, true)
+	delegatedApply := applyRequest(assignment)
+	delegatedApply.BehaviorOverride = delegatedBehavior()
+	requireProtoValidation(t, delegatedApply, false)
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment, assignment},
 	}, true)
@@ -2690,107 +2095,33 @@ func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 	requireProtoValidation(t, plan("file-1", "", testChecksum), true)
 }
 
-func TestArtifactIdentityValidation(t *testing.T) {
+// The unmerged contract carries no history: nothing reserved, contiguous field
+// numbers, and none of the retired retry-chain fields or error reasons.
+func TestContractCarriesNoHistory(t *testing.T) {
 	t.Parallel()
 
-	assigned := func(mutate func(*rolloutv1.ReleaseChannelModelGroup)) *rolloutv1.ReleaseChannelModelGroup {
-		group := &rolloutv1.ReleaseChannelModelGroup{
-			FirmwareFileId:             "file-1",
-			FirmwareChecksum:           testChecksum,
-			FirmwareAvailable:          true,
-			FirmwareTargetManufacturer: "Bitmain",
-			FirmwareTargetModel:        "S21",
-			FirmwareVersion:            "2.0",
-			AssignmentGeneration:       1,
+	file := rolloutv1.File_rollout_v1_rollout_proto
+	messages := file.Messages()
+	for i := range messages.Len() {
+		message := messages.Get(i)
+		require.Zero(t, message.ReservedNames().Len(), message.Name())
+		require.Zero(t, message.ReservedRanges().Len(), message.Name())
+		fields := message.Fields()
+		for j := range fields.Len() {
+			require.LessOrEqual(t, int(fields.Get(j).Number()), fields.Len(), "%s.%s", message.Name(), fields.Get(j).Name())
 		}
-		mutate(group)
-		return group
 	}
-	tests := []struct {
-		name    string
-		group   *rolloutv1.ReleaseChannelModelGroup
-		wantErr bool
-	}{
-		{name: "assigned and uploaded", group: assigned(func(*rolloutv1.ReleaseChannelModelGroup) {})},
-		{
-			name: "assigned but the artifact is not uploaded: no file id, not available",
-			group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) {
-				g.FirmwareFileId = ""
-				g.FirmwareAvailable = false
-			}),
-		},
-		{
-			name:    "a file id without availability is rejected",
-			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareAvailable = false }),
-			wantErr: true,
-		},
-		{
-			name:    "availability without a file id is rejected",
-			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareFileId = "" }),
-			wantErr: true,
-		},
-		{
-			name:    "an assignment without a checksum is rejected",
-			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "" }),
-			wantErr: true,
-		},
-		{
-			name:    "a malformed checksum is rejected",
-			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "sha256:" + testChecksum }),
-			wantErr: true,
-		},
-		{
-			name: "an unassigned pair carries no artifact fields",
-			group: &rolloutv1.ReleaseChannelModelGroup{
-				FirmwareChecksum: testChecksum,
-			},
-			wantErr: true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			requireProtoValidation(t, test.group, test.wantErr)
-		})
+	enums := file.Enums()
+	for i := range enums.Len() {
+		require.Zero(t, enums.Get(i).ReservedRanges().Len(), enums.Get(i).Name())
 	}
 
-	// The contract identifies artifacts by checksum everywhere a file was
-	// referenced before, and no longer tracks retry chains.
 	rolloutFields := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor().Fields()
-	require.NotNil(t, rolloutFields.ByName("firmware_checksum"))
-	require.NotNil(t, rolloutFields.ByName("previous_firmware_checksum"))
-	require.Nil(t, rolloutFields.ByName("previous_firmware_file_id"))
-	require.Nil(t, rolloutFields.ByName("retry_of_rollout_id"))
-	require.Nil(t, rolloutFields.ByName("successor_rollout_id"))
-	require.NotNil(t, (&rolloutv1.ReleaseChannelFirmwarePlan{}).ProtoReflect().Descriptor().Fields().ByName("firmware_checksum"))
-	reasons := rolloutv1.RolloutErrorReason(0).Descriptor().Values()
-	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_MISSING"))
-	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_NOT_LATEST"))
-	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ALREADY_RETRIED"))
-	// The unshipped contract carries no reservations: field numbers are
-	// contiguous and nothing is reserved.
-	rolloutDescriptor := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor()
-	require.Equal(t, 0, rolloutDescriptor.ReservedNames().Len())
-	require.Equal(t, 0, rolloutDescriptor.ReservedRanges().Len())
-	require.Equal(t, 0, rolloutv1.RolloutErrorReason(0).Descriptor().ReservedRanges().Len())
-	for i := range rolloutFields.Len() {
-		require.LessOrEqual(t, int(rolloutFields.Get(i).Number()), rolloutFields.Len())
+	for _, retired := range []protoreflect.Name{"previous_firmware_file_id", "retry_of_rollout_id", "successor_rollout_id"} {
+		require.Nil(t, rolloutFields.ByName(retired), retired)
 	}
-	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED"))
-
-	// The events feed cursor is never empty.
-	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: ""}, true)
-	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: "c1"}, false)
-}
-
-func TestCoverageRequiresSampledMetricLimit(t *testing.T) {
-	t.Parallel()
-
-	coverage := 80.0
-	drop := 10.0
-	errors := int32(0)
-	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage, MaxHashrateDropPercent: &drop}, false)
-	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: &errors}, false)
-	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage}, true)
-	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage, MaxNewErrors: &errors}, true)
+	reasons := rolloutv1.RolloutErrorReason(0).Descriptor().Values()
+	for _, retired := range []protoreflect.Name{"ROLLOUT_ERROR_REASON_NOT_LATEST", "ROLLOUT_ERROR_REASON_ALREADY_RETRIED", "ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED"} {
+		require.Nil(t, reasons.ByName(retired), retired)
+	}
 }

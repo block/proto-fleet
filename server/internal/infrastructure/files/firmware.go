@@ -179,7 +179,7 @@ func validateFirmwareMetadataText(name, value string) error {
 	if strings.ContainsRune(value, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("%s must not contain U+0000", name)
 	}
-	if len(value) > maxFirmwareMetadataLength && utf8.RuneCountInString(value) > maxFirmwareMetadataLength {
+	if utf8.RuneCountInString(value) > maxFirmwareMetadataLength {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"%s must be at most %d Unicode code points", name, maxFirmwareMetadataLength,
 		)

@@ -39,8 +39,8 @@ import "google/protobuf/timestamp.proto";
 // Enforcement rule: an assignment is enforced for as long as it stands, not
 // only when it changes. While an assigned pair has no active rollout, the
 // server reconciles its members continuously and starts a new rollout, paced
-// by the channel's current behavior, as soon as any member is mismatched as
-// ApplyReleaseChannelFirmware defines it: a member that joined or re-entered
+// by the channel's current behavior, as soon as any member is mismatched under
+// the mismatch rule: a member that joined or re-entered
 // the scope or drifted after the previous rollout finished, or the first
 // members of a pair that was assigned while empty. A reconciliation rollout
 // carries the pair's current assignment_generation and the lineage of the most
@@ -48,8 +48,17 @@ import "google/protobuf/timestamp.proto";
 // whose most recent phase in any rollout of the current generation is FAILED or
 // SKIPPED is suppressed from reconciliation for the rest of that generation,
 // however many rollouts follow; only RetryFailedRolloutDevices re-queues it,
-// and only a new generation clears the suppression. Reapplying an unchanged assignment
-// therefore starts nothing itself; reconciliation already covers it.
+// and only a new generation clears the suppression. Reapplying an unchanged
+// assignment therefore starts nothing itself; reconciliation already covers it.
+//
+// Mismatch rule: a member matches its pair's assignment only when it reports
+// the target version, its managed-deployment provenance equals the assigned
+// checksum, and it has no enqueued or in-flight firmware command for a
+// different artifact. Anything else is mismatched, including empty or
+// different provenance and such an outstanding command: the member's update
+// for the current target is queued behind the outstanding command, so a
+// superseded update that finishes later cannot leave the miner off the
+// assignment with no rollout to correct it.
 //
 // Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
 // one ACTIVE rollout, reported as ReleaseChannelModelGroup.active_rollout_id.
@@ -168,36 +177,29 @@ service RolloutService {
     }
 
     // Plans firmware assignments without saving them: for each assignment,
-    // how many members are mismatched as ApplyReleaseChannelFirmware defines
-    // it, how many already match, and how the rollout would be batched under
-    // the channel's behavior or the supplied behavior_override. Fails with the
+    // how many members are mismatched under the RolloutService mismatch rule,
+    // how many already match, and how the rollout would be batched under the
+    // channel's behavior or the supplied behavior_override. Fails with the
     // same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
     rpc PreviewReleaseChannelFirmware(PreviewReleaseChannelFirmwareRequest) returns (PreviewReleaseChannelFirmwareResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
     // Atomically replaces per-manufacturer/model firmware assignments. For each
-    // changed assignment with mismatched members, it starts a rollout paced by
-    // the channel's behavior, first canceling that pair's active rollout as
-    // SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
-    // rule; rollouts started together run concurrently and share the
-    // channel-wide RolloutBehavior.max_concurrent_offline budget rather than
-    // each receiving their own. A member matches only when it
-    // reports the target version, its RolloutService managed-deployment
-    // provenance equals the assigned checksum, and it has no enqueued or
-    // in-flight firmware command for a different artifact. Empty or different
-    // provenance, or such an outstanding command, is mismatched: the member's
-    // update for the new target is queued behind the outstanding command, so
-    // a superseded update that finishes later cannot leave the miner off the
-    // assignment with no rollout to correct it. An assignment is unchanged when
-    // its checksum is unchanged, whatever file id names it; unchanged
-    // assignments start nothing here, and the RolloutService enforcement rule
-    // keeps them enforced as members join, re-enter, or drift.
+    // changed assignment with members mismatched under the RolloutService
+    // mismatch rule, it starts a rollout paced by the channel's behavior,
+    // first canceling that pair's active rollout as SUPERSEDED (or CLEARED)
+    // under the single-active-rollout rule; rollouts started together run
+    // concurrently and share the channel-wide
+    // RolloutBehavior.max_concurrent_offline budget. An assignment is
+    // unchanged when its checksum is unchanged, whatever file id names it;
+    // unchanged assignments start nothing here, and the enforcement rule keeps
+    // them enforced as members join, re-enter, or drift.
     // FirmwareAssignment.firmware_file_id defines the artifact resolution and
-    // metadata constraints (RolloutService artifact identity rule). Any
-    // violation fails with FAILED_PRECONDITION before any assignment changes
-    // or rollouts start. An empty file id clears the assignment. Direct
-    // firmware uploads are outside this contract.
+    // metadata constraints (artifact identity rule); any violation fails with
+    // FAILED_PRECONDITION before any assignment changes or rollout starts. An
+    // empty file id clears the assignment. Direct firmware uploads are outside
+    // this contract.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
     // Reverses the referenced rollout's firmware assignment. Before canceling
@@ -208,10 +210,10 @@ service RolloutService {
     // the tuple and reverses the rollout's assignment lineage
     // (Rollout.previous_firmware_checksum): an empty lineage clears the
     // assignment and starts no rollout; a nonempty lineage is restored and
-    // starts at most one all-at-once rollout for mismatched members as
-    // ApplyReleaseChannelFirmware defines them, so a member whose superseded
-    // update is still outstanding is included and receives the restored
-    // target behind that update. A restored artifact that is not currently
+    // starts at most one all-at-once rollout for members mismatched under the
+    // RolloutService mismatch rule, so a member whose superseded update is
+    // still outstanding is included and receives the restored target behind
+    // that update. A restored artifact that is not currently
     // uploaded is still assigned; enforcement waits under the RolloutService
     // artifact identity rule. Commands already sent finish under existing
     // cancellation semantics.
@@ -350,11 +352,10 @@ enum RolloutMethod {
     ROLLOUT_METHOD_DELEGATED = 4;
 }
 
-// Order miners are worked through. The server sorts a rollout's targets by
-// it once at start; BATCHED and PILOT_THEN_CONTINUE cut batches along that
-// sequence, DELEGATED takes the "next count" of AdvanceRollout from it, and
-// every method, ALL_AT_ONCE included, dispatches QUEUED targets in that
-// sequence, which decides who goes first whenever
+// Sequence the server sorts a rollout's targets into once at start. BATCHED
+// and PILOT_THEN_CONTINUE cut batches along it, DELEGATED takes the "next
+// count" of AdvanceRollout from it, and every method dispatches QUEUED
+// targets in it, which decides who goes first when
 // RolloutBehavior.max_concurrent_offline throttles dispatch.
 enum RolloutOrder {
     ROLLOUT_ORDER_UNSPECIFIED = 0;
@@ -403,10 +404,11 @@ message RolloutAutomationThresholds {
 
 // How updates started in a channel are staged and dispatched. Stored on the
 // channel and copied onto each rollout when it starts. Every knob is accepted
-// only for the method that consumes it, so a setting can never be silently
-// ignored: sizes belong to their method, review to batches, waits to unreviewed
-// batches, auto-continue to a gate, and stabilization and thresholds to
-// auto-continue. DELEGATED therefore carries none of them.
+// only in the context that consumes it, so a setting can never be silently
+// ignored: sizes belong to their method, review to batches, waits to
+// unreviewed batches, auto-continue to a gate, stabilization and thresholds to
+// auto-continue, and the controller timeout to DELEGATED, which takes nothing
+// else beyond order and the offline budget.
 message RolloutBehavior {
     option (buf.validate.message).cel = {
         id: "batch_size_iff_batched"
@@ -449,18 +451,15 @@ message RolloutBehavior {
     // Sequence the server works targets through; consumed by every method
     // (see RolloutOrder). Unspecified means LEAST_EFFICIENT_FIRST.
     RolloutOrder order = 2 [(buf.validate.field).enum.defined_only = true];
-    // BATCHED: miners per batch (>= 1). Rejected for every other method, so a
-    // batch size cannot be silently ignored by an all-at-once rollout.
+    // BATCHED only: miners per batch (>= 1).
     int32 batch_size = 3 [(buf.validate.field).int32 = {gte: 0}];
-    // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1). Rejected for every
-    // other method.
+    // PILOT_THEN_CONTINUE only: miners in the pilot batch (>= 1).
     int32 pilot_size = 4 [(buf.validate.field).int32 = {gte: 0}];
     // BATCHED without review only: pause between one batch finishing and the
     // next starting.
     int32 wait_between_batches_seconds = 5 [(buf.validate.field).int32 = {gte: 0}];
     // BATCHED: hold at a review gate after every batch. PILOT_THEN_CONTINUE
-    // always gates after the pilot and may state this explicitly; other
-    // methods reject it.
+    // always gates after the pilot and may state this explicitly.
     bool review_after_each_batch = 6;
     // Gated methods only (PILOT_THEN_CONTINUE, or BATCHED with review):
     // release a gate automatically once the DONE count and failed-device
@@ -473,30 +472,23 @@ message RolloutBehavior {
     int32 stabilization_seconds = 8 [(buf.validate.field).int32 = {gte: 0}];
     // Auto-continue only.
     RolloutAutomationThresholds thresholds = 9;
-    // Channel-wide safety budget shared by every active rollout in the
-    // channel, whatever their method (including ALL_AT_ONCE) and however many
-    // rollouts one ApplyReleaseChannelFirmware call started. Each distinct
-    // target across those rollouts holds at most one slot, either as an
-    // offline slot, taken when it is observed offline regardless of phase or
-    // whether the update caused the outage, or as a reservation, taken
-    // immediately before its update command is dispatched. A reservation
-    // covers the outage the update is expected to cause: it becomes an offline
-    // slot when the target is observed offline, and is released without one
-    // only when the command reaches a terminal state without the target ever
-    // having been observed offline. Online observations alone never release a
-    // reservation, since a miner stays reachable while it downloads. An
-    // offline slot is released when the target is next observed online. Either
-    // kind is released when the target is deleted from the fleet, since a
-    // deleted miner can never report again; becoming EXCLUDED, FAILED, or
-    // otherwise terminal does not by itself release a slot. Dispatch in every
-    // rollout of the channel pauses while this nonzero budget is full.
-    // Cancellation ends further dispatch for the canceled rollout only; slots
-    // held by its targets keep counting against the channel until released as
-    // above.
-    // Unlike other behavior fields, this budget is not snapshotted: the
-    // channel's current value governs its active rollouts immediately, and the
-    // copy on Rollout.behavior records the value in force when the rollout
-    // started. 0 is unlimited.
+    // Channel-wide budget of miners mid-update, shared by every active rollout
+    // in the channel whatever its method. Each distinct target holds at most
+    // one slot: a reservation, taken just before its update command is
+    // dispatched, or an offline slot, taken whenever it is observed offline in
+    // any phase, whatever caused the outage. A reservation becomes an offline
+    // slot when the target is observed offline and is released without one
+    // only when the command reaches a terminal state with the target never
+    // observed offline; online observations alone never release it, since a
+    // miner stays reachable while it downloads. An offline slot is released
+    // when the target is next observed online. Deleting the target from the
+    // fleet releases either kind; becoming EXCLUDED, FAILED, or otherwise
+    // terminal does not. Dispatch in every rollout of the channel waits while
+    // a nonzero budget is full. Cancellation stops dispatch for the canceled
+    // rollout only; slots its targets hold still count until released as
+    // above. Not snapshotted: the channel's current value governs its active
+    // rollouts at once, and Rollout.behavior records the value in force when
+    // the rollout started. 0 is unlimited.
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
     // DELEGATED only: how long a rollout may sit WAITING_FOR_CONTROLLER with
     // no controller action before the server pauses it and records a
@@ -526,12 +518,12 @@ message ReleaseChannelSummary {
     string name = 2 [(buf.validate.field).string.max_len = 100];
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     RolloutBehavior behavior = 4;
+    // Total manufacturer/model groups, including assigned pairs with no
+    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    int32 model_group_count = 5 [(buf.validate.field).int32.gte = 0];
     int32 miner_count = 6 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
-    // Total manufacturer/model groups, including assigned pairs with no
-    // current members. Retrieve details with ListReleaseChannelModelGroups.
-    int32 model_group_count = 9 [(buf.validate.field).int32.gte = 0];
 }
 
 // Summary for one observed manufacturer/model pair in a channel, including
@@ -754,9 +746,8 @@ enum RolloutStage {
     // before the next one starts. Only BATCHED rollouts without per-batch
     // review enter this stage, and only while another batch remains.
     ROLLOUT_STAGE_WAITING = 3;
-    // Updating all remaining targets with no further waits or review gates,
-    // subject to RolloutBehavior.max_concurrent_offline. A rollout with
-    // batches enters it only after its final batch.
+    // Updating all remaining targets with no further waits or review gates. A
+    // rollout with batches enters it only after its final batch.
     ROLLOUT_STAGE_REST = 4;
 }
 
@@ -793,8 +784,8 @@ enum RolloutDevicePhase {
     // Meets every convergence criterion: reports the target version; its
     // RolloutService managed-deployment provenance equals the rollout's
     // firmware_checksum; is online; and is hashing when baseline_hashing is
-    // true or has_baseline is false. A miner with a non-hashing baseline need
-    // not be hashing. Per-device telemetry deltas do not affect this phase.
+    // true or has_baseline is false. Per-device telemetry deltas do not affect
+    // this phase.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, or the rollout was canceled before this miner
     // updated. Retried only by RetryFailedRolloutDevices. Offline accounting
@@ -1168,7 +1159,6 @@ message Rollout {
 
 // Progress of one miner within a rollout.
 message RolloutDevice {
-
     int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
@@ -1440,8 +1430,8 @@ message ReleaseChannelFirmwarePlan {
     // Empty when the assignment would clear the pair.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 4 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
-    // Members that would be targeted (mismatched as ApplyReleaseChannelFirmware
-    // defines it).
+    // Members that would be targeted (mismatched under the RolloutService
+    // mismatch rule).
     int32 target_count = 5 [(buf.validate.field).int32.gte = 0];
     // Members already matching the assignment.
     int32 on_target_count = 6 [(buf.validate.field).int32.gte = 0];
@@ -1529,6 +1519,27 @@ message ListRolloutDevicesResponse {
     string cursor = 2 [(buf.validate.field).string.max_len = 100];
 }
 
+message ListRolloutEventsRequest {
+    // When set, only events of this rollout.
+    int64 rollout_id = 1 [(buf.validate.field).int64.gte = 0];
+    // When set, only events of rollouts in this channel.
+    int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
+    // Maximum events to return. 0 uses the server default of 100.
+    int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Cursor returned by a previous call; leave empty to start from the
+    // oldest event. A cursor stays valid indefinitely, so a client may resume
+    // from where it stopped.
+    string cursor = 4 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListRolloutEventsResponse {
+    repeated RolloutEvent events = 1 [(buf.validate.field).repeated.max_items = 1000];
+    // Cursor for the next page. Unlike other lists it is never empty: when no
+    // newer events exist it points just past the last one returned, so a
+    // poller passes it back to receive only new events.
+    string cursor = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+}
+
 message ContinueRolloutRequest {
     // Active staged rollout in the AWAITING_REVIEW stage.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -1537,6 +1548,10 @@ message ContinueRolloutRequest {
     int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
     // Rationale recorded on the CONTINUED event.
     string note = 3 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
+}
+
+message ContinueRolloutResponse {
+    Rollout rollout = 1;
 }
 
 // Targets named by device identifier within one rollout.
@@ -1596,31 +1611,6 @@ message CompleteRolloutResponse {
     Rollout rollout = 1;
 }
 
-message ListRolloutEventsRequest {
-    // When set, only events of this rollout.
-    int64 rollout_id = 1 [(buf.validate.field).int64.gte = 0];
-    // When set, only events of rollouts in this channel.
-    int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
-    // Maximum events to return. 0 uses the server default of 100.
-    int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
-    // Cursor returned by a previous call; leave empty to start from the
-    // oldest event. A cursor stays valid indefinitely, so a client may resume
-    // from where it stopped.
-    string cursor = 4 [(buf.validate.field).string.max_len = 100];
-}
-
-message ListRolloutEventsResponse {
-    repeated RolloutEvent events = 1 [(buf.validate.field).repeated.max_items = 1000];
-    // Cursor for the next page. Unlike other lists it is never empty: when no
-    // newer events exist it points just past the last one returned, so a
-    // poller passes it back to receive only new events.
-    string cursor = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
-}
-
-message ContinueRolloutResponse {
-    Rollout rollout = 1;
-}
-
 message PauseRolloutRequest {
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
     // When nonzero, the rollout's revision must equal this value
@@ -1659,9 +1649,8 @@ message CancelRolloutResponse {
 }
 
 message RetryFailedRolloutDevicesRequest {
-    // The rollout whose failed (or canceled) miners are retried. Its original
-    // target must satisfy the RetryFailedRolloutDevices preconditions; a stale
-    // target fails with FAILED_PRECONDITION rather than being retargeted.
+    // Rollout whose pair's suppressed members are re-queued; see
+    // RetryFailedRolloutDevices for the preconditions.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
     // When nonzero, the rollout's revision must equal this value
     // (RolloutService revision rule).
@@ -1669,8 +1658,8 @@ message RetryFailedRolloutDevicesRequest {
 }
 
 message RetryFailedRolloutDevicesResponse {
-    // The rollout now carrying the retried miners: the same rollout when it
-    // was still active, otherwise a new all-at-once rollout with the eligible
-    // finished rollout's unchanged target.
+    // The rollout now carrying the retried miners: the referenced rollout when
+    // it was still ACTIVE or nothing was suppressed, otherwise the new
+    // all-at-once rollout for the same target.
     Rollout rollout = 1;
 }

@@ -144,33 +144,26 @@ type RolloutServiceClient interface {
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Plans firmware assignments without saving them: for each assignment,
-	// how many members are mismatched as ApplyReleaseChannelFirmware defines
-	// it, how many already match, and how the rollout would be batched under
-	// the channel's behavior or the supplied behavior_override. Fails with the
+	// how many members are mismatched under the RolloutService mismatch rule,
+	// how many already match, and how the rollout would be batched under the
+	// channel's behavior or the supplied behavior_override. Fails with the
 	// same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
 	PreviewReleaseChannelFirmware(context.Context, *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
-	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior, first canceling that pair's active rollout as
-	// SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
-	// rule; rollouts started together run concurrently and share the
-	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
-	// each receiving their own. A member matches only when it
-	// reports the target version, its RolloutService managed-deployment
-	// provenance equals the assigned checksum, and it has no enqueued or
-	// in-flight firmware command for a different artifact. Empty or different
-	// provenance, or such an outstanding command, is mismatched: the member's
-	// update for the new target is queued behind the outstanding command, so
-	// a superseded update that finishes later cannot leave the miner off the
-	// assignment with no rollout to correct it. An assignment is unchanged when
-	// its checksum is unchanged, whatever file id names it; unchanged
-	// assignments start nothing here, and the RolloutService enforcement rule
-	// keeps them enforced as members join, re-enter, or drift.
+	// changed assignment with members mismatched under the RolloutService
+	// mismatch rule, it starts a rollout paced by the channel's behavior,
+	// first canceling that pair's active rollout as SUPERSEDED (or CLEARED)
+	// under the single-active-rollout rule; rollouts started together run
+	// concurrently and share the channel-wide
+	// RolloutBehavior.max_concurrent_offline budget. An assignment is
+	// unchanged when its checksum is unchanged, whatever file id names it;
+	// unchanged assignments start nothing here, and the enforcement rule keeps
+	// them enforced as members join, re-enter, or drift.
 	// FirmwareAssignment.firmware_file_id defines the artifact resolution and
-	// metadata constraints (RolloutService artifact identity rule). Any
-	// violation fails with FAILED_PRECONDITION before any assignment changes
-	// or rollouts start. An empty file id clears the assignment. Direct
-	// firmware uploads are outside this contract.
+	// metadata constraints (artifact identity rule); any violation fails with
+	// FAILED_PRECONDITION before any assignment changes or rollout starts. An
+	// empty file id clears the assignment. Direct firmware uploads are outside
+	// this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Reverses the referenced rollout's firmware assignment. Before canceling
 	// any rollout, changing an assignment, or starting a rollout, the referenced
@@ -180,10 +173,10 @@ type RolloutServiceClient interface {
 	// the tuple and reverses the rollout's assignment lineage
 	// (Rollout.previous_firmware_checksum): an empty lineage clears the
 	// assignment and starts no rollout; a nonempty lineage is restored and
-	// starts at most one all-at-once rollout for mismatched members as
-	// ApplyReleaseChannelFirmware defines them, so a member whose superseded
-	// update is still outstanding is included and receives the restored
-	// target behind that update. A restored artifact that is not currently
+	// starts at most one all-at-once rollout for members mismatched under the
+	// RolloutService mismatch rule, so a member whose superseded update is
+	// still outstanding is included and receives the restored target behind
+	// that update. A restored artifact that is not currently
 	// uploaded is still assigned; enforcement waits under the RolloutService
 	// artifact identity rule. Commands already sent finish under existing
 	// cancellation semantics.
@@ -597,33 +590,26 @@ type RolloutServiceHandler interface {
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Plans firmware assignments without saving them: for each assignment,
-	// how many members are mismatched as ApplyReleaseChannelFirmware defines
-	// it, how many already match, and how the rollout would be batched under
-	// the channel's behavior or the supplied behavior_override. Fails with the
+	// how many members are mismatched under the RolloutService mismatch rule,
+	// how many already match, and how the rollout would be batched under the
+	// channel's behavior or the supplied behavior_override. Fails with the
 	// same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
 	PreviewReleaseChannelFirmware(context.Context, *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
-	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior, first canceling that pair's active rollout as
-	// SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
-	// rule; rollouts started together run concurrently and share the
-	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
-	// each receiving their own. A member matches only when it
-	// reports the target version, its RolloutService managed-deployment
-	// provenance equals the assigned checksum, and it has no enqueued or
-	// in-flight firmware command for a different artifact. Empty or different
-	// provenance, or such an outstanding command, is mismatched: the member's
-	// update for the new target is queued behind the outstanding command, so
-	// a superseded update that finishes later cannot leave the miner off the
-	// assignment with no rollout to correct it. An assignment is unchanged when
-	// its checksum is unchanged, whatever file id names it; unchanged
-	// assignments start nothing here, and the RolloutService enforcement rule
-	// keeps them enforced as members join, re-enter, or drift.
+	// changed assignment with members mismatched under the RolloutService
+	// mismatch rule, it starts a rollout paced by the channel's behavior,
+	// first canceling that pair's active rollout as SUPERSEDED (or CLEARED)
+	// under the single-active-rollout rule; rollouts started together run
+	// concurrently and share the channel-wide
+	// RolloutBehavior.max_concurrent_offline budget. An assignment is
+	// unchanged when its checksum is unchanged, whatever file id names it;
+	// unchanged assignments start nothing here, and the enforcement rule keeps
+	// them enforced as members join, re-enter, or drift.
 	// FirmwareAssignment.firmware_file_id defines the artifact resolution and
-	// metadata constraints (RolloutService artifact identity rule). Any
-	// violation fails with FAILED_PRECONDITION before any assignment changes
-	// or rollouts start. An empty file id clears the assignment. Direct
-	// firmware uploads are outside this contract.
+	// metadata constraints (artifact identity rule); any violation fails with
+	// FAILED_PRECONDITION before any assignment changes or rollout starts. An
+	// empty file id clears the assignment. Direct firmware uploads are outside
+	// this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Reverses the referenced rollout's firmware assignment. Before canceling
 	// any rollout, changing an assignment, or starting a rollout, the referenced
@@ -633,10 +619,10 @@ type RolloutServiceHandler interface {
 	// the tuple and reverses the rollout's assignment lineage
 	// (Rollout.previous_firmware_checksum): an empty lineage clears the
 	// assignment and starts no rollout; a nonempty lineage is restored and
-	// starts at most one all-at-once rollout for mismatched members as
-	// ApplyReleaseChannelFirmware defines them, so a member whose superseded
-	// update is still outstanding is included and receives the restored
-	// target behind that update. A restored artifact that is not currently
+	// starts at most one all-at-once rollout for members mismatched under the
+	// RolloutService mismatch rule, so a member whose superseded update is
+	// still outstanding is included and receives the restored target behind
+	// that update. A restored artifact that is not currently
 	// uploaded is still assigned; enforcement waits under the RolloutService
 	// artifact identity rule. Commands already sent finish under existing
 	// cancellation semantics.
