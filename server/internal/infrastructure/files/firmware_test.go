@@ -760,8 +760,20 @@ func TestResolveFirmwareArtifact_ReturnsChecksumAndMetadata(t *testing.T) {
 	assert.Equal(t, checksumOf(content), artifact.Checksum)
 	assert.Equal(t, testFirmwareMetadata(), artifact.Metadata)
 
-	_, err = svc.ResolveFirmwareArtifact("missing-file")
-	require.Error(t, err)
+	_, err = svc.ResolveFirmwareArtifact("00000000-0000-7000-8000-000000000000")
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+
+	// A legacy sidecar without a firmware version cannot back an assignment:
+	// the version is what the assignment enforces.
+	legacy := testFirmwareMetadata()
+	legacy.FirmwareVersion = ""
+	require.NoError(t, writeFirmwareMetadata(getFirmwareDirPath(fileID), legacy, time.Now()))
+	_, err = svc.ResolveFirmwareArtifact(fileID)
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "firmware_version")
 }
 
 func TestFindFirmwareFileIDByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T) {
@@ -776,6 +788,7 @@ func TestFindFirmwareFileIDByChecksum_IgnoresMetadataAndFollowsDeletes(t *testin
 	foundID, ok := svc.FindFirmwareFileIDByChecksum(checksumOf(content))
 	assert.True(t, ok)
 	assert.Equal(t, fileID, foundID)
+	assert.Equal(t, []string{fileID}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
 
 	require.NoError(t, svc.DeleteFirmwareFile(fileID))
 	_, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))

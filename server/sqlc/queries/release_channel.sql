@@ -334,10 +334,12 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 
 -- name: ListReleaseChannelMismatchedMembers :many
 -- Members of one pair that are mismatched under the mismatch rule (reported
--- version or provenance differs from the assignment), are not already part of
--- rollout_id (0 for a new rollout), and are not suppressed: a member halted
--- (failed, skipped, or left behind by a cancellation) in the most recent
--- rollout of the current generation that holds it stays out until retried.
+-- version or provenance differs from the assignment, or a FirmwareUpdate for a
+-- file outside assigned_file_ids — the files carrying the assigned checksum —
+-- is still pending or processing), are not already part of rollout_id (0 for
+-- a new rollout), and are not suppressed: a member halted (failed, skipped, or
+-- left behind by a cancellation) in the most recent rollout of the current
+-- generation that holds it stays out until retried.
 -- Carries the latest efficiency sample for ordering.
 SELECT d.id AS device_id,
        d.device_identifier,
@@ -360,6 +362,13 @@ WHERE m.channel_id = sqlc.arg('channel_id')
   AND NOT (
       COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
       AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
+      AND NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = d.id
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+            AND NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(sqlc.arg('assigned_file_ids')::text[]))
+      )
   )
   AND NOT EXISTS (
       SELECT 1 FROM firmware_rollout_device rd
@@ -427,7 +436,9 @@ ORDER BY d.device_identifier;
 
 -- name: ListReleaseChannelFirmwareNeedingRollout :many
 -- Assigned pairs with no active rollout and at least one mismatched,
--- unsuppressed member: late joiners, re-entries and miners that drifted.
+-- unsuppressed member: late joiners, re-entries and miners that drifted. Any
+-- outstanding FirmwareUpdate counts as a mismatch here; the file set is only
+-- known per pair, so ListReleaseChannelMismatchedMembers makes the final call.
 SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version,
        f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation,
        f.assigned_by, f.updated_at, c.org_id
@@ -453,6 +464,12 @@ AND EXISTS (
       AND NOT (
           COALESCE(dd.firmware_version, '') = f.firmware_version
           AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
+          AND NOT EXISTS (
+              SELECT 1 FROM queue_message qm
+              WHERE qm.device_id = d.id
+                AND qm.command_type = 'FirmwareUpdate'
+                AND qm.status IN ('PENDING', 'PROCESSING')
+          )
       )
       AND NOT EXISTS (
           SELECT 1
@@ -642,7 +659,8 @@ WHERE id = sqlc.arg('rollout_id');
 
 -- name: ListFirmwareRolloutDevices :many
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
--- status, latest telemetry within 15 minutes, open errors), provenance and
+-- status, latest telemetry within 15 minutes, open errors), provenance, the
+-- files named by its pending or processing FirmwareUpdate commands, and
 -- whether it is still a member of the channel for the rollout's pair.
 SELECT rd.device_id,
        d.device_identifier,
@@ -672,6 +690,13 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE((
+           SELECT array_agg(COALESCE(qm.payload->>'firmware_file_id', ''))
+           FROM queue_message qm
+           WHERE qm.device_id = d.id
+             AND qm.command_type = 'FirmwareUpdate'
+             AND qm.status IN ('PENDING', 'PROCESSING')
+       ), '{}'::text[])::text[] AS pending_firmware_file_ids,
        EXISTS (
            SELECT 1 FROM release_channel_member m
            WHERE m.device_id = d.id AND m.channel_id = r.channel_id
