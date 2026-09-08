@@ -2,6 +2,7 @@ package files
 
 import (
 	"errors"
+	"sort"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -49,14 +50,22 @@ func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, erro
 
 // FirmwareFileIDsByChecksum returns every uploaded firmware file whose payload
 // has the given SHA-256, whatever its name or metadata: under the release
-// channel artifact identity rule any such file carries the assignment.
+// channel artifact identity rule any such file carries the assignment. It
+// reads the by-id checksum map, which covers every payload on disk, not the
+// reuse index, which covers only files with valid metadata.
 func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
 
 	s.mu.Lock()
-	ids := append([]string(nil), s.checksumIndex[sha256Hex]...)
+	var ids []string
+	for id, checksum := range s.firmwareChecksumByID {
+		if checksum == sha256Hex {
+			ids = append(ids, id)
+		}
+	}
 	s.mu.Unlock()
+	sort.Strings(ids)
 
 	present := make([]string, 0, len(ids))
 	for _, id := range ids {
