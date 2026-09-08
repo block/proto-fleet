@@ -1650,6 +1650,31 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertIn("github.event.review.state == 'commented'", cancel_expression)
 
+    def test_workflow_skips_check_events_for_commits_that_are_not_a_pr_head(self):
+        workflow = load_workflow("review-policy.yml")
+        group_expression = workflow["concurrency"]["group"]
+        cancel_expression = workflow["concurrency"]["cancel-in-progress"]
+        evaluate_condition = workflow["jobs"]["evaluate"]["if"]
+
+        # An external app posting one check run per commit must not start one
+        # evaluation per commit; only the pull request head can change the
+        # decision. Forks leave head_branch null, so they are still evaluated.
+        non_head_check_run = (
+            "github.event_name == 'check_run' && "
+            "github.event.check_run.check_suite.head_branch != null && "
+            "github.event.check_run.pull_requests[0] == null"
+        )
+        non_head_check_suite = (
+            "github.event_name == 'check_suite' && "
+            "github.event.check_suite.head_branch != null && "
+            "github.event.check_suite.pull_requests[0] == null"
+        )
+        for expression in (group_expression, cancel_expression):
+            self.assertIn(f"({non_head_check_run})", expression)
+            self.assertIn(f"({non_head_check_suite})", expression)
+        self.assertIn(f"!({non_head_check_run})", evaluate_condition)
+        self.assertIn(f"!({non_head_check_suite})", evaluate_condition)
+
     def test_workflow_publishes_pending_status_for_cancelled_evaluation(self):
         workflow = load_workflow("review-policy.yml")
         publish_job = workflow["jobs"]["publish-status"]
