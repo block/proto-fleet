@@ -7,9 +7,13 @@ import {
   asContainerId,
   asDeviceId,
   asEntityKey,
+  asHashboardId,
+  asModuleId,
   asTankId,
   type CommandCapabilities,
   type HardwareState,
+  type HashboardNode,
+  type ModuleNode,
   ROOT_MODULE_ID,
   ROOT_MODULE_KEY,
   type TankNode,
@@ -285,6 +289,7 @@ describe("useMiner", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
     };
     const points = [
       { timestampMs: 1_000, value: 800 },
@@ -332,6 +337,7 @@ describe("useMiner", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
       coolingModeByOwner: new Map(),
       asicLoadByHashboard: new Map(),
     });
@@ -354,6 +360,218 @@ describe("useMiner", () => {
     expect(miner.current?.hashboardSerials).toEqual([]);
     expect(miner.current?.hashrate?.latest).toEqual({ value: 806.2, units: "TH/s" });
     expect(miner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 800.4, units: "TH/s" });
+  });
+
+  it("derives container tank chart history from hashboard history when tank history is absent", () => {
+    const commands: CommandCapabilities = {
+      startStop: "unknown",
+      powerTarget: "unknown",
+      locate: "unknown",
+      reboot: "unknown",
+      cooling: "unknown",
+      logs: "unknown",
+      firmwareUpdate: "unknown",
+      poolEditing: "unknown",
+      passwordManagement: "unknown",
+    };
+    const containerId = asContainerId("container:ct1-01");
+    const tankOneId = asTankId("tank:1");
+    const tankTwoId = asTankId("tank:2");
+    const moduleOneId = asModuleId("module:1");
+    const moduleTwoId = asModuleId("module:2");
+    const hashboardOneId = asHashboardId("serial:HB-1");
+    const hashboardTwoId = asHashboardId("serial:HB-2");
+    const modules = new Map([
+      [
+        moduleOneId,
+        {
+          id: moduleOneId,
+          profile: "ct1",
+          capabilities: { commands },
+          tankId: tankOneId,
+          hashboardIds: [hashboardOneId],
+          controlBoardIds: [],
+          psuIds: [],
+          fanIds: [],
+        } satisfies ModuleNode,
+      ],
+      [
+        moduleTwoId,
+        {
+          id: moduleTwoId,
+          profile: "ct1",
+          capabilities: { commands },
+          tankId: tankTwoId,
+          hashboardIds: [hashboardTwoId],
+          controlBoardIds: [],
+          psuIds: [],
+          fanIds: [],
+        } satisfies ModuleNode,
+      ],
+    ]);
+    const hashboards = new Map([
+      [
+        hashboardOneId,
+        {
+          id: hashboardOneId,
+          identity: { kind: "serial", value: "HB-1" },
+          moduleId: moduleOneId,
+          asicIds: [],
+        } satisfies HashboardNode,
+      ],
+      [
+        hashboardTwoId,
+        {
+          id: hashboardTwoId,
+          identity: { kind: "serial", value: "HB-2" },
+          moduleId: moduleTwoId,
+          asicIds: [],
+        } satisfies HashboardNode,
+      ],
+    ]);
+
+    useMinerStore.getState().hardware.replaceHardware({
+      resource: { status: "ready", updatedAtMs: 1_000 },
+      topology: {
+        kind: "container",
+        deviceId: asDeviceId("device:ct1-01"),
+        containerId,
+        container: {
+          id: containerId,
+          capabilities: commands,
+          tankIds: [tankOneId, tankTwoId],
+          controlBoardIds: [],
+          fanIds: [],
+          plantComponentIds: [],
+        },
+        tanks: new Map([
+          [
+            tankOneId,
+            {
+              id: tankOneId,
+              containerId,
+              capabilities: commands,
+              moduleIds: [moduleOneId],
+              label: "Tank 1",
+              slot: 1,
+            },
+          ],
+          [
+            tankTwoId,
+            {
+              id: tankTwoId,
+              containerId,
+              capabilities: commands,
+              moduleIds: [moduleTwoId],
+              label: "Tank 2",
+              slot: 2,
+            },
+          ],
+        ]),
+        modules,
+        hashboards,
+      },
+      controlBoards: new Map(),
+      hashboards: new Map(
+        [...hashboards.values()].map((board) => [
+          board.id,
+          {
+            ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId } },
+            identity: board.identity,
+          },
+        ]),
+      ),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      plant: new Map(),
+    });
+    useMinerStore.getState().telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity: new Map([
+        [
+          asEntityKey(String(containerId)),
+          {
+            hashrate: {
+              timeSeries: {
+                points: [
+                  { timestampMs: 1_000, value: 30 },
+                  { timestampMs: 2_000, value: 42 },
+                ],
+                bucketSizeMs: 1_000,
+                units: "TH/s",
+              },
+            },
+          },
+        ],
+      ]),
+      hashboards: new Map([
+        [
+          hashboardOneId,
+          {
+            hashboardId: hashboardOneId,
+            hashrate: {
+              timeSeries: {
+                points: [
+                  { timestampMs: 1_000, value: 10 },
+                  { timestampMs: 2_000, value: 12 },
+                ],
+                bucketSizeMs: 1_000,
+                units: "TH/s",
+              },
+            },
+          },
+        ],
+        [
+          hashboardTwoId,
+          {
+            hashboardId: hashboardTwoId,
+            hashrate: {
+              timeSeries: {
+                points: [
+                  { timestampMs: 1_000, value: 20 },
+                  { timestampMs: 2_000, value: 30 },
+                ],
+                bucketSizeMs: 1_000,
+                units: "TH/s",
+              },
+            },
+          },
+        ],
+      ]),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      plant: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    const { result } = renderHook(() => useChartDataForMetric("hashrate"));
+
+    expect(result.current.series.map(({ name, averageValue }) => ({ name, averageValue }))).toEqual([
+      { name: "Tank 1", averageValue: 11 },
+      { name: "Tank 2", averageValue: 25 },
+    ]);
+    expect(result.current.chartData).toEqual([
+      { datetime: 1_000, miner: 30, "tank:1": 10, "tank:2": 20 },
+      { datetime: 2_000, miner: 42, "tank:1": 12, "tank:2": 30 },
+    ]);
+
+    const moduleSelection = { level: "module" as const, moduleId: moduleOneId };
+    const { result: moduleChart } = renderHook(() => useChartDataForMetric("hashrate", moduleSelection));
+    expect(moduleChart.current.segmentsLabel).toBe("hashboards");
+    expect(moduleChart.current.series).toEqual([
+      expect.objectContaining({ key: "HB-1", label: "1", name: "Hashboard 1", averageValue: 11 }),
+    ]);
+    expect(moduleChart.current.chartData).toEqual([
+      { datetime: 1_000, miner: 10, "HB-1": 10 },
+      { datetime: 2_000, miner: 12, "HB-1": 12 },
+    ]);
+
+    const { result: moduleMiner } = renderHook(() => useMiner(moduleSelection));
+    expect(moduleMiner.current?.hashboardSerials).toEqual(["HB-1"]);
+    expect(moduleMiner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 11, units: "TH/s" });
   });
 
   it("derives fallback bays from one-based hashboard slots", () => {

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import { getLowestAveragePerformer } from "@/protoOS/features/kpis/metricSeries";
-import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -41,8 +41,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Hashrate = () => {
-  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("hashrate");
-  const miner = useMiner();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("hashrate");
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => getLowestAveragePerformer(series), [series]);

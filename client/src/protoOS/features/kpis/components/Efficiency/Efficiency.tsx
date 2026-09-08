@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import { getHighestAveragePerformer } from "@/protoOS/features/kpis/metricSeries";
-import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -41,8 +41,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Efficiency = () => {
-  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("efficiency");
-  const miner = useMiner();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("efficiency");
   const aggregates = miner?.efficiency?.timeSeries?.aggregates;
 
   // Higher J/TH means less efficient, so the highest average is the lowest performer.

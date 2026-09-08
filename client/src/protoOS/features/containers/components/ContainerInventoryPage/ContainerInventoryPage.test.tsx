@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
 
 import ContainerInventoryPage from "./ContainerInventoryPage";
 
@@ -27,5 +27,22 @@ describe("ContainerInventoryPage", () => {
     render(<ContainerInventoryPage title="Modules" emptyMessage="No modules found." items={[]} />);
 
     expect(screen.getByText("No modules found.")).toBeInTheDocument();
+  });
+
+  test("calls onSelectItem when a card is selected", () => {
+    const onSelectItem = vi.fn();
+
+    render(
+      <ContainerInventoryPage
+        title="Tanks"
+        emptyMessage="No tanks found."
+        items={[{ id: "tank:1", label: "Tank 1", details: ["16 modules"] }]}
+        onSelectItem={onSelectItem}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View Tank 1" }));
+
+    expect(onSelectItem).toHaveBeenCalledWith("tank:1");
   });
 });

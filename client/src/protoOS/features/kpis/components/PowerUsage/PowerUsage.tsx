@@ -1,6 +1,6 @@
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -34,8 +34,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const PowerUsage = () => {
-  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("power");
-  const miner = useMiner();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("power");
   const aggregates = miner?.power?.timeSeries?.aggregates;
 
   return (

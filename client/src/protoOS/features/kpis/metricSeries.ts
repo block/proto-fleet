@@ -1,4 +1,4 @@
-import type { KpiChartSeries } from "@/protoOS/store/hooks/useMiner";
+import type { KpiChartSeries } from "@/protoOS/store";
 
 const performerBy = (
   series: KpiChartSeries[],

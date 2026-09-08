@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import { getHighestMaximumPerformer } from "@/protoOS/features/kpis/metricSeries";
-import { convertAndFormatMeasurement, useChartDataForMetric, useMiner, useTemperatureUnit } from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries, useTemperatureUnit } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -46,8 +46,7 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: s
 };
 
 const Temperature = () => {
-  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("temperature");
-  const miner = useMiner();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("temperature");
   const temperatureUnit = useTemperatureUnit();
   const aggregates = miner?.temperature?.timeSeries?.aggregates;
 

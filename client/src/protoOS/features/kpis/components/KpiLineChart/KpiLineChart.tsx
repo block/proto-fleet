@@ -3,6 +3,7 @@ import ChartSeriesSelector from "@/protoOS/features/kpis/components/ChartSeriesS
 import { aggregateColor, aggregateKey } from "@/protoOS/features/kpis/constants";
 import { getHashboardColor } from "@/protoOS/features/kpis/utility";
 import {
+  type KpiChartSeries,
   useActiveChartLines,
   useBayCount,
   useHashboardHardware,
@@ -11,12 +12,6 @@ import {
 } from "@/protoOS/store";
 import { HashboardIndicator } from "@/shared/assets/icons";
 import LineChart, { type LineChartProps } from "@/shared/components/LineChart";
-
-export interface KpiChartSeries {
-  key: string;
-  label: string;
-  colorIndex: number;
-}
 
 interface ToolTipItemIconProps {
   itemKey: string;
@@ -113,7 +108,7 @@ const KpiLineChart = ({
       .filter((key) => key !== aggregateKey)
       .map((key, index) => {
         const slot = useMinerStore.getState().hardware.getHashboard(key)?.slot ?? index + 1;
-        return { key, label: String(slot), colorIndex: slot };
+        return { key, label: String(slot), name: `Hashboard ${slot}`, colorIndex: slot };
       });
   }, [chartLines, series]);
 

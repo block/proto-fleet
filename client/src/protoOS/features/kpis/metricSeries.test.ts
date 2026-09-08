@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { getHighestAveragePerformer, getHighestMaximumPerformer, getLowestAveragePerformer } from "./metricSeries";
-import type { KpiChartSeries } from "@/protoOS/store/hooks/useMiner";
+import type { KpiChartSeries } from "@/protoOS/store";
 
 const tanks: KpiChartSeries[] = Array.from({ length: 6 }, (_, index) => ({
   key: `tank:${index + 1}`,

@@ -79,6 +79,20 @@ const ContainerRoute = ({ children }: { children: ReactNode }) => {
   return systemInfo.identity.deviceType === "container" ? children : <Navigate to={`${minerRoot}/hashrate`} replace />;
 };
 
+const HomeIndexRoute = () => {
+  const systemInfo = useSystemInfo();
+
+  if (!systemInfo) {
+    return (
+      <div className="flex h-full min-h-64 items-center justify-center">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
+
+  return systemInfo.identity.deviceType === "container" ? <Hashrate /> : <Navigate to="hashrate" replace />;
+};
+
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   title: string;
@@ -103,6 +117,25 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
   ),
 });
 
+const kpiRoutes: CustomRouteObject[] = [
+  {
+    path: "hashrate",
+    element: <Hashrate />,
+  },
+  {
+    path: "efficiency",
+    element: <Efficiency />,
+  },
+  {
+    path: "power-usage",
+    element: <PowerUsage />,
+  },
+  {
+    path: "temperature",
+    element: <Temperature />,
+  },
+];
+
 export const routerConfig: CustomRouteObject[] = [
   {
     ...createRoute("", <Outlet />, {
@@ -113,24 +146,9 @@ export const routerConfig: CustomRouteObject[] = [
     children: [
       {
         index: true,
-        loader: () => redirect("hashrate"),
+        element: <HomeIndexRoute />,
       },
-      {
-        path: "hashrate",
-        element: <Hashrate />,
-      },
-      {
-        path: "efficiency",
-        element: <Efficiency />,
-      },
-      {
-        path: "power-usage",
-        element: <PowerUsage />,
-      },
-      {
-        path: "temperature",
-        element: <Temperature />,
-      },
+      ...kpiRoutes,
     ],
   },
   createRoute("temperature/:serial", <HashboardTemperature />, {
@@ -151,6 +169,35 @@ export const routerConfig: CustomRouteObject[] = [
     title: "Diagnostics",
     fullscreen: true,
   }),
+  createRoute(
+    "tanks/:tankId",
+    <ContainerRoute>
+      <ContainerModules />
+    </ContainerRoute>,
+    {
+      title: "Tanks",
+    },
+  ),
+  {
+    ...createRoute(
+      "tanks/:tankId/modules/:moduleId",
+      <ContainerRoute>
+        <Outlet />
+      </ContainerRoute>,
+      {
+        title: "Home",
+        ContentLayout: KpiLayout,
+      },
+    ),
+    requiresAuth: false,
+    children: [
+      {
+        index: true,
+        element: <Hashrate />,
+      },
+      ...kpiRoutes,
+    ],
+  },
   createRoute(
     "tanks",
     <ContainerRoute>
