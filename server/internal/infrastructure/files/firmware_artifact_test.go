@@ -105,6 +105,12 @@ func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename)))
 
+	// A copy whose sidecar cannot be read is one dispatch would reject, so it
+	// must not be offered.
+	corrupt, err := svc.SaveFirmwareFile("firmware-copy.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(corrupt), firmwareMetadataFilename), []byte(`not json`), 0600))
+
 	restarted, err := NewService(Config{})
 	require.NoError(t, err)
 
