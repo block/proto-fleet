@@ -1386,6 +1386,35 @@ func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *test
 	assert.Empty(t, cmd.controlCommandSlots)
 }
 
+func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T) {
+	cmd := &RunCmd{
+		controlCommandSlots:        make(chan struct{}, 1),
+		controlDeferrableReadSlots: make(chan struct{}, 1),
+		controlDiscoverySlot:       make(chan struct{}, 1),
+	}
+
+	deferrableRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionDeferrableRead)
+	require.True(t, acquired)
+	_, reason, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionDeferrableRead)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectDeferrable, reason)
+	deferrableRelease()
+
+	generalRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionGeneral)
+	require.True(t, acquired)
+	_, reason, acquired = cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionGeneral)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectShared, reason)
+	generalRelease()
+
+	exclusiveRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionExclusive)
+	require.True(t, acquired)
+	_, reason, acquired = cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionExclusive)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectExclusive, reason)
+	exclusiveRelease()
+}
+
 func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})

@@ -7,7 +7,7 @@ import (
 type Config struct {
 	StalenessThreshold       time.Duration `help:"Staleness threshold for telemetry data. If a device's last update is older than this duration, it will be considered stale. Must be greater than FETCH_INTERVAL: the scheduler re-polls a device once its last update is older than STALENESS_THRESHOLD - FETCH_INTERVAL, so values <= FETCH_INTERVAL make every device stale on every tick (over-polling)." default:"20s" env:"STALENESS_THRESHOLD"`
 	FetchInterval            time.Duration `help:"Interval at which to fetch telemetry data from devices. Must be less than STALENESS_THRESHOLD (see its help for the re-poll cadence math)." default:"5s" env:"FETCH_INTERVAL"`
-	ConcurrencyLimit         int           `help:"Maximum number of concurrent telemetry fetch operations." default:"500" env:"CONCURRENCY_LIMIT"`
+	ConcurrencyLimit         int           `help:"Maximum number of concurrent telemetry fetch operations." default:"1500" env:"CONCURRENCY_LIMIT"`
 	MetricTimeout            time.Duration `help:"Timeout for telemetry measurements from miners." default:"5s" env:"METRIC_TIMEOUT"`
 	DevicePollInterval       time.Duration `help:"Interval at which to poll for new paired devices." default:"10m" env:"DEVICE_POLL_INTERVAL"`
 	NewDeviceLookback        time.Duration `help:"Lookback period for new devices to consider for telemetry." default:"10m" env:"NEW_DEVICE_LOOKBACK"`

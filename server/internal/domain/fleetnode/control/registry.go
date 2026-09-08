@@ -50,7 +50,7 @@ const commandEventBuffer = 64
 // outgoingBuffer sizes the per-connection outbound command queue. It comfortably
 // exceeds the node's command worker-pool ceiling so concurrent Send/SendCommand to
 // one node enqueue without serializing behind the gateway's single drain loop.
-const outgoingBuffer = 64
+const outgoingBuffer = 1024
 
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.

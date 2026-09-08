@@ -67,7 +67,7 @@ The configured subnet is validated the same way as an auto-detected local subnet
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
 
-Discovery and pairing share one exclusive process-wide slot. All other commands share 16 process-wide slots. The agent classifies commands into these admission classes:
+Discovery and pairing share one exclusive process-wide slot. All other commands share 512 process-wide slots. Fleet and Fleet Node use the same fixed admission policy:
 
 | Admission class | Commands | Why |
 |-----------------|----------|-----|
@@ -75,7 +75,11 @@ Discovery and pairing share one exclusive process-wide slot. All other commands 
 | Deferrable read | Telemetry, `GetErrors`, and `GetCoolingMode` | These reads are observation-only and safe to retry. Telemetry includes scheduled collection and curtailment confirmation; error polling accompanies telemetry; cooling-mode reads only prefill the settings UI. |
 | General | Every other command, including `GetMiningPools`, `GetFirmwareUpdateStatus`, malformed or empty envelopes, unknown commands, and future command types | Pool reads can be prerequisites for an operator pool change, and firmware-status reads advance an operator-initiated update. Unknown work defaults to general so new commands do not accidentally consume reserved read capacity. |
 
-Deferrable reads additionally share an 8-slot limit, leaving at least eight ordinary slots available when those reads are stuck. General commands can use all otherwise-idle ordinary slots. Commands that exceed either applicable limit receive `BUSY` immediately instead of blocking the stream receive loop. These limits persist across reconnects until the admitted handlers return.
+Deferrable reads additionally share a 504-slot limit, leaving eight ordinary slots available when those reads are stuck. General commands can use all otherwise-idle ordinary slots. Fleet mirrors both limits per node and queues work before sending it, which keeps normal load from turning into `BUSY` retry storms. Commands that still exceed either Fleet Node limit receive `BUSY` immediately instead of blocking the stream receive loop. These limits persist across reconnects until the admitted handlers return.
+
+The ceilings are deliberately fixed and optimistic for load testing: 512 commands per node, 504 deferrable reads, and eight reserved general slots. Fleet's global telemetry worker default is 1,500. Bulk startup discovery is deterministically distributed across the 15-second telemetry window instead of releasing every miner at once, while a single newly paired miner remains immediately eligible.
+
+For load-test observability, `control stream opened` logs the configured limits. Capacity rejections include `command_kind`, `admission_class`, `rejection_reason`, and current shared/deferrable/exclusive occupancy. Command completions are available at debug level with the same classification, duration, acknowledgement outcome, and post-release occupancy.
 
 If the server side is older than RFC-0001 phase 2, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
 

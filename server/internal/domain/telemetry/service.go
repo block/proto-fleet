@@ -387,23 +387,13 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	if len(deviceID) == 0 {
 		return nil
 	}
-	activation, _ := s.activeActivation()
 	for _, id := range deviceID {
-		device := models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
-		// Inactive services rely on the scheduler to supply the device after the
-		// next Start instead of retaining work in an undrained activation queue.
-		if activation != nil {
-			select {
-			case activation.tasks <- device:
-			case <-activation.stopping:
-				activation = nil
-			case <-ctx.Done():
-				return fmt.Errorf("enqueue telemetry device %s: %w", id, ctx.Err())
-			}
-		}
 		s.devicesForStatusPolling.Store(id, struct{}{})
 		s.lastDefaultPwActive.Delete(id)
 	}
+	// The scheduler is the single admission path. It makes one new device
+	// immediately eligible and spreads bulk startup discovery across the poll
+	// window, avoiding an immediate queue plus a duplicate scheduler wave.
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
 
@@ -872,6 +862,19 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 			}
 		}
 
+		// A saturated Fleet Node already told us to retry later. Requeue it on
+		// the normal cadence without counting it as a device failure, and do not
+		// issue the same telemetry command again through GetDeviceStatus.
+		if fleeterror.IsResourceExhaustedError(telemetryErr) {
+			if addErr := s.updateScheduler.AddDevices(ctx, models.Device{
+				ID:            device.ID,
+				LastUpdatedAt: time.Now(),
+			}); addErr != nil {
+				slog.Warn("failed to requeue capacity-limited device", "deviceID", device.ID, "error", addErr)
+			}
+			return collectionErr
+		}
+
 		if addErr := s.updateScheduler.AddFailedDevices(ctx, device); addErr != nil {
 			slog.Warn("failed to add failed device to scheduler", "deviceID", device.ID, "error", addErr)
 		}
@@ -1316,6 +1319,9 @@ func (s *TelemetryService) fetchTelemetryFromMinerForOrg(
 		driverName: miner.GetDriverName(),
 	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
+	if fleeterror.IsResourceExhaustedError(result.metricsErr) {
+		return result, result.metricsErr
+	}
 	if result.metricsErr == nil {
 		trustedID := string(device.ID)
 		if result.metrics.DeviceIdentifier != "" && result.metrics.DeviceIdentifier != trustedID {
