@@ -3738,18 +3738,6 @@ func (q *retryingQuerier) IsBatchFinished(ctx context.Context, commandBatchLogUu
 	return result, err
 }
 
-func (q *retryingQuerier) IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error) {
-	var result bool
-	err := q.retrier.RetryQuery(ctx, "IsDeviceOwnedByFleetNode", func() error {
-		callResult, callErr := q.next.IsDeviceOwnedByFleetNode(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error) {
 	var result []AlertMaintenanceWindow
 	err := q.retrier.RetryQuery(ctx, "ListActiveAlertMaintenanceWindows", func() error {

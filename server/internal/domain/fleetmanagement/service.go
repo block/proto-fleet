@@ -336,16 +336,6 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 				return
 			}
 
-			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
-			if err != nil {
-				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
-				return
-			}
-			if ownedByFleetNode {
-				results <- refreshResult{id: deviceID, errMsg: "fleet-node-owned miners are not supported by row refresh yet"}
-				return
-			}
-
 			if err := s.telemetry.RefreshDevice(refreshCtx, telemetryModels.Device{
 				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
 			}); err != nil {

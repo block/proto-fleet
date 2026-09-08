@@ -999,9 +999,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
-	if q.isDeviceOwnedByFleetNodeStmt, err = db.PrepareContext(ctx, isDeviceOwnedByFleetNode); err != nil {
-		return nil, fmt.Errorf("error preparing query IsDeviceOwnedByFleetNode: %w", err)
-	}
 	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
 	}
@@ -3511,11 +3508,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
 		}
 	}
-	if q.isDeviceOwnedByFleetNodeStmt != nil {
-		if cerr := q.isDeviceOwnedByFleetNodeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing isDeviceOwnedByFleetNodeStmt: %w", cerr)
-		}
-	}
 	if q.listActiveAlertMaintenanceWindowsStmt != nil {
 		if cerr := q.listActiveAlertMaintenanceWindowsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveAlertMaintenanceWindowsStmt: %w", cerr)
@@ -5345,7 +5337,6 @@ type Queries struct {
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
-	isDeviceOwnedByFleetNodeStmt                                 *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
@@ -5970,7 +5961,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
-		isDeviceOwnedByFleetNodeStmt:                                 q.isDeviceOwnedByFleetNodeStmt,
 		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,
 		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
