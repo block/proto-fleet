@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -62,7 +63,7 @@ func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 func TestControlLoop_AcksAndReports(t *testing.T) {
 	happyDisc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028":    {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		"fd00::1|4028":     {DeviceIdentifier: "auto:v6", IpAddress: "fd00::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"192.168.1.4|4028": {DeviceIdentifier: "auto:r1", IpAddress: "192.168.1.4", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"192.168.1.5|4028": {DeviceIdentifier: "auto:r2", IpAddress: "192.168.1.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
@@ -98,7 +99,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 		{
 			name:          "iplist normalizes scoped and canonical ipv6",
 			discoverer:    happyDisc,
-			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "2001:0DB8::1"}, []string{"4028"}),
+			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "FD00::1"}, []string{"4028"}),
 			wantSucceeded: true,
 			wantCode:      pb.AckCode_ACK_CODE_OK,
 			wantDevices:   1,
@@ -208,6 +209,24 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			default:
 				assert.Empty(t, reports, "failure before the report stage must not have produced a report")
 			}
+		})
+	}
+}
+
+func TestDiscoverForCommand_RejectsNonPrivateResolvedIPListHostname(t *testing.T) {
+	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
+		t.Run(resolved, func(t *testing.T) {
+			r := &RunCmd{
+				discoverer: &stubDiscoverer{},
+				resolver:   stubResolver{"miner.lan": {{IP: net.ParseIP(resolved)}}},
+			}
+
+			_, _, err := r.discoverForCommand(context.Background(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), testLogger())
+
+			var commandErr *commandError
+			require.ErrorAs(t, err, &commandErr)
+			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, commandErr.code)
+			assert.Contains(t, commandErr.Error(), "non-private")
 		})
 	}
 }

@@ -447,6 +447,36 @@ describe("MinersWrapper", () => {
       resolvers[2]();
     });
 
+    it("aborts a mixed manual request and does not start the next request after unmount", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      let resolveFirst!: () => void;
+      mockDiscover.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      );
+
+      const view = renderMinersPage("pairing");
+      fireEvent.change(screen.getByTestId("ipAddresses"), {
+        target: { value: "192.168.1.100\n192.168.1.0/24" },
+      });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+      const signal = mockDiscover.mock.calls[0][0].discoverAbortController.signal;
+      view.unmount();
+      expect(signal.aborted).toBe(true);
+      resolveFirst();
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+    });
+
     it("continues mixed manual requests after one fails", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: undefined,
@@ -514,6 +544,16 @@ describe("MinersWrapper", () => {
         await screen.findByText(
           "Remote network discovery is currently unavailable. Some networks may not be searched.",
         ),
+      ).toBeInTheDocument();
+    });
+
+    it("warns when remote coverage cannot be checked", async () => {
+      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
+
+      renderMinersPage("pairing");
+
+      expect(
+        await screen.findByText("Remote network availability could not be checked. Some networks may not be searched."),
       ).toBeInTheDocument();
     });
 

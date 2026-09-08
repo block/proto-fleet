@@ -146,9 +146,15 @@ func (h *Handler) forwardDiscoverySources(
 			slog.Warn("skipping fleet node discovery fan-out", "error", err)
 		} else {
 			for _, nodeID := range nodeIDs {
+				if ctx.Err() != nil {
+					break
+				}
 				wg.Add(1)
 				go func(nodeID int64) {
 					defer wg.Done()
+					if ctx.Err() != nil {
+						return
+					}
 					// Each node is bounded by RunOnNode's per-node timeout.
 					runErr := h.discovery.RunOnNode(ctx, nodeID, nodeReq, fwd.forward)
 					// One node failing must not fail the scan, and is expected on

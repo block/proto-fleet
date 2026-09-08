@@ -246,6 +246,22 @@ func TestForwardDiscoverySources_WithoutFleetNodePermissionIsServerOnly(t *testi
 	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
 }
 
+func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
+	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7, 8}}
+	h := &Handler{discovery: runner}
+	serverResults := make(chan *pb.DiscoverResponse)
+	close(serverResults)
+	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermFleetnodeManage))
+	cancel()
+	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return nil }, nil)
+
+	h.forwardDiscoverySources(ctx, 1, serverResults, &pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+	}, fwd)
+
+	assert.Empty(t, runner.requests)
+}
+
 func TestSelectedDeviceIdentifiers_IncludeDevices(t *testing.T) {
 	selector := &minercommandv1.DeviceSelector{
 		SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{

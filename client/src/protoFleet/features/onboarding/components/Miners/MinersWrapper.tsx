@@ -28,6 +28,8 @@ const LONG_PAIRING_THRESHOLD_MS = 3000;
 const PARTIAL_REMOTE_COVERAGE_WARNING = "Some remote networks are currently unavailable and may not be searched.";
 const NO_REMOTE_COVERAGE_WARNING =
   "Remote network discovery is currently unavailable. Some networks may not be searched.";
+const UNKNOWN_REMOTE_COVERAGE_WARNING =
+  "Remote network availability could not be checked. Some networks may not be searched.";
 
 type MinersPageProps = {
   /**
@@ -98,7 +100,7 @@ const MinersPage = ({
         }
       })
       .catch(() => {
-        if (!canceled) setRemoteDiscoveryWarning(undefined);
+        if (!canceled) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
       });
 
     return () => {
@@ -127,9 +129,13 @@ const MinersPage = ({
     return () => clearTimeout(timeoutId);
   }, [pairingPending]);
 
-  // Clean up loading toasts on unmount to prevent lingering toasts if user navigates away
+  // Stop discovery and remove loading toasts when the user leaves this flow.
   useEffect(() => {
+    if (discoveryAbortController.current.signal.aborted) {
+      discoveryAbortController.current = new AbortController();
+    }
     return () => {
+      discoveryAbortController.current.abort();
       loadingToastIds.current.forEach((id) => removeToast(id));
     };
   }, []);

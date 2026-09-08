@@ -86,6 +86,7 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 // error returned by onBatch, which is treated as terminal (the caller's stream
 // is gone, so there is nothing left to forward).
 func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
+	req = requestForNode(req)
 	if err := validateDiscoverRequest(req); err != nil {
 		return err
 	}
@@ -107,6 +108,18 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 			}
 			return false, nil
 		})
+}
+
+// requestForNode translates the shared request flag into the sentinel understood
+// by the Fleet Node command runner. Omitted and false flags preserve the target.
+func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
+	if req == nil || req.UseFleetNodeLocalSubnet == nil || !req.GetUseFleetNodeLocalSubnet() || req.GetNmap() == nil {
+		return req
+	}
+	out := &pairingpb.DiscoverRequest{}
+	proto.Merge(out, req)
+	out.GetNmap().Target = nmaptarget.LocalSubnetTarget
+	return out
 }
 
 func validateDiscoverRequest(in *pairingpb.DiscoverRequest) error {

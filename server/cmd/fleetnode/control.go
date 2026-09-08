@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -427,12 +428,20 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if err != nil {
 			return nil, false, err
 		}
+		var resolver netutil.IPListResolver = net.DefaultResolver
+		if r.resolver != nil {
+			resolver = r.resolver
+		}
 		normalized := make([]string, 0, len(ips))
 		for _, raw := range ips {
-			n, err := netutil.NormalizeIPListEntry(ctx, raw, net.DefaultResolver)
+			n, err := netutil.NormalizeIPListEntry(ctx, raw, resolver)
 			if err != nil {
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
+			}
+			addr, err := netip.ParseAddr(n)
+			if err != nil || !addr.Unmap().IsPrivate() {
+				return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip_list target %q resolved to a non-private address", raw)
 			}
 			normalized = append(normalized, n)
 		}

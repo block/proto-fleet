@@ -249,30 +249,43 @@ func TestEligibleNodeIDs_PropagatesListError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRunOnNode_DispatchesLocalSubnetTargetSentinel(t *testing.T) {
-	// Arrange: the LocalSubnetTarget sentinel (operator single-node scan or fan-out)
-	// must reach the agent unchanged so the node scans its own subnet.
-	reg := control.NewRegistry()
-	svc := NewService(reg, stubLister{})
-	const nodeID = int64(21)
-	stream := reg.Register(nodeID)
-	defer stream.Unregister()
-	gotTarget := make(chan string, 1)
-	go func() {
-		cmd := <-stream.Outgoing
-		var env gatewaypb.AgentCommand
-		_ = proto.Unmarshal(cmd.GetPayload(), &env)
-		gotTarget <- env.GetDiscover().GetNmap().GetTarget()
-		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
-	}()
-	req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
-		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget},
-	}}
+func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	for _, tc := range []struct {
+		name       string
+		target     string
+		flag       *bool
+		wantTarget string
+	}{
+		{name: "sentinel passes through", target: nmaptarget.LocalSubnetTarget, wantTarget: nmaptarget.LocalSubnetTarget},
+		{name: "true uses node local subnet", target: "10.0.0.0/28", flag: &trueValue, wantTarget: nmaptarget.LocalSubnetTarget},
+		{name: "false preserves target", target: "10.0.0.0/28", flag: &falseValue, wantTarget: "10.0.0.0/28"},
+		{name: "omitted preserves target", target: "10.0.0.0/28", wantTarget: "10.0.0.0/28"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			const nodeID = int64(21)
+			stream := reg.Register(nodeID)
+			defer stream.Unregister()
+			gotTarget := make(chan string, 1)
+			go func() {
+				cmd := <-stream.Outgoing
+				var env gatewaypb.AgentCommand
+				require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+				gotTarget <- env.GetDiscover().GetNmap().GetTarget()
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+			}()
+			req := &pairingpb.DiscoverRequest{
+				Mode:                    &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: tc.target}},
+				UseFleetNodeLocalSubnet: tc.flag,
+			}
 
-	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+			err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
 
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, nmaptarget.LocalSubnetTarget, <-gotTarget)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantTarget, <-gotTarget)
+		})
+	}
 }
