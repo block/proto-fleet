@@ -309,11 +309,11 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		}
 		changed = true
 	}
-	joiners, err := q.ListReleaseChannelMismatchedMembers(ctx, sqlc.ListReleaseChannelMismatchedMembersParams{
-		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
+	joiners, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
+		ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model},
 		FirmwareVersion: r.FirmwareVersion, FirmwareChecksum: r.FirmwareChecksum,
-		AssignmentGeneration: r.AssignmentGeneration, RolloutID: r.ID,
-	})
+		AssignmentGeneration: r.AssignmentGeneration,
+	}, r.ID))
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list late joiners: %v", err)
 	}
@@ -335,12 +335,14 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 
 // recordProvenance writes managed-deployment provenance for targets that were
 // dispatched to and now report the rollout's version, so they can verify and
-// the pair's on-target count reflects them. Returns the refreshed targets
-// when anything changed.
+// the pair's on-target count reflects them. A target with a foreign firmware
+// command still outstanding waits: its report predates that command. Returns
+// the refreshed targets when anything changed.
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var deployed []int64
 	for _, t := range targets {
-		if !t.excluded() && t.Attempts > 0 && t.reportsTarget(r) && t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
+		if !t.excluded() && t.Attempts > 0 && t.reportsTarget(r) && !t.foreignCommand &&
+			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
 			deployed = append(deployed, t.DeviceID)
 		}
 	}

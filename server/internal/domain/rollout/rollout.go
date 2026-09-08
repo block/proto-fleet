@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -149,6 +151,12 @@ func ReasonOf(err error) (*ErrorInfo, bool) {
 		return info, true
 	}
 	return nil, false
+}
+
+// isNotFound reports whether err is a NotFound fleet error.
+func isNotFound(err error) bool {
+	var fe fleeterror.FleetError
+	return errors.As(err, &fe) && fe.GRPCCode == connect.CodeNotFound
 }
 
 // Metric is one telemetry reading before the update (baseline) and now; a
@@ -324,11 +332,14 @@ type rolloutSpec struct {
 }
 
 // mismatchedParams builds the query parameters selecting a pair's mismatched,
-// unsuppressed members under the current generation.
-func (spec rolloutSpec) mismatchedParams(rolloutID int64) sqlc.ListReleaseChannelMismatchedMembersParams {
+// unsuppressed members under the current generation. The uploaded files
+// carrying the assigned checksum let the query tell a queued FirmwareUpdate for
+// the assignment from one for another artifact.
+func (s *Service) mismatchedParams(spec rolloutSpec, rolloutID int64) sqlc.ListReleaseChannelMismatchedMembersParams {
 	return sqlc.ListReleaseChannelMismatchedMembersParams{
 		ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model,
 		FirmwareVersion: spec.FirmwareVersion, FirmwareChecksum: spec.FirmwareChecksum,
+		AssignedFileIds:      s.files.FirmwareFileIDsByChecksum(spec.FirmwareChecksum),
 		AssignmentGeneration: spec.AssignmentGeneration, RolloutID: rolloutID,
 	}
 }
@@ -342,7 +353,7 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 	rows := spec.Members
 	if rows == nil {
 		var err error
-		rows, err = q.ListReleaseChannelMismatchedMembers(ctx, spec.mismatchedParams(0))
+		rows, err = q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(spec, 0))
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("list mismatched members: %v", err)
 		}
@@ -875,6 +886,12 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 // target is one miner of a rollout with derived health.
 type target struct {
 	sqlc.ListFirmwareRolloutDevicesRow
+	// foreignCommand: a FirmwareUpdate for a file outside the rollout's
+	// artifact is pending or processing on the miner's queue. Under the
+	// mismatch rule the miner is not on target until it drains: the rollout's
+	// own update is queued behind it, and what the miner reports meanwhile
+	// says nothing about where it will end up.
+	foreignCommand bool
 }
 
 // deviceStatusActive is the device_status value of a hashing miner.
@@ -914,11 +931,12 @@ func (t target) reportsTarget(r sqlc.FirmwareRollout) bool {
 }
 
 // verified: DONE under the contract: reports the target version with
-// provenance equal to the rollout's artifact, back online, and hashing if it
-// was hashing before the update. A miner that was not hashing before (e.g.
-// no pool configured) is not held to a standard the update cannot meet.
+// provenance equal to the rollout's artifact and no foreign firmware command
+// outstanding, back online, and hashing if it was hashing before the update.
+// A miner that was not hashing before (e.g. no pool configured) is not held
+// to a standard the update cannot meet.
 func (t target) verified(r sqlc.FirmwareRollout) bool {
-	return t.reportsTarget(r) && t.LastDeployedFirmwareChecksum == r.FirmwareChecksum &&
+	return t.reportsTarget(r) && t.LastDeployedFirmwareChecksum == r.FirmwareChecksum && !t.foreignCommand &&
 		t.online() && (t.hashing() || !t.baselineHashing())
 }
 
@@ -996,9 +1014,19 @@ func (s *Service) listTargets(ctx context.Context, r sqlc.FirmwareRollout) ([]ta
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list rollout devices: %v", err)
 	}
+	own := map[string]bool{}
+	for _, id := range s.files.FirmwareFileIDsByChecksum(r.FirmwareChecksum) {
+		own[id] = true
+	}
 	targets := make([]target, 0, len(rows))
 	for _, row := range rows {
-		targets = append(targets, target{row})
+		t := target{ListFirmwareRolloutDevicesRow: row}
+		for _, id := range row.PendingFirmwareFileIds {
+			if !own[id] {
+				t.foreignCommand = true
+			}
+		}
+		targets = append(targets, t)
 	}
 	return targets, nil
 }
