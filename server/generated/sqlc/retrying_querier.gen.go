@@ -5598,6 +5598,12 @@ func (q *retryingQuerier) MarkFirmwareRolloutDevicesSent(ctx context.Context, ar
 	})
 }
 
+func (q *retryingQuerier) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error {
+	return q.retrier.RetryQuery(ctx, "MarkFirmwareRolloutDevicesVerified", func() error {
+		return q.next.MarkFirmwareRolloutDevicesVerified(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkRepairTicketPartsConsumed", func() error {
 		return q.next.MarkRepairTicketPartsConsumed(ctx, arg)

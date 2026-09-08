@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -136,9 +137,14 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 	f := newReleaseChannelFixture(t, db)
 	channel := f.channel("pairs")
 
+	// The fold trims exactly what strings.TrimSpace trims, ASCII and Unicode.
+	for _, padded := range []string{" \tBitmain\n", "\u00a0Bitmain\u3000", "\u2003\u0085Bitmain\u202f"} {
+		require.Equal(t, "bitmain", strings.ToLower(strings.TrimSpace(padded)))
+		var folded string
+		require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key($1)`, padded).Scan(&folded))
+		require.Equal(t, "bitmain", folded, "%q", padded)
+	}
 	var folded string
-	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key(E' \tBitmain\n')`).Scan(&folded))
-	require.Equal(t, "bitmain", folded)
 	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key(NULL)`).Scan(&folded))
 	require.Equal(t, "", folded)
 

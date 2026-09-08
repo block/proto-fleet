@@ -1130,7 +1130,9 @@ type Querier interface {
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
 	// status, latest telemetry within 15 minutes, open errors), provenance, the
 	// files named by its pending or processing FirmwareUpdate commands, and
-	// whether it is still a member of the channel for the rollout's pair.
+	// whether it is still a member of the channel for the rollout's pair. Live
+	// health is evidence for the engine's next decision; the persisted columns
+	// (verified_at, halted_at, excluded_at) carry the miner's phase.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned.
@@ -1452,6 +1454,9 @@ type Querier interface {
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
 	MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFirmwareRolloutDevicesSentParams) error
+	// Latches convergence for miners that meet every criterion this tick, so the
+	// phase change is a rollout change under the revision rule.
+	MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)
