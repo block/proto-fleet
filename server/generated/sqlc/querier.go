@@ -1124,7 +1124,8 @@ type Querier interface {
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
-	// status, latest telemetry within 15 minutes, open errors), provenance and
+	// status, latest telemetry within 15 minutes, open errors), provenance, the
+	// files named by its pending or processing FirmwareUpdate commands, and
 	// whether it is still a member of the channel for the rollout's pair.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
@@ -1207,7 +1208,9 @@ type Querier interface {
 	// Every pair row of an org's channels, assigned or cleared.
 	ListReleaseChannelFirmware(ctx context.Context, orgID int64) ([]ReleaseChannelFirmware, error)
 	// Assigned pairs with no active rollout and at least one mismatched,
-	// unsuppressed member: late joiners, re-entries and miners that drifted.
+	// unsuppressed member: late joiners, re-entries and miners that drifted. Any
+	// outstanding FirmwareUpdate counts as a mismatch here; the file set is only
+	// known per pair, so ListReleaseChannelMismatchedMembers makes the final call.
 	ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error)
 	// --- Membership ---
 	// Every miner resolved into one of the org's channels, with its observed
@@ -1221,10 +1224,12 @@ type Querier interface {
 	// (device_identifier, device_id) of the last row of the previous page.
 	ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error)
 	// Members of one pair that are mismatched under the mismatch rule (reported
-	// version or provenance differs from the assignment), are not already part of
-	// rollout_id (0 for a new rollout), and are not suppressed: a member halted
-	// (failed, skipped, or left behind by a cancellation) in the most recent
-	// rollout of the current generation that holds it stays out until retried.
+	// version or provenance differs from the assignment, or a FirmwareUpdate for a
+	// file outside assigned_file_ids — the files carrying the assigned checksum —
+	// is still pending or processing), are not already part of rollout_id (0 for
+	// a new rollout), and are not suppressed: a member halted (failed, skipped, or
+	// left behind by a cancellation) in the most recent rollout of the current
+	// generation that holds it stays out until retried.
 	// Carries the latest efficiency sample for ordering.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
 	// One page of a channel's manufacturer/model groups: every observed pair among

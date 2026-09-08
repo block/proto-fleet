@@ -1086,6 +1086,13 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE((
+           SELECT array_agg(COALESCE(qm.payload->>'firmware_file_id', ''))
+           FROM queue_message qm
+           WHERE qm.device_id = d.id
+             AND qm.command_type = 'FirmwareUpdate'
+             AND qm.status IN ('PENDING', 'PROCESSING')
+       ), '{}'::text[])::text[] AS pending_firmware_file_ids,
        EXISTS (
            SELECT 1 FROM release_channel_member m
            WHERE m.device_id = d.id AND m.channel_id = r.channel_id
@@ -1138,12 +1145,14 @@ type ListFirmwareRolloutDevicesRow struct {
 	TempC                        sql.NullFloat64
 	OpenErrors                   int32
 	LastDeployedFirmwareChecksum string
+	PendingFirmwareFileIds       []string
 	InScope                      sql.NullBool
 }
 
 // --- Rollout devices ---
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
-// status, latest telemetry within 15 minutes, open errors), provenance and
+// status, latest telemetry within 15 minutes, open errors), provenance, the
+// files named by its pending or processing FirmwareUpdate commands, and
 // whether it is still a member of the channel for the rollout's pair.
 func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error) {
 	rows, err := q.query(ctx, q.listFirmwareRolloutDevicesStmt, listFirmwareRolloutDevices, rolloutID)
@@ -1182,6 +1191,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.TempC,
 			&i.OpenErrors,
 			&i.LastDeployedFirmwareChecksum,
+			pq.Array(&i.PendingFirmwareFileIds),
 			&i.InScope,
 		); err != nil {
 			return nil, err
@@ -1374,6 +1384,12 @@ AND EXISTS (
       AND NOT (
           COALESCE(dd.firmware_version, '') = f.firmware_version
           AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
+          AND NOT EXISTS (
+              SELECT 1 FROM queue_message qm
+              WHERE qm.device_id = d.id
+                AND qm.command_type = 'FirmwareUpdate'
+                AND qm.status IN ('PENDING', 'PROCESSING')
+          )
       )
       AND NOT EXISTS (
           SELECT 1
@@ -1416,7 +1432,9 @@ type ListReleaseChannelFirmwareNeedingRolloutRow struct {
 }
 
 // Assigned pairs with no active rollout and at least one mismatched,
-// unsuppressed member: late joiners, re-entries and miners that drifted.
+// unsuppressed member: late joiners, re-entries and miners that drifted. Any
+// outstanding FirmwareUpdate counts as a mismatch here; the file set is only
+// known per pair, so ListReleaseChannelMismatchedMembers makes the final call.
 func (q *Queries) ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelFirmwareNeedingRolloutStmt, listReleaseChannelFirmwareNeedingRollout)
 	if err != nil {
@@ -1709,10 +1727,17 @@ WHERE m.channel_id = $1
   AND NOT (
       COALESCE(dd.firmware_version, '') = $4::text
       AND COALESCE(dep.firmware_checksum, '') = $5::text
+      AND NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = d.id
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+            AND NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY($6::text[]))
+      )
   )
   AND NOT EXISTS (
       SELECT 1 FROM firmware_rollout_device rd
-      WHERE rd.rollout_id = $6 AND rd.device_id = d.id
+      WHERE rd.rollout_id = $7 AND rd.device_id = d.id
   )
   AND NOT EXISTS (
       SELECT 1
@@ -1722,7 +1747,7 @@ WHERE m.channel_id = $1
         AND r.channel_id = $1
         AND lower(r.manufacturer COLLATE "C") = lower($2::text COLLATE "C")
         AND lower(r.model COLLATE "C") = lower($3::text COLLATE "C")
-        AND r.assignment_generation = $7::bigint
+        AND r.assignment_generation = $8::bigint
         AND rd.halted_at IS NOT NULL
         AND NOT EXISTS (
             SELECT 1
@@ -1745,6 +1770,7 @@ type ListReleaseChannelMismatchedMembersParams struct {
 	Model                string
 	FirmwareVersion      string
 	FirmwareChecksum     string
+	AssignedFileIds      []string
 	RolloutID            int64
 	AssignmentGeneration int64
 }
@@ -1756,10 +1782,12 @@ type ListReleaseChannelMismatchedMembersRow struct {
 }
 
 // Members of one pair that are mismatched under the mismatch rule (reported
-// version or provenance differs from the assignment), are not already part of
-// rollout_id (0 for a new rollout), and are not suppressed: a member halted
-// (failed, skipped, or left behind by a cancellation) in the most recent
-// rollout of the current generation that holds it stays out until retried.
+// version or provenance differs from the assignment, or a FirmwareUpdate for a
+// file outside assigned_file_ids — the files carrying the assigned checksum —
+// is still pending or processing), are not already part of rollout_id (0 for
+// a new rollout), and are not suppressed: a member halted (failed, skipped, or
+// left behind by a cancellation) in the most recent rollout of the current
+// generation that holds it stays out until retried.
 // Carries the latest efficiency sample for ordering.
 func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelMismatchedMembersStmt, listReleaseChannelMismatchedMembers,
@@ -1768,6 +1796,7 @@ func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg L
 		arg.Model,
 		arg.FirmwareVersion,
 		arg.FirmwareChecksum,
+		pq.Array(arg.AssignedFileIds),
 		arg.RolloutID,
 		arg.AssignmentGeneration,
 	)
