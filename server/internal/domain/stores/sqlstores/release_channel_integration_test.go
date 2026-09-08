@@ -246,25 +246,45 @@ func TestReleaseChannelQueries_MismatchAndSuppression(t *testing.T) {
 		return ids
 	}
 	require.Equal(t, []string{"stale"}, mismatchedForNext(), "halted stays suppressed")
-	suppressed, err := q.ListReleaseChannelSuppressedMembers(f.t.Context(), sqlc.ListReleaseChannelSuppressedMembersParams{
-		OrgID: f.org, ChannelID: channel, Manufacturer: "Bitmain", Model: "S19", AssignmentGeneration: 1,
-	})
-	require.NoError(t, err)
-	require.Len(t, suppressed, 1)
-	require.Equal(t, "halted", suppressed[0].DeviceIdentifier)
+	suppressedIDs := func() []int64 {
+		t.Helper()
+		rows, err := q.ListReleaseChannelSuppressedMembers(f.t.Context(), sqlc.ListReleaseChannelSuppressedMembersParams{
+			OrgID: f.org, ChannelID: channel, Manufacturer: "Bitmain", Model: "S19", AssignmentGeneration: 1,
+		})
+		require.NoError(t, err)
+		ids := make([]int64, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.DeviceID)
+		}
+		return ids
+	}
+	require.Equal(t, []int64{halted.id}, suppressedIDs())
 
-	// A halted miner that left the scope is not the retry's to reset.
-	require.NoError(t, q.ExcludeFirmwareRolloutDevices(f.t.Context(), sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{halted.id}}))
-	requeued, err := q.RequeueFirmwareRolloutDevices(f.t.Context(), rollout)
-	require.NoError(t, err)
-	require.Empty(t, requeued)
-	require.NoError(t, q.ReincludeFirmwareRolloutDevices(f.t.Context(), sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{halted.id}}))
-	require.Equal(t, []string{"stale"}, mismatchedForNext(), "back in scope, still halted, still suppressed")
-
-	requeued, err = q.RequeueFirmwareRolloutDevices(f.t.Context(), rollout)
+	// Retrying the active rollout re-queues the generation's suppressed
+	// miners into it although the halt was recorded by the earlier rollout,
+	// which keeps its history.
+	requeued, err := q.RequeueFirmwareRolloutDevices(f.t.Context(), sqlc.RequeueFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: suppressedIDs()})
 	require.NoError(t, err)
 	require.Equal(t, []int64{halted.id}, requeued)
-	require.Equal(t, []string{"halted", "stale"}, mismatchedForNext(), "retry lifts the suppression")
+	require.Empty(t, suppressedIDs(), "the newest rollout holding the miner is no longer a halt")
+	require.Equal(t, []string{"stale"}, mismatchedForNext(), "halted is now a target of the active rollout")
+	var stillHaltedInOld bool
+	require.NoError(t, f.db.QueryRowContext(f.t.Context(), `SELECT halted_at IS NOT NULL FROM firmware_rollout_device WHERE rollout_id = $1 AND device_id = $2`, rollout, halted.id).Scan(&stillHaltedInOld))
+	require.True(t, stillHaltedInOld)
+
+	// A halted miner that left the scope is not the retry's to reset; it comes
+	// back still halted and is picked up by the next retry.
+	require.NoError(t, q.HaltFirmwareRolloutDevices(f.t.Context(), sqlc.HaltFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: []int64{halted.id}, HaltReason: "failed"}))
+	require.NoError(t, q.ExcludeFirmwareRolloutDevices(f.t.Context(), sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: []int64{halted.id}}))
+	requeued, err = q.RequeueFirmwareRolloutDevices(f.t.Context(), sqlc.RequeueFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: []int64{halted.id}})
+	require.NoError(t, err)
+	require.Empty(t, requeued)
+	require.NoError(t, q.ReincludeFirmwareRolloutDevices(f.t.Context(), sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: []int64{halted.id}}))
+	require.Equal(t, []int64{halted.id}, suppressedIDs(), "back in scope, still halted, still suppressed")
+	requeued, err = q.RequeueFirmwareRolloutDevices(f.t.Context(), sqlc.RequeueFirmwareRolloutDevicesParams{RolloutID: next, DeviceIds: suppressedIDs()})
+	require.NoError(t, err)
+	require.Equal(t, []int64{halted.id}, requeued)
+	require.Empty(t, suppressedIDs())
 }
 
 type releaseChannelQueryFixture struct {
