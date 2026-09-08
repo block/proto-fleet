@@ -4,6 +4,7 @@ import {
   addCommas,
   convertToSentenceCase,
   convertToTitleCase,
+  formatPowerKW,
   getDisplayValue,
   getMacAddressDisplay,
   padLeft,
@@ -158,6 +159,24 @@ describe("convertToSentenceCase", () => {
     const input = "";
     const expected = "";
     expect(convertToSentenceCase(input)).toBe(expected);
+  });
+});
+
+describe("formatPowerKW", () => {
+  it("shows W for values below 1 kW", () => {
+    expect(formatPowerKW(0.0125)).toEqual({ value: "12.5", unit: "W" });
+    expect(formatPowerKW(0)).toEqual({ value: "0.0", unit: "W" });
+    expect(formatPowerKW(0.999)).toEqual({ value: "999.0", unit: "W" });
+  });
+
+  it("shows kW for values at or above 1 kW", () => {
+    expect(formatPowerKW(1)).toEqual({ value: "1.0", unit: "kW" });
+    expect(formatPowerKW(3.2)).toEqual({ value: "3.2", unit: "kW" });
+    expect(formatPowerKW(12.5)).toEqual({ value: "12.5", unit: "kW" });
+  });
+
+  it("applies comma separators for large kW values", () => {
+    expect(formatPowerKW(1200)).toEqual({ value: "1,200.0", unit: "kW" });
   });
 });
 
