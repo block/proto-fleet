@@ -62,7 +62,7 @@ describe("TabMenuWrapper", () => {
     (useParams as Mock).mockReturnValue({ tankId: "1", moduleId: "2" });
 
     render(<TabMenuWrapper />);
-    fireEvent.click(screen.getByText("Power usage").closest("button") as HTMLButtonElement);
+    fireEvent.click(screen.getByText("Power Usage").closest("button") as HTMLButtonElement);
 
     expect(mockNavigate).toHaveBeenCalledWith("/tanks/1/modules/2/power-usage");
   });
