@@ -193,6 +193,7 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	channel := f.channel("revision")
 	a := f.device("a", 0)
 	b := f.device("b", 0)
+	c := f.device("c", 0)
 
 	var rollout int64
 	f.inTransaction(func(tx *sql.Tx) {
@@ -227,10 +228,11 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	require.Equal(t, int64(2), f.revision(later), "and the later one")
 
 	// A transaction that started before another writer's change but wrote
-	// after it must not move updated_at back before that change: pollers
-	// page by updated_at.
+	// after it must not move updated_at back before that change, including
+	// child-row touches after its direct update: pollers page by updated_at.
 	early, err := db.BeginTx(f.t.Context(), nil)
 	require.NoError(t, err)
+	defer early.Rollback()
 	var earlyStart time.Time
 	require.NoError(t, early.QueryRowContext(f.t.Context(), `SELECT now()`).Scan(&earlyStart))
 	time.Sleep(20 * time.Millisecond)
@@ -238,8 +240,28 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	var between time.Time
 	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT updated_at FROM firmware_rollout WHERE id = $1`, rollout).Scan(&between))
 	require.True(t, between.After(earlyStart))
-	_, err = early.ExecContext(f.t.Context(), `UPDATE firmware_rollout SET stage = 'rest' WHERE id = $1`, rollout)
-	require.NoError(t, err)
+	var previous time.Time
+	require.NoError(t, early.QueryRowContext(f.t.Context(), `UPDATE firmware_rollout SET stage = 'rest' WHERE id = $1 RETURNING updated_at`, rollout).Scan(&previous))
+	require.False(t, previous.Before(between), "direct update moved updated_at backwards: %s < %s", previous, between)
+	for _, touch := range []struct {
+		name  string
+		query string
+		args  []any
+	}{
+		{"target insert", `INSERT INTO firmware_rollout_device (rollout_id, device_id) VALUES ($1, $2)`, []any{rollout, c.id}},
+		{"target update", `UPDATE firmware_rollout_device SET attempts = 2 WHERE rollout_id = $1 AND device_id = $2`, []any{rollout, a.id}},
+		{"provenance insert", `INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version, rollout_id) VALUES ($2, 'sum', 'v1', $1)`, []any{rollout, b.id}},
+		{"provenance update", `UPDATE device_firmware_deployment SET deployed_at = now() WHERE rollout_id = $1 AND device_id = $2`, []any{rollout, b.id}},
+	} {
+		_, err := early.ExecContext(f.t.Context(), touch.query, touch.args...)
+		require.NoError(t, err, touch.name)
+		var revision int64
+		var updatedAt time.Time
+		require.NoError(t, early.QueryRowContext(f.t.Context(), `SELECT revision, updated_at FROM firmware_rollout WHERE id = $1`, rollout).Scan(&revision, &updatedAt))
+		require.Equal(t, int64(7), revision, "%s must not bump revision again", touch.name)
+		require.False(t, updatedAt.Before(previous), "%s moved updated_at backwards: %s < %s", touch.name, updatedAt, previous)
+		previous = updatedAt
+	}
 	require.NoError(t, early.Commit())
 	var after time.Time
 	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT updated_at FROM firmware_rollout WHERE id = $1`, rollout).Scan(&after))

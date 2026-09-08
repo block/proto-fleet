@@ -1,8 +1,12 @@
 package files
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"sort"
+	"strings"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -68,25 +72,58 @@ func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	return s.firmwareFileIDsByChecksumLocked(sha256Hex)
 }
 
-// FindDispatchableFirmwareFileID returns a file carrying the checksum that a
-// FirmwareUpdate for miners of the (manufacturer, model) pair will accept.
-// Command preflight leases the file's current sidecar and requires a known
-// target that matches every device, so a payload without a sidecar, with an
-// unreadable one, or whose target was edited to another pair is not offered;
-// the assignment is then unavailable until a suitable file is uploaded or
-// the sidecar repaired.
-func (s *Service) FindDispatchableFirmwareFileID(sha256Hex, manufacturer, model string) (string, bool) {
+// FindFirmwareFileIDByChecksum returns a present payload carrying the assigned
+// checksum, independent of its current name or metadata. Dispatch must use the
+// assignment's metadata snapshot to validate targets and LeaseFirmwareArtifact
+// to keep the selected payload present until its command is queued.
+func (s *Service) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
 
-	for _, id := range s.firmwareFileIDsByChecksumLocked(sha256Hex) {
-		metadata, err := readFirmwareMetadata(getFirmwareDirPath(id))
-		if err != nil || ValidateFirmwareMetadata(metadata) != nil || !metadata.MatchesTarget(manufacturer, model) {
-			continue
-		}
-		return id, true
+	ids := s.firmwareFileIDsByChecksumLocked(sha256Hex)
+	if len(ids) > 0 {
+		return ids[0], true
 	}
 	return "", false
+}
+
+// LeaseFirmwareArtifact selects a payload by the assignment's checksum and
+// holds the lifecycle read lock through command preflight and enqueue. The
+// caller validates miners using the saved assignment metadata, then invokes
+// release. No mutable sidecar is consulted.
+func (s *Service) LeaseFirmwareArtifact(sha256Hex string) (fileID string, release func(), err error) {
+	if err := validateFirmwareChecksum(sha256Hex); err != nil {
+		return "", nil, err
+	}
+	s.firmwareMetadataReuseMu.RLock()
+	ids := s.firmwareFileIDsByChecksumLocked(sha256Hex)
+	if len(ids) == 0 {
+		s.firmwareMetadataReuseMu.RUnlock()
+		return "", nil, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", sha256Hex)
+	}
+	return ids[0], s.firmwareMetadataReuseMu.RUnlock, nil
+}
+
+// OpenFirmwareArtifact opens an already admitted command's payload without
+// consulting its mutable sidecar and checks the expected assignment checksum.
+// The caller is responsible for closing the reader.
+func (s *Service) OpenFirmwareArtifact(fileID, sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
+	if err := validateFirmwareChecksum(sha256Hex); err != nil {
+		return nil, FirmwareFileInfo{}, err
+	}
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+	return s.openFirmwareFileWithInfo(fileID, sha256Hex)
+}
+
+func validateFirmwareChecksum(checksum string) error {
+	if len(checksum) != sha256.Size*2 || strings.ToLower(checksum) != checksum {
+		return fleeterror.NewInvalidArgumentError("firmware checksum must be a lowercase hex SHA-256")
+	}
+	if _, err := hex.DecodeString(checksum); err != nil {
+		return fleeterror.NewInvalidArgumentError("firmware checksum must be a lowercase hex SHA-256")
+	}
+	return nil
 }
 
 // firmwareFileIDsByChecksumLocked lists the present payloads with the checksum

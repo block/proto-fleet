@@ -193,6 +193,148 @@ func TestFirmwareUpdate_QueuesCanonicalFileID(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		wantCode connect.Code
+	}{
+		{name: "edited target and version"},
+		{name: "reuploaded checksum with other metadata"},
+		{name: "missing sidecar"},
+		{name: "corrupt sidecar"},
+		{name: "missing payload", wantCode: connect.CodeNotFound},
+		{name: "mismatched miner", wantCode: connect.CodeFailedPrecondition},
+		{name: "incomplete snapshot", wantCode: connect.CodeFailedPrecondition},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			filesService, err := files.NewService(files.Config{})
+			require.NoError(t, err)
+			metadata := files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "2.0.0"}
+			fileID, err := filesService.SaveFirmwareFile("assigned.swu", strings.NewReader("assigned firmware"), metadata)
+			require.NoError(t, err)
+			assignment, err := filesService.ResolveFirmwareArtifact(fileID)
+			require.NoError(t, err)
+			other := files.FirmwareMetadata{TargetManufacturer: "Bitmain", TargetModel: "S19", FirmwareVersion: "9.0.0"}
+			sidecar := filepath.Join("firmware", fileID, "metadata.json")
+			switch scenario.name {
+			case "edited target and version":
+				_, err = filesService.UpdateFirmwareMetadata(fileID, other)
+				require.NoError(t, err)
+			case "reuploaded checksum with other metadata":
+				require.NoError(t, filesService.DeleteFirmwareFile(fileID))
+				fileID, err = filesService.SaveFirmwareFile("new-name.swu", strings.NewReader("assigned firmware"), other)
+				require.NoError(t, err)
+				assert.NotEqual(t, assignment.FileID, fileID)
+			case "missing sidecar":
+				require.NoError(t, os.Remove(sidecar))
+			case "corrupt sidecar":
+				require.NoError(t, os.WriteFile(sidecar, []byte(`not json`), 0600))
+			case "missing payload":
+				require.NoError(t, filesService.DeleteFirmwareFile(fileID))
+			case "incomplete snapshot":
+				assignment.Metadata.FirmwareVersion = ""
+			}
+
+			ctrl := gomock.NewController(t)
+			deviceStore := storeMocks.NewMockDeviceStore(ctrl)
+			if scenario.name != "missing payload" && scenario.name != "incomplete snapshot" {
+				manufacturer := " proto "
+				if scenario.name == "mismatched miner" {
+					manufacturer = "Bitmain"
+				}
+				deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(7), []string{"device-1"}, false).
+					Return([]stores.DeviceRenameProperties{{DeviceIdentifier: "device-1", Manufacturer: manufacturer, Model: "RIG"}}, nil)
+			}
+			messageQueue := queueMocks.NewMockMessageQueue(ctrl)
+			if scenario.wantCode == 0 {
+				messageQueue.EXPECT().Enqueue(gomock.Any(), "batch-1", commandtype.FirmwareUpdate, []int64{101},
+					dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: assignment.Checksum}).Return(nil)
+			}
+			svc := &Service{
+				config:           &Config{},
+				executionService: &ExecutionService{run: newExecutionRun(context.Background())},
+				messageQueue:     messageQueue, filesService: filesService, deviceStore: deviceStore,
+				resolveDevicesOverride: func(_ context.Context, identifiers []string) ([]resolvedDevice, error) {
+					return []resolvedDevice{{id: 101, identifier: identifiers[0]}}, nil
+				},
+				saveCommandBatchLogOverride: func(context.Context, int64, int64, *Command, []byte, int) (string, error) {
+					return "batch-1", nil
+				},
+				startStatusUpdateRoutineOverride: func(string, onFinishedCallbackFunc) {},
+			}
+			result, err := svc.FirmwareUpdateArtifact(manualSessionCtx(7), includeSelector("device-1"), assignment.Checksum, assignment.Metadata)
+			if scenario.wantCode == 0 {
+				require.NoError(t, err)
+				assert.Equal(t, 1, result.DispatchedCount)
+			} else {
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, scenario.wantCode, fleetErr.GRPCCode)
+				assert.Nil(t, result)
+			}
+			if scenario.name != "missing payload" {
+				// Both success and preflight failure must release the artifact lease.
+				done := make(chan error, 1)
+				go func() { done <- filesService.DeleteFirmwareFile(fileID) }()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("artifact lease was not released")
+				}
+			}
+		})
+	}
+}
+
+func TestFirmwareUpdateArtifact_HoldsPayloadLeaseThroughEnqueue(t *testing.T) {
+	svc, deviceStore, filesService := setupFirmwareTargetValidationService(t)
+	metadata := files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "2.0.0"}
+	fileID, err := filesService.SaveFirmwareFile("assigned.swu", strings.NewReader("firmware"), metadata)
+	require.NoError(t, err)
+	assignment, err := filesService.ResolveFirmwareArtifact(fileID)
+	require.NoError(t, err)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(7), []string{"device-1"}, false).
+		Return([]stores.DeviceRenameProperties{{DeviceIdentifier: "device-1", Manufacturer: "Proto", Model: "Rig"}}, nil)
+	messageQueue := queueMocks.NewMockMessageQueue(gomock.NewController(t))
+	deleteStarted := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	messageQueue.EXPECT().Enqueue(gomock.Any(), "batch-1", commandtype.FirmwareUpdate, []int64{101}, gomock.Any()).
+		DoAndReturn(func(context.Context, string, commandtype.Type, []int64, any) error {
+			go func() {
+				close(deleteStarted)
+				deleteDone <- filesService.DeleteFirmwareFile(fileID)
+			}()
+			<-deleteStarted
+			select {
+			case err := <-deleteDone:
+				t.Errorf("payload deleted before enqueue completed: %v", err)
+				deleteDone <- err
+			case <-time.After(100 * time.Millisecond):
+			}
+			return nil
+		})
+	svc.config = &Config{}
+	svc.executionService = &ExecutionService{run: newExecutionRun(context.Background())}
+	svc.messageQueue = messageQueue
+	svc.resolveDevicesOverride = func(context.Context, []string) ([]resolvedDevice, error) {
+		return []resolvedDevice{{id: 101, identifier: "device-1"}}, nil
+	}
+	svc.saveCommandBatchLogOverride = func(context.Context, int64, int64, *Command, []byte, int) (string, error) {
+		return "batch-1", nil
+	}
+	svc.startStatusUpdateRoutineOverride = func(string, onFinishedCallbackFunc) {}
+	_, err = svc.FirmwareUpdateArtifact(manualSessionCtx(7), includeSelector("device-1"), assignment.Checksum, assignment.Metadata)
+	require.NoError(t, err)
+	select {
+	case err := <-deleteDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("payload deletion blocked after enqueue completed")
+	}
+}
+
 func TestProcessCommand_FirmwareUpdateValidatesBeforeDispatch(t *testing.T) {
 	tests := []struct {
 		name       string

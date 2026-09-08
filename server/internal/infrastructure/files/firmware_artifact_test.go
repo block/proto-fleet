@@ -83,22 +83,25 @@ func TestFirmwareFileIDsByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T
 	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), other)
 	assert.True(t, ok)
 	assert.Equal(t, second, foundID)
-	foundID, ok = svc.FindDispatchableFirmwareFileID(checksumOf(content), "other", "MODEL")
+	foundID, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
 	assert.True(t, ok)
-	assert.Equal(t, second, foundID, "dispatch needs the file whose target matches the pair")
+	assert.Contains(t, []string{first, second}, foundID)
 
 	require.NoError(t, svc.DeleteFirmwareFile(first))
 	assert.Equal(t, []string{second}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
-	_, ok = svc.FindDispatchableFirmwareFileID(checksumOf(content), "Proto", "Rig")
-	assert.False(t, ok, "no remaining file targets the pair")
+	foundID, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
+	assert.True(t, ok, "the assignment survives a different target on the remaining copy")
+	assert.Equal(t, second, foundID)
 
 	require.NoError(t, svc.DeleteFirmwareFile(second))
 	assert.Empty(t, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
+	_, release, err := svc.LeaseFirmwareArtifact(checksumOf(content))
+	requireFleetCode(t, err, connect.CodeNotFound)
+	assert.Nil(t, release)
 }
 
-// After a restart every payload on disk carries the assignment for identity
-// purposes, but only a file command preflight accepts (readable sidecar with a
-// known target matching the pair) is offered for dispatch.
+// After a restart every payload on disk carries the assignment, even when its
+// mutable sidecar is missing or corrupt. Upload reuse still requires metadata.
 func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) {
 	svc := setupService(t)
 	content := "legacy payload"
@@ -113,8 +116,13 @@ func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) 
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{legacy, corrupt}, restarted.FirmwareFileIDsByChecksum(checksumOf(content)))
-	_, ok := restarted.FindDispatchableFirmwareFileID(checksumOf(content), "Proto", "Rig")
-	assert.False(t, ok, "neither a missing nor an unreadable sidecar passes preflight")
+	foundID, ok := restarted.FindFirmwareFileIDByChecksum(checksumOf(content))
+	assert.True(t, ok)
+	assert.Contains(t, []string{legacy, corrupt}, foundID)
+	leasedID, release, err := restarted.LeaseFirmwareArtifact(checksumOf(content))
+	require.NoError(t, err)
+	assert.Equal(t, foundID, leasedID)
+	release()
 	_, reusable := restarted.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.False(t, reusable, "a payload without metadata is not eligible for upload reuse")
 	_, err = restarted.ResolveFirmwareArtifact(legacy)
@@ -122,7 +130,19 @@ func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) 
 
 	healthy, err := restarted.SaveFirmwareFile("firmware-again.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
-	foundID, ok := restarted.FindDispatchableFirmwareFileID(checksumOf(content), " proto ", "RIG")
+	foundID, ok = restarted.FindFirmwareFileIDByChecksum(checksumOf(content))
 	assert.True(t, ok)
-	assert.Equal(t, healthy, foundID)
+	assert.Contains(t, []string{legacy, corrupt, healthy}, foundID)
+}
+
+func TestFirmwareArtifact_RejectsInvalidChecksums(t *testing.T) {
+	svc := setupService(t)
+	for _, checksum := range []string{"", "not-a-checksum", strings.Repeat("G", 64), strings.ToUpper(checksumOf("firmware"))} {
+		_, release, err := svc.LeaseFirmwareArtifact(checksum)
+		requireFleetCode(t, err, connect.CodeInvalidArgument)
+		assert.Nil(t, release)
+		reader, _, err := svc.OpenFirmwareArtifact("00000000-0000-7000-8000-000000000000", checksum)
+		requireFleetCode(t, err, connect.CodeInvalidArgument)
+		assert.Nil(t, reader)
+	}
 }
