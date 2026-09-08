@@ -1249,7 +1249,7 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 
-func TestIsLowPriorityControlCommand(t *testing.T) {
+func TestClassifyControlCommand(t *testing.T) {
 	unknownPayload := protowire.AppendTag(nil, 5, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	unknownCommand := &pb.AgentCommand{}
@@ -1258,71 +1258,77 @@ func TestIsLowPriorityControlCommand(t *testing.T) {
 	tests := []struct {
 		name    string
 		command *pb.AgentCommand
-		want    bool
+		want    controlCommandAdmissionClass
 	}{
 		{
 			name: "telemetry",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_Telemetry{
 				Telemetry: &telemetrypb.FleetNodeTelemetryRequest{},
 			}},
-			want: true,
+			want: controlCommandAdmissionDeferrableRead,
 		},
 		{
 			name: "get cooling mode",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}},
 			}}},
-			want: true,
+			want: controlCommandAdmissionDeferrableRead,
 		},
 		{
 			name: "get errors",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}},
 			}}},
-			want: true,
+			want: controlCommandAdmissionDeferrableRead,
 		},
 		{
 			name: "get mining pools",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}},
 			}}},
+			want: controlCommandAdmissionGeneral,
 		},
 		{
 			name: "get firmware update status",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}},
 			}}},
+			want: controlCommandAdmissionGeneral,
 		},
 		{
 			name: "operator mutation",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
 			}}},
+			want: controlCommandAdmissionGeneral,
 		},
 		{
 			name:    "empty miner action",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{}}},
+			want:    controlCommandAdmissionGeneral,
 		},
-		{name: "empty envelope", command: &pb.AgentCommand{}},
-		{name: "unknown envelope", command: unknownCommand},
-		{name: "malformed envelope"},
+		{name: "empty envelope", command: &pb.AgentCommand{}, want: controlCommandAdmissionGeneral},
+		{name: "unknown envelope", command: unknownCommand, want: controlCommandAdmissionGeneral},
+		{name: "malformed envelope", want: controlCommandAdmissionGeneral},
 		{
 			name: "discovery",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_Discover{
 				Discover: &pairingpb.DiscoverRequest{},
 			}},
+			want: controlCommandAdmissionExclusive,
 		},
 		{
 			name: "pairing",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_Pair{
 				Pair: &pairingpb.FleetNodePairRequest{},
 			}},
+			want: controlCommandAdmissionExclusive,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, isLowPriorityControlCommand(tt.command))
+			assert.Equal(t, tt.want, classifyControlCommand(tt.command))
 		})
 	}
 }
@@ -1330,64 +1336,57 @@ func TestIsLowPriorityControlCommand(t *testing.T) {
 func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *testing.T) {
 	cmd := &RunCmd{}
 	cmd.initControlConcurrency()
-	lowCommand := &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-		Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}},
-	}}}
-	generalCommand := &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-		Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
-	}}}
-
 	releases := make([]func(), 0, commandPoolSize)
-	for range lowPriorityCommandPoolSize {
-		release, ok := cmd.tryAcquireControlCommandSlot(lowCommand, nil)
+	for range deferrableReadCommandPoolSize {
+		release, ok := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
 		require.True(t, ok)
 		releases = append(releases, release)
 	}
-	_, ok := cmd.tryAcquireControlCommandSlot(lowCommand, nil)
-	assert.False(t, ok, "low-priority work must stop at its dedicated cap")
-	assert.Len(t, cmd.controlLowPrioritySlots, lowPriorityCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, lowPriorityCommandPoolSize,
-		"a rejected low-priority command must not leak a shared permit")
+	_, ok := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	assert.False(t, ok, "deferrable reads must stop at their dedicated cap")
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize,
+		"a rejected deferrable read must not leak a shared permit")
 
-	for range commandPoolSize - lowPriorityCommandPoolSize {
-		release, acquired := cmd.tryAcquireControlCommandSlot(generalCommand, nil)
+	for range commandPoolSize - deferrableReadCommandPoolSize {
+		release, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
 		require.True(t, acquired)
 		releases = append(releases, release)
 	}
-	_, ok = cmd.tryAcquireControlCommandSlot(generalCommand, nil)
+	_, ok = cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
 	assert.False(t, ok, "the shared pool must retain its existing total ceiling")
 	assert.Len(t, cmd.controlCommandSlots, commandPoolSize)
 
 	for _, release := range releases {
 		release()
 	}
-	assert.Empty(t, cmd.controlLowPrioritySlots)
+	assert.Empty(t, cmd.controlDeferrableReadSlots)
 	assert.Empty(t, cmd.controlCommandSlots)
 
 	generalReleases := make([]func(), 0, commandPoolSize)
 	for range commandPoolSize {
-		release, acquired := cmd.tryAcquireControlCommandSlot(generalCommand, nil)
+		release, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
 		require.True(t, acquired)
 		generalReleases = append(generalReleases, release)
 	}
-	_, ok = cmd.tryAcquireControlCommandSlot(lowCommand, nil)
-	assert.False(t, ok, "low-priority admission must fail when the shared pool is full")
-	assert.Empty(t, cmd.controlLowPrioritySlots,
-		"failed shared-pool admission must roll back its low-priority permit")
+	_, ok = cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	assert.False(t, ok, "deferrable-read admission must fail when the shared pool is full")
+	assert.Empty(t, cmd.controlDeferrableReadSlots,
+		"failed shared-pool admission must roll back its deferrable-read permit")
 	assert.Len(t, cmd.controlCommandSlots, commandPoolSize)
 
 	generalReleases[0]()
-	lowRelease, acquired := cmd.tryAcquireControlCommandSlot(lowCommand, nil)
-	require.True(t, acquired, "low-priority work should be admitted after shared capacity returns")
+	lowRelease, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	require.True(t, acquired, "a deferrable read should be admitted after shared capacity returns")
 	lowRelease()
 	for _, release := range generalReleases[1:] {
 		release()
 	}
-	assert.Empty(t, cmd.controlLowPrioritySlots)
+	assert.Empty(t, cmd.controlDeferrableReadSlots)
 	assert.Empty(t, cmd.controlCommandSlots)
 }
 
-func TestControlLoop_LowPriorityCommandsReserveOperatorCapacity(t *testing.T) {
+func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})
 	t.Cleanup(func() {
@@ -1397,13 +1396,13 @@ func TestControlLoop_LowPriorityCommandsReserveOperatorCapacity(t *testing.T) {
 			close(release)
 		}
 	})
-	started := make(chan struct{}, lowPriorityCommandPoolSize)
+	started := make(chan struct{}, deferrableReadCommandPoolSize)
 	device := mocks.NewMockDevice(controller)
 	device.EXPECT().GetCoolingMode(gomock.Any()).DoAndReturn(func(context.Context) (sdk.CoolingMode, error) {
 		started <- struct{}{}
 		<-release // deliberately ignores ctx
 		return sdk.CoolingModeAirCooled, nil
-	}).Times(lowPriorityCommandPoolSize)
+	}).Times(deferrableReadCommandPoolSize)
 	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
 	device.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
 	driver := mocks.NewMockDriver(controller)
@@ -1423,7 +1422,7 @@ func TestControlLoop_LowPriorityCommandsReserveOperatorCapacity(t *testing.T) {
 		)},
 	})
 	fake := &controlFakeGateway{}
-	for i := range lowPriorityCommandPoolSize {
+	for i := range deferrableReadCommandPoolSize {
 		fake.queueWithID(fmt.Sprintf("low-%d", i), lowPayload)
 	}
 	fake.queueWithID("low-overflow", lowPayload)
@@ -1433,11 +1432,11 @@ func TestControlLoop_LowPriorityCommandsReserveOperatorCapacity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
-	for range lowPriorityCommandPoolSize {
+	for range deferrableReadCommandPoolSize {
 		select {
 		case <-started:
 		case <-time.After(3 * time.Second):
-			t.Fatal("low-priority command workers did not fill their pool")
+			t.Fatal("deferrable-read workers did not fill their pool")
 		}
 	}
 	require.Eventually(t, func() bool {
@@ -1452,21 +1451,21 @@ func TestControlLoop_LowPriorityCommandsReserveOperatorCapacity(t *testing.T) {
 		}
 		return lowBusy && operatorOK
 	}, 3*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlLowPrioritySlots, lowPriorityCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, lowPriorityCommandPoolSize)
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
 
 	close(release)
 	require.Eventually(t, func() bool {
-		return len(cmd.controlLowPrioritySlots) == 0 && len(cmd.controlCommandSlots) == 0
+		return len(cmd.controlDeferrableReadSlots) == 0 && len(cmd.controlCommandSlots) == 0
 	}, 2*time.Second, 20*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 
-func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *testing.T) {
+func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
-	releases := make([]chan struct{}, lowPriorityCommandPoolSize)
+	releases := make([]chan struct{}, deferrableReadCommandPoolSize)
 	for i := range releases {
 		releases[i] = make(chan struct{})
 	}
@@ -1479,17 +1478,17 @@ func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *te
 			}
 		}
 	})
-	started := make(chan int, lowPriorityCommandPoolSize)
+	started := make(chan int, deferrableReadCommandPoolSize)
 	var coolingCalls atomic.Int32
 	device := mocks.NewMockDevice(controller)
 	device.EXPECT().GetCoolingMode(gomock.Any()).DoAndReturn(func(context.Context) (sdk.CoolingMode, error) {
 		call := int(coolingCalls.Add(1)) - 1
-		if call < lowPriorityCommandPoolSize {
+		if call < deferrableReadCommandPoolSize {
 			started <- call
 			<-releases[call] // deliberately ignores the cancelled old-session context
 		}
 		return sdk.CoolingModeAirCooled, nil
-	}).Times(lowPriorityCommandPoolSize + 1)
+	}).Times(deferrableReadCommandPoolSize + 1)
 	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
 	device.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
 	driver := mocks.NewMockDriver(controller)
@@ -1506,7 +1505,7 @@ func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *te
 			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
 		)},
 	})
-	firstCommands := make([]pendingCommand, lowPriorityCommandPoolSize)
+	firstCommands := make([]pendingCommand, deferrableReadCommandPoolSize)
 	for i := range firstCommands {
 		firstCommands[i] = pendingCommand{id: fmt.Sprintf("old-low-%d", i), payload: lowPayload}
 	}
@@ -1521,17 +1520,17 @@ func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *te
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
-	for range lowPriorityCommandPoolSize {
+	for range deferrableReadCommandPoolSize {
 		select {
 		case <-started:
 		case <-time.After(3 * time.Second):
-			t.Fatal("old low-priority workers did not fill their process-wide pool")
+			t.Fatal("old deferrable-read workers did not fill their process-wide pool")
 		}
 	}
 
 	close(fake.closeFirst)
 	require.Eventually(t, func() bool { return fake.sessions.Load() >= 2 }, 3*time.Second, 20*time.Millisecond,
-		"replacement stream should open without draining old low-priority handlers")
+		"replacement stream should open without draining old deferrable-read handlers")
 	fake.replacementCommands <- pendingCommand{id: "replacement-low-busy", payload: lowPayload}
 	fake.replacementCommands <- pendingCommand{id: "replacement-operator", payload: operatorPayload}
 	require.Eventually(t, func() bool {
@@ -1546,13 +1545,13 @@ func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *te
 		}
 		return lowBusy && operatorOK
 	}, 2*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlLowPrioritySlots, lowPriorityCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, lowPriorityCommandPoolSize)
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
 
 	close(releases[0])
 	require.Eventually(t, func() bool {
-		return len(cmd.controlLowPrioritySlots) == lowPriorityCommandPoolSize-1 &&
-			len(cmd.controlCommandSlots) == lowPriorityCommandPoolSize-1
+		return len(cmd.controlDeferrableReadSlots) == deferrableReadCommandPoolSize-1 &&
+			len(cmd.controlCommandSlots) == deferrableReadCommandPoolSize-1
 	}, 2*time.Second, 20*time.Millisecond)
 	fake.replacementCommands <- pendingCommand{id: "replacement-low-ok", payload: lowPayload}
 	require.Eventually(t, func() bool {
@@ -1571,7 +1570,7 @@ func TestControlLoop_ReconnectRetainsLowPriorityPermitsAndOperatorCapacity(t *te
 		close(releases[i])
 	}
 	require.Eventually(t, func() bool {
-		return len(cmd.controlLowPrioritySlots) == 0 && len(cmd.controlCommandSlots) == 0
+		return len(cmd.controlDeferrableReadSlots) == 0 && len(cmd.controlCommandSlots) == 0
 	}, 2*time.Second, 20*time.Millisecond)
 	cancel()
 	select {

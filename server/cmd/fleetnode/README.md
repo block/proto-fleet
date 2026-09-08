@@ -67,7 +67,15 @@ The configured subnet is validated the same way as an auto-detected local subnet
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
 
-Discovery and pairing share one exclusive process-wide slot. All other commands share 16 process-wide slots. Telemetry, `GetCoolingMode`, and `GetErrors` additionally share an 8-slot low-priority limit, leaving at least eight ordinary slots available when those background reads are stuck. General commands can use all otherwise-idle ordinary slots. Commands that exceed either applicable limit receive `BUSY` immediately instead of blocking the stream receive loop. These limits persist across reconnects until the admitted handlers return.
+Discovery and pairing share one exclusive process-wide slot. All other commands share 16 process-wide slots. The agent classifies commands into these admission classes:
+
+| Admission class | Commands | Why |
+|-----------------|----------|-----|
+| Exclusive | Discovery and pairing | These are heavy, report-bearing operations and retain their separate single-flight slot. |
+| Deferrable read | Telemetry, `GetErrors`, and `GetCoolingMode` | These reads are observation-only and safe to retry. Telemetry includes scheduled collection and curtailment confirmation; error polling accompanies telemetry; cooling-mode reads only prefill the settings UI. |
+| General | Every other command, including `GetMiningPools`, `GetFirmwareUpdateStatus`, malformed or empty envelopes, unknown commands, and future command types | Pool reads can be prerequisites for an operator pool change, and firmware-status reads advance an operator-initiated update. Unknown work defaults to general so new commands do not accidentally consume reserved read capacity. |
+
+Deferrable reads additionally share an 8-slot limit, leaving at least eight ordinary slots available when those reads are stuck. General commands can use all otherwise-idle ordinary slots. Commands that exceed either applicable limit receive `BUSY` immediately instead of blocking the stream receive loop. These limits persist across reconnects until the admitted handlers return.
 
 If the server side is older than RFC-0001 phase 2, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
 

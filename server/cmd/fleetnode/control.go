@@ -52,9 +52,9 @@ const (
 	// has its own process-wide exclusive slot (see runControlSession). Commands
 	// past the ceiling are acked BUSY.
 	commandPoolSize = 16
-	// lowPriorityCommandPoolSize prevents background reads from consuming every
+	// deferrableReadCommandPoolSize prevents retryable reads from consuming every
 	// ordinary command slot. General commands may still use all idle capacity.
-	lowPriorityCommandPoolSize = 8
+	deferrableReadCommandPoolSize = 8
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -258,7 +258,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
 	//     doubling the load.
 	//   - ordinary commands share a broader pool, so they run concurrently and a
-	//     long discovery never head-of-line-blocks them. Selected background reads
+	//     long discovery never head-of-line-blocks them. Selected deferrable reads
 	//     also draw from a smaller pool so they cannot consume every ordinary slot.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
@@ -286,7 +286,8 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		releaseSlot, acquired := r.tryAcquireControlCommandSlot(env, parseErr)
+		admissionClass := classifyControlCommand(env)
+		releaseSlot, acquired := r.tryAcquireControlCommandSlot(admissionClass)
 		if acquired {
 			r.controlWorkers.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments so each
@@ -297,7 +298,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot)
 		} else {
-			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
+			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId(), "admission_class", admissionClass)
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
 	}
@@ -338,40 +339,24 @@ func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	return env, nil
 }
 
-func isLowPriorityControlCommand(command *pb.AgentCommand) bool {
-	if command.GetTelemetry() != nil {
-		return true
-	}
-	minerCommand := command.GetMinerCommand()
-	if minerCommand == nil {
-		return false
-	}
-	switch minerCommand.GetAction().(type) {
-	case *pb.MinerCommand_GetCoolingMode, *pb.MinerCommand_GetErrors:
-		return true
-	default:
-		return false
-	}
-}
-
-func (r *RunCmd) tryAcquireControlCommandSlot(command *pb.AgentCommand, parseErr error) (func(), bool) {
-	if parseErr == nil && (command.GetDiscover() != nil || command.GetPair() != nil) {
+func (r *RunCmd) tryAcquireControlCommandSlot(admissionClass controlCommandAdmissionClass) (func(), bool) {
+	if admissionClass == controlCommandAdmissionExclusive {
 		if !tryAcquireControlSlot(r.controlDiscoverySlot) {
 			return nil, false
 		}
 		return func() { <-r.controlDiscoverySlot }, true
 	}
-	if parseErr == nil && isLowPriorityControlCommand(command) {
-		if !tryAcquireControlSlot(r.controlLowPrioritySlots) {
+	if admissionClass == controlCommandAdmissionDeferrableRead {
+		if !tryAcquireControlSlot(r.controlDeferrableReadSlots) {
 			return nil, false
 		}
 		if !tryAcquireControlSlot(r.controlCommandSlots) {
-			<-r.controlLowPrioritySlots
+			<-r.controlDeferrableReadSlots
 			return nil, false
 		}
 		return func() {
 			<-r.controlCommandSlots
-			<-r.controlLowPrioritySlots
+			<-r.controlDeferrableReadSlots
 		}, true
 	}
 	if !tryAcquireControlSlot(r.controlCommandSlots) {
