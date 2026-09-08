@@ -1,6 +1,6 @@
 # Codex security review benchmark report
 
-Date: 2026-09-01
+Date: 2026-09-03
 
 ## Decision
 
@@ -28,6 +28,12 @@ cases and recalled both adjudicated `HIGH` findings, but recalled none of the
 five adjudicated `MEDIUM` findings and produced one invalid new `MEDIUM`. The
 completed [Terra benchmark plan](./plans/archive/2026-09-01-terra-codex-security-review-benchmark-plan.md)
 records the fixed profile and outcome.
+
+The 14-minute outer reviewer candidate also failed. It completed two of six
+cases, with four verified timeouts, and recalled none of the two adjudicated
+`MEDIUM` findings available in completed cases. The completed
+[extended-timeout plan](./plans/archive/2026-09-03-extended-codex-security-review-timeout-plan.md)
+records the fixed profile and outcome. Do not repeat or roll out this candidate.
 
 The first 30 production runs met the bounded review's operational safety gates,
 but only three produced completed reviews. Thirteen produced verified timeout
@@ -58,6 +64,7 @@ and verified-timeout rates are reported separately.
 | Effort, `medium` | [33092678963](https://github.com/block/proto-fleet/actions/runs/33092678963) | 6 | `unified=40`, baseline prompt |
 | Prompt | [33065249002](https://github.com/block/proto-fleet/actions/runs/33065249002) | 6 | `unified=40`, `xhigh` |
 | Terra | [33551271863](https://github.com/block/proto-fleet/actions/runs/33551271863) | 6 | `unified=40`, `high`, default service tier, low verbosity, baseline prompt |
+| Extended timeout | [33774469386](https://github.com/block/proto-fleet/actions/runs/33774469386) | 6 | Sol, `unified=40`, `xhigh`, baseline prompt, 14-minute outer budget |
 
 GitHub reports each run as cancelled because timed-out matrix jobs are cancelled
 at the enforceable outer boundary. That top-level conclusion is expected here;
@@ -128,6 +135,57 @@ workflow revision, not the code under review. The candidate therefore failed
 completion, recall, and new-finding
 validity. Repeats cannot repair the initial 6/6 failure, so PRs #957 and #964
 were not run.
+
+### Extended-timeout candidate
+
+The initial extended-timeout
+[run 33774469386](https://github.com/block/proto-fleet/actions/runs/33774469386)
+loaded trusted workflow code from `main` at
+`c961dcba492a919a9f656e9b71b201e9b4404a25`. It used `gpt-5.6-sol`,
+`unified=40`, `xhigh`, the baseline prompt, and a 14-minute outer reviewer
+budget that included checkout, packet generation, and setup. Packet bytes below
+were recomputed from each fixed exact three-dot range because cancelled-job
+artifacts intentionally omit packet metrics.
+
+| Case | Packet bytes | Outcome | Risk | Recall |
+| --- | ---: | --- | --- | --- |
+| PR #944 | 337,430 | Verified timeout | — | Clean control not evaluated |
+| PR #948 | 394,169 | Verified timeout | — | Expected `MEDIUM` not evaluated |
+| PR #953 | 395,549 | Completed at 133s | `HIGH` | Expected `HIGH` recalled; expected `MEDIUM` missed |
+| PR #954 | 101,589 | Verified timeout | — | Two expected `MEDIUM` findings not evaluated |
+| PR #956 | 812,319 | Verified timeout | — | Clean control not evaluated |
+| PR #961 | 2,347 | Completed at 109s | `HIGH` | Expected `HIGH` recalled; expected `MEDIUM` missed |
+
+All six finalizers succeeded and each case produced exactly one trusted result
+or verified-timeout artifact. The four timeout classifiers observed successful
+setup, Codex in the review phase, and 1,140–1,141 seconds covering the
+14-minute outer budget plus five-minute cleanup requirement. Completion stayed
+at 2/6 versus the initial 12-minute `unified=40` control: the longer run rescued
+PR #953 but timed out on PR #956, which had completed in that control. The extra
+two minutes therefore produced no net initial completion gain.
+
+The two completed cases recalled both adjudicated `HIGH` findings and neither
+of the two adjudicated `MEDIUM` findings in completed cases. PR #953 also
+reported a new `HIGH` about the
+[automation path](https://github.com/block/proto-fleet/blob/586901c2c4b2ca21057202bac398718204ea6435/server/internal/domain/curtailment/automation.go#L330-L339)
+replacing the persisted profile authorization boundary with live device sites
+when creating an event envelope. That is a valid staged-design gap rather than
+a newly introduced execution regression: PR #953 explicitly deferred
+automation binding and permission enforcement, but the changed path persists
+live sites as authorization data that later stages must not trust as the bound
+profile envelope. The accepted [curtailment scope design](https://github.com/block/proto-fleet/blob/a411ef4b2f6ed39feddbcbcd9c5e867747e18d6a/docs/plans/2026-08-11-curtailment-building-rack-and-group-targets-plan.md#L301-L319)
+requires OFF/start to verify the exact bound profile envelope and current
+principal; moving or recreating an explicit device must not silently widen
+authorization at trigger time.
+
+Completed wall times were 109 and 133 seconds, for a 121-second median. Logs
+reported 46,891 and 105,926 tokens (median 76,409) and seven and 39 shell tool
+calls (median 23). Neither log contained a byte-identical repeated shell command
+or context-compaction marker.
+
+The candidate failed the mandatory initial 6/6 completion gate and the
+completed-case medium-recall gate. Repeats cannot erase that failure, so no
+repeat, large-PR run, or production rollout was performed.
 
 ### First 30 production runs
 
@@ -246,6 +304,14 @@ than solving model completion on large packets.
   head, the response-profile service resolves `SiteID` through
   `ResponseProfileScope`, marshals it to canonical scope JSON, and replaces
   `profile.ScopeJSON` before the SQL store invokes the envelope builder.
+- The extended-timeout candidate recalled the expected PR #953 migration
+  `HIGH` and PR #961 certificate-lifetime `HIGH`. It missed PR #953's lock-order
+  `MEDIUM` and PR #961's existing-deployment compatibility `MEDIUM`.
+- Its additional PR #953 automation `HIGH` is a valid staged-design gap. The
+  changed path persists current device sites for a new event without
+  constraining them to the profile's envelope. PR #953 deferred automation
+  enforcement, but later stages must not trust that snapshot as bound
+  authorization.
 
 ## Results
 
@@ -299,23 +365,25 @@ observed in any completed log.
 | `high` effort | 2 | 100s (83–116) | 13 (7–18) | 67,086 (53,508–80,664) | 0 | 0 |
 | `medium` effort | 5 | 115s (46–130) | 12 (5–21) | 67,524 (34,043–111,720) | 0 | 0 |
 | Bounded prompt | 2 | 113s (90–136) | 14 (7–20) | 50,586 (36,375–64,796) | 0 | 0 |
+| Extended timeout | 2 | 121s (109–133) | 23 (7–39) | 76,409 (46,891–105,926) | 0 | 0 |
 
-These timings describe only the 22 cases that completed. They are not a
-representative latency distribution because the other 50 cases reached the
-12-minute model budget and then spent approximately five minutes in Actions
-cancellation cleanup.
+The first six rows describe only the 22 tuning cases that completed; the other
+50 reached the 12-minute outer budget and spent approximately five minutes in
+Actions cancellation cleanup. The extended row adds two completed cases; four
+others reached its 14-minute outer budget. Neither set is a representative
+latency distribution.
 
 ## Gate evaluation
 
 | Gate | Outcome |
 | --- | --- |
-| Initial candidate completion | Failed: sharding completed 1/6 aggregates; Terra completed 5/6 cases |
-| Retain every adjudicated `HIGH` without downgrade across completed reviews | Terra passed at 2/2; compact context and the bounded prompt failed |
-| Retain at least 90% of adjudicated `MEDIUM` findings across completed reviews | Failed by every tested configuration; Terra recalled 0/5, and the best observed result was 1/4 at `medium` effort |
+| Initial candidate completion | Failed: sharding completed 1/6 aggregates, Terra 5/6 cases, and extended timeout 2/6 cases |
+| Retain every adjudicated `HIGH` without downgrade across completed reviews | Terra and extended timeout passed at 2/2; compact context and the bounded prompt failed |
+| Retain at least 90% of adjudicated `MEDIUM` findings across completed reviews | Failed by every tested configuration; Terra recalled 0/5, extended timeout recalled 0/2 available in completed cases, and the best observed result was 1/4 at `medium` effort |
 | No invalid `HIGH` on completed clean controls | Passed; every completed PR #944 and PR #956 control returned `NONE` |
-| New medium-or-higher findings are valid | Failed: medium effort produced an invalid `HIGH` on PR #948, and Terra produced an invalid `MEDIUM` on PR #953 |
+| New medium-or-higher findings are valid | Extended timeout passed with one valid new `HIGH`; medium effort produced an invalid `HIGH` on PR #948, and Terra produced an invalid `MEDIUM` on PR #953 |
 | No increase in median tool calls or compactions | Not decision-bearing because completion and recall failed |
-| At least 20% faster or equivalent with lower token use | Not evaluated for Terra: quality gates failed, and its completed-case set is not case-matched to the Sol timing samples; completion rate is not a latency comparison |
+| At least 20% faster or equivalent with lower token use | Not evaluated for Terra or extended timeout: quality gates failed, and completed-case sets are not case-matched latency samples |
 
 The planned repeats showed that compact severity varies, but two completed
 trials still downgraded an adjudicated `HIGH`. Testing `medium` closed the effort
@@ -325,8 +393,8 @@ matrix and showed that its completion gain comes with unacceptable recall.
 
 1. Keep production on `gpt-5.6-sol`, `unified=40`, `xhigh`, and the baseline
    prompt while retaining the bounded timeout and fail-closed human-review path.
-2. Do not repeat the rejected sharded or Terra candidates, and do not replay PRs
-   #957 and #964 for either candidate.
+2. Do not repeat the rejected sharded, Terra, or extended-timeout candidates,
+   and do not replay PRs #957 and #964 for them.
 3. Monitor hard cancellation classifications during normal operation; do not
    weaken them into model timeouts without trusted evidence.
 4. Require any future candidate to use trusted default-branch benchmark code and
