@@ -1821,6 +1821,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.unpairDeviceStmt, err = db.PrepareContext(ctx, unpairDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UnpairDevice: %w", err)
 	}
+	if q.unverifyFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, unverifyFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query UnverifyFirmwareRolloutDevices: %w", err)
+	}
 	if q.updateAlertChannelStmt, err = db.PrepareContext(ctx, updateAlertChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateAlertChannel: %w", err)
 	}
@@ -5022,6 +5025,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing unpairDeviceStmt: %w", cerr)
 		}
 	}
+	if q.unverifyFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.unverifyFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unverifyFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
 	if q.updateAlertChannelStmt != nil {
 		if cerr := q.updateAlertChannelStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateAlertChannelStmt: %w", cerr)
@@ -5995,6 +6003,7 @@ type Queries struct {
 	undeleteOrganizationStmt                                     *sql.Stmt
 	undeleteRoleStmt                                             *sql.Stmt
 	unpairDeviceStmt                                             *sql.Stmt
+	unverifyFirmwareRolloutDevicesStmt                           *sql.Stmt
 	updateAlertChannelStmt                                       *sql.Stmt
 	updateAlertMaintenanceWindowStmt                             *sql.Stmt
 	updateApiKeyLastUsedStmt                                     *sql.Stmt
@@ -6667,6 +6676,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                             q.undeleteRoleStmt,
 		unpairDeviceStmt:                                             q.unpairDeviceStmt,
+		unverifyFirmwareRolloutDevicesStmt:                           q.unverifyFirmwareRolloutDevicesStmt,
 		updateAlertChannelStmt:                                       q.updateAlertChannelStmt,
 		updateAlertMaintenanceWindowStmt:                             q.updateAlertMaintenanceWindowStmt,
 		updateApiKeyLastUsedStmt:                                     q.updateApiKeyLastUsedStmt,

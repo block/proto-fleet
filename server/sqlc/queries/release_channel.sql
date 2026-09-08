@@ -734,10 +734,12 @@ WHERE d.id = ANY(sqlc.arg('device_ids')::bigint[])
 ON CONFLICT (rollout_id, device_id) DO NOTHING;
 
 -- name: ReincludeFirmwareRolloutDevices :exec
--- Re-includes miners that left the channel scope and came back; they keep
--- their batch, order and baseline.
+-- Re-includes miners that left the channel scope and came back. They keep
+-- their batch, order and baseline but must verify again: their firmware may
+-- have changed while they were out of scope.
 UPDATE firmware_rollout_device
-SET excluded_at = NULL
+SET excluded_at = NULL,
+    verified_at = NULL
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
   AND excluded_at IS NOT NULL;
@@ -758,6 +760,16 @@ SET verified_at = now()
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
   AND verified_at IS NULL;
+
+-- name: UnverifyFirmwareRolloutDevices :exec
+-- Reopens convergence for verified miners the enforcement loop sees drifting
+-- from the assignment (reported version or provenance no longer match) while
+-- the rollout runs, so they are updated again.
+UPDATE firmware_rollout_device
+SET verified_at = NULL
+WHERE rollout_id = sqlc.arg('rollout_id')
+  AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND verified_at IS NOT NULL;
 
 -- name: HaltFirmwareRolloutDevices :exec
 -- Stops retrying miners for this version: 'failed' (attempts exhausted),

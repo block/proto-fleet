@@ -2282,7 +2282,8 @@ func (q *Queries) RecordFirmwareRolloutAction(ctx context.Context, arg RecordFir
 
 const reincludeFirmwareRolloutDevices = `-- name: ReincludeFirmwareRolloutDevices :exec
 UPDATE firmware_rollout_device
-SET excluded_at = NULL
+SET excluded_at = NULL,
+    verified_at = NULL
 WHERE rollout_id = $1
   AND device_id = ANY($2::bigint[])
   AND excluded_at IS NOT NULL
@@ -2293,8 +2294,9 @@ type ReincludeFirmwareRolloutDevicesParams struct {
 	DeviceIds []int64
 }
 
-// Re-includes miners that left the channel scope and came back; they keep
-// their batch, order and baseline.
+// Re-includes miners that left the channel scope and came back. They keep
+// their batch, order and baseline but must verify again: their firmware may
+// have changed while they were out of scope.
 func (q *Queries) ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error {
 	_, err := q.exec(ctx, q.reincludeFirmwareRolloutDevicesStmt, reincludeFirmwareRolloutDevices, arg.RolloutID, pq.Array(arg.DeviceIds))
 	return err
@@ -2525,6 +2527,27 @@ func (q *Queries) SnapshotFirmwareRolloutDevices(ctx context.Context, arg Snapsh
 		arg.PositionOffset,
 		pq.Array(arg.DeviceIds),
 	)
+	return err
+}
+
+const unverifyFirmwareRolloutDevices = `-- name: UnverifyFirmwareRolloutDevices :exec
+UPDATE firmware_rollout_device
+SET verified_at = NULL
+WHERE rollout_id = $1
+  AND device_id = ANY($2::bigint[])
+  AND verified_at IS NOT NULL
+`
+
+type UnverifyFirmwareRolloutDevicesParams struct {
+	RolloutID int64
+	DeviceIds []int64
+}
+
+// Reopens convergence for verified miners the enforcement loop sees drifting
+// from the assignment (reported version or provenance no longer match) while
+// the rollout runs, so they are updated again.
+func (q *Queries) UnverifyFirmwareRolloutDevices(ctx context.Context, arg UnverifyFirmwareRolloutDevicesParams) error {
+	_, err := q.exec(ctx, q.unverifyFirmwareRolloutDevicesStmt, unverifyFirmwareRolloutDevices, arg.RolloutID, pq.Array(arg.DeviceIds))
 	return err
 }
 

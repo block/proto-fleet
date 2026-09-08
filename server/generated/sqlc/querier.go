@@ -1537,8 +1537,9 @@ type Querier interface {
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
-	// Re-includes miners that left the channel scope and came back; they keep
-	// their batch, order and baseline.
+	// Re-includes miners that left the channel scope and came back. They keep
+	// their batch, order and baseline but must verify again: their firmware may
+	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
 	ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error)
 	// Targets that never received a Curtail command do not need Uncurtail. Release
@@ -1788,6 +1789,10 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
+	// Reopens convergence for verified miners the enforcement loop sees drifting
+	// from the assignment (reported version or provenance no longer match) while
+	// the rollout runs, so they are updated again.
+	UnverifyFirmwareRolloutDevices(ctx context.Context, arg UnverifyFirmwareRolloutDevicesParams) error
 	UpdateAlertChannel(ctx context.Context, arg UpdateAlertChannelParams) (AlertChannel, error)
 	// created_by/created_at are write-once: an update keeps the original creator for the audit trail.
 	UpdateAlertMaintenanceWindow(ctx context.Context, arg UpdateAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
