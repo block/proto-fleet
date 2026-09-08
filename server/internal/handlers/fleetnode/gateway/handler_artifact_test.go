@@ -5,6 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,54 +241,99 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 }
 
 func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
-	h, client := newArtifactTestClient(t)
-	payload := []byte("firmware image bytes")
-	fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload), files.FirmwareMetadata{
-		TargetManufacturer: "Proto",
-		TargetModel:        "Rig",
-		FirmwareVersion:    "1.2.3",
-	})
-	require.NoError(t, err)
-	_, info, err := h.files.OpenFirmwareFileWithInfo(fileID)
-	require.NoError(t, err)
-	ref := &pb.CommandArtifactRef{
-		ArtifactId: info.ID,
-		Purpose:    pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
-		Filename:   info.Filename,
-		SizeBytes:  info.Size,
-		Sha256:     info.SHA256,
-	}
+	for _, tc := range []struct {
+		name             string
+		metadataState    string
+		checksumMismatch bool
+		sizeMismatch     bool
+		wantError        string
+	}{
+		{name: "original metadata"},
+		{name: "edited metadata", metadataState: "edited"},
+		{name: "corrupt metadata", metadataState: "corrupt"},
+		{name: "missing metadata", metadataState: "missing"},
+		{name: "checksum mismatch", checksumMismatch: true, wantError: "checksum"},
+		{name: "size mismatch", sizeMismatch: true, wantError: "no longer matches"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, client := newArtifactTestClient(t)
+			payload := []byte("firmware image bytes")
+			fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload), files.FirmwareMetadata{
+				TargetManufacturer: "Proto",
+				TargetModel:        "Rig",
+				FirmwareVersion:    "1.2.3",
+			})
+			require.NoError(t, err)
+			reader, info, err := h.files.OpenFirmwareFileWithInfo(fileID)
+			require.NoError(t, err)
+			require.NoError(t, reader.Close())
+			ref := &pb.CommandArtifactRef{
+				ArtifactId: info.ID,
+				Purpose:    pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+				Filename:   info.Filename,
+				SizeBytes:  info.Size,
+				Sha256:     info.SHA256,
+			}
+			if tc.checksumMismatch {
+				ref.Sha256 = strings.Repeat("0", 64)
+			}
+			if tc.sizeMismatch {
+				ref.SizeBytes++
+			}
 
-	commandID := "download-firmware-command"
-	stream, done := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{firmwareDownloadExpectation(ref)})
-	download, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
-		CommandId:        commandID,
-		Artifact:         ref,
-		DeviceIdentifier: "miner-a",
-	}))
-	require.NoError(t, err)
-	defer download.Close()
+			commandID := "download-firmware-command"
+			stream, done := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{firmwareDownloadExpectation(ref)})
+			// Changing or losing upload metadata after issuing the reference
+			// must not prevent the remote miner from downloading its payload.
+			switch tc.metadataState {
+			case "edited":
+				_, err := h.files.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+					TargetManufacturer: "Other",
+					TargetModel:        "Different",
+					FirmwareVersion:    "9.9.9",
+				})
+				require.NoError(t, err)
+			case "corrupt":
+				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(info.FilePath), "metadata.json"), []byte("not JSON"), 0600))
+			case "missing":
+				require.NoError(t, os.Remove(filepath.Join(filepath.Dir(info.FilePath), "metadata.json")))
+			}
+			download, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
+				CommandId:        commandID,
+				Artifact:         ref,
+				DeviceIdentifier: "miner-a",
+			}))
+			require.NoError(t, err)
+			defer download.Close()
 
-	var got bytes.Buffer
-	var header *pb.CommandArtifactRef
-	for download.Receive() {
-		msg := download.Msg()
-		if h := msg.GetHeader(); h != nil {
-			header = h.GetArtifact()
-			continue
-		}
-		_, err := got.Write(msg.GetChunk().GetData())
-		require.NoError(t, err)
+			if tc.wantError != "" {
+				require.False(t, download.Receive())
+				require.ErrorContains(t, download.Err(), tc.wantError)
+				assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(download.Err()))
+			} else {
+				var got bytes.Buffer
+				var header *pb.CommandArtifactRef
+				for download.Receive() {
+					msg := download.Msg()
+					if h := msg.GetHeader(); h != nil {
+						header = h.GetArtifact()
+						continue
+					}
+					_, err := got.Write(msg.GetChunk().GetData())
+					require.NoError(t, err)
+				}
+				require.NoError(t, download.Err())
+				require.NotNil(t, header)
+				assert.Equal(t, ref.GetArtifactId(), header.GetArtifactId())
+				assert.Equal(t, ref.GetPurpose(), header.GetPurpose())
+				assert.Equal(t, ref.GetFilename(), header.GetFilename())
+				assert.Equal(t, ref.GetSizeBytes(), header.GetSizeBytes())
+				assert.Equal(t, ref.GetSha256(), header.GetSha256())
+				assert.Equal(t, payload, got.Bytes())
+			}
+			finishAckOnlyCommand(t, stream, commandID, done)
+		})
 	}
-	require.NoError(t, download.Err())
-	require.NotNil(t, header)
-	assert.Equal(t, ref.GetArtifactId(), header.GetArtifactId())
-	assert.Equal(t, ref.GetPurpose(), header.GetPurpose())
-	assert.Equal(t, ref.GetFilename(), header.GetFilename())
-	assert.Equal(t, ref.GetSizeBytes(), header.GetSizeBytes())
-	assert.Equal(t, ref.GetSha256(), header.GetSha256())
-	assert.Equal(t, payload, got.Bytes())
-	finishAckOnlyCommand(t, stream, commandID, done)
 }
 
 func TestCommandArtifactUploadTimeoutReleasesSlotAndAllowsRetry(t *testing.T) {

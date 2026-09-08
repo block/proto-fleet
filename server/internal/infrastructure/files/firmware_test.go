@@ -784,7 +784,14 @@ func TestFindFirmwareFileByChecksum_PreservesInvalidMetadataDirectory(t *testing
 	assert.False(t, ok)
 	assert.Empty(t, foundID)
 	assert.DirExists(t, getFirmwareDirPath(fileID))
-	assert.NotContains(t, svc.firmwareChecksumByID, fileID)
+	assert.NotContains(t, svc.checksumIndex[checksumOf(content)], fileID)
+	assert.Equal(t, checksumOf(content), svc.firmwareChecksumByID[fileID])
+	// Invalid metadata disqualifies upload reuse, but the payload still carries
+	// an existing assignment after the reuse lookup has probed its sidecar.
+	assert.Equal(t, []string{fileID}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
+	foundID, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
+	require.True(t, ok)
+	assert.Equal(t, fileID, foundID)
 }
 
 func TestFindFirmwareFileByChecksum_ReturnsFalseAfterDelete(t *testing.T) {

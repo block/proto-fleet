@@ -702,6 +702,10 @@ func (s *Service) OpenFirmwareFile(fileID string) (io.ReadCloser, string, int64,
 // OpenFirmwareFileWithInfo opens the firmware file for reading and returns
 // metadata required to address it as a command artifact payload.
 func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, FirmwareFileInfo, error) {
+	return s.openFirmwareFileWithInfo(fileID, "")
+}
+
+func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (io.ReadCloser, FirmwareFileInfo, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return nil, FirmwareFileInfo{}, err
@@ -721,21 +725,26 @@ func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, Firmwa
 		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
 	}
 
-	metadata, hasMetadata := FirmwareMetadata{}, true
-	if m, err := readFirmwareMetadata(getFirmwareDirPath(canonical)); err != nil {
-		if !errors.Is(err, errFirmwareMetadataNotFound) {
-			file.Close()
-			return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+	metadata, hasMetadata := FirmwareMetadata{}, false
+	if expectedChecksum == "" {
+		if m, err := readFirmwareMetadata(getFirmwareDirPath(canonical)); err != nil {
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				file.Close()
+				return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+			}
+		} else {
+			metadata, hasMetadata = m, true
 		}
-		hasMetadata = false
-	} else {
-		metadata = m
 	}
 
 	checksum, err := s.firmwareChecksum(canonical, filePath, hasMetadata)
 	if err != nil {
 		file.Close()
 		return nil, FirmwareFileInfo{}, err
+	}
+	if expectedChecksum != "" && checksum != expectedChecksum {
+		file.Close()
+		return nil, FirmwareFileInfo{}, fleeterror.NewFailedPreconditionError("firmware payload does not match the assigned checksum")
 	}
 
 	return file, FirmwareFileInfo{
@@ -835,9 +844,7 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 				continue
 			}
 			slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", fileID, "error", err)
-			s.mu.Lock()
-			s.removeFirmwareChecksumLocked(sha256Hex, fileID)
-			s.mu.Unlock()
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
 			continue
 		}
 		if storedMetadata.matches(metadata) {

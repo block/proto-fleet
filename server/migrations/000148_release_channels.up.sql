@@ -174,9 +174,13 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.revision_txid = txid;
         NEW.updated_at = clock_timestamp();
-    ELSIF OLD.revision_txid <> txid THEN
-        NEW.revision = OLD.revision + 1;
-        NEW.revision_txid = txid;
+    ELSE
+        IF OLD.revision_txid <> txid THEN
+            NEW.revision = OLD.revision + 1;
+            NEW.revision_txid = txid;
+        END IF;
+        -- Later statements in this transaction can also touch the rollout.
+        -- Keep their timestamps monotonic even though revision does not bump.
         NEW.updated_at = GREATEST(OLD.updated_at, clock_timestamp());
     END IF;
     RETURN NEW;
