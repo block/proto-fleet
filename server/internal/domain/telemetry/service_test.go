@@ -71,6 +71,64 @@ func TestProcessDevice_ResourceExhaustedSkipsStatusRetry(t *testing.T) {
 	assert.True(t, fleeterror.IsResourceExhaustedError(err))
 }
 
+func TestWorker_RetainsInitialAdmissionAfterCapacityRequeue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	device := models.Device{ID: "new-busy-device", LastUpdatedAt: time.Now().Add(-time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), device.ID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1))
+	mockMiner.EXPECT().GetSiteID().Return(int64(2))
+	mockMiner.EXPECT().GetDriverName().Return("virtual")
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{}, fleeterror.NewPlainError("fleet node busy", connect.CodeResourceExhausted))
+	mockScheduler.EXPECT().
+		RequeueDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), device.ID).
+		Return(false, time.Time{}, nil).
+		AnyTimes()
+
+	service := NewTelemetryService(
+		Config{ConcurrencyLimit: 1, MetricTimeout: time.Second},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+	service.devicesForStatusPolling.Store(device.ID, struct{}{})
+	service.awaitingInitialTelemetry.Store(device.ID, struct{}{})
+	activation := telemetryActivationForTest(service)
+	activation.tasks <- device
+	close(activation.tasks)
+
+	done := make(chan struct{})
+	go func() {
+		service.worker(t.Context(), activation)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not exit after tasks channel closed")
+	}
+
+	_, awaiting := service.awaitingInitialTelemetry.Load(device.ID)
+	assert.True(t, awaiting, "capacity requeue must retain initial-admission ownership")
+	assert.NotContains(t, runStatusPollingOnce(t, service), device.ID,
+		"status polling must not bypass initial telemetry after a capacity requeue")
+}
+
 func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryActivation {
 	service.lifecycleMu.Lock()
 	defer service.lifecycleMu.Unlock()

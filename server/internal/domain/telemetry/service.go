@@ -836,8 +836,13 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 			}
 			// Claim before clearing this marker so status polling cannot race in
 			// between initial scheduler admission and the in-flight guard.
-			s.awaitingInitialTelemetry.Delete(device.ID)
-			_ = s.processDevice(ctx, device, activation.results)
+			_, awaitingInitialTelemetry := s.awaitingInitialTelemetry.LoadAndDelete(device.ID)
+			if err := s.processDevice(ctx, device, activation.results); awaitingInitialTelemetry && fleeterror.IsResourceExhaustedError(err) {
+				// Capacity rejection defers, rather than completes, initial telemetry.
+				// Restore the marker before releasing the in-flight claim so status
+				// polling cannot bypass the scheduler's initial-admission path.
+				s.awaitingInitialTelemetry.Store(device.ID, struct{}{})
+			}
 			s.releaseInFlight(device.ID, entry)
 
 		case device, ok := <-activation.statusTasks:
