@@ -160,6 +160,8 @@ CREATE UNIQUE INDEX idx_one_active_rollout_per_pair
 -- Keyset order of ListFirmwareRollouts.
 CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, created_at DESC, id DESC);
 CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, updated_at);
+-- Incremental polling filters by transaction before sorting the changed rows.
+CREATE INDEX idx_firmware_rollout_org_revision_txid ON firmware_rollout(org_id, revision_txid);
 
 -- The creating transaction owns revision 1, so the initial snapshot and any
 -- other statement in it do not bump. updated_at is the wall clock when the

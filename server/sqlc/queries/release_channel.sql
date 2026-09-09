@@ -468,10 +468,12 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 -- --- Rollouts ---
 
 -- name: CreateFirmwareRollout :one
+-- Creation follows assignment/scope locks; start the initial stage at this
+-- write rather than at the beginning of a transaction that may have waited.
 INSERT INTO firmware_rollout (
     org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version,
     previous_firmware_checksum, previous_firmware_version, assignment_generation,
-    stage,
+    stage, stage_changed_at,
     method, order_by, batch_size, pilot_size, wait_between_batches_seconds,
     review_after_each_batch, auto_continue, stabilization_seconds,
     max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors,
@@ -482,7 +484,7 @@ INSERT INTO firmware_rollout (
 VALUES (
     sqlc.arg('org_id'), sqlc.arg('channel_id'), sqlc.arg('manufacturer'), sqlc.arg('model'), sqlc.arg('firmware_checksum'), sqlc.arg('firmware_version'),
     sqlc.arg('previous_firmware_checksum'), sqlc.arg('previous_firmware_version'), sqlc.arg('assignment_generation'),
-    sqlc.arg('stage'),
+    sqlc.arg('stage'), clock_timestamp(),
     sqlc.arg('method'), sqlc.arg('order_by'), sqlc.arg('batch_size'), sqlc.arg('pilot_size'), sqlc.arg('wait_between_batches_seconds'),
     sqlc.arg('review_after_each_batch'), sqlc.arg('auto_continue'), sqlc.arg('stabilization_seconds'),
     sqlc.narg('max_hashrate_drop_percent')::double precision, sqlc.narg('max_efficiency_increase_percent')::double precision,

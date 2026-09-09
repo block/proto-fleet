@@ -126,3 +126,55 @@ func TestReleaseChannelQueries_StageTimeMonotonicAndGuarded(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, unchanged, "inactive rollouts cannot transition")
 }
+
+func TestReleaseChannelQueries_InitialStageTimeAfterLockWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	f := newReleaseChannelQueryFixture(t)
+	channel := f.channel("initial-stage-time")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	waiter, err := f.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = waiter.Rollback() }()
+	var waiterPID int
+	var txStart time.Time
+	require.NoError(t, waiter.QueryRowContext(ctx, `SELECT pg_backend_pid(), now()`).Scan(&waiterPID, &txStart))
+
+	blocker, err := f.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = blocker.Rollback() }()
+	require.NoError(t, sqlc.New(blocker).LockReleaseChannelScopes(ctx, f.org))
+	q := sqlc.New(waiter)
+	locked := make(chan error, 1)
+	go func() { locked <- q.LockReleaseChannelScopes(ctx, f.org) }()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := f.db.QueryRowContext(ctx, `SELECT cardinality(pg_blocking_pids($1)) > 0`, waiterPID).Scan(&blocked)
+		return err == nil && blocked
+	}, 3*time.Second, 10*time.Millisecond, "creation transaction must wait for the scope lock")
+	var beforeUnlock time.Time
+	require.NoError(t, blocker.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&beforeUnlock))
+	require.NoError(t, blocker.Commit())
+	require.NoError(t, <-locked)
+
+	// Both an initial batch and an unbatched stage receive the creation
+	// statement's time, independent of how old their transaction is.
+	for _, stage := range []string{"batch", "rest"} {
+		var beforeInsert time.Time
+		require.NoError(t, waiter.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&beforeInsert))
+		row, err := q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
+			OrgID: f.org, ChannelID: channel, Manufacturer: "Bitmain", Model: stage,
+			FirmwareChecksum: "sum", FirmwareVersion: "v2", AssignmentGeneration: 1,
+			Stage: stage, Method: "all_at_once", OrderBy: "least_efficient_first", ActorType: "system",
+		})
+		require.NoError(t, err)
+		require.Equal(t, stage, row.Stage)
+		require.False(t, row.StageChangedAt.Before(beforeInsert), "initial stage starts at creation")
+		require.False(t, row.StageChangedAt.Before(beforeUnlock), "initial stage excludes prior lock waits")
+		require.True(t, row.StageChangedAt.After(txStart))
+		require.Equal(t, int64(1), row.Revision)
+	}
+	require.NoError(t, waiter.Commit())
+}
