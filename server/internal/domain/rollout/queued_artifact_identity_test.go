@@ -42,7 +42,7 @@ func TestQueuedArtifactChecksumSurvivesReupload(t *testing.T) {
 			f.svc.EnforceTick(t.Context())
 			require.Equal(t, StatusCompleted, f.rollout(t, started.ID).Status)
 			f.svc.EnforceTick(t.Context())
-			rollouts, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+			rollouts, _, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
 			require.NoError(t, err)
 			require.Len(t, rollouts, 1, "the outstanding command must not create a reconciliation rollout")
 			assert.Equal(t, started.ID, rollouts[0].ID)

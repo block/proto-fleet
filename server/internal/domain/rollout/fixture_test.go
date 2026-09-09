@@ -300,7 +300,7 @@ func (f *fixture) apply(t *testing.T, fileID string) Rollout {
 
 func (f *fixture) rollout(t *testing.T, id int64) Rollout {
 	t.Helper()
-	rollouts, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+	rollouts, _, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
 	require.NoError(t, err)
 	for _, r := range rollouts {
 		if r.ID == id {
@@ -313,7 +313,7 @@ func (f *fixture) rollout(t *testing.T, id int64) Rollout {
 
 func (f *fixture) latestRollout(t *testing.T) Rollout {
 	t.Helper()
-	rollouts, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+	rollouts, _, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
 	require.NoError(t, err)
 	require.NotEmpty(t, rollouts)
 	return rollouts[0]
