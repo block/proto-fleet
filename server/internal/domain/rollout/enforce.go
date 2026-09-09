@@ -355,15 +355,22 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 // recordProvenance writes managed-deployment provenance for targets that were
 // dispatched to and now report the rollout's version, so they can verify and
 // the pair's on-target count reflects them. A target with a foreign firmware
-// command still outstanding waits: its report predates that command. Returns
-// the refreshed targets when anything changed.
+// command still outstanding waits: its report predates that command. The write
+// compares the observed provenance atomically so a stale read cannot replace a
+// concurrent deployment. Returns refreshed targets after attempting the write.
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var deployed []int64
+	var expectedPresent []bool
+	var expectedDeployedAt []time.Time
+	var expectedChecksums []string
 	for _, t := range targets {
 		if !t.excluded() && !t.halted() && t.LastSentAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
 			(!t.LastDeployedAt.Valid || !t.LastDeployedAt.Time.After(t.LastSentAt.Time)) &&
 			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
 			deployed = append(deployed, t.DeviceID)
+			expectedPresent = append(expectedPresent, t.LastDeployedAt.Valid)
+			expectedDeployedAt = append(expectedDeployedAt, t.LastDeployedAt.Time)
+			expectedChecksums = append(expectedChecksums, t.LastDeployedFirmwareChecksum)
 		}
 	}
 	if len(deployed) == 0 {
@@ -371,7 +378,10 @@ func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, 
 	}
 	if err := s.store.Queries(ctx).RecordFirmwareDeployment(ctx, sqlc.RecordFirmwareDeploymentParams{
 		DeviceIds: deployed, FirmwareChecksum: r.FirmwareChecksum, FirmwareVersion: r.FirmwareVersion,
-		RolloutID: sql.NullInt64{Int64: r.ID, Valid: true},
+		RolloutID:                 sql.NullInt64{Int64: r.ID, Valid: true},
+		ExpectedDeploymentPresent: expectedPresent,
+		ExpectedDeployedAts:       expectedDeployedAt,
+		ExpectedFirmwareChecksums: expectedChecksums,
 	}); err != nil {
 		return nil, fleeterror.NewInternalErrorf("record firmware deployment: %v", err)
 	}
