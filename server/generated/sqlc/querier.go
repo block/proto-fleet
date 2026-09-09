@@ -1530,8 +1530,13 @@ type Querier interface {
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	// Managed-deployment provenance: the miners listed reported the artifact a
-	// rollout dispatched to them. The triggers on device_firmware_deployment
-	// advance the rollout's revision.
+	// rollout dispatched to them. Each aligned observation must still match the
+	// current provenance; losing that race is a no-op and the caller reloads it.
+	// Observed absence only permits insertion, never replacement of a concurrent
+	// insert. Existing rows advance their timestamp strictly, including writes in
+	// one transaction, so an older observation cannot match a later write. Rollout
+	// IDs do not order deployments: an older rollout can make a corrective send.
+	// The triggers on device_firmware_deployment advance the rollout's revision.
 	RecordFirmwareDeployment(ctx context.Context, arg RecordFirmwareDeploymentParams) error
 	// Attributes an action that changes only the rollout's devices (retry) to
 	// its actor.

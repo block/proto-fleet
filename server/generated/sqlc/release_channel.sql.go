@@ -1133,6 +1133,7 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       dep.deployed_at AS last_deployed_at,
        COALESCE((
            SELECT array_agg(qm.payload->>'firmware_checksum')
            FROM queue_message qm
@@ -1204,6 +1205,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	OpenErrors                   int32
 	ErrorsSinceBaseline          int32
 	LastDeployedFirmwareChecksum string
+	LastDeployedAt               sql.NullTime
 	PendingFirmwareChecksums     []string
 	PendingLegacyFirmwareFileIds []string
 	InScope                      sql.NullBool
@@ -1259,6 +1261,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.OpenErrors,
 			&i.ErrorsSinceBaseline,
 			&i.LastDeployedFirmwareChecksum,
+			&i.LastDeployedAt,
 			pq.Array(&i.PendingFirmwareChecksums),
 			pq.Array(&i.PendingLegacyFirmwareFileIds),
 			&i.InScope,
@@ -2248,32 +2251,61 @@ func (q *Queries) PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRol
 }
 
 const recordFirmwareDeployment = `-- name: RecordFirmwareDeployment :exec
+WITH observations AS (
+    SELECT DISTINCT ids.device_id, ids.deployment_present, ids.deployed_at, ids.firmware_checksum
+    FROM (
+        SELECT unnest($4::bigint[]) AS device_id,
+               unnest($5::boolean[]) AS deployment_present,
+               unnest($6::timestamptz[]) AS deployed_at,
+               unnest($7::text[]) AS firmware_checksum
+    ) ids
+), updated AS (
+    UPDATE device_firmware_deployment dep
+    SET firmware_checksum = $1,
+        firmware_version = $2,
+        rollout_id = $3,
+        deployed_at = GREATEST(clock_timestamp(), dep.deployed_at + INTERVAL '1 microsecond')
+    FROM observations observed
+    WHERE observed.deployment_present
+      AND dep.device_id = observed.device_id
+      AND dep.deployed_at = observed.deployed_at
+      AND dep.firmware_checksum = observed.firmware_checksum
+    RETURNING dep.device_id
+)
 INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version, rollout_id, deployed_at)
-SELECT ids.device_id, $1, $2, $3, now()
-FROM (SELECT DISTINCT unnest($4::bigint[]) AS device_id) ids
-ON CONFLICT (device_id) DO UPDATE
-SET firmware_checksum = EXCLUDED.firmware_checksum,
-    firmware_version = EXCLUDED.firmware_version,
-    rollout_id = EXCLUDED.rollout_id,
-    deployed_at = now()
+SELECT observed.device_id, $1, $2, $3, clock_timestamp()
+FROM observations observed
+WHERE NOT observed.deployment_present
+ON CONFLICT (device_id) DO NOTHING
 `
 
 type RecordFirmwareDeploymentParams struct {
-	FirmwareChecksum string
-	FirmwareVersion  string
-	RolloutID        sql.NullInt64
-	DeviceIds        []int64
+	FirmwareChecksum          string
+	FirmwareVersion           string
+	RolloutID                 sql.NullInt64
+	DeviceIds                 []int64
+	ExpectedDeploymentPresent []bool
+	ExpectedDeployedAts       []time.Time
+	ExpectedFirmwareChecksums []string
 }
 
 // Managed-deployment provenance: the miners listed reported the artifact a
-// rollout dispatched to them. The triggers on device_firmware_deployment
-// advance the rollout's revision.
+// rollout dispatched to them. Each aligned observation must still match the
+// current provenance; losing that race is a no-op and the caller reloads it.
+// Observed absence only permits insertion, never replacement of a concurrent
+// insert. Existing rows advance their timestamp strictly, including writes in
+// one transaction, so an older observation cannot match a later write. Rollout
+// IDs do not order deployments: an older rollout can make a corrective send.
+// The triggers on device_firmware_deployment advance the rollout's revision.
 func (q *Queries) RecordFirmwareDeployment(ctx context.Context, arg RecordFirmwareDeploymentParams) error {
 	_, err := q.exec(ctx, q.recordFirmwareDeploymentStmt, recordFirmwareDeployment,
 		arg.FirmwareChecksum,
 		arg.FirmwareVersion,
 		arg.RolloutID,
 		pq.Array(arg.DeviceIds),
+		pq.Array(arg.ExpectedDeploymentPresent),
+		pq.Array(arg.ExpectedDeployedAts),
+		pq.Array(arg.ExpectedFirmwareChecksums),
 	)
 	return err
 }

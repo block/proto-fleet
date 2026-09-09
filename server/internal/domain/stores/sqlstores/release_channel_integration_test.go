@@ -222,7 +222,10 @@ func TestReleaseChannelQueries_MismatchAndSuppression(t *testing.T) {
 
 	require.NoError(t, q.RecordFirmwareDeployment(f.t.Context(), sqlc.RecordFirmwareDeploymentParams{
 		DeviceIds: []int64{current.id, queued.id, queued.id}, FirmwareChecksum: "sum", FirmwareVersion: "v2",
-		RolloutID: sql.NullInt64{Int64: rollout, Valid: true},
+		RolloutID:                 sql.NullInt64{Int64: rollout, Valid: true},
+		ExpectedDeploymentPresent: []bool{false, false, false},
+		ExpectedDeployedAts:       []time.Time{{}, {}, {}},
+		ExpectedFirmwareChecksums: []string{"", "", ""},
 	}))
 	require.Equal(t, int64(2), f.revision(rollout), "recording provenance bumps the rollout once")
 	require.Equal(t, []string{"halted", "stale"}, mismatched(nil))
