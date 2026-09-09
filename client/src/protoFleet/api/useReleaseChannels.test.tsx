@@ -1,19 +1,25 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { create } from "@bufbuild/protobuf";
+import { create, toJson } from "@bufbuild/protobuf";
 
 import {
+  CreateReleaseChannelRequestSchema,
   ListReleaseChannelModelGroupsResponseSchema,
   ListReleaseChannelsResponseSchema,
   ListRolloutsResponseSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
+  ReleaseChannelScopeSchema,
   ReleaseChannelSummarySchema,
+  RolloutBehaviorSchema,
   RolloutMethod,
+  RolloutOrder,
   RolloutSchema,
   RolloutStatus,
+  UpdateReleaseChannelRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
+import { defaultBehavior } from "@/protoFleet/features/settings/components/ReleaseChannels/behaviorUtils";
 
 const {
   mockListReleaseChannels,
@@ -127,17 +133,153 @@ describe("useReleaseChannels", () => {
     const draft = {
       name: "Canary",
       description: "First wave",
-      scope: { rackIds: [40n] },
-      behavior: { method: RolloutMethod.PILOT_THEN_CONTINUE, pilotSize: 2 },
+      scope: create(ReleaseChannelScopeSchema, { rackIds: [40n] }),
+      behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.PILOT_THEN_CONTINUE, pilotSize: 2 }),
     };
     let created;
     await act(async () => {
-      created = await result.current.createChannel(draft as never);
+      created = await result.current.createChannel(draft);
     });
     expect(created).toEqual(canaryView);
     expect(mockCreateReleaseChannel).toHaveBeenCalledWith(draft);
     expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
   });
+
+  it("creates an empty channel without sending inactive form defaults or changing the draft", async () => {
+    mockCreateReleaseChannel.mockResolvedValue({ channel: canary });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const draft = {
+      name: "Empty channel",
+      description: "",
+      scope: create(ReleaseChannelScopeSchema),
+      behavior: defaultBehavior(),
+    };
+    const draftBeforeSave = toJson(CreateReleaseChannelRequestSchema, create(CreateReleaseChannelRequestSchema, draft));
+
+    await act(async () => {
+      await result.current.createChannel(draft);
+    });
+
+    const request = create(CreateReleaseChannelRequestSchema, mockCreateReleaseChannel.mock.calls[0][0]);
+    expect(toJson(CreateReleaseChannelRequestSchema, request)).toEqual({
+      name: "Empty channel",
+      scope: {},
+      behavior: { method: "ROLLOUT_METHOD_ALL_AT_ONCE", order: "ROLLOUT_ORDER_LEAST_EFFICIENT_FIRST" },
+    });
+    expect(toJson(CreateReleaseChannelRequestSchema, create(CreateReleaseChannelRequestSchema, draft))).toEqual(
+      draftBeforeSave,
+    );
+  });
+
+  it("omits present but empty thresholds when saving a fetched all-at-once channel", async () => {
+    const fetchedChannel = create(ReleaseChannelSchema, {
+      ...canary,
+      behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.ALL_AT_ONCE, thresholds: {} }),
+    });
+    mockGetReleaseChannel.mockResolvedValue({ channel: fetchedChannel });
+    mockUpdateReleaseChannel.mockResolvedValue({ channel: fetchedChannel });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const loadedChannel = result.current.channels[0];
+
+    await act(async () => {
+      await result.current.updateChannel(loadedChannel.id, {
+        name: loadedChannel.name,
+        description: loadedChannel.description,
+        scope: create(ReleaseChannelScopeSchema, loadedChannel.scope),
+        behavior: create(RolloutBehaviorSchema, loadedChannel.behavior),
+      });
+    });
+
+    const request = create(UpdateReleaseChannelRequestSchema, mockUpdateReleaseChannel.mock.calls[0][0]);
+    expect(toJson(UpdateReleaseChannelRequestSchema, request)).toEqual({
+      channelId: "1",
+      name: "Canary",
+      scope: { rackIds: ["40"] },
+      behavior: { method: "ROLLOUT_METHOD_ALL_AT_ONCE" },
+    });
+    expect(loadedChannel.behavior?.thresholds).toBeDefined();
+  });
+
+  it.each([
+    {
+      name: "all at once",
+      changes: { method: RolloutMethod.ALL_AT_ONCE },
+      expectedBehavior: {
+        method: "ROLLOUT_METHOD_ALL_AT_ONCE",
+        order: "ROLLOUT_ORDER_RANDOM",
+        maxConcurrentOffline: 4,
+      },
+    },
+    {
+      name: "batches without review",
+      changes: { reviewAfterEachBatch: false, waitBetweenBatchesSeconds: 90 },
+      expectedBehavior: {
+        method: "ROLLOUT_METHOD_BATCHED",
+        order: "ROLLOUT_ORDER_RANDOM",
+        batchSize: 7,
+        waitBetweenBatchesSeconds: 90,
+        maxConcurrentOffline: 4,
+      },
+    },
+    {
+      name: "reviewed batches without automation",
+      changes: { autoContinueOnHealthyTelemetry: false },
+      expectedBehavior: {
+        method: "ROLLOUT_METHOD_BATCHED",
+        order: "ROLLOUT_ORDER_RANDOM",
+        batchSize: 7,
+        reviewAfterEachBatch: true,
+        maxConcurrentOffline: 4,
+      },
+    },
+  ])(
+    "clears inactive settings when switching reviewed automatic batches to $name",
+    async ({ changes, expectedBehavior }) => {
+      const fetchedChannel = create(ReleaseChannelSchema, {
+        ...canary,
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.BATCHED,
+          order: RolloutOrder.RANDOM,
+          batchSize: 7,
+          reviewAfterEachBatch: true,
+          autoContinueOnHealthyTelemetry: true,
+          stabilizationSeconds: 600,
+          thresholds: { maxHashrateDropPercent: 10, maxNewErrors: 0 },
+          maxConcurrentOffline: 4,
+        }),
+      });
+      mockGetReleaseChannel.mockResolvedValue({ channel: fetchedChannel });
+      mockUpdateReleaseChannel.mockResolvedValue({ channel: fetchedChannel });
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const loadedChannel = result.current.channels[0];
+      const draft = {
+        name: loadedChannel.name,
+        description: loadedChannel.description,
+        scope: create(ReleaseChannelScopeSchema, loadedChannel.scope),
+        behavior: create(RolloutBehaviorSchema, {
+          ...create(RolloutBehaviorSchema, loadedChannel.behavior),
+          ...changes,
+        }),
+      };
+      const draftBeforeSave = toJson(RolloutBehaviorSchema, draft.behavior);
+
+      await act(async () => {
+        await result.current.updateChannel(loadedChannel.id, draft);
+      });
+
+      const request = create(UpdateReleaseChannelRequestSchema, mockUpdateReleaseChannel.mock.calls[0][0]);
+      expect(toJson(UpdateReleaseChannelRequestSchema, request)).toEqual({
+        channelId: "1",
+        name: "Canary",
+        scope: { rackIds: ["40"] },
+        behavior: expectedBehavior,
+      });
+      expect(toJson(RolloutBehaviorSchema, draft.behavior)).toEqual(draftBeforeSave);
+    },
+  );
 
   it("updates and deletes by channel id", async () => {
     mockUpdateReleaseChannel.mockResolvedValue({ channel: canary });
