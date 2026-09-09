@@ -39,7 +39,7 @@ type AssignmentService interface {
 
 // RolloutService is the rollout lifecycle half of the rollout domain.
 type RolloutService interface {
-	ListRollouts(ctx context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, error)
+	ListRollouts(ctx context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, string, error)
 	GetRollout(ctx context.Context, orgID, rolloutID int64) (*rollout.Rollout, error)
 	ListRolloutDevices(ctx context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]rollout.RolloutDevice, string, error)
 	ContinueRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
@@ -343,9 +343,10 @@ func (h *Handler) ListRollouts(ctx context.Context, r *connect.Request[pb.ListRo
 		return nil, err
 	}
 	filter := rollout.RolloutFilter{
-		ChannelID: r.Msg.ChannelId,
-		PageSize:  r.Msg.PageSize,
-		Cursor:    r.Msg.Cursor,
+		ChannelID:  r.Msg.ChannelId,
+		PageSize:   r.Msg.PageSize,
+		Cursor:     r.Msg.Cursor,
+		PollCursor: r.Msg.PollCursor,
 	}
 	if r.Msg.Status != pb.RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED {
 		status, ok := statusFromProto[r.Msg.Status]
@@ -358,11 +359,11 @@ func (h *Handler) ListRollouts(ctx context.Context, r *connect.Request[pb.ListRo
 		after := r.Msg.UpdatedAfter.AsTime()
 		filter.UpdatedAfter = &after
 	}
-	rollouts, cursor, err := h.svc.ListRollouts(ctx, info.OrganizationID, filter)
+	rollouts, cursor, pollCursor, err := h.svc.ListRollouts(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pb.ListRolloutsResponse{Cursor: cursor}
+	resp := &pb.ListRolloutsResponse{Cursor: cursor, PollCursor: pollCursor}
 	for i := range rollouts {
 		resp.Rollouts = append(resp.Rollouts, rolloutToProto(&rollouts[i]))
 	}
