@@ -26,14 +26,15 @@ import (
 )
 
 type stubFleetNodeDiscoveryRunner struct {
-	mu       sync.Mutex
-	nodeIDs  []int64
-	requests []*pb.DiscoverRequest
-	runErr   error
+	mu          sync.Mutex
+	nodeIDs     []int64
+	eligibleErr error
+	requests    []*pb.DiscoverRequest
+	runErr      error
 }
 
 func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
-	return s.nodeIDs, nil
+	return s.nodeIDs, s.eligibleErr
 }
 
 func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
@@ -144,20 +145,32 @@ func TestFleetNodeDiscoveryRequest(t *testing.T) {
 	manual := explicitNmap(&falseValue)
 	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual, true), "explicit false must override legacy inference")
 
-	for _, tc := range []struct {
-		req         *pb.DiscoverRequest
-		legacyLocal bool
-	}{
-		{req: explicitNmap(&trueValue), legacyLocal: false},
-		{req: explicitNmap(nil), legacyLocal: true},
-	} {
-		got := fleetNodeDiscoveryRequest(tc.req, tc.legacyLocal)
-		assert.Equal(t, nmaptarget.LocalSubnetTarget, got.GetNmap().GetTarget())
-		assert.Equal(t, []string{"4028"}, got.GetNmap().GetPorts())
-	}
+	automatic := explicitNmap(&trueValue)
+	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic, false), "the discovery service owns explicit flag translation")
+
+	legacyAutomatic := explicitNmap(nil)
+	got := fleetNodeDiscoveryRequest(legacyAutomatic, true)
+	assert.Equal(t, nmaptarget.LocalSubnetTarget, got.GetNmap().GetTarget())
+	assert.Equal(t, []string{"4028"}, got.GetNmap().GetPorts())
 
 	legacyManual := explicitNmap(nil)
 	assert.Same(t, legacyManual, fleetNodeDiscoveryRequest(legacyManual, false))
+}
+
+func TestValidateManualNmapTarget(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	request := func(target string, flag *bool) *pb.DiscoverRequest {
+		return &pb.DiscoverRequest{
+			Mode:                    &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: target}},
+			UseFleetNodeLocalSubnet: flag,
+		}
+	}
+
+	assert.NoError(t, validateManualNmapTarget(request("192.168.1.0/24", &falseValue)))
+	assert.ErrorContains(t, validateManualNmapTarget(request("192.168.0.0/21", &falseValue)), "supported minimum /22")
+	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", &trueValue)))
+	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", nil)), "omitted flags preserve legacy behavior")
 }
 
 func TestDiscoverRequest_FleetNodeLocalSubnetRequiresNmap(t *testing.T) {
@@ -183,6 +196,20 @@ func TestDiscoverRequest_FleetNodeLocalSubnetRequiresNmap(t *testing.T) {
 		Mode:                    &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24"}},
 		UseFleetNodeLocalSubnet: &falseValue,
 	}))
+}
+
+func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
+	addresses := make([]string, 1024)
+	for i := range addresses {
+		addresses[i] = "192.168.1.10"
+	}
+	request := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+		IpAddresses: addresses,
+	}}}
+
+	assert.NoError(t, protovalidate.Validate(request))
+	request.GetIpList().IpAddresses = append(request.GetIpList().IpAddresses, "192.168.1.11")
+	assert.Error(t, protovalidate.Validate(request))
 }
 
 func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing.T) {
@@ -260,6 +287,27 @@ func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
 	}, fwd)
 
 	assert.Empty(t, runner.requests)
+}
+
+func TestForwardDiscoverySources_EligibleNodeLookupFailureKeepsServerResults(t *testing.T) {
+	runner := &stubFleetNodeDiscoveryRunner{eligibleErr: errors.New("lookup failed")}
+	h := &Handler{discovery: runner}
+	serverResults := make(chan *pb.DiscoverResponse, 1)
+	serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}
+	close(serverResults)
+	var sent []*pb.Device
+	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+		sent = append(sent, resp.GetDevices()...)
+		return nil
+	}, nil)
+
+	h.forwardDiscoverySources(ctxWithPerms(authz.PermFleetnodeManage), 1, serverResults, &pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+	}, fwd)
+
+	assert.Empty(t, runner.requests)
+	require.Len(t, sent, 1)
+	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
 }
 
 func TestSelectedDeviceIdentifiers_IncludeDevices(t *testing.T) {

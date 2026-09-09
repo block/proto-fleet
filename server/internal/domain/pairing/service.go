@@ -306,8 +306,8 @@ func mergeAutoDiscoveryTargets(baseTarget string, knownSubnets []string) []strin
 
 // resolveNmapTargets returns the scan targets and whether `target` is the cloud
 // host's own local subnet (isLocalSubnet) — the same condition that drives
-// known-subnet expansion. Callers reuse isLocalSubnet to decide fleet-node
-// fan-out without recomputing the local network.
+// known-subnet expansion. Callers reuse isLocalSubnet as the legacy Fleet Node
+// targeting default when the request omits an explicit preference.
 func (s *Service) resolveNmapTargets(ctx context.Context, target string) (targets []string, isLocalSubnet bool, err error) {
 	targets = []string{target}
 
@@ -492,7 +492,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 // DiscoverWithNmap discovers devices using Nmap. isLocalSubnet reports whether
 // the target is the cloud host's own local subnet (the "Scan your network"
-// action), which the Discover handler uses to gate fleet-node fan-out.
+// action), which remains the Fleet Node targeting default for legacy clients.
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (results <-chan *pb.DiscoverResponse, isLocalSubnet bool, err error) {
 	if r.Target == "" {
 		return nil, false, fleeterror.NewInvalidArgumentError("nmap discovery target is required")

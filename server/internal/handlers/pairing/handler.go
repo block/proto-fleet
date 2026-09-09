@@ -66,6 +66,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	if err != nil {
 		return err
 	}
+	if h.discovery != nil && callerCanManageFleetNodes(ctx) {
+		if err := validateManualNmapTarget(r.Msg); err != nil {
+			return err
+		}
+	}
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
 	// A send failure (operator disconnected) cancels every source.
@@ -179,11 +184,10 @@ func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest, legacyLocalSubnet bool) 
 	case *pb.DiscoverRequest_IpList, *pb.DiscoverRequest_IpRange:
 		return req
 	case *pb.DiscoverRequest_Nmap:
-		useLocalSubnet := legacyLocalSubnet
 		if req.UseFleetNodeLocalSubnet != nil {
-			useLocalSubnet = req.GetUseFleetNodeLocalSubnet()
+			return req
 		}
-		if !useLocalSubnet {
+		if !legacyLocalSubnet {
 			return req
 		}
 		return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
@@ -193,6 +197,18 @@ func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest, legacyLocalSubnet bool) 
 	default:
 		return nil
 	}
+}
+
+// validateManualNmapTarget preflights explicit node-bound Nmap targets before
+// local work begins. Omitted flags retain legacy behavior.
+func validateManualNmapTarget(req *pb.DiscoverRequest) error {
+	if req.GetNmap() == nil || req.UseFleetNodeLocalSubnet == nil || req.GetUseFleetNodeLocalSubnet() {
+		return nil
+	}
+	if err := nmaptarget.Validate(req.GetNmap().GetTarget()); err != nil {
+		return fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	return nil
 }
 
 // callerCanManageFleetNodes reports whether the request holds fleetnode:manage.

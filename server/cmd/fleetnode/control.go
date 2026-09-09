@@ -441,12 +441,13 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			}
 			addr, err := netip.ParseAddr(n)
 			if err != nil || !addr.Unmap().IsPrivate() {
-				return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip_list target %q resolved to a non-private address", raw)
+				logger.Debug("skipping non-private ipList entry", "input", raw)
+				continue
 			}
 			normalized = append(normalized, n)
 		}
 		if len(normalized) == 0 {
-			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
 		reports, truncated := r.probeIPsAndPorts(ctx, normalized, ports, logger)
 		return reports, truncated, nil

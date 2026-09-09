@@ -213,22 +213,54 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	}
 }
 
-func TestDiscoverForCommand_RejectsNonPrivateResolvedIPListHostname(t *testing.T) {
+func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) {
 	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
 		t.Run(resolved, func(t *testing.T) {
+			// Arrange
 			r := &RunCmd{
 				discoverer: &stubDiscoverer{},
 				resolver:   stubResolver{"miner.lan": {{IP: net.ParseIP(resolved)}}},
 			}
 
+			// Act
 			_, _, err := r.discoverForCommand(context.Background(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), testLogger())
 
+			// Assert: all-invalid input is still rejected after unsafe targets are skipped.
 			var commandErr *commandError
 			require.ErrorAs(t, err, &commandErr)
 			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, commandErr.code)
-			assert.Contains(t, commandErr.Error(), "non-private")
+			assert.Contains(t, commandErr.Error(), "no usable ip_addresses")
 		})
 	}
+}
+
+func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *testing.T) {
+	// Arrange
+	r := &RunCmd{
+		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+			"10.0.0.5|4028": {
+				DeviceIdentifier: "auto:1",
+				IpAddress:        "10.0.0.5",
+				Port:             "4028",
+				UrlScheme:        "http",
+				DriverName:       "antminer",
+			},
+		}},
+		resolver: stubResolver{"public.example": {{IP: net.ParseIP("8.8.8.8")}}},
+	}
+
+	// Act
+	reports, truncated, err := r.discoverForCommand(
+		context.Background(),
+		discoverIPList([]string{"public.example", "10.0.0.5"}, []string{"4028"}),
+		testLogger(),
+	)
+
+	// Assert
+	require.NoError(t, err)
+	assert.False(t, truncated)
+	require.Len(t, reports, 1)
+	assert.Equal(t, "10.0.0.5", reports[0].GetIpAddress())
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
