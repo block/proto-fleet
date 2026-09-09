@@ -28,6 +28,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -1245,6 +1246,368 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	close(release)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
+}
+
+func TestClassifyControlCommand(t *testing.T) {
+	unknownPayload := protowire.AppendTag(nil, 5, protowire.BytesType)
+	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
+	unknownCommand := &pb.AgentCommand{}
+	require.NoError(t, proto.Unmarshal(unknownPayload, unknownCommand))
+
+	tests := []struct {
+		name    string
+		command *pb.AgentCommand
+		want    controlCommandAdmissionClass
+	}{
+		{
+			name: "telemetry",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_Telemetry{
+				Telemetry: &telemetrypb.FleetNodeTelemetryRequest{},
+			}},
+			want: controlCommandAdmissionDeferrableRead,
+		},
+		{
+			name: "get cooling mode",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}},
+			}}},
+			want: controlCommandAdmissionDeferrableRead,
+		},
+		{
+			name: "get errors",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}},
+			}}},
+			want: controlCommandAdmissionDeferrableRead,
+		},
+		{
+			name: "get mining pools",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}},
+			}}},
+			want: controlCommandAdmissionGeneral,
+		},
+		{
+			name: "get firmware update status",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}},
+			}}},
+			want: controlCommandAdmissionGeneral,
+		},
+		{
+			name: "operator mutation",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
+			}}},
+			want: controlCommandAdmissionGeneral,
+		},
+		{
+			name:    "empty miner action",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{}}},
+			want:    controlCommandAdmissionGeneral,
+		},
+		{name: "empty envelope", command: &pb.AgentCommand{}, want: controlCommandAdmissionGeneral},
+		{name: "unknown envelope", command: unknownCommand, want: controlCommandAdmissionGeneral},
+		{name: "malformed envelope", want: controlCommandAdmissionGeneral},
+		{
+			name: "discovery",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_Discover{
+				Discover: &pairingpb.DiscoverRequest{},
+			}},
+			want: controlCommandAdmissionExclusive,
+		},
+		{
+			name: "pairing",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_Pair{
+				Pair: &pairingpb.FleetNodePairRequest{},
+			}},
+			want: controlCommandAdmissionExclusive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, classifyControlCommand(tt.command))
+		})
+	}
+}
+
+func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *testing.T) {
+	cmd := &RunCmd{}
+	cmd.initControlConcurrency()
+	releases := make([]func(), 0, commandPoolSize)
+	for range deferrableReadCommandPoolSize {
+		release, ok := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+		require.True(t, ok)
+		releases = append(releases, release)
+	}
+	_, ok := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	assert.False(t, ok, "deferrable reads must stop at their dedicated cap")
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize,
+		"a rejected deferrable read must not leak a shared permit")
+
+	for range commandPoolSize - deferrableReadCommandPoolSize {
+		release, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
+		require.True(t, acquired)
+		releases = append(releases, release)
+	}
+	_, ok = cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
+	assert.False(t, ok, "the shared pool must retain its existing total ceiling")
+	assert.Len(t, cmd.controlCommandSlots, commandPoolSize)
+
+	for _, release := range releases {
+		release()
+	}
+	assert.Empty(t, cmd.controlDeferrableReadSlots)
+	assert.Empty(t, cmd.controlCommandSlots)
+
+	generalReleases := make([]func(), 0, commandPoolSize)
+	for range commandPoolSize {
+		release, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionGeneral)
+		require.True(t, acquired)
+		generalReleases = append(generalReleases, release)
+	}
+	_, ok = cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	assert.False(t, ok, "deferrable-read admission must fail when the shared pool is full")
+	assert.Empty(t, cmd.controlDeferrableReadSlots,
+		"failed shared-pool admission must roll back its deferrable-read permit")
+	assert.Len(t, cmd.controlCommandSlots, commandPoolSize)
+
+	generalReleases[0]()
+	lowRelease, acquired := cmd.tryAcquireControlCommandSlot(controlCommandAdmissionDeferrableRead)
+	require.True(t, acquired, "a deferrable read should be admitted after shared capacity returns")
+	lowRelease()
+	for _, release := range generalReleases[1:] {
+		release()
+	}
+	assert.Empty(t, cmd.controlDeferrableReadSlots)
+	assert.Empty(t, cmd.controlCommandSlots)
+}
+
+func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T) {
+	cmd := &RunCmd{
+		controlCommandSlots:        make(chan struct{}, 1),
+		controlDeferrableReadSlots: make(chan struct{}, 1),
+		controlDiscoverySlot:       make(chan struct{}, 1),
+	}
+
+	deferrableRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionDeferrableRead)
+	require.True(t, acquired)
+	_, reason, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionDeferrableRead)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectDeferrable, reason)
+	deferrableRelease()
+
+	generalRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionGeneral)
+	require.True(t, acquired)
+	_, reason, acquired = cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionGeneral)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectShared, reason)
+	generalRelease()
+
+	exclusiveRelease, _, acquired := cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionExclusive)
+	require.True(t, acquired)
+	_, reason, acquired = cmd.tryAcquireControlCommandSlotDetailed(controlCommandAdmissionExclusive)
+	assert.False(t, acquired)
+	assert.Equal(t, controlAdmissionRejectExclusive, reason)
+	exclusiveRelease()
+}
+
+func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
+	controller := gomock.NewController(t)
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	started := make(chan struct{}, deferrableReadCommandPoolSize)
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().GetCoolingMode(gomock.Any()).DoAndReturn(func(context.Context) (sdk.CoolingMode, error) {
+		started <- struct{}{}
+		<-release // deliberately ignores ctx
+		return sdk.CoolingModeAirCooled, nil
+	}).Times(deferrableReadCommandPoolSize)
+	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
+	device.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	state := &bootstrap.State{FleetNodeID: 7}
+
+	lowPayload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
+		)},
+	})
+	operatorPayload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+		)},
+	})
+	fake := &controlFakeGateway{}
+	for i := range deferrableReadCommandPoolSize {
+		fake.queueWithID(fmt.Sprintf("low-%d", i), lowPayload)
+	}
+	fake.queueWithID("low-overflow", lowPayload)
+	fake.queueWithID("operator", operatorPayload)
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	for range deferrableReadCommandPoolSize {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("deferrable-read workers did not fill their pool")
+		}
+	}
+	require.Eventually(t, func() bool {
+		var lowBusy, operatorOK bool
+		for _, ack := range fake.acksCopy() {
+			switch ack.GetCommandId() {
+			case "low-overflow":
+				lowBusy = ack.GetCode() == pb.AckCode_ACK_CODE_BUSY && !ack.GetSucceeded()
+			case "operator":
+				operatorOK = ack.GetCode() == pb.AckCode_ACK_CODE_OK && ack.GetSucceeded()
+			}
+		}
+		return lowBusy && operatorOK
+	}, 3*time.Second, 20*time.Millisecond)
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+
+	close(release)
+	require.Eventually(t, func() bool {
+		return len(cmd.controlDeferrableReadSlots) == 0 && len(cmd.controlCommandSlots) == 0
+	}, 2*time.Second, 20*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	cmd.waitForControlWorkers(discardLogger(t))
+}
+
+func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t *testing.T) {
+	controller := gomock.NewController(t)
+	releases := make([]chan struct{}, deferrableReadCommandPoolSize)
+	for i := range releases {
+		releases[i] = make(chan struct{})
+	}
+	t.Cleanup(func() {
+		for _, release := range releases {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		}
+	})
+	started := make(chan int, deferrableReadCommandPoolSize)
+	var coolingCalls atomic.Int32
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().GetCoolingMode(gomock.Any()).DoAndReturn(func(context.Context) (sdk.CoolingMode, error) {
+		call := int(coolingCalls.Add(1)) - 1
+		if call < deferrableReadCommandPoolSize {
+			started <- call
+			<-releases[call] // deliberately ignores the cancelled old-session context
+		}
+		return sdk.CoolingModeAirCooled, nil
+	}).Times(deferrableReadCommandPoolSize + 1)
+	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
+	device.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	lowPayload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
+		)},
+	})
+	operatorPayload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+		)},
+	})
+	firstCommands := make([]pendingCommand, deferrableReadCommandPoolSize)
+	for i := range firstCommands {
+		firstCommands[i] = pendingCommand{id: fmt.Sprintf("old-low-%d", i), payload: lowPayload}
+	}
+	fake := &reconnectControlGateway{
+		firstCommands:       firstCommands,
+		replacementCommands: make(chan pendingCommand, 3),
+		closeFirst:          make(chan struct{}),
+		acksBySession:       make(map[int32][]*pb.ControlAck),
+	}
+	client := newReconnectControlClient(t, fake)
+	state := &bootstrap.State{FleetNodeID: 7}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	for range deferrableReadCommandPoolSize {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("old deferrable-read workers did not fill their process-wide pool")
+		}
+	}
+
+	close(fake.closeFirst)
+	require.Eventually(t, func() bool { return fake.sessions.Load() >= 2 }, 3*time.Second, 20*time.Millisecond,
+		"replacement stream should open without draining old deferrable-read handlers")
+	fake.replacementCommands <- pendingCommand{id: "replacement-low-busy", payload: lowPayload}
+	fake.replacementCommands <- pendingCommand{id: "replacement-operator", payload: operatorPayload}
+	require.Eventually(t, func() bool {
+		var lowBusy, operatorOK bool
+		for _, ack := range fake.sessionAcks(2) {
+			switch ack.GetCommandId() {
+			case "replacement-low-busy":
+				lowBusy = ack.GetCode() == pb.AckCode_ACK_CODE_BUSY
+			case "replacement-operator":
+				operatorOK = ack.GetCode() == pb.AckCode_ACK_CODE_OK && ack.GetSucceeded()
+			}
+		}
+		return lowBusy && operatorOK
+	}, 2*time.Second, 20*time.Millisecond)
+	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+
+	close(releases[0])
+	require.Eventually(t, func() bool {
+		return len(cmd.controlDeferrableReadSlots) == deferrableReadCommandPoolSize-1 &&
+			len(cmd.controlCommandSlots) == deferrableReadCommandPoolSize-1
+	}, 2*time.Second, 20*time.Millisecond)
+	fake.replacementCommands <- pendingCommand{id: "replacement-low-ok", payload: lowPayload}
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.sessionAcks(2) {
+			if ack.GetCommandId() == "replacement-low-ok" {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_OK && ack.GetSucceeded()
+			}
+		}
+		return false
+	}, 2*time.Second, 20*time.Millisecond)
+	for _, ack := range fake.sessionAcks(2) {
+		assert.NotContains(t, ack.GetCommandId(), "old-low-")
+	}
+
+	for i := 1; i < len(releases); i++ {
+		close(releases[i])
+	}
+	require.Eventually(t, func() bool {
+		return len(cmd.controlDeferrableReadSlots) == 0 && len(cmd.controlCommandSlots) == 0
+	}, 2*time.Second, 20*time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("control loop did not stop")
+	}
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 

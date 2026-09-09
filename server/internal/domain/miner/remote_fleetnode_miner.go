@@ -331,7 +331,10 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 	case gatewaypb.AckCode_ACK_CODE_BAD_REQUEST:
 		return fleeterror.NewInvalidArgumentError(msg)
 	case gatewaypb.AckCode_ACK_CODE_BUSY:
-		return fleeterror.NewUnavailableErrorf("%s", msg)
+		return fleeterror.NewPlainError(
+			fmt.Sprintf("fleet node busy; retry shortly: %s", msg),
+			connect.CodeResourceExhausted,
+		)
 	case gatewaypb.AckCode_ACK_CODE_FORBIDDEN:
 		return fleeterror.NewForbiddenError(msg)
 	case gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED:

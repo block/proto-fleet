@@ -54,10 +54,11 @@ type RunCmd struct {
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
-	controlConcurrencyOnce sync.Once      `kong:"-"`
-	controlCommandSlots    chan struct{}  `kong:"-"`
-	controlDiscoverySlot   chan struct{}  `kong:"-"`
-	controlWorkers         sync.WaitGroup `kong:"-"`
+	controlConcurrencyOnce     sync.Once      `kong:"-"`
+	controlCommandSlots        chan struct{}  `kong:"-"`
+	controlDeferrableReadSlots chan struct{}  `kong:"-"`
+	controlDiscoverySlot       chan struct{}  `kong:"-"`
+	controlWorkers             sync.WaitGroup `kong:"-"`
 }
 
 type gatewayClient interface {
@@ -296,6 +297,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 func (r *RunCmd) initControlConcurrency() {
 	r.controlConcurrencyOnce.Do(func() {
 		r.controlCommandSlots = make(chan struct{}, commandPoolSize)
+		r.controlDeferrableReadSlots = make(chan struct{}, deferrableReadCommandPoolSize)
 		r.controlDiscoverySlot = make(chan struct{}, 1)
 	})
 }

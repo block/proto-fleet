@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
@@ -26,6 +27,107 @@ import (
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	telemetryScheduler "github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 )
+
+func TestProcessDevice_ResourceExhaustedSkipsStatusRetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	device := models.Device{ID: "busy-device", LastUpdatedAt: time.Now().Add(-time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), device.ID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1))
+	mockMiner.EXPECT().GetSiteID().Return(int64(2))
+	mockMiner.EXPECT().GetDriverName().Return("virtual")
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{}, fleeterror.NewPlainError("fleet node busy", connect.CodeResourceExhausted))
+	mockScheduler.EXPECT().RequeueDevices(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, devices ...models.Device) error {
+			require.Len(t, devices, 1)
+			assert.Equal(t, device.ID, devices[0].ID)
+			assert.Greater(t, devices[0].LastUpdatedAt, device.LastUpdatedAt)
+			return nil
+		},
+	)
+
+	service := NewTelemetryService(
+		Config{ConcurrencyLimit: 1, MetricTimeout: time.Second},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+	activation := telemetryActivationForTest(service)
+
+	err := service.processDevice(t.Context(), device, activation.results)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsResourceExhaustedError(err))
+}
+
+func TestWorker_RetainsInitialAdmissionAfterCapacityRequeue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	device := models.Device{ID: "new-busy-device", LastUpdatedAt: time.Now().Add(-time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), device.ID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1))
+	mockMiner.EXPECT().GetSiteID().Return(int64(2))
+	mockMiner.EXPECT().GetDriverName().Return("virtual")
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{}, fleeterror.NewPlainError("fleet node busy", connect.CodeResourceExhausted))
+	mockScheduler.EXPECT().
+		RequeueDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), device.ID).
+		Return(false, time.Time{}, nil).
+		AnyTimes()
+
+	service := NewTelemetryService(
+		Config{ConcurrencyLimit: 1, MetricTimeout: time.Second},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+	service.devicesForStatusPolling.Store(device.ID, struct{}{})
+	service.awaitingInitialTelemetry.Store(device.ID, struct{}{})
+	activation := telemetryActivationForTest(service)
+	activation.tasks <- device
+	close(activation.tasks)
+
+	done := make(chan struct{})
+	go func() {
+		service.worker(t.Context(), activation)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not exit after tasks channel closed")
+	}
+
+	_, awaiting := service.awaitingInitialTelemetry.Load(device.ID)
+	assert.True(t, awaiting, "capacity requeue must retain initial-admission ownership")
+	assert.NotContains(t, runStatusPollingOnce(t, service), device.ID,
+		"status polling must not bypass initial telemetry after a capacity requeue")
+}
 
 func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryActivation {
 	service.lifecycleMu.Lock()
@@ -280,7 +382,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 	}
 }
 
-func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t *testing.T) {
+func TestTelemetryService_AddDevicesUsesSchedulerWhenTaskQueueIsFull(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -295,14 +397,12 @@ func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 	run := telemetryActivationForTest(service)
 	run.tasks <- models.Device{ID: "already-queued"}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
-	defer cancel()
+	mockScheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("scheduled-device")).Return(nil)
 
-	err := service.AddDevices(ctx, "blocked-device")
+	err := service.AddDevices(t.Context(), "scheduled-device")
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "enqueue telemetry device blocked-device")
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NoError(t, err)
+	assert.Len(t, run.tasks, 1, "new devices should not bypass scheduler admission")
 }
 
 func TestTelemetryService_RemoveDevices(t *testing.T) {
@@ -477,7 +577,9 @@ func TestTelemetryService_FinishActivationRequeuesQueuedTelemetryTasks(t *testin
 func TestTelemetryService_RequeueTelemetryTasksContinuesAfterRemovedDevice(t *testing.T) {
 	scheduler := telemetryScheduler.NewScheduler(telemetryScheduler.Config{})
 	deviceIDs := []models.DeviceIdentifier{"valid-before", "removed", "valid-after"}
-	require.NoError(t, scheduler.AddNewDevices(t.Context(), deviceIDs...))
+	for _, deviceID := range deviceIDs {
+		require.NoError(t, scheduler.AddNewDevices(t.Context(), deviceID))
+	}
 
 	fetched, err := scheduler.FetchDevices(t.Context(), time.Now())
 	require.NoError(t, err)
@@ -4133,6 +4235,38 @@ func TestStatusPollingRoutine_EnqueuesDeviceWithNoKnownStatus(t *testing.T) {
 	assert.Contains(t, enqueued, deviceID)
 }
 
+func TestStatusPollingRoutine_BulkNewDevicesWaitForInitialTelemetryAdmission(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	bulkDevices := []models.DeviceIdentifier{"bulk-device-1", "bulk-device-2"}
+	mockScheduler.EXPECT().
+		AddNewDevices(gomock.Any(), bulkDevices[0], bulkDevices[1]).
+		Return(nil)
+	for _, deviceID := range bulkDevices {
+		mockScheduler.EXPECT().
+			IsFailedDevice(gomock.Any(), deviceID).
+			Return(false, time.Time{}, nil).
+			AnyTimes()
+	}
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	require.NoError(t, service.AddDevices(t.Context(), bulkDevices...))
+
+	// Act: cross the first status-poll tick while the devices still belong to
+	// the scheduler's initial admission path.
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert
+	for _, deviceID := range bulkDevices {
+		assert.NotContains(t, enqueued, deviceID, "status polling must not bypass initial telemetry admission")
+		_, awaiting := service.awaitingInitialTelemetry.Load(deviceID)
+		assert.True(t, awaiting)
+	}
+}
+
 func TestStatusPollingRoutine_EnqueuesFailedDeviceEvenIfCachedActive(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -4149,6 +4283,7 @@ func TestStatusPollingRoutine_EnqueuesFailedDeviceEvenIfCachedActive(t *testing.
 
 	service := newStatusPollingService(t, ctrl, mockScheduler)
 	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	service.awaitingInitialTelemetry.Store(deviceID, struct{}{})
 	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusActive)
 
 	// Act

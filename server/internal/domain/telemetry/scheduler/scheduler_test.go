@@ -122,6 +122,9 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 			MaxConsecutiveFailures: 10,
 		}
 		s := NewScheduler(config)
+		now := time.Date(2026, time.September, 8, 12, 0, 0, 0, time.UTC)
+		current := now
+		s.now = func() time.Time { return current }
 		ctx := t.Context()
 		deviceIDs := []models.DeviceIdentifier{"123", "456", "789"}
 
@@ -141,6 +144,15 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 			})
 			assert.True(t, found, "Device %d should be in scheduler", expectedID)
 		}
+
+		initiallyDue, err := s.FetchDevices(ctx, now.Add(-initialDevicePollSpread))
+		require.NoError(t, err)
+		assert.Empty(t, initiallyDue, "bulk devices should not all become eligible in one startup wave")
+
+		current = now.Add(initialDevicePollSpread)
+		dueAfterWindow, err := s.FetchDevices(ctx, current)
+		require.NoError(t, err)
+		assert.Len(t, dueAfterWindow, len(deviceIDs))
 	})
 
 	t.Run("skips already managed devices", func(t *testing.T) {
@@ -161,6 +173,32 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, s.GetDeviceCount()) // Should still be 1
 	})
+}
+
+func TestScheduler_AddNewDevicesSpreadsBulkEligibility(t *testing.T) {
+	require.Equal(t, 15*time.Second, initialDevicePollSpread)
+
+	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	now := time.Date(2026, time.September, 8, 12, 0, 0, 0, time.UTC)
+	current := now
+	s.now = func() time.Time { return current }
+	deviceIDs := make([]models.DeviceIdentifier, 1000)
+	for i := range deviceIDs {
+		deviceIDs[i] = models.DeviceIdentifier(fmt.Sprintf("device-%d", i))
+	}
+
+	require.NoError(t, s.AddNewDevices(t.Context(), deviceIDs...))
+
+	current = now.Add(initialDevicePollSpread / 2)
+	firstHalf, err := s.FetchDevices(t.Context(), current)
+	require.NoError(t, err)
+	assert.NotEmpty(t, firstHalf)
+	assert.Less(t, len(firstHalf), len(deviceIDs))
+
+	current = now.Add(initialDevicePollSpread)
+	secondHalf, err := s.FetchDevices(t.Context(), current)
+	require.NoError(t, err)
+	assert.Len(t, secondHalf, len(deviceIDs)-len(firstHalf))
 }
 
 func TestScheduler_DuplicateDeviceLogsAreAggregated(t *testing.T) {
@@ -938,6 +976,41 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		assert.False(t, failedAt.IsZero(), "Failed device should have non-zero timestamp")
 		assert.Equal(t, beforeFailTime, failedAt, "Failed timestamp should match device's LastUpdatedAt")
 	})
+}
+
+func TestScheduler_RequeueDevicesPreservesFailureCount(t *testing.T) {
+	// Arrange
+	config := Config{MaxConsecutiveFailures: 2}
+	s := NewScheduler(config)
+	ctx := t.Context()
+	deviceID := models.DeviceIdentifier("busy-between-failures")
+	require.NoError(t, s.AddNewDevices(ctx, deviceID))
+
+	firstAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, firstAttempt, 1)
+	require.NoError(t, s.AddFailedDevices(ctx, firstAttempt[0]))
+
+	busyAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, busyAttempt, 1)
+
+	// Act: a capacity rejection requeues the device without representing either
+	// a successful recovery or an additional device failure.
+	require.NoError(t, s.RequeueDevices(ctx, busyAttempt[0]))
+
+	secondFailure, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, secondFailure, 1)
+	secondFailure[0].LastUpdatedAt = time.Now()
+	require.NoError(t, s.AddFailedDevices(ctx, secondFailure[0]))
+
+	// Assert: the failures on either side of BUSY remain consecutive.
+	failed, failedAt, err := s.IsFailedDevice(ctx, deviceID)
+	require.NoError(t, err)
+	assert.True(t, failed)
+	assert.False(t, failedAt.IsZero())
+	assert.Equal(t, 0, s.GetDeviceCount())
 }
 
 func TestScheduler_ConcurrentAccess(t *testing.T) {

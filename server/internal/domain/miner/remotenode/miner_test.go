@@ -672,6 +672,66 @@ type releasableGate struct {
 	release  chan struct{}
 }
 
+type countingGate struct {
+	acquisitions int
+}
+
+func (g *countingGate) Acquire(_ context.Context, _ int64) (func(), error) {
+	g.acquisitions++
+	return func() {}, nil
+}
+
+func TestMinerAcquireGateUsesSharedAdmissionPolicy(t *testing.T) {
+	tests := []struct {
+		name           string
+		command        *gatewaypb.MinerCommand
+		wantGeneral    int
+		wantDeferrable int
+	}{
+		{
+			name: "reboot uses general gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Reboot{
+				Reboot: &gatewaypb.RebootAction{},
+			}},
+			wantGeneral: 1,
+		},
+		{
+			name: "cooling mode read uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
+				GetCoolingMode: &gatewaypb.GetCoolingModeAction{},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name: "error read uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+				GetErrors: &gatewaypb.GetErrorsAction{},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name:        "unknown action uses general gate",
+			command:     &gatewaypb.MinerCommand{},
+			wantGeneral: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			general := &countingGate{}
+			deferrable := &countingGate{}
+			miner := &Miner{gate: general, deferrableReadGate: deferrable, fleetNodeID: 7}
+
+			release, err := miner.acquireGate(t.Context(), tt.command)
+			require.NoError(t, err)
+			release()
+
+			assert.Equal(t, tt.wantGeneral, general.acquisitions)
+			assert.Equal(t, tt.wantDeferrable, deferrable.acquisitions)
+		})
+	}
+}
+
 func (g *releasableGate) Acquire(ctx context.Context, fleetNodeID int64) (func(), error) {
 	g.acquired <- fleetNodeID
 	select {

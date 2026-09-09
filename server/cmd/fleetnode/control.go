@@ -25,6 +25,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -47,11 +48,10 @@ const (
 	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
 	// make the ack itself invalid.
 	maxAckPayloadBytes = 1 << 20
-	// commandPoolSize bounds quick per-miner commands handled concurrently by
-	// the daemon across reconnects. Discovery does not draw from this pool; it
-	// has its own process-wide exclusive slot (see runControlSession). Commands
-	// past the ceiling are acked BUSY.
-	commandPoolSize = 16
+	// These aliases keep the runtime and its tests tied to the shared server/node
+	// admission policy. Discovery retains a separate process-wide slot.
+	commandPoolSize               = fleetnodecontrol.MaxConcurrentCommandsPerFleetNode
+	deferrableReadCommandPoolSize = fleetnodecontrol.MaxConcurrentDeferrableReadsPerFleetNode
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -71,6 +71,29 @@ type discoverer interface {
 type acker interface {
 	Send(req *pb.ControlStreamRequest) error
 }
+
+type observedAcker struct {
+	inner   acker
+	ack     *pb.ControlAck
+	sendErr error
+}
+
+func (o *observedAcker) Send(req *pb.ControlStreamRequest) error {
+	err := o.inner.Send(req)
+	if ack := req.GetAck(); ack != nil {
+		o.ack = ack
+		o.sendErr = err
+	}
+	return err
+}
+
+type controlAdmissionRejectReason string
+
+const (
+	controlAdmissionRejectShared     controlAdmissionRejectReason = "shared_limit"
+	controlAdmissionRejectDeferrable controlAdmissionRejectReason = "deferrable_read_limit"
+	controlAdmissionRejectExclusive  controlAdmissionRejectReason = "exclusive_limit"
+)
 
 var errControlSenderClosed = errors.New("control session sender closed")
 
@@ -235,7 +258,11 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
 	}
-	logger.Info("control stream opened")
+	logger.Info("control stream opened",
+		"shared_command_limit", commandPoolSize,
+		"deferrable_read_limit", deferrableReadCommandPoolSize,
+		"reserved_general_slots", fleetnodecontrol.ReservedGeneralCommandSlotsPerFleetNode,
+	)
 
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
@@ -250,12 +277,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		sender.Close()
 	}()
 
-	// Two process-wide lanes owned by RunCmd:
+	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
 	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
 	//     doubling the load.
-	//   - quick per-miner commands use a broader pool, so they run concurrently and a
-	//     long discovery never head-of-line-blocks them.
+	//   - ordinary commands share a broader pool, so they run concurrently and a
+	//     long discovery never head-of-line-blocks them. Selected deferrable reads
+	//     also draw from a smaller pool so they cannot consume every ordinary slot.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
 	for {
@@ -282,22 +310,50 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		slot := r.controlCommandSlots
-		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
-			slot = r.controlDiscoverySlot
-		}
-		select {
-		case slot <- struct{}{}:
+		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
+		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
+		if acquired {
 			r.controlWorkers.Add(1)
-			// All loop-scoped values the handler needs are passed as arguments,
-			// including the acquired lane, so each goroutine releases the same lane.
-			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
+			// All loop-scoped values the handler needs are passed as arguments so each
+			// goroutine releases exactly the permits acquired for that command class.
+			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
 				defer r.controlWorkers.Done()
-				defer func() { <-lane }()
-				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
-			}(cmd, env, parseErr, slot)
-		default:
-			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
+				started := time.Now()
+				workerAcker := &observedAcker{inner: sender}
+				defer func() {
+					release()
+					sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
+					attrs := []any{
+						"command_id", c.GetCommandId(),
+						"command_kind", kind,
+						"admission_class", class,
+						"duration_ms", time.Since(started).Milliseconds(),
+						"shared_active", sharedActive,
+						"deferrable_read_active", deferrableActive,
+						"exclusive_active", exclusiveActive,
+					}
+					if workerAcker.ack != nil {
+						attrs = append(attrs,
+							"ack_code", workerAcker.ack.GetCode(),
+							"ack_succeeded", workerAcker.ack.GetSucceeded(),
+							"ack_send_failed", workerAcker.sendErr != nil,
+						)
+					}
+					logger.Debug("control command completed", attrs...)
+				}()
+				r.handleCommand(sessionCtx, client, workerAcker, c, e, pErr, logger)
+			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
+		} else {
+			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
+			logger.Warn("agent at capacity; rejecting command",
+				"command_id", cmd.GetCommandId(),
+				"command_kind", commandKind,
+				"admission_class", admissionClass,
+				"rejection_reason", rejectReason,
+				"shared_active", sharedActive,
+				"deferrable_read_active", deferrableActive,
+				"exclusive_active", exclusiveActive,
+			)
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
 	}
@@ -338,6 +394,50 @@ func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	return env, nil
 }
 
+func (r *RunCmd) tryAcquireControlCommandSlot(admissionClass controlCommandAdmissionClass) (func(), bool) {
+	release, _, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
+	return release, acquired
+}
+
+func (r *RunCmd) tryAcquireControlCommandSlotDetailed(admissionClass controlCommandAdmissionClass) (func(), controlAdmissionRejectReason, bool) {
+	if admissionClass == controlCommandAdmissionExclusive {
+		if !tryAcquireControlSlot(r.controlDiscoverySlot) {
+			return nil, controlAdmissionRejectExclusive, false
+		}
+		return func() { <-r.controlDiscoverySlot }, "", true
+	}
+	if admissionClass == controlCommandAdmissionDeferrableRead {
+		if !tryAcquireControlSlot(r.controlDeferrableReadSlots) {
+			return nil, controlAdmissionRejectDeferrable, false
+		}
+		if !tryAcquireControlSlot(r.controlCommandSlots) {
+			<-r.controlDeferrableReadSlots
+			return nil, controlAdmissionRejectShared, false
+		}
+		return func() {
+			<-r.controlCommandSlots
+			<-r.controlDeferrableReadSlots
+		}, "", true
+	}
+	if !tryAcquireControlSlot(r.controlCommandSlots) {
+		return nil, controlAdmissionRejectShared, false
+	}
+	return func() { <-r.controlCommandSlots }, "", true
+}
+
+func (r *RunCmd) controlSlotOccupancy() (shared, deferrable, exclusive int) {
+	return len(r.controlCommandSlots), len(r.controlDeferrableReadSlots), len(r.controlDiscoverySlot)
+}
+
+func tryAcquireControlSlot(slot chan struct{}) bool {
+	select {
+	case slot <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pb.AgentCommand, parseErr error, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
 	// Drop silently if command_id is itself unsafe to echo in an ack; the
@@ -350,7 +450,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid ControlCommand: %v", vErr), logger)
 		return
 	}
-	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
+	logger.Debug("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
 	if parseErr != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, parseErr.Error(), logger)

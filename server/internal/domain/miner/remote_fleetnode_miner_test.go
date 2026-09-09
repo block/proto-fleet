@@ -321,6 +321,30 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnsupportedAck(t *testing.T) {
 	}
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsBusyAckToResourceExhausted(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId:    cmd.GetCommandId(),
+		Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
+		ErrorMessage: "retry shortly",
+	})
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsResourceExhaustedError(got.err))
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsFailedOKAck(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
