@@ -1136,8 +1136,8 @@ type Querier interface {
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
-	// status, latest telemetry within 15 minutes, open errors and errors opened
-	// since its baseline), provenance, the checksums of pending or processing
+	// status, latest telemetry within 15 minutes of this statement, open errors
+	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 	// and whether it is still a member of the
 	// channel for the rollout's pair. Live health is evidence for the engine's
@@ -1249,7 +1249,8 @@ type Querier interface {
 	// fall back to assigned_file_ids (the files carrying the assigned checksum).
 	// Excludes miners already in rollout_id (0 for a
 	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).
-	// Carries the latest efficiency sample for ordering.
+	// Carries the latest efficiency sample within 15 minutes of this statement
+	// for ordering; time spent earlier in the transaction does not extend freshness.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
 	// One page of a channel's manufacturer/model groups: every observed pair among
 	// its members plus every assigned pair with no current members, each joined to
@@ -1702,7 +1703,8 @@ type Querier interface {
 	// of their health, so post-update evidence is compared with each miner's own
 	// past. baseline_at is the statement's time, the instant the baseline reads
 	// see, so an error is in the baseline or opened after it, never both. Miners
-	// already in the rollout are left as they are.
+	// already in the rollout are left as they are. The telemetry cutoff uses the
+	// same statement clock as baseline_at, excluding samples stale at capture.
 	SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error
 	// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
 	// no reason to retain its webhook URL / bearer.

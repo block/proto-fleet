@@ -347,7 +347,8 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 -- fall back to assigned_file_ids (the files carrying the assigned checksum).
 -- Excludes miners already in rollout_id (0 for a
 -- new rollout) and suppressed miners (firmware_rollout_suppressed_device).
--- Carries the latest efficiency sample for ordering.
+-- Carries the latest efficiency sample within 15 minutes of this statement
+-- for ordering; time spent earlier in the transaction does not extend freshness.
 SELECT d.id AS device_id,
        d.device_identifier,
        hm.efficiency_jh
@@ -359,7 +360,7 @@ LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
-      AND dm.time >= now() - INTERVAL '15 minutes'
+      AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
 ) hm ON true
@@ -649,8 +650,8 @@ WHERE id = sqlc.arg('rollout_id');
 
 -- name: ListFirmwareRolloutDevices :many
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
--- status, latest telemetry within 15 minutes, open errors and errors opened
--- since its baseline), provenance, the checksums of pending or processing
+-- status, latest telemetry within 15 minutes of this statement, open errors
+-- and errors opened since its baseline), provenance, the checksums of pending or processing
 -- FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 -- and whether it is still a member of the
 -- channel for the rollout's pair. Live health is evidence for the engine's
@@ -722,7 +723,7 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
-      AND dm.time >= now() - INTERVAL '15 minutes'
+      AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
 ) hm ON true
@@ -735,7 +736,8 @@ ORDER BY rd.position NULLS LAST, d.device_identifier;
 -- of their health, so post-update evidence is compared with each miner's own
 -- past. baseline_at is the statement's time, the instant the baseline reads
 -- see, so an error is in the baseline or opened after it, never both. Miners
--- already in the rollout are left as they are.
+-- already in the rollout are left as they are. The telemetry cutoff uses the
+-- same statement clock as baseline_at, excluding samples stale at capture.
 INSERT INTO firmware_rollout_device (
     rollout_id, device_id, batch_index, position,
     baseline_status, baseline_hash_rate_hs, baseline_power_w, baseline_efficiency_jh, baseline_temp_c,
@@ -759,7 +761,7 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
-      AND dm.time >= now() - INTERVAL '15 minutes'
+      AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
 ) hm ON true
