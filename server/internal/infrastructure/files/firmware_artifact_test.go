@@ -148,6 +148,88 @@ func TestFirmwareArtifact_RejectsInvalidChecksums(t *testing.T) {
 	}
 }
 
+func TestLeaseFirmwareArtifact_SkipsCorruptCopyOnRepeatedAttempts(t *testing.T) {
+	svc := setupService(t)
+	content := "identical assigned firmware bytes"
+	checksum := checksumOf(content)
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	other := FirmwareMetadata{TargetManufacturer: "Other", TargetModel: "Model", FirmwareVersion: "v9"}
+	_, err = svc.SaveFirmwareFile("firmware-copy.swu", strings.NewReader(content), other)
+	require.NoError(t, err)
+	ids := svc.FirmwareFileIDsByChecksum(checksum)
+	require.Len(t, ids, 2)
+	corrupt, healthy := ids[0], ids[1]
+	corruptPath, err := getFirmwareFilePathForCanonicalID(corrupt)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(corruptPath, []byte(strings.Repeat("x", len(content))), 0600))
+	// The remaining copy carries the assignment even without a sidecar.
+	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(healthy), firmwareMetadataFilename)))
+
+	for range 3 {
+		leasedID, release, err := svc.LeaseFirmwareArtifact(checksum)
+		require.NoError(t, err)
+		assert.Equal(t, healthy, leasedID)
+		// A successful lease must still exclude lifecycle writers until enqueue.
+		locked := svc.firmwareMetadataReuseMu.TryLock()
+		if locked {
+			svc.firmwareMetadataReuseMu.Unlock()
+		}
+		assert.False(t, locked)
+		release()
+
+		reader, info, err := svc.OpenFirmwareArtifact(leasedID, checksum)
+		require.NoError(t, err)
+		delivered, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		require.NoError(t, readErr)
+		require.NoError(t, closeErr)
+		assert.Equal(t, content, string(delivered))
+		assert.Equal(t, checksum, info.SHA256)
+	}
+}
+
+func TestLeaseFirmwareArtifact_RejectsCorruptionAndAllowsRestoredBytes(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware bytes to restore"
+	checksum := checksumOf(content)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	filePath, err := getFirmwareFilePathForCanonicalID(fileID)
+	require.NoError(t, err)
+	corrupted := []byte(strings.Repeat("x", len(content)))
+	require.NoError(t, os.WriteFile(filePath, corrupted, 0600))
+
+	leasedID, release, err := svc.LeaseFirmwareArtifact(checksum)
+	if release != nil {
+		release()
+	}
+	requireFleetCode(t, err, connect.CodeFailedPrecondition)
+	assert.Empty(t, leasedID)
+	assert.Nil(t, release)
+	locked := svc.firmwareMetadataReuseMu.TryLock()
+	if locked {
+		svc.firmwareMetadataReuseMu.Unlock()
+	}
+	require.True(t, locked, "a failed selection must release its lifecycle lock")
+
+	// Skipping a bad candidate must not make a restored payload undiscoverable.
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0600))
+	leasedID, release, err = svc.LeaseFirmwareArtifact(checksum)
+	require.NoError(t, err)
+	assert.Equal(t, fileID, leasedID)
+	release()
+
+	// Selection cannot guarantee integrity after enqueue; delivery must recheck.
+	require.NoError(t, os.WriteFile(filePath, corrupted, 0600))
+	reader, _, err := svc.OpenFirmwareArtifact(leasedID, checksum)
+	if reader != nil {
+		require.NoError(t, reader.Close())
+	}
+	requireFleetCode(t, err, connect.CodeFailedPrecondition)
+	assert.Nil(t, reader)
+}
+
 func TestOpenFirmwareArtifact_RejectsSameSizeCorruptionWithWarmChecksumCache(t *testing.T) {
 	svc := setupService(t)
 	content := "firmware payload assigned to the fleet"

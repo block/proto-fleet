@@ -87,21 +87,37 @@ func (s *Service) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) 
 	return "", false
 }
 
-// LeaseFirmwareArtifact selects a payload by the assignment's checksum and
-// holds the lifecycle read lock through command preflight and enqueue. The
-// caller validates miners using the saved assignment metadata, then invokes
-// release. No mutable sidecar is consulted.
+// LeaseFirmwareArtifact verifies cached candidates against the assignment's
+// checksum and leases the first healthy payload, skipping corrupt or unreadable
+// copies. It holds the lifecycle read lock through command preflight and enqueue.
+// The caller validates miners using the saved assignment metadata, then invokes
+// release. No mutable sidecar is consulted. Delivery verifies the bytes again.
 func (s *Service) LeaseFirmwareArtifact(sha256Hex string) (fileID string, release func(), err error) {
 	if err := validateFirmwareChecksum(sha256Hex); err != nil {
 		return "", nil, err
 	}
 	s.firmwareMetadataReuseMu.RLock()
 	ids := s.firmwareFileIDsByChecksumLocked(sha256Hex)
-	if len(ids) == 0 {
-		s.firmwareMetadataReuseMu.RUnlock()
-		return "", nil, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", sha256Hex)
+	var candidateErr error
+	for _, id := range ids {
+		// Use the private helper: taking another lifecycle RLock through
+		// OpenFirmwareArtifact can deadlock if a writer is waiting.
+		reader, _, openErr := s.openFirmwareFileWithInfo(id, sha256Hex)
+		if openErr != nil {
+			candidateErr = openErr
+			continue
+		}
+		if closeErr := reader.Close(); closeErr != nil {
+			candidateErr = fleeterror.NewInternalErrorf("failed to close firmware artifact: %v", closeErr)
+			continue
+		}
+		return id, s.firmwareMetadataReuseMu.RUnlock, nil
 	}
-	return ids[0], s.firmwareMetadataReuseMu.RUnlock, nil
+	s.firmwareMetadataReuseMu.RUnlock()
+	if candidateErr != nil {
+		return "", nil, candidateErr
+	}
+	return "", nil, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", sha256Hex)
 }
 
 // OpenFirmwareArtifact opens an already admitted command's payload without
