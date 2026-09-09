@@ -165,7 +165,9 @@ CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, update
 -- other statement in it do not bump. updated_at is the wall clock when the
 -- change was written and never moves backwards: now() is the transaction's
 -- start, which can predate a change another transaction wrote in between,
--- and ListFirmwareRollouts pages by updated_at.
+-- and ListFirmwareRollouts can filter by updated_at. These timestamps do not
+-- order commits across rollouts; incremental polling uses revision_txid and
+-- a snapshot-derived transaction bound instead.
 CREATE OR REPLACE FUNCTION firmware_rollout_bump_revision()
 RETURNS TRIGGER AS $$
 DECLARE

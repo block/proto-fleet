@@ -741,6 +741,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFirmwareRolloutForUpdateStmt, err = db.PrepareContext(ctx, getFirmwareRolloutForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutForUpdate: %w", err)
 	}
+	if q.getFirmwareRolloutPollWatermarkStmt, err = db.PrepareContext(ctx, getFirmwareRolloutPollWatermark); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutPollWatermark: %w", err)
+	}
 	if q.getFirmwareRolloutWithChannelStmt, err = db.PrepareContext(ctx, getFirmwareRolloutWithChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutWithChannel: %w", err)
 	}
@@ -3225,6 +3228,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFirmwareRolloutForUpdateStmt: %w", cerr)
 		}
 	}
+	if q.getFirmwareRolloutPollWatermarkStmt != nil {
+		if cerr := q.getFirmwareRolloutPollWatermarkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutPollWatermarkStmt: %w", cerr)
+		}
+	}
 	if q.getFirmwareRolloutWithChannelStmt != nil {
 		if cerr := q.getFirmwareRolloutWithChannelStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFirmwareRolloutWithChannelStmt: %w", cerr)
@@ -5643,6 +5651,7 @@ type Queries struct {
 	getFilteredTicketStatsStmt                                   *sql.Stmt
 	getFirmwareRolloutStmt                                       *sql.Stmt
 	getFirmwareRolloutForUpdateStmt                              *sql.Stmt
+	getFirmwareRolloutPollWatermarkStmt                          *sql.Stmt
 	getFirmwareRolloutWithChannelStmt                            *sql.Stmt
 	getFleetMetricRollupCoverageStmt                             *sql.Stmt
 	getFleetNodeByIDStmt                                         *sql.Stmt
@@ -6316,6 +6325,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFilteredTicketStatsStmt:                                   q.getFilteredTicketStatsStmt,
 		getFirmwareRolloutStmt:                                       q.getFirmwareRolloutStmt,
 		getFirmwareRolloutForUpdateStmt:                              q.getFirmwareRolloutForUpdateStmt,
+		getFirmwareRolloutPollWatermarkStmt:                          q.getFirmwareRolloutPollWatermarkStmt,
 		getFirmwareRolloutWithChannelStmt:                            q.getFirmwareRolloutWithChannelStmt,
 		getFleetMetricRollupCoverageStmt:                             q.getFleetMetricRollupCoverageStmt,
 		getFleetNodeByIDStmt:                                         q.getFleetNodeByIDStmt,

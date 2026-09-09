@@ -698,6 +698,19 @@ func (q *Queries) GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwa
 	return i, err
 }
 
+const getFirmwareRolloutPollWatermark = `-- name: GetFirmwareRolloutPollWatermark :one
+SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS poll_xmin
+`
+
+// Capture before the first page's read. Every transaction still invisible to
+// that page has an ID at or above this bound, even if it commits out of order.
+func (q *Queries) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, error) {
+	row := q.queryRow(ctx, q.getFirmwareRolloutPollWatermarkStmt, getFirmwareRolloutPollWatermark)
+	var poll_xmin int64
+	err := row.Scan(&poll_xmin)
+	return poll_xmin, err
+}
+
 const getFirmwareRolloutWithChannel = `-- name: GetFirmwareRolloutWithChannel :one
 SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.method, r.order_by, r.batch_size, r.pilot_size, r.wait_between_batches_seconds, r.review_after_each_batch, r.auto_continue, r.stabilization_seconds, r.max_hashrate_drop_percent, r.max_efficiency_increase_percent, r.max_temp_increase_c, r.max_new_errors, r.min_sample_coverage_percent, r.max_concurrent_offline, r.controller_timeout_seconds, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
 FROM firmware_rollout r
@@ -1298,22 +1311,24 @@ WHERE r.org_id = $1
   AND ($2::bigint IS NULL OR r.channel_id = $2)
   AND ($3::text IS NULL OR r.status = $3)
   AND ($4::timestamptz IS NULL OR r.updated_at >= $4)
+  AND ($5::bigint IS NULL OR r.revision_txid >= $5)
   AND (
-    $5::timestamptz IS NULL
-    OR (r.created_at, r.id) < ($5::timestamptz, $6::bigint)
+    $6::timestamptz IS NULL
+    OR (r.created_at, r.id) < ($6::timestamptz, $7::bigint)
   )
 ORDER BY r.created_at DESC, r.id DESC
-LIMIT $7
+LIMIT $8
 `
 
 type ListFirmwareRolloutsParams struct {
-	OrgID           int64
-	ChannelID       sql.NullInt64
-	Status          sql.NullString
-	UpdatedAfter    sql.NullTime
-	BeforeCreatedAt sql.NullTime
-	BeforeID        sql.NullInt64
-	PageLimit       int32
+	OrgID             int64
+	ChannelID         sql.NullInt64
+	Status            sql.NullString
+	UpdatedAfter      sql.NullTime
+	AfterRevisionTxid sql.NullInt64
+	BeforeCreatedAt   sql.NullTime
+	BeforeID          sql.NullInt64
+	PageLimit         int32
 }
 
 type ListFirmwareRolloutsRow struct {
@@ -1322,13 +1337,16 @@ type ListFirmwareRolloutsRow struct {
 }
 
 // Newest first. The cursor is the (created_at, id) of the last row of the
-// previous page; rows strictly older than it are returned.
+// previous page; rows strictly older than it are returned. Incremental polls
+// include the previous cycle's xmin and all later transaction IDs, allowing
+// replay while retaining late commits. updated_after is only a date filter.
 func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error) {
 	rows, err := q.query(ctx, q.listFirmwareRolloutsStmt, listFirmwareRollouts,
 		arg.OrgID,
 		arg.ChannelID,
 		arg.Status,
 		arg.UpdatedAfter,
+		arg.AfterRevisionTxid,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,
 		arg.PageLimit,

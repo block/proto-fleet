@@ -2724,6 +2724,18 @@ func (q *retryingQuerier) GetFirmwareRolloutForUpdate(ctx context.Context, arg G
 	return result, err
 }
 
+func (q *retryingQuerier) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetFirmwareRolloutPollWatermark", func() error {
+		callResult, callErr := q.next.GetFirmwareRolloutPollWatermark(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirmwareRolloutWithChannelParams) (GetFirmwareRolloutWithChannelRow, error) {
 	var result GetFirmwareRolloutWithChannelRow
 	err := q.retrier.RetryQuery(ctx, "GetFirmwareRolloutWithChannel", func() error {

@@ -510,9 +510,16 @@ FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.id = sqlc.arg('rollout_id') AND r.org_id = sqlc.arg('org_id');
 
+-- name: GetFirmwareRolloutPollWatermark :one
+-- Capture before the first page's read. Every transaction still invisible to
+-- that page has an ID at or above this bound, even if it commits out of order.
+SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS poll_xmin;
+
 -- name: ListFirmwareRollouts :many
 -- Newest first. The cursor is the (created_at, id) of the last row of the
--- previous page; rows strictly older than it are returned.
+-- previous page; rows strictly older than it are returned. Incremental polls
+-- include the previous cycle's xmin and all later transaction IDs, allowing
+-- replay while retaining late commits. updated_after is only a date filter.
 SELECT sqlc.embed(r), c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
@@ -520,6 +527,7 @@ WHERE r.org_id = sqlc.arg('org_id')
   AND (sqlc.narg('channel_id')::bigint IS NULL OR r.channel_id = sqlc.narg('channel_id'))
   AND (sqlc.narg('status')::text IS NULL OR r.status = sqlc.narg('status'))
   AND (sqlc.narg('updated_after')::timestamptz IS NULL OR r.updated_at >= sqlc.narg('updated_after'))
+  AND (sqlc.narg('after_revision_txid')::bigint IS NULL OR r.revision_txid >= sqlc.narg('after_revision_txid'))
   AND (
     sqlc.narg('before_created_at')::timestamptz IS NULL
     OR (r.created_at, r.id) < (sqlc.narg('before_created_at')::timestamptz, sqlc.narg('before_id')::bigint)
