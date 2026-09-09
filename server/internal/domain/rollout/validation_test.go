@@ -1181,6 +1181,24 @@ func TestRolloutPaginationValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "rollout list accepts a poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz"},
+		},
+		{
+			name:    "rollout list accepts a page within a polling cycle",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", Cursor: "page"},
+		},
+		{
+			name:    "rollout list rejects poll cursor with timestamp filter",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", UpdatedAfter: timestamppb.Now()},
+			wantErr: true,
+		},
+		{
+			name:    "rollout list rejects oversized poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: strings.Repeat("c", 101)},
+			wantErr: true,
+		},
+		{
 			name:    "rollout devices accept maximum page",
 			request: &rolloutv1.ListRolloutDevicesRequest{RolloutId: 1, PageSize: 1000},
 		},

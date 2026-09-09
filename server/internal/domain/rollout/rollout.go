@@ -832,14 +832,23 @@ type RolloutFilter struct {
 	// Cursor is the opaque cursor returned by the previous page; "" starts
 	// from the newest rollout.
 	Cursor string
-	// UpdatedAfter, when set, keeps only rollouts changed at or after it.
+	// UpdatedAfter, when set, filters by the recorded change timestamp.
+	// It cannot be combined with PollCursor and is not a lossless poll cursor.
 	UpdatedAfter *time.Time
+	// PollCursor resumes a completed polling cycle. Keep it unchanged while
+	// paging, then use the returned poll cursor for the next cycle.
+	PollCursor string
 }
 
 // ListRollouts returns rollouts for an org, newest first, with live
-// per-device progress. The returned cursor is empty when no more rollouts
-// match the filter.
-func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutFilter) ([]Rollout, string, error) {
+// per-device progress. The page cursor is empty when no more rollouts match.
+// The poll cursor is captured before the first page and carried through every
+// subsequent page, so changes committed while paging remain eligible in the
+// next cycle. Rows may repeat between cycles; callers replace them by ID.
+func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutFilter) ([]Rollout, string, string, error) {
+	if filter.UpdatedAfter != nil && filter.PollCursor != "" {
+		return nil, "", "", fleeterror.NewInvalidArgumentError("updated_after cannot be combined with poll_cursor")
+	}
 	params := sqlc.ListFirmwareRolloutsParams{OrgID: orgID}
 	if filter.ChannelID != 0 {
 		params.ChannelID = sql.NullInt64{Int64: filter.ChannelID, Valid: true}
@@ -850,18 +859,41 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 	if filter.UpdatedAfter != nil {
 		params.UpdatedAfter = sql.NullTime{Time: *filter.UpdatedAfter, Valid: true}
 	}
-	if filter.Cursor != "" {
-		parts, err := decodeCursor(filter.Cursor, 2)
+	if filter.PollCursor != "" {
+		parts, err := decodeCursor(filter.PollCursor, 1)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
+		}
+		xmin, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || xmin <= 0 {
+			return nil, "", "", fleeterror.NewInvalidArgumentError("invalid poll cursor")
+		}
+		params.AfterRevisionTxid = sql.NullInt64{Int64: xmin, Valid: true}
+	}
+	var pollXmin int64
+	if filter.Cursor != "" {
+		parts, err := decodeCursor(filter.Cursor, 3)
+		if err != nil {
+			return nil, "", "", err
 		}
 		nanos, err1 := strconv.ParseInt(parts[0], 10, 64)
 		id, err2 := strconv.ParseInt(parts[1], 10, 64)
-		if err1 != nil || err2 != nil || id <= 0 {
-			return nil, "", fleeterror.NewInvalidArgumentError("invalid cursor")
+		xmin, err3 := strconv.ParseInt(parts[2], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil || id <= 0 || xmin <= 0 {
+			return nil, "", "", fleeterror.NewInvalidArgumentError("invalid cursor")
 		}
 		params.BeforeCreatedAt = sql.NullTime{Time: time.Unix(0, nanos), Valid: true}
 		params.BeforeID = sql.NullInt64{Int64: id, Valid: true}
+		pollXmin = xmin
+	} else {
+		// This separate statement precedes the list snapshot. Every writer
+		// still invisible to that snapshot has a transaction ID at or above
+		// this boundary, even if it commits after a newer writer.
+		var err error
+		pollXmin, err = s.store.Queries(ctx).GetFirmwareRolloutPollWatermark(ctx)
+		if err != nil {
+			return nil, "", "", fleeterror.NewInternalErrorf("get rollout poll watermark: %v", err)
+		}
 	}
 	limit := clampPageSize(filter.PageSize)
 	// Fetch one extra row to learn whether another page exists.
@@ -869,25 +901,26 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 
 	rows, err := s.store.Queries(ctx).ListFirmwareRollouts(ctx, params)
 	if err != nil {
-		return nil, "", fleeterror.NewInternalErrorf("list rollouts: %v", err)
+		return nil, "", "", fleeterror.NewInternalErrorf("list rollouts: %v", err)
 	}
+	pollXminText := strconv.FormatInt(pollXmin, 10)
 	next := ""
 	if len(rows) > int(limit) {
 		rows = rows[:limit]
 		last := rows[len(rows)-1].FirmwareRollout
-		// The sort key doubles as the cursor, so paging stays stable while
-		// new rollouts start.
-		next = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixNano(), 10), strconv.FormatInt(last.ID, 10))
+		// The immutable sort key keeps paging stable while new rollouts
+		// start. The poll boundary stays fixed until every page is read.
+		next = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixNano(), 10), strconv.FormatInt(last.ID, 10), pollXminText)
 	}
 	rollouts := make([]Rollout, 0, len(rows))
 	for _, row := range rows {
 		view, err := s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		rollouts = append(rollouts, *view)
 	}
-	return rollouts, next, nil
+	return rollouts, next, encodeCursor(pollXminText), nil
 }
 
 // --- Targets ---

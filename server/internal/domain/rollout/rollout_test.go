@@ -691,39 +691,39 @@ func TestListRolloutsFiltersAndPages(t *testing.T) {
 	second := f.apply(t, "fw-2")
 	third := f.apply(t, "fw-1")
 
-	all, next, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{})
+	all, next, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, next, "everything fits in the default page")
 	require.Len(t, all, 3)
 	assert.Equal(t, []int64{third.ID, second.ID, first.ID}, []int64{all[0].ID, all[1].ID, all[2].ID})
 
-	active, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Status: StatusActive})
+	active, _, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Status: StatusActive})
 	require.NoError(t, err)
 	require.Len(t, active, 1)
 	assert.Equal(t, third.ID, active[0].ID)
 
-	canceled, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Status: StatusCanceled, ChannelID: f.channelID})
+	canceled, _, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Status: StatusCanceled, ChannelID: f.channelID})
 	require.NoError(t, err)
 	assert.Len(t, canceled, 2)
 
-	other, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID + 1})
+	other, _, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID + 1})
 	require.NoError(t, err)
 	assert.Empty(t, other)
 
 	// Page through two at a time; the cursor picks up exactly where the
 	// previous page stopped and runs out on the last page.
-	page1, cursor, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{PageSize: 2})
+	page1, cursor, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{PageSize: 2})
 	require.NoError(t, err)
 	require.Len(t, page1, 2)
 	require.NotEmpty(t, cursor)
 	assert.Equal(t, []int64{third.ID, second.ID}, []int64{page1[0].ID, page1[1].ID})
-	page2, cursor, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{PageSize: 2, Cursor: cursor})
+	page2, cursor, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{PageSize: 2, Cursor: cursor})
 	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.Equal(t, first.ID, page2[0].ID)
 	assert.Empty(t, cursor)
 
-	_, _, err = f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Cursor: "not-a-cursor"})
+	_, _, _, err = f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{Cursor: "not-a-cursor"})
 	assert.ErrorContains(t, err, "invalid cursor")
 
 	got, err := f.svc.GetRollout(ctx, f.orgID, second.ID)
@@ -913,7 +913,7 @@ func TestQueuedFirmwareCommandForAnotherArtifactIsAMismatch(t *testing.T) {
 	assert.Equal(t, int32(1), plans[0].TargetCount, "only miner-0 is mismatched")
 
 	f.svc.EnforceTick(ctx)
-	rollouts, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID, Status: StatusActive})
+	rollouts, _, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID, Status: StatusActive})
 	require.NoError(t, err)
 	require.Len(t, rollouts, 1, "a corrective rollout started")
 	assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
