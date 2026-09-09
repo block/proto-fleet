@@ -72,19 +72,19 @@ func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	return s.firmwareFileIDsByChecksumLocked(sha256Hex)
 }
 
-// FindFirmwareFileIDByChecksum returns a present payload carrying the assigned
-// checksum, independent of its current name or metadata. Dispatch must use the
+// FindFirmwareFileIDByChecksum verifies that a readable payload carries the
+// assigned checksum, independent of its current name or metadata. Dispatch must use the
 // assignment's metadata snapshot to validate targets and LeaseFirmwareArtifact
 // to keep the selected payload present until its command is queued.
 func (s *Service) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
-	s.firmwareMetadataReuseMu.RLock()
-	defer s.firmwareMetadataReuseMu.RUnlock()
-
-	ids := s.firmwareFileIDsByChecksumLocked(sha256Hex)
-	if len(ids) > 0 {
-		return ids[0], true
+	reader, info, err := s.OpenFirmwareArtifactByChecksum(sha256Hex)
+	if err != nil {
+		return "", false
 	}
-	return "", false
+	if err := reader.Close(); err != nil {
+		return "", false
+	}
+	return info.ID, true
 }
 
 // LeaseFirmwareArtifact verifies cached candidates against the assignment's
@@ -97,33 +97,56 @@ func (s *Service) LeaseFirmwareArtifact(sha256Hex string) (fileID string, releas
 		return "", nil, err
 	}
 	s.firmwareMetadataReuseMu.RLock()
+	// Use the private helper: taking another lifecycle RLock through the
+	// public opener can deadlock if a writer is waiting.
+	reader, info, err := s.openFirmwareArtifactByChecksumLocked(sha256Hex)
+	if err != nil {
+		s.firmwareMetadataReuseMu.RUnlock()
+		return "", nil, err
+	}
+	if err := reader.Close(); err != nil {
+		s.firmwareMetadataReuseMu.RUnlock()
+		return "", nil, fleeterror.NewInternalErrorf("failed to close firmware artifact: %v", err)
+	}
+	return info.ID, s.firmwareMetadataReuseMu.RUnlock, nil
+}
+
+// OpenFirmwareArtifactByChecksum resolves the first currently healthy copy of
+// an assignment's artifact, independent of its enqueue-time file ID. The returned
+// file info identifies that actual copy, and the verified reader starts at byte
+// zero. Callers enforcing a grant for a specific file must use OpenFirmwareArtifact.
+func (s *Service) OpenFirmwareArtifactByChecksum(sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
+	if err := validateFirmwareChecksum(sha256Hex); err != nil {
+		return nil, FirmwareFileInfo{}, err
+	}
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+	return s.openFirmwareArtifactByChecksumLocked(sha256Hex)
+}
+
+// openFirmwareArtifactByChecksumLocked shares byte verification between
+// availability, admission and execution. The caller holds the lifecycle lock.
+func (s *Service) openFirmwareArtifactByChecksumLocked(sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
 	ids := s.firmwareFileIDsByChecksumLocked(sha256Hex)
 	var candidateErr error
 	for _, id := range ids {
-		// Use the private helper: taking another lifecycle RLock through
-		// OpenFirmwareArtifact can deadlock if a writer is waiting.
-		reader, _, openErr := s.openFirmwareFileWithInfo(id, sha256Hex)
+		reader, info, openErr := s.openFirmwareFileWithInfo(id, sha256Hex)
 		if openErr != nil {
 			candidateErr = openErr
 			continue
 		}
-		if closeErr := reader.Close(); closeErr != nil {
-			candidateErr = fleeterror.NewInternalErrorf("failed to close firmware artifact: %v", closeErr)
-			continue
-		}
-		return id, s.firmwareMetadataReuseMu.RUnlock, nil
+		return reader, info, nil
 	}
-	s.firmwareMetadataReuseMu.RUnlock()
 	if candidateErr != nil {
-		return "", nil, candidateErr
+		return nil, FirmwareFileInfo{}, candidateErr
 	}
-	return "", nil, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", sha256Hex)
+	return nil, FirmwareFileInfo{}, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", sha256Hex)
 }
 
-// OpenFirmwareArtifact opens an already admitted command's payload without
-// consulting its mutable sidecar and verifies the expected assignment checksum
-// against the opened payload bytes. The caller closes the reader, positioned
-// at the start of the verified payload.
+// OpenFirmwareArtifact opens the exact payload named by a download grant,
+// without consulting its mutable sidecar, and verifies the expected checksum
+// against the opened bytes. It never substitutes another file ID. The caller
+// closes the reader, positioned at the start of the verified payload.
 func (s *Service) OpenFirmwareArtifact(fileID, sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
 	if err := validateFirmwareChecksum(sha256Hex); err != nil {
 		return nil, FirmwareFileInfo{}, err

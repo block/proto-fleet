@@ -800,7 +800,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		var info files.FirmwareFileInfo
 		var openErr error
 		if p.FirmwareChecksum != "" {
-			reader, info, openErr = es.filesService.OpenFirmwareArtifact(p.FirmwareFileID, p.FirmwareChecksum)
+			// The queued ID is an upload locator; the saved checksum remains
+			// authoritative if that upload was replaced while this command waited.
+			reader, info, openErr = es.filesService.OpenFirmwareArtifactByChecksum(p.FirmwareChecksum)
 		} else {
 			reader, info, openErr = es.filesService.OpenFirmwareFileWithInfo(p.FirmwareFileID)
 		}

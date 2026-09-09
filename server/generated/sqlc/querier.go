@@ -1617,9 +1617,11 @@ type Querier interface {
 	ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error)
 	ResolveMaintenanceLocationContext(ctx context.Context, arg ResolveMaintenanceLocationContextParams) (ResolveMaintenanceLocationContextRow, error)
 	ResolveMaintenanceMinerContext(ctx context.Context, arg ResolveMaintenanceMinerContextParams) (ResolveMaintenanceMinerContextRow, error)
-	// Miners a candidate scope covers, each with the most specific other channel
-	// (if any) whose selectors already match it. Used to preview a scope and to
-	// reject overlapping saves; exclude_channel_id is the channel being edited.
+	// Miners a candidate scope covers, one row per distinct other channel whose
+	// selectors already match each miner, or one row with no owner for a miner
+	// without conflicts. Callers count distinct miners for scope/model totals and
+	// aggregate every conflicting channel. Used to preview a scope and reject
+	// overlapping saves; exclude_channel_id is the channel being edited.
 	ResolveReleaseChannelScope(ctx context.Context, arg ResolveReleaseChannelScopeParams) ([]ResolveReleaseChannelScopeRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the

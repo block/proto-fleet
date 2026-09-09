@@ -245,6 +245,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 		name             string
 		metadataState    string
 		checksumMismatch bool
+		otherChecksum    bool
 		corruptPayload   bool
 		sizeMismatch     bool
 		wantError        string
@@ -254,6 +255,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 		{name: "corrupt metadata", metadataState: "corrupt"},
 		{name: "missing metadata", metadataState: "missing"},
 		{name: "checksum mismatch", checksumMismatch: true, wantError: "checksum"},
+		{name: "another payload checksum cannot replace granted ID", otherChecksum: true, wantError: "checksum"},
 		{name: "same-size payload corruption", corruptPayload: true, wantError: "checksum"},
 		{name: "size mismatch", sizeMismatch: true, wantError: "no longer matches"},
 	} {
@@ -278,6 +280,16 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 			}
 			if tc.checksumMismatch {
 				ref.Sha256 = strings.Repeat("0", 64)
+			}
+			if tc.otherChecksum {
+				otherPayload := strings.Repeat("x", len(payload))
+				otherID, err := h.files.SaveFirmwareFile("other.swu", strings.NewReader(otherPayload), files.FirmwareMetadata{
+					TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "1.2.3",
+				})
+				require.NoError(t, err)
+				require.NotEqual(t, fileID, otherID)
+				checksum := sha256.Sum256([]byte(otherPayload))
+				ref.Sha256 = hex.EncodeToString(checksum[:])
 			}
 			if tc.sizeMismatch {
 				ref.SizeBytes++

@@ -14,8 +14,7 @@ import (
 )
 
 // Scope resolution and target storage: every selector kind, identifiers that
-// follow re-paired miners, and overlap attribution to the most specific
-// other channel.
+// follow re-paired miners, and attribution to matching channels.
 func TestReleaseChannelQueries_ScopeAndTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
