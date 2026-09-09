@@ -2,7 +2,7 @@ import { defaultTestConfig, type TestConfig } from "./test.config.defaults";
 
 type E2ETarget = TestConfig["target"];
 
-const fakeBaseUrl = "http://localhost:5173";
+const fakeBaseUrl = process.env.E2E_BASE_URL?.trim() || "http://localhost:5173";
 const realBaseUrl = "http://localhost:8080";
 
 function parseOptionalTarget(value: string | undefined): E2ETarget | undefined {

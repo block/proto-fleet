@@ -14,21 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR merge result
-        if: ${{ github.event.pull_request != null }}
+        if: ${{ !github.event.act && github.event.pull_request != null }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
 
       - name: Checkout current ref
-        if: ${{ github.event.pull_request == null }}
+        if: ${{ github.event.act || github.event.pull_request == null }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Detect migration changes
         id: migration-changes
-        if: ${{ github.event.pull_request != null }}
+        if: ${{ !github.event.act && github.event.pull_request != null }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -49,11 +49,11 @@ jobs:
           fi
 
       - name: Skip migration version check
-        if: ${{ github.event.pull_request != null && steps.migration-changes.outputs.changed != 'true' }}
+        if: ${{ !github.event.act && github.event.pull_request != null && steps.migration-changes.outputs.changed != 'true' }}
         run: echo "Skipping migration version check because this PR does not change migration SQL."
 
       - name: Check migration version pairs
-        if: ${{ github.event.pull_request == null || steps.migration-changes.outputs.changed == 'true' }}
+        if: ${{ github.event.act || github.event.pull_request == null || steps.migration-changes.outputs.changed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail

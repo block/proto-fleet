@@ -36,31 +36,6 @@ ci base_branch="main" parallelism="4":
     exit 1
   fi
 
-  pip_index_url="${PIP_INDEX_URL:-$(bin/python -m pip config get global.index-url 2>/dev/null || true)}"
-  npm_registry="${NPM_CONFIG_REGISTRY:-$(bin/npm config get registry 2>/dev/null || true)}"
-  [[ -n "${pip_index_url}" ]] || pip_index_url="https://pypi.org/simple"
-  [[ -n "${npm_registry}" && "${npm_registry}" != "null" && "${npm_registry}" != "undefined" ]] \
-    || npm_registry="https://registry.npmjs.org"
-  for registry in "PIP_INDEX_URL=${pip_index_url}" "NPM_CONFIG_REGISTRY=${npm_registry}"; do
-    if [[ ! "${registry#*=}" =~ ^https?://[^[:space:]@]+$ ]]; then
-      echo "${registry%%=*} must be an HTTP(S) URL without embedded credentials." >&2
-      exit 1
-    fi
-  done
-
-  host_ca_files=()
-  for host_ca in \
-    "${PIP_CERT:-$(bin/python -m pip config get global.cert 2>/dev/null || true)}" \
-    "${NODE_EXTRA_CA_CERTS:-}" \
-    "${NPM_CONFIG_CAFILE:-$(bin/npm config get cafile 2>/dev/null || true)}"; do
-    [[ -n "${host_ca}" && "${host_ca}" != "null" && "${host_ca}" != "undefined" ]] || continue
-    if [[ ! -f "${host_ca}" || ! -r "${host_ca}" || ! -s "${host_ca}" ]]; then
-      echo "Configured package CA file is not readable: ${host_ca}" >&2
-      exit 1
-    fi
-    host_ca_files+=("${host_ca}")
-  done
-
   base_ref="origin/${base_branch}"
   if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
     echo "Missing ${base_ref}; fetch it before running local CI." >&2
@@ -70,41 +45,85 @@ ci base_branch="main" parallelism="4":
     echo "Docker is not running; local CI uses it to run GitHub Actions." >&2
     exit 1
   fi
-  if [[ -n "$(docker compose -f server/docker-compose.yaml ps --all --quiet)" ]] \
-    || docker container inspect fake-proto-rig >/dev/null 2>&1; then
-    echo "Local CI needs the server Compose project and fake-proto-rig container name; stop them first." >&2
-    exit 1
-  fi
-
   run_dir="$(mktemp -d /tmp/proto-fleet-local-ci.XXXXXX)"
+  compose_project="$(basename "${run_dir}" | tr '[:upper:].' '[:lower:]-')"
+  compose_network="${compose_project}-fleet-network"
   snapshot_index="${run_dir}/index"
   workspace="${run_dir}/workspace"
-  package_args=(
-    --env "PIP_INDEX_URL=${pip_index_url}"
-    --env "NPM_CONFIG_REGISTRY=${npm_registry}"
-  )
-  if (( ${#host_ca_files[@]} )); then
-    host_ca_bundle="${run_dir}/host-package-ca.pem"
-    container_ca_bundle="/tmp/proto-fleet-host-package-ca.pem"
-    for host_ca in "${host_ca_files[@]}"; do
-      cat "${host_ca}"
-      printf '\n'
-    done > "${host_ca_bundle}"
-    chmod 0644 "${host_ca_bundle}"
-    package_args+=(
-      --env "PIP_CERT=${container_ca_bundle}"
-      --env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"
-      --container-options "--volume=${host_ca_bundle}:${container_ca_bundle}:ro"
-    )
+  cache_scope="$(printf '%s' "${repo_root}" | git hash-object --stdin | cut -c1-12)"
+  npm_cache_volume="proto-fleet-local-ci-${cache_scope}-npm"
+  pip_cache_volume="proto-fleet-local-ci-${cache_scope}-pip"
+  go_build_cache_volume="proto-fleet-local-ci-${cache_scope}-go-build"
+  go_mod_cache_volume="proto-fleet-local-ci-${cache_scope}-go-mod"
+  playwright_cache_volume="proto-fleet-local-ci-${cache_scope}-playwright"
+  hermit_cache_volume="proto-fleet-local-ci-${cache_scope}-hermit"
+  container_cache_root="/tmp/proto-fleet-local-ci-cache"
+  host_ca_bundle="${run_dir}/host-ca-certificates.pem"
+  container_ca_bundle="/tmp/proto-fleet-host-ca-certificates.pem"
+  ports="$(python3 -c 'import socket; sockets = [socket.socket() for _ in range(8)]; [sock.bind(("127.0.0.1", 0)) for sock in sockets]; print(*(sock.getsockname()[1] for sock in sockets))')"
+  read -r db_host_port api_host_port proto_rig_host_port antminer_rpc_host_port \
+    antminer_http_host_port protofleet_frontend_port protoos_simulator_port \
+    protoos_frontend_port <<< "${ports}"
+  case "$(uname -s)" in
+    Darwin)
+      # Linux action containers cannot consult the macOS keychains. Export the
+      # same machine-wide roots the host trusts so verified public-registry TLS
+      # also works on networks that inspect HTTPS.
+      {
+        security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain
+        security find-certificate -a -p /Library/Keychains/System.keychain
+      } > "${host_ca_bundle}"
+      ;;
+    Linux)
+      for system_ca_bundle in \
+        /etc/ssl/certs/ca-certificates.crt \
+        /etc/pki/tls/certs/ca-bundle.crt \
+        /etc/ssl/ca-bundle.pem; do
+        if [[ -r "${system_ca_bundle}" && -s "${system_ca_bundle}" ]]; then
+          cp "${system_ca_bundle}" "${host_ca_bundle}"
+          break
+        fi
+      done
+      ;;
+  esac
+  if [[ -e "${host_ca_bundle}" && ! -s "${host_ca_bundle}" ]]; then
+    echo "Could not export the host system trust store." >&2
+    exit 1
   fi
   cleanup() {
-    docker rm -f fake-proto-rig >/dev/null 2>&1 || true
-    docker compose -f server/docker-compose.yaml \
+    docker rm -f "${compose_project}-fake-proto-rig" >/dev/null 2>&1 || true
+    LOCAL_CI_COMPOSE_NETWORK_NAME="${compose_network}" \
+      docker compose --project-name "${compose_project}" \
+      -f server/docker-compose.yaml -f server/docker-compose.local-ci.yaml \
       down -v --remove-orphans >/dev/null 2>&1 || true
+    docker network rm "${compose_network}" >/dev/null 2>&1 || true
     rm -rf "${run_dir}"
   }
   trap cleanup EXIT
   trap 'exit 130' INT TERM
+
+  # Reserve an unused /24 atomically. Docker's automatically allocated /16 is
+  # too broad for the local-subnet discovery that ProtoFleet E2E exercises.
+  network_created=false
+  for second_octet in {28..31} {20..27} {16..19}; do
+    for third_octet in {0..255}; do
+      subnet="172.${second_octet}.${third_octet}.0/24"
+      gateway="172.${second_octet}.${third_octet}.1"
+      if docker network create \
+        --driver bridge \
+        --subnet "${subnet}" \
+        --gateway "${gateway}" \
+        --label "proto-fleet.local-ci.project=${compose_project}" \
+        "${compose_network}" >/dev/null 2>&1; then
+        network_created=true
+        break 2
+      fi
+    done
+  done
+  if [[ "${network_created}" != true ]]; then
+    echo "Could not reserve an unused Docker /24 for local CI." >&2
+    exit 1
+  fi
 
   # Represent committed, staged, unstaged, and untracked (non-ignored) files as
   # one PR head without changing the developer's branch or index.
@@ -115,12 +134,76 @@ ci base_branch="main" parallelism="4":
   snapshot_sha="$(printf 'Local CI snapshot\n' | git commit-tree "${tree}" -p "${base_sha}")"
   git clone --quiet --local --no-checkout "${repo_root}" "${workspace}"
   git -C "${workspace}" checkout --quiet -b local-ci "${snapshot_sha}"
-  mkdir "${workspace}/.home"
 
   run_phase() {
     local phase="$1"
     local jobs="$2"
+    shift 2
     local event_path="${run_dir}/event-${phase}.json"
+    local environment_args=(
+      --env PIP_INDEX_URL=https://pypi.org/simple
+      --env NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+      --env "NPM_CONFIG_CACHE=${workspace}/.hermit/node/cache"
+      --env "PIP_CACHE_DIR=${workspace}/.hermit/python/cache/pip"
+      --env "GOCACHE=${container_cache_root}/go-build"
+      --env "GOMODCACHE=${container_cache_root}/go-mod"
+      --env "PLAYWRIGHT_BROWSERS_PATH=${container_cache_root}/playwright"
+    )
+    local container_options="--volume=${npm_cache_volume}:${workspace}/.hermit/node/cache --volume=${pip_cache_volume}:${workspace}/.hermit/python/cache/pip --volume=${go_build_cache_volume}:${container_cache_root}/go-build --volume=${go_mod_cache_volume}:${container_cache_root}/go-mod --volume=${playwright_cache_volume}:${container_cache_root}/playwright --volume=${hermit_cache_volume}:/root/.cache/hermit"
+    if [[ -s "${host_ca_bundle}" ]]; then
+      environment_args+=(
+        --env "PIP_CERT=${container_ca_bundle}"
+        --env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"
+        --env "NPM_CONFIG_CAFILE=${container_ca_bundle}"
+      )
+      container_options+=" --volume=${host_ca_bundle}:${container_ca_bundle}:ro"
+    fi
+    environment_args+=(--container-options "${container_options}")
+    case "${phase}" in
+      contract)
+        # test-contract starts sibling containers through the host daemon. Give
+        # those containers the same named caches instead of container-only
+        # /root paths that Docker Desktop cannot bind mount.
+        environment_args+=(
+          --env "LOCAL_CI_GO_BUILD_CACHE_VOLUME=${go_build_cache_volume}"
+          --env "LOCAL_CI_GO_MOD_CACHE_VOLUME=${go_mod_cache_volume}"
+        )
+        ;;
+      server|protofleet-e2e)
+        environment_args+=(
+          --env "LOCAL_CI_COMPOSE_PROJECT_NAME=${compose_project}"
+          --env "LOCAL_CI_COMPOSE_NETWORK_NAME=${compose_network}"
+          --env "COMPOSE_FILE=${workspace}/server/docker-compose.yaml:${workspace}/server/docker-compose.local-ci.yaml"
+          --env COMPOSE_PATH_SEPARATOR=:
+          --env "LOCAL_CI_DB_HOST_PORT=${db_host_port}"
+          --env "LOCAL_CI_API_HOST_PORT=${api_host_port}"
+          --env "LOCAL_CI_PROTO_RIG_HOST_PORT=${proto_rig_host_port}"
+          --env "LOCAL_CI_ANTMINER_RPC_HOST_PORT=${antminer_rpc_host_port}"
+          --env "LOCAL_CI_ANTMINER_HTTP_HOST_PORT=${antminer_http_host_port}"
+        )
+        ;;
+    esac
+    case "${phase}" in
+      server)
+        environment_args+=(--env "LOCAL_CI_DB_ADDRESS=127.0.0.1:${db_host_port}")
+        ;;
+      protofleet-e2e)
+        environment_args+=(
+          --env "LOCAL_CI_FLEET_API_URL=http://127.0.0.1:${api_host_port}"
+          --env "LOCAL_CI_PROTOFLEET_FRONTEND_PORT=${protofleet_frontend_port}"
+          --env "LOCAL_CI_PROTOFLEET_BASE_URL=http://127.0.0.1:${protofleet_frontend_port}"
+        )
+        ;;
+      protoos-e2e)
+        environment_args+=(
+          --env "LOCAL_CI_COMPOSE_PROJECT_NAME=${compose_project}"
+          --env "LOCAL_CI_PROTOOS_SIMULATOR_PORT=${protoos_simulator_port}"
+          --env "LOCAL_CI_PROTOOS_PROXY_URL=http://127.0.0.1:${protoos_simulator_port}"
+          --env "LOCAL_CI_PROTOOS_FRONTEND_PORT=${protoos_frontend_port}"
+          --env "LOCAL_CI_PROTOOS_BASE_URL=http://127.0.0.1:${protoos_frontend_port}"
+        )
+        ;;
+    esac
 
     printf '%s\n' \
       '{"act":true,"phase":"'"${phase}"'","base":{"sha":"'"${base_sha}"'"},' \
@@ -132,19 +215,26 @@ ci base_branch="main" parallelism="4":
       --workflows .github/workflows/pr-gate.yml \
       --eventpath "${event_path}" \
       --secret GITHUB_TOKEN= \
-      --env "HOME=${workspace}/.home" \
-      "${package_args[@]}" \
-      --artifact-server-path "${run_dir}/artifacts/${phase}" \
+      "${environment_args[@]}" \
       --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
       --container-architecture linux/amd64 \
       --concurrent-jobs "${jobs}" \
+      --use-new-action-cache \
       --action-offline-mode \
+      "$@" \
       --rm
   }
 
   status=0
   run_phase parallel "${parallelism}" || status=1
-  run_phase exclusive 1 || status=1
+  run_phase client "${parallelism}" || status=1
+  run_phase python "${parallelism}" || status=1
+  run_phase rust "${parallelism}" || status=1
+  run_phase docker 1 || status=1
+  run_phase contract 1 --bind || status=1
+  run_phase server "${parallelism}" || status=1
+  run_phase protofleet-e2e 1 --bind || status=1
+  run_phase protoos-e2e 1 --bind || status=1
   exit "${status}"
 
 # run all code generation
@@ -219,10 +309,26 @@ test-contract: _asicrs-build
   # actions/cache restore on CI (and the local dev cache) isn't wasted; the
   # test-execution containers below don't need it and shouldn't have write
   # access to the host's global Go caches.
-  mkdir -p "${HOME}/.cache/go-build" "${HOME}/go/pkg/mod" tests/plugin-contract/bin
+  CACHE_MOUNTS=()
+  if [[ -n "${LOCAL_CI_GO_BUILD_CACHE_VOLUME:-}" || -n "${LOCAL_CI_GO_MOD_CACHE_VOLUME:-}" ]]; then
+    if [[ -z "${LOCAL_CI_GO_BUILD_CACHE_VOLUME:-}" || -z "${LOCAL_CI_GO_MOD_CACHE_VOLUME:-}" ]]; then
+      echo "Both local CI Go cache volumes must be set together" >&2
+      exit 1
+    fi
+    CACHE_MOUNTS=(
+      -v "${LOCAL_CI_GO_BUILD_CACHE_VOLUME}:/gocache"
+      -v "${LOCAL_CI_GO_MOD_CACHE_VOLUME}:/gomodcache"
+    )
+  else
+    mkdir -p "${HOME}/.cache/go-build" "${HOME}/go/pkg/mod"
+    CACHE_MOUNTS=(
+      -v "${HOME}/.cache/go-build:/gocache"
+      -v "${HOME}/go/pkg/mod:/gomodcache"
+    )
+  fi
+  mkdir -p tests/plugin-contract/bin
   "${DOCKER_COMMON[@]}" \
-    -v "${HOME}/.cache/go-build:/gocache" \
-    -v "${HOME}/go/pkg/mod:/gomodcache" \
+    "${CACHE_MOUNTS[@]}" \
     -e GOCACHE=/gocache \
     -e GOMODCACHE=/gomodcache \
     "$IMAGE" sh -c '

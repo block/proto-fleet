@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -51,6 +52,11 @@ func TestConfig_GetPluginsDir_FailureScenarios(t *testing.T) {
 	t.Run("unreadable current directory", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Skipping on Windows - different permission model")
+		}
+		currentUser, err := user.Current()
+		require.NoError(t, err)
+		if currentUser.Uid == "0" {
+			t.Skip("Skipping as root - root bypasses directory permissions")
 		}
 
 		// Create a temporary directory and make it unreadable

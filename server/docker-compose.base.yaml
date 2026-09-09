@@ -44,7 +44,7 @@ services:
       POSTGRES_USER: "fleet"
       POSTGRES_PASSWORD: "fleet"
     ports:
-      - "5432:5432"
+      - "${LOCAL_CI_DB_HOST_PORT:-5432}:5432"
     # Docker's default 64MB /dev/shm is too small for parallel-query DSM segments
     shm_size: "${PG_SHM_SIZE:-256mb}"
     # PG_* variables come from a host profile env file selected at install time

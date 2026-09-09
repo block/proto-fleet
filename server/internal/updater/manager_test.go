@@ -2702,16 +2702,15 @@ func TestManagerPreservesTerminalStatusWhenQueuedStateCannotPersist(t *testing.T
 		InstallRoot: installRoot,
 		StateDir:    stateDir,
 		GOARCH:      "amd64",
+		beforePersistState: func(operation updaterapi.Operation) error {
+			if operation.Phase == updaterapi.PhaseQueued {
+				return errors.New("create updater state temp file: forced failure")
+			}
+			return nil
+		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
-	// #nosec G302 -- these are restrictive directory modes used to force a
-	// persistence failure; no file is made group/world accessible.
-	require.NoError(t, os.Chmod(stateDir, 0o500))
-	t.Cleanup(func() {
-		// #nosec G302 -- restore owner-only directory access for TempDir cleanup.
-		_ = os.Chmod(stateDir, 0o700)
-	})
 
 	_, err = manager.Trigger("v1.1.0")
 	require.ErrorContains(t, err, "create updater state temp file")

@@ -28,17 +28,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install local runner prerequisite
+        if: ${{ env.ACT }}
+        run: |
+          apt-get update && apt-get install --yes rustup
+          mkdir -p "$HOME/.cargo/bin"
+          ln -sf /usr/bin/rustup "$HOME/.cargo/bin/rustup"
+          for proxy in cargo rustc rustdoc rustfmt; do
+            ln -sf /usr/bin/rustup "/usr/local/bin/$proxy"
+          done
+          echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
+          "$GITHUB_WORKSPACE/bin/protoc" --version
+
       - name: Install Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt --component clippy
           rustup override set stable
 
       - name: Install protoc
+        if: ${{ !env.ACT }}
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Cargo registry & build
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -69,17 +83,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install local runner prerequisite
+        if: ${{ env.ACT }}
+        run: |
+          apt-get update && apt-get install --yes rustup
+          mkdir -p "$HOME/.cargo/bin"
+          ln -sf /usr/bin/rustup "$HOME/.cargo/bin/rustup"
+          for proxy in cargo rustc rustdoc rustfmt; do
+            ln -sf /usr/bin/rustup "/usr/local/bin/$proxy"
+          done
+          echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
+          "$GITHUB_WORKSPACE/bin/protoc" --version
+
       - name: Install Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal
           rustup override set stable
 
       - name: Install protoc
+        if: ${{ !env.ACT }}
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Cargo registry & build
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

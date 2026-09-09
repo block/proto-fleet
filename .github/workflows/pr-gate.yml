@@ -19,7 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       parallel_phase: ${{ !github.event.act || github.event.phase == 'parallel' }}
-      exclusive_phase: ${{ !github.event.act || github.event.phase == 'exclusive' }}
+      client_phase: ${{ !github.event.act || github.event.phase == 'client' }}
+      python_phase: ${{ !github.event.act || github.event.phase == 'python' }}
+      rust_phase: ${{ !github.event.act || github.event.phase == 'rust' }}
+      docker_phase: ${{ !github.event.act || github.event.phase == 'docker' }}
+      contract_phase: ${{ !github.event.act || github.event.phase == 'contract' }}
+      server_phase: ${{ !github.event.act || github.event.phase == 'server' }}
+      protofleet_e2e_phase: ${{ !github.event.act || github.event.phase == 'protofleet-e2e' }}
+      protoos_e2e_phase: ${{ !github.event.act || github.event.phase == 'protoos-e2e' }}
       deployment_config: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.deployment_config == 'true' }}
       proto: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.proto == 'true' }}
       client: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.client == 'true' }}
@@ -43,7 +50,7 @@ jobs:
           LOCAL_CI_PHASE: ${{ github.event.phase }}
         run: |
           case "$LOCAL_CI_PHASE" in
-            parallel|exclusive) ;;
+            parallel|client|python|rust|docker|contract|server|protofleet-e2e|protoos-e2e) ;;
             *) echo "Invalid local CI phase: $LOCAL_CI_PHASE" >&2; exit 1 ;;
           esac
       - name: Checkout
@@ -89,14 +96,14 @@ jobs:
   client-checks:
     name: Client Checks
     needs: changes
-    if: needs.changes.outputs.client == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.client == 'true' && needs.changes.outputs.client_phase == 'true'
     uses: ./.github/workflows/protofleet-client-checks.yml
     secrets: inherit
 
   server-checks:
     name: Server Checks
     needs: changes
-    if: needs.changes.outputs.server == 'true' && needs.changes.outputs.exclusive_phase == 'true'
+    if: needs.changes.outputs.server == 'true' && needs.changes.outputs.server_phase == 'true'
     uses: ./.github/workflows/protofleet-server-checks.yml
     secrets: inherit
 
@@ -117,7 +124,7 @@ jobs:
   proto-plugin-checks:
     name: Proto Plugin Checks
     needs: changes
-    if: needs.changes.outputs.proto_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.proto_plugin == 'true' && needs.changes.outputs.docker_phase == 'true'
     uses: ./.github/workflows/protofleet-proto-plugin-checks.yml
     secrets: inherit
 
@@ -131,14 +138,14 @@ jobs:
   asicrs-plugin-checks:
     name: asicrs Plugin Checks
     needs: changes
-    if: needs.changes.outputs.asicrs_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.asicrs_plugin == 'true' && needs.changes.outputs.rust_phase == 'true'
     uses: ./.github/workflows/asicrs-plugin-checks.yml
     secrets: inherit
 
   python-checks:
     name: Python SDK and Generator Checks
     needs: changes
-    if: needs.changes.outputs.python == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.python == 'true' && needs.changes.outputs.python_phase == 'true'
     uses: ./.github/workflows/python-tests.yml
     secrets: inherit
 
@@ -152,14 +159,14 @@ jobs:
   contract-checks:
     name: Plugin Contract Checks
     needs: changes
-    if: needs.changes.outputs.contract_tests == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.contract_tests == 'true' && needs.changes.outputs.contract_phase == 'true'
     uses: ./.github/workflows/protofleet-contract-checks.yml
     secrets: inherit
 
   rust-sdk-checks:
     name: Rust SDK Checks
     needs: changes
-    if: needs.changes.outputs.rust_sdk == 'true' && needs.changes.outputs.parallel_phase == 'true'
+    if: needs.changes.outputs.rust_sdk == 'true' && needs.changes.outputs.rust_phase == 'true'
     uses: ./.github/workflows/rust-sdk-checks.yml
     secrets: inherit
 
@@ -180,7 +187,7 @@ jobs:
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
-    if: needs.changes.outputs.protofleet_e2e == 'true' && needs.changes.outputs.exclusive_phase == 'true'
+    if: needs.changes.outputs.protofleet_e2e == 'true' && needs.changes.outputs.protofleet_e2e_phase == 'true'
     uses: ./.github/workflows/protofleet-e2e-tests.yml
     with:
       run_scope: smoke
@@ -189,7 +196,7 @@ jobs:
   protoos-e2e-tests:
     name: ProtoOS E2E Tests
     needs: changes
-    if: needs.changes.outputs.protoos_e2e == 'true' && needs.changes.outputs.exclusive_phase == 'true'
+    if: needs.changes.outputs.protoos_e2e == 'true' && needs.changes.outputs.protoos_e2e_phase == 'true'
     uses: ./.github/workflows/protoos-e2e-tests.yml
     secrets: inherit
 
@@ -213,7 +220,7 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !github.event.act && always() }}
     needs:
       - changes
       - generated-code

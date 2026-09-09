@@ -272,34 +272,60 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_pr_gate_partitions_every_local_ci_job(self):
         workflow = load_workflow("pr-gate.yml")
         jobs = workflow["jobs"]
-        exclusive_jobs = {
-            "server-checks",
-            "protofleet-e2e-tests",
-            "protoos-e2e-tests",
+        phase_by_job = {
+            "generated-code": "parallel",
+            "deployment-config-checks": "parallel",
+            "proto-checks": "parallel",
+            "client-checks": "client",
+            "server-checks": "server",
+            "migration-hygiene": "parallel",
+            "antminer-plugin-checks": "parallel",
+            "proto-plugin-checks": "docker",
+            "virtual-plugin-checks": "parallel",
+            "asicrs-plugin-checks": "rust",
+            "python-checks": "python",
+            "example-python-plugin-checks": "parallel",
+            "contract-checks": "contract",
+            "rust-sdk-checks": "rust",
+            "windows-checks": "parallel",
+            "powershell-lint": "parallel",
+            "protofleet-e2e-tests": "protofleet-e2e",
+            "protoos-e2e-tests": "protoos-e2e",
+            "review-policy-tests": "parallel",
         }
-        infrastructure_jobs = {"changes", "dependency-review", "gate"}
-        parallel_jobs = set(jobs) - exclusive_jobs - infrastructure_jobs
+        self.assertEqual(
+            set(jobs) - {"changes", "dependency-review", "gate"},
+            set(phase_by_job),
+        )
         outputs = jobs["changes"]["outputs"]
-        for phase in ("parallel", "exclusive"):
+        phase_outputs = {
+            "parallel": "parallel_phase",
+            "client": "client_phase",
+            "python": "python_phase",
+            "rust": "rust_phase",
+            "docker": "docker_phase",
+            "contract": "contract_phase",
+            "server": "server_phase",
+            "protofleet-e2e": "protofleet_e2e_phase",
+            "protoos-e2e": "protoos_e2e_phase",
+        }
+        phases = tuple(phase_outputs)
+        for phase, output in phase_outputs.items():
             self.assertEqual(
-                outputs[f"{phase}_phase"],
+                outputs[output],
                 f"${{{{ !github.event.act || github.event.phase == '{phase}' }}}}",
             )
 
-        for job_id in parallel_jobs - {"review-policy-tests"}:
-            with self.subTest(job=job_id):
+        for job_id, phase in phase_by_job.items():
+            with self.subTest(job=job_id, phase=phase):
+                if job_id == "review-policy-tests":
+                    condition = f"github.event.phase == '{phase}'"
+                else:
+                    condition = (
+                        f"needs.changes.outputs.{phase_outputs[phase]} == 'true'"
+                    )
                 self.assertIn(
-                    "needs.changes.outputs.parallel_phase == 'true'",
-                    jobs[job_id]["if"],
-                )
-        self.assertIn(
-            "github.event.phase == 'parallel'",
-            jobs["review-policy-tests"]["if"],
-        )
-        for job_id in exclusive_jobs:
-            with self.subTest(job=job_id):
-                self.assertIn(
-                    "needs.changes.outputs.exclusive_phase == 'true'",
+                    condition,
                     jobs[job_id]["if"],
                 )
 
@@ -309,30 +335,296 @@ class ReviewPolicyTest(unittest.TestCase):
             if step.get("name") == "Validate local CI phase"
         )
         self.assertEqual(phase_validation["if"], "github.event.act")
-        self.assertIn("parallel|exclusive", phase_validation["run"])
+        self.assertIn("|".join(phases), phase_validation["run"])
 
         justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
-        self.assertIn('run_phase parallel "${parallelism}" || status=1', justfile)
-        self.assertIn("run_phase exclusive 1 || status=1", justfile)
+        for phase in phases:
+            phase_jobs = (
+                "1"
+                if phase in {"docker", "contract", "protofleet-e2e", "protoos-e2e"}
+                else '"${parallelism}"'
+            )
+            bind = (
+                " --bind"
+                if phase in {"contract", "protofleet-e2e", "protoos-e2e"}
+                else ""
+            )
+            self.assertIn(
+                f"run_phase {phase} {phase_jobs}{bind} || status=1",
+                justfile,
+            )
         self.assertIn('--concurrent-jobs "${jobs}"', justfile)
+        self.assertIn("--use-new-action-cache", justfile)
+        self.assertIn(
+            '--env "LOCAL_CI_COMPOSE_PROJECT_NAME=${compose_project}"', justfile
+        )
+        self.assertIn("server|protofleet-e2e)", justfile)
+        self.assertIn('--project-name "${compose_project}"', justfile)
+        self.assertNotIn("--artifact-server-path", justfile)
+        self.assertEqual(
+            jobs["gate"]["if"],
+            "${{ !github.event.act && always() }}",
+        )
 
-    def test_local_ci_uses_host_package_registries(self):
-        justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
-        for command in (
-            "bin/python -m pip config get global.index-url",
-            "bin/npm config get registry",
-            'pip_index_url="https://pypi.org/simple"',
-            'npm_registry="https://registry.npmjs.org"',
-            "bin/python -m pip config get global.cert",
-            "bin/npm config get cafile",
-            '"${NODE_EXTRA_CA_CERTS:-}"',
-            '--env "PIP_CERT=${container_ca_bundle}"',
-            '--env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"',
-            '--container-options "--volume=${host_ca_bundle}:${container_ca_bundle}:ro"',
-            '"${package_args[@]}"',
+    def test_local_ci_workflow_compatibility_steps_do_not_change_github_ci(self):
+        migration = load_workflow("migration-hygiene.yml")
+        migration_steps = migration["jobs"]["migration-hygiene"]["steps"]
+        merge_checkout = next(
+            step
+            for step in migration_steps
+            if step["name"] == "Checkout PR merge result"
+        )
+        current_checkout = next(
+            step for step in migration_steps if step["name"] == "Checkout current ref"
+        )
+        self.assertIn("!github.event.act", merge_checkout["if"])
+        self.assertIn("github.event.act ||", current_checkout["if"])
+
+        for workflow_name in ("asicrs-plugin-checks.yml", "rust-sdk-checks.yml"):
+            workflow = load_workflow(workflow_name)
+            for job in workflow["jobs"].values():
+                prerequisite = next(
+                    step
+                    for step in job["steps"]
+                    if step["name"] == "Install local runner prerequisite"
+                )
+                self.assertEqual(prerequisite["if"], "${{ env.ACT }}")
+                self.assertIn(
+                    'ln -sf /usr/bin/rustup "/usr/local/bin/$proxy"',
+                    prerequisite["run"],
+                )
+                self.assertIn(
+                    '"$GITHUB_WORKSPACE/bin/protoc" --version',
+                    prerequisite["run"],
+                )
+                install_protoc = next(
+                    step for step in job["steps"] if step["name"] == "Install protoc"
+                )
+                self.assertEqual(install_protoc["if"], "${{ !env.ACT }}")
+
+        proto_plugin = load_workflow("protofleet-proto-plugin-checks.yml")
+        prepare_docker = next(
+            step
+            for step in proto_plugin["jobs"]["proto-plugin"]["steps"]
+            if step["name"] == "Prepare Docker for integration tests"
+        )
+        self.assertIn('if [[ -n "${ACT:-}" ]]', prepare_docker["run"])
+        self.assertIn("docker build --pull", prepare_docker["run"])
+        self.assertIn(
+            "PROTO_FLEET_FAKE_RIG_IMAGE=proto-fleet-fake-rig:local-ci",
+            prepare_docker["run"],
+        )
+        for workflow_name in (
+            "protofleet-client-checks.yml",
+            "protofleet-server-checks.yml",
+            "asicrs-plugin-checks.yml",
+            "rust-sdk-checks.yml",
+            "protofleet-e2e-tests.yml",
+            "protoos-e2e-tests.yml",
         ):
-            with self.subTest(command=command):
-                self.assertIn(command, justfile)
+            workflow = load_workflow(workflow_name)
+            for job in workflow["jobs"].values():
+                for step in job.get("steps", []):
+                    if str(step.get("uses", "")).startswith("actions/cache"):
+                        with self.subTest(workflow=workflow_name, step=step["name"]):
+                            self.assertIn("env.ACT != 'true'", step["if"])
+
+        go_cache = load_workflow("../actions/go-cache-setup/action.yml")
+        for step in go_cache["runs"]["steps"]:
+            self.assertEqual(step["if"], "${{ !env.ACT }}")
+
+        protofleet_e2e = load_workflow("protofleet-e2e-tests.yml")
+        e2e_job = protofleet_e2e["jobs"]["e2e-tests"]
+        self.assertEqual(
+            e2e_job["env"]["SHARD_TOTAL"],
+            "${{ github.event.act && '1' || '16' }}",
+        )
+        self.assertIn(
+            "github.event.act && '[0]'", e2e_job["strategy"]["matrix"]["shard"]
+        )
+        for job_id in ("build", "e2e-tests", "visual-tests"):
+            checkout = next(
+                step
+                for step in protofleet_e2e["jobs"][job_id]["steps"]
+                if step["name"] == "Checkout code"
+            )
+            self.assertEqual(checkout["with"]["clean"], "${{ env.ACT != 'true' }}")
+            for step in protofleet_e2e["jobs"][job_id]["steps"]:
+                action = str(step.get("uses", ""))
+                if action.startswith(
+                    ("actions/upload-artifact", "actions/download-artifact")
+                ):
+                    with self.subTest(job=job_id, step=step["name"]):
+                        self.assertIn("env.ACT != 'true'", step["if"])
+        build_images = next(
+            step
+            for step in protofleet_e2e["jobs"]["build"]["steps"]
+            if step["name"] == "Build E2E Docker images"
+        )
+        self.assertIn('if [[ -n "${ACT:-}" ]]', build_images["run"])
+        self.assertIn(
+            "!github.event.act", protofleet_e2e["jobs"]["merge-reports"]["if"]
+        )
+
+        protoos_e2e = load_workflow("protoos-e2e-tests.yml")
+        protoos_job = protoos_e2e["jobs"]["e2e-tests"]
+        protoos_checkout = next(
+            step for step in protoos_job["steps"] if step["name"] == "Checkout code"
+        )
+        self.assertEqual(protoos_checkout["with"]["clean"], "${{ env.ACT != 'true' }}")
+        for step in protoos_job["steps"]:
+            if str(step.get("uses", "")).startswith("actions/upload-artifact"):
+                self.assertIn("env.ACT != 'true'", step["if"])
+
+    def test_local_ci_uses_public_package_registries(self):
+        justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
+        for registry in (
+            "--env PIP_INDEX_URL=https://pypi.org/simple",
+            "--env NPM_CONFIG_REGISTRY=https://registry.npmjs.org",
+        ):
+            with self.subTest(registry=registry):
+                self.assertIn(registry, justfile)
+        self.assertNotIn("pip config get", justfile)
+        self.assertNotIn("npm config get", justfile)
+        self.assertIn("SystemRootCertificates.keychain", justfile)
+        self.assertIn("/etc/ssl/certs/ca-certificates.crt", justfile)
+        self.assertIn('--env "PIP_CERT=${container_ca_bundle}"', justfile)
+        self.assertIn('--env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"', justfile)
+        self.assertIn('--env "NPM_CONFIG_CAFILE=${container_ca_bundle}"', justfile)
+        self.assertIn("npm_cache_volume=", justfile)
+        self.assertIn("pip_cache_volume=", justfile)
+        self.assertIn("go_build_cache_volume=", justfile)
+        self.assertIn("go_mod_cache_volume=", justfile)
+        self.assertIn("playwright_cache_volume=", justfile)
+        self.assertIn("hermit_cache_volume=", justfile)
+        self.assertIn(
+            '--env "NPM_CONFIG_CACHE=${workspace}/.hermit/node/cache"', justfile
+        )
+        self.assertIn(
+            '--env "PIP_CACHE_DIR=${workspace}/.hermit/python/cache/pip"', justfile
+        )
+        self.assertIn('--env "GOCACHE=${container_cache_root}/go-build"', justfile)
+        self.assertIn('--env "GOMODCACHE=${container_cache_root}/go-mod"', justfile)
+        self.assertIn(
+            '--env "LOCAL_CI_GO_BUILD_CACHE_VOLUME=${go_build_cache_volume}"',
+            justfile,
+        )
+        self.assertIn(
+            '--env "LOCAL_CI_GO_MOD_CACHE_VOLUME=${go_mod_cache_volume}"',
+            justfile,
+        )
+        self.assertIn('-v "${LOCAL_CI_GO_BUILD_CACHE_VOLUME}:/gocache"', justfile)
+        self.assertIn('-v "${LOCAL_CI_GO_MOD_CACHE_VOLUME}:/gomodcache"', justfile)
+        self.assertIn(
+            '--env "PLAYWRIGHT_BROWSERS_PATH=${container_cache_root}/playwright"',
+            justfile,
+        )
+        self.assertNotIn('--env "HOME=', justfile)
+        for insecure_setting in (
+            "NODE_TLS_REJECT_UNAUTHORIZED=0",
+            "PIP_TRUSTED_HOST",
+            "strict-ssl=false",
+        ):
+            with self.subTest(insecure_setting=insecure_setting):
+                self.assertNotIn(insecure_setting, justfile)
+
+    def test_local_ci_isolates_compose_networks_and_host_ports(self):
+        justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
+        compose = (GITHUB_DIR.parent / "server/docker-compose.yaml").read_text(
+            encoding="utf-8"
+        )
+        compose_base = (
+            GITHUB_DIR.parent / "server/docker-compose.base.yaml"
+        ).read_text(encoding="utf-8")
+        compose_override = (
+            GITHUB_DIR.parent / "server/docker-compose.local-ci.yaml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("docker-compose.local-ci.yaml", justfile)
+        self.assertIn('name: "${LOCAL_CI_COMPOSE_NETWORK_NAME}"', compose_override)
+        self.assertIn("external: true", compose_override)
+        self.assertIn("docker network create", justfile)
+        self.assertIn("docker network rm", justfile)
+        self.assertIn('--subnet "${subnet}"', justfile)
+        self.assertIn(".0/24", justfile)
+        self.assertIn("LOCAL_CI_COMPOSE_NETWORK_NAME", justfile)
+        self.assertNotIn("stop them first", justfile)
+        for variable in (
+            "LOCAL_CI_DB_HOST_PORT",
+            "LOCAL_CI_API_HOST_PORT",
+            "LOCAL_CI_PROTO_RIG_HOST_PORT",
+            "LOCAL_CI_ANTMINER_RPC_HOST_PORT",
+            "LOCAL_CI_ANTMINER_HTTP_HOST_PORT",
+        ):
+            with self.subTest(variable=variable):
+                self.assertIn(variable, justfile)
+        self.assertIn("${LOCAL_CI_DB_HOST_PORT:-5432}:5432", compose_base)
+        self.assertIn("${LOCAL_CI_API_HOST_PORT:-4000}:4000", compose)
+        self.assertIn("${LOCAL_CI_PROTO_RIG_HOST_PORT:-8080}:8080", compose)
+        self.assertIn("${LOCAL_CI_ANTMINER_RPC_HOST_PORT:-4028}:4028", compose)
+        self.assertIn("${LOCAL_CI_ANTMINER_HTTP_HOST_PORT:-8008}:80", compose)
+
+        server = load_workflow("protofleet-server-checks.yml")
+        server_test = next(
+            step for step in server["jobs"]["test"]["steps"] if step["name"] == "Test"
+        )
+        self.assertIn("LOCAL_CI_DB_ADDRESS", server_test["run"])
+
+        protofleet = read_workflow("protofleet-e2e-tests.yml")
+        self.assertIn("LOCAL_CI_PROTOFLEET_FRONTEND_PORT", protofleet)
+        self.assertIn("LOCAL_CI_FLEET_API_URL", protofleet)
+        self.assertIn("LOCAL_CI_PROTOFLEET_BASE_URL", protofleet)
+
+        protoos = read_workflow("protoos-e2e-tests.yml")
+        self.assertIn("LOCAL_CI_PROTOOS_SIMULATOR_PORT", protoos)
+        self.assertIn("LOCAL_CI_PROTOOS_PROXY_URL", protoos)
+        self.assertIn("LOCAL_CI_PROTOOS_FRONTEND_PORT", protoos)
+        self.assertIn("LOCAL_CI_PROTOOS_BASE_URL", protoos)
+
+    def test_local_e2e_collapses_shared_service_matrices_without_losing_projects(self):
+        for workflow_name in (
+            "protofleet-e2e-tests.yml",
+            "protoos-e2e-tests.yml",
+        ):
+            source = read_workflow(workflow_name)
+            with self.subTest(workflow=workflow_name):
+                self.assertIn(
+                    'github.event.act && \'["local"]\' || \'["desktop","mobile"]\'',
+                    source,
+                )
+                self.assertIn("projects=(desktop mobile)", source)
+
+        protoos = load_workflow("protoos-e2e-tests.yml")
+        install = next(
+            step
+            for step in protoos["jobs"]["e2e-tests"]["steps"]
+            if step["name"] == "Install client dependencies"
+        )
+        self.assertEqual(install["if"], "${{ env.ACT != 'true' }}")
+
+        protofleet_source = read_workflow("protofleet-e2e-tests.yml")
+        protofleet = load_workflow("protofleet-e2e-tests.yml")
+        self.assertEqual(
+            protofleet["jobs"]["e2e-tests"]["timeout-minutes"],
+            "${{ github.event.act && 90 || 40 }}",
+        )
+        self.assertIn(
+            'DEFERRED_SPECS=("${UPDATE_SPECS[@]}" "${SECURITY_SPECS[@]}")',
+            protofleet_source,
+        )
+        self.assertIn(
+            "spec/updatesSettings.spec.ts)",
+            protofleet_source,
+        )
+        self.assertIn("spec/securitySettings.spec.ts)", protofleet_source)
+        self.assertIn(
+            "Resetting services before local state-sensitive tests",
+            protofleet_source,
+        )
+        self.assertIn(
+            "extra_args+=(--no-deps)",
+            protofleet_source,
+        )
 
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")

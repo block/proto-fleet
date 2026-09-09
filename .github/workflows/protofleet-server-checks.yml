@@ -81,6 +81,7 @@ jobs:
 
       - name: Restore TimescaleDB image cache
         id: tsdb-image-cache
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
@@ -88,15 +89,21 @@ jobs:
 
       - name: Build TimescaleDB image
         if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: |
           mkdir -p /tmp/docker-images
           # `--pull` refreshes the upstream base images on a rebuild.
           docker compose build --pull timescaledb
+          if [[ -n "${ACT:-}" ]]; then
+            echo "Using the host Docker daemon; skipping the hosted-runner image cache."
+            exit 0
+          fi
           image="$(docker compose config --images timescaledb)"
           docker save "$image" | gzip > /tmp/docker-images/timescaledb.tar.gz
 
       - name: Save TimescaleDB image cache
-        if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
+        if: ${{ env.ACT != 'true' && steps.tsdb-image-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
@@ -107,11 +114,19 @@ jobs:
         run: gunzip < /tmp/docker-images/timescaledb.tar.gz | docker load
 
       - name: Start database
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: just db-up
 
       - name: Test
-        run: just test
+        run: |
+          if [[ -n "${LOCAL_CI_DB_ADDRESS:-}" ]]; then
+            export DB_ADDRESS="${LOCAL_CI_DB_ADDRESS}"
+          fi
+          just test
 
       - name: Cleanup
         if: always()
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: docker compose down -v

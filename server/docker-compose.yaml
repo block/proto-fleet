@@ -52,7 +52,7 @@ services:
     networks:
       - fleet-network
     ports:
-      - "4000:4000"
+      - "${LOCAL_CI_API_HOST_PORT:-4000}:4000"
 
   timescaledb:
     extends:
@@ -290,7 +290,7 @@ services:
       timeout: 5s
       retries: 3
     ports:
-      - "8080:8080"
+      - "${LOCAL_CI_PROTO_RIG_HOST_PORT:-8080}:8080"
     deploy:
       resources:
         limits:
@@ -316,8 +316,8 @@ services:
       timeout: 5s
       retries: 3
     ports:
-      - "4028:4028"
-      - "8008:80"
+      - "${LOCAL_CI_ANTMINER_RPC_HOST_PORT:-4028}:4028"
+      - "${LOCAL_CI_ANTMINER_HTTP_HOST_PORT:-8008}:80"
     deploy:
       resources:
         limits:

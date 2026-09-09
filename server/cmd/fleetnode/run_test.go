@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -622,21 +623,34 @@ func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) 
 	cmd := &RunCmd{}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	done := make(chan error, 1)
+	type sessionResult struct {
+		err     error
+		endedAt time.Time
+	}
+	done := make(chan sessionResult, 1)
 	go func() {
-		done <- cmd.runControlSession(ctx, discardLogger(t), client, state)
+		done <- sessionResult{
+			err:     cmd.runControlSession(ctx, discardLogger(t), client, state),
+			endedAt: time.Now(),
+		}
 	}()
 	require.Eventually(t, func() bool { return controlGateway.helloCount() == 1 }, time.Second, 10*time.Millisecond)
 
 	require.Error(t, cmd.refreshAndSave(ctx, state, statePath, discardLogger(t)))
 	select {
-	case sessionErr := <-done:
-		t.Fatalf("failed refresh retired the stream before token expiry: %v", sessionErr)
+	case result := <-done:
+		t.Fatalf("failed refresh retired the stream before token expiry: %v", result.err)
 	case <-time.After(100 * time.Millisecond):
 	}
 	select {
-	case sessionErr := <-done:
-		require.ErrorIs(t, sessionErr, errControlSessionExpired)
+	case result := <-done:
+		if !errors.Is(result.err, errControlSessionExpired) {
+			// The server receives the propagated deadline too. Under load its
+			// handler can return at that deadline just before the client context
+			// publishes its cause, so connect reports the equivalent EOF.
+			require.ErrorIs(t, result.err, io.EOF)
+			require.False(t, result.endedAt.Before(expiresAt), "control stream closed before token expiry")
+		}
 	case <-time.After(time.Until(expiresAt) + time.Second):
 		t.Fatal("control session survived past the opening token expiry")
 	}

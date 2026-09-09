@@ -35,6 +35,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          clean: ${{ env.ACT != 'true' }}
           persist-credentials: false
 
       - name: Detect spec files
@@ -85,6 +86,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          clean: ${{ env.ACT != 'true' }}
           persist-credentials: false
 
       - name: Setup Hermit
@@ -98,6 +100,7 @@ jobs:
       # Rolldown's Linux binding), so we always run a clean `npm ci` and just
       # keep its downloads warm. This is also the pattern Client Checks uses.
       - name: Cache npm dependencies
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -127,7 +130,7 @@ jobs:
       # one-off entries that would evict other workflow caches.
       - name: Restore Docker image cache
         id: docker-image-cache
-        if: github.event_name != 'schedule'
+        if: ${{ github.event_name != 'schedule' && env.ACT != 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
@@ -138,6 +141,8 @@ jobs:
       - name: Build E2E Docker images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: |
           mkdir -p /tmp/docker-images
           # `--ignore-buildable` pulls only services with `image:` and no
@@ -149,8 +154,20 @@ jobs:
           # `--pull` forces fresh upstream base images on rebuild so a stale
           # cache miss key doesn't serve stale FROM layers.
           echo "::group::docker compose build"
-          docker compose build --pull
+          if [[ -n "${ACT:-}" ]]; then
+            for attempt in 1 2 3; do
+              docker compose build --pull && break
+              [[ "$attempt" -lt 3 ]] || exit 1
+              echo "Docker build download failed; retrying ($((attempt + 1))/3)..."
+            done
+          else
+            docker compose build --pull
+          fi
           echo "::endgroup::"
+          if [[ -n "${ACT:-}" ]]; then
+            echo "Using the host Docker daemon; skipping the hosted-runner image cache."
+            exit 0
+          fi
           echo "::group::Save images to compressed tarball"
           mapfile -t images < <(docker compose config --images | sort -u)
           printf '  - %s\n' "${images[@]}"
@@ -159,7 +176,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Save Docker image cache
-        if: github.event_name != 'schedule' && steps.docker-image-cache.outputs.cache-hit != 'true'
+        if: ${{ github.event_name != 'schedule' && env.ACT != 'true' && steps.docker-image-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
@@ -179,6 +196,7 @@ jobs:
           echo "Plugins built successfully"
 
       - name: Upload client build
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: protofleet-client-dist
@@ -187,6 +205,7 @@ jobs:
           retention-days: 1
 
       - name: Upload plugins
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: protofleet-plugins
@@ -195,6 +214,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Docker images
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: protofleet-e2e-docker-images
@@ -204,24 +224,29 @@ jobs:
 
   e2e-tests:
     needs: [detect-specs, build]
-    timeout-minutes: 40
+    # Local CI runs both project entries serially in this one job.
+    timeout-minutes: ${{ github.event.act && 90 || 40 }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
-      # Total shard count. Keep in sync with the length of matrix.shard below.
-      SHARD_TOTAL: "16"
+      # GitHub shard count. Local CI uses one shard so it runs every spec
+      # without multiplying setup inside its shared temporary checkout.
+      SHARD_TOTAL: ${{ github.event.act && '1' || '16' }}
     strategy:
       fail-fast: false
       matrix:
         # 0-indexed to match the round-robin modulo in the run step below.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-        project: [desktop, mobile]
+        shard: ${{ fromJSON(github.event.act && '[0]' || '[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]') }}
+        # act expands matrix entries concurrently even with one requested job.
+        # One local entry runs both projects below against one service stack.
+        project: ${{ fromJSON(github.event.act && '["local"]' || '["desktop","mobile"]') }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          clean: ${{ env.ACT != 'true' }}
           persist-credentials: false
 
       - name: Setup Hermit
@@ -232,6 +257,7 @@ jobs:
       # See the build job: cache ~/.npm and run a clean `npm ci` rather than
       # caching a built node_modules.
       - name: Cache npm dependencies
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -241,6 +267,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -249,6 +276,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
+        if: ${{ env.ACT != 'true' }}
         working-directory: client
         run: npm ci --include=optional
 
@@ -256,19 +284,24 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoFleet
         run: |
-          # ubuntu-latest already includes Chromium's runtime libraries. Avoid
-          # `--with-deps` here: every matrix job would run apt even on an exact
-          # browser-cache hit, amplifying a transient mirror issue across all
-          # shards until they reach the job timeout.
+          # GitHub-hosted ubuntu-latest already includes Chromium's libraries.
+          # The local runner image does not, but its matrix is collapsed so apt
+          # only runs once per browser project.
+          if [[ -n "${ACT:-}" ]]; then
+            npx playwright install --with-deps chromium
+            exit 0
+          fi
           npx playwright install chromium
 
       - name: Download prebuilt client
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-client-dist
           path: client/dist
 
       - name: Download prebuilt plugins
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-plugins
@@ -278,17 +311,21 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
 
       - name: Load Docker images
+        if: ${{ env.ACT != 'true' }}
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         # --no-build: fail loudly on a missing image rather than falling back
         # to a per-shard rebuild (the cost this change is eliminating).
         run: docker compose up -d --no-build
@@ -300,24 +337,30 @@ jobs:
           VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
           VITE_COMMIT: ${{ github.sha }}
         run: |
+          frontend_port="${LOCAL_CI_PROTOFLEET_FRONTEND_PORT:-5173}"
+          fleet_api_url="${LOCAL_CI_FLEET_API_URL:-http://localhost:4000}"
           # Start frontend in background (already built in earlier step)
-          npx vite preview --mode protoFleet --port 5173 --host &
+          nohup env FLEET_PROXY_URL="$fleet_api_url" \
+            npx vite preview --mode protoFleet --port "$frontend_port" --host \
+            > /tmp/protofleet-vite.log 2>&1 < /dev/null &
           VITE_PID=$!
           echo "Vite PID: $VITE_PID"
 
           # Wait for frontend to be ready
           echo "Waiting for frontend..."
-          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          timeout 60 bash -c 'until curl -f "http://localhost:${LOCAL_CI_PROTOFLEET_FRONTEND_PORT:-5173}" 2>/dev/null; do sleep 2; done'
           echo "Frontend is ready!"
 
       - name: Run Playwright tests (${{ matrix.project }} - shard ${{ matrix.shard }})
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
           MATRIX_PROJECT: ${{ matrix.project }}
           MATRIX_SHARD: ${{ matrix.shard }}
           SPECS_JSON: ${{ needs.detect-specs.outputs.specs }}
           TARGET_TAG: ${{ needs.detect-specs.outputs.target_tag }}
+          E2E_BASE_URL: ${{ env.LOCAL_CI_PROTOFLEET_BASE_URL }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
@@ -342,25 +385,87 @@ jobs:
             exit 0
           fi
 
+          if [[ -n "${ACT:-}" ]]; then
+            # GitHub gives each shard a fresh backend. The collapsed local job
+            # needs to preserve two of those boundaries: Updates expects clean
+            # host state, while Security changes the credentials used by every
+            # stored-session consumer. Run both after the bulk suite, with one
+            # reset before Updates and Security last.
+            UPDATE_SPECS=()
+            SECURITY_SPECS=()
+            LOCAL_SPECS=()
+            for spec in "${SHARD_SPECS[@]}"; do
+              case "$spec" in
+                spec/updatesSettings.spec.ts)
+                  UPDATE_SPECS+=("$spec")
+                  ;;
+                spec/securitySettings.spec.ts)
+                  SECURITY_SPECS+=("$spec")
+                  ;;
+                *)
+                  LOCAL_SPECS+=("$spec")
+                  ;;
+              esac
+            done
+            DEFERRED_SPECS=("${UPDATE_SPECS[@]}" "${SECURITY_SPECS[@]}")
+            SHARD_SPECS=("${LOCAL_SPECS[@]}")
+          fi
+
           echo "Specs for shard ${MATRIX_SHARD}:"
           printf '  - %s\n' "${SHARD_SPECS[@]}"
 
-          PLAYWRIGHT_ARGS=(--project="$MATRIX_PROJECT" --reporter=blob)
+          PLAYWRIGHT_ARGS=(--reporter=blob)
           if [ -n "$TARGET_TAG" ]; then
             PLAYWRIGHT_ARGS+=(--grep "$TARGET_TAG")
           fi
-          PLAYWRIGHT_ARGS+=("${SHARD_SPECS[@]}")
 
-          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-shard-${MATRIX_SHARD}.zip" \
-          PWTEST_BLOB_DO_NOT_REMOVE=1 \
-          npx playwright test "${PLAYWRIGHT_ARGS[@]}"
+          projects=("$MATRIX_PROJECT")
+          if [[ -n "${ACT:-}" ]]; then
+            projects=(desktop mobile)
+          fi
+
+          status=0
+          for project in "${projects[@]}"; do
+            if [[ -n "${ACT:-}" && "$project" != "${projects[0]}" ]]; then
+              echo "Resetting services before local ${project} tests..."
+              (
+                cd ../../../server
+                docker compose down -v
+                docker compose up -d --no-build
+              )
+            fi
+            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${project}-shard-${MATRIX_SHARD}.zip" \
+            PWTEST_BLOB_DO_NOT_REMOVE=1 \
+            npx playwright test --project="$project" "${PLAYWRIGHT_ARGS[@]}" "${SHARD_SPECS[@]}" || status=1
+
+            if [[ -n "${ACT:-}" && "${#DEFERRED_SPECS[@]}" -gt 0 ]]; then
+              echo "Resetting services before local state-sensitive tests..."
+              (
+                cd ../../../server
+                docker compose down -v
+                docker compose up -d --no-build
+              )
+              for spec in "${DEFERRED_SPECS[@]}"; do
+                spec_name="$(basename "$spec" .spec.ts)"
+                extra_args=()
+                if [[ "$spec" == "spec/securitySettings.spec.ts" && "${#UPDATE_SPECS[@]}" -gt 0 ]]; then
+                  # Updates already recreated the setup state this spec needs.
+                  extra_args+=(--no-deps)
+                fi
+                PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${project}-${spec_name}-shard-${MATRIX_SHARD}.zip" \
+                PWTEST_BLOB_DO_NOT_REMOVE=1 \
+                npx playwright test --project="$project" "${extra_args[@]}" "${PLAYWRIGHT_ARGS[@]}" "$spec" || status=1
+              done
+            fi
+          done
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
+          exit "$status"
 
       - name: Upload blob report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && !cancelled() }}
+        if: ${{ always() && !cancelled() && env.ACT != 'true' }}
         with:
           name: blob-report-${{ matrix.project }}-shard-${{ matrix.shard }}
           path: client/e2eTests/protoFleet/blob-report/
@@ -369,7 +474,7 @@ jobs:
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ failure() && !cancelled() }}
+        if: ${{ failure() && !cancelled() && env.ACT != 'true' }}
         with:
           name: screenshots-${{ matrix.project }}-shard-${{ matrix.shard }}
           path: client/e2eTests/protoFleet/test-results/
@@ -379,6 +484,8 @@ jobs:
       - name: Dump backend logs on failure
         if: failure()
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: |
           echo "=== Fleet API Logs ==="
           docker compose logs fleet-api
@@ -388,6 +495,8 @@ jobs:
       - name: Cleanup
         if: always()
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: docker compose down -v
 
   visual-tests:
@@ -400,12 +509,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [desktop, mobile]
+        # See the functional E2E matrix: local execution shares one stack.
+        project: ${{ fromJSON(github.event.act && '["local"]' || '["desktop","mobile"]') }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          clean: ${{ env.ACT != 'true' }}
           persist-credentials: false
 
       - name: Setup Hermit
@@ -414,6 +525,7 @@ jobs:
           preinstall: "false"
 
       - name: Cache npm dependencies
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -423,6 +535,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -431,21 +544,29 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
+        if: ${{ env.ACT != 'true' }}
         working-directory: client
         run: npm ci --include=optional
 
       - name: Install Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoFleet
-        run: npx playwright install chromium
+        run: |
+          if [[ -n "${ACT:-}" ]]; then
+            npx playwright install --with-deps chromium
+            exit 0
+          fi
+          npx playwright install chromium
 
       - name: Download prebuilt client
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-client-dist
           path: client/dist
 
       - name: Download prebuilt plugins
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-plugins
@@ -455,17 +576,21 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
 
       - name: Load Docker images
+        if: ${{ env.ACT != 'true' }}
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: docker compose up -d --no-build
 
       - name: Start frontend
@@ -475,33 +600,57 @@ jobs:
           VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
           VITE_COMMIT: ${{ github.sha }}
         run: |
-          npx vite preview --mode protoFleet --port 5173 --host &
+          frontend_port="${LOCAL_CI_PROTOFLEET_FRONTEND_PORT:-5173}"
+          fleet_api_url="${LOCAL_CI_FLEET_API_URL:-http://localhost:4000}"
+          nohup env FLEET_PROXY_URL="$fleet_api_url" \
+            npx vite preview --mode protoFleet --port "$frontend_port" --host \
+            > /tmp/protofleet-vite.log 2>&1 < /dev/null &
           VITE_PID=$!
           echo "Vite PID: $VITE_PID"
 
           echo "Waiting for frontend..."
-          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          timeout 60 bash -c 'until curl -f "http://localhost:${LOCAL_CI_PROTOFLEET_FRONTEND_PORT:-5173}" 2>/dev/null; do sleep 2; done'
           echo "Frontend is ready!"
 
       - name: Run onboarding visual spec (${{ matrix.project }})
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
           PROTOFLEET_VISUAL_ONLY: "1"
+          PROTOFLEET_VISUAL_BASE_URL: ${{ env.LOCAL_CI_PROTOFLEET_BASE_URL }}
+          MATRIX_PROJECT: ${{ matrix.project }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-visual.zip" \
-          PWTEST_BLOB_DO_NOT_REMOVE=1 \
-          npx playwright test --project="${{ matrix.project }}" --reporter=blob spec/onboardingVisual.spec.ts
+          projects=("$MATRIX_PROJECT")
+          if [[ -n "${ACT:-}" ]]; then
+            projects=(desktop mobile)
+          fi
+
+          status=0
+          for project in "${projects[@]}"; do
+            if [[ -n "${ACT:-}" && "$project" != "${projects[0]}" ]]; then
+              echo "Resetting services before local ${project} visual tests..."
+              (
+                cd ../../../server
+                docker compose down -v
+                docker compose up -d --no-build
+              )
+            fi
+            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${project}-visual.zip" \
+            PWTEST_BLOB_DO_NOT_REMOVE=1 \
+            npx playwright test --project="$project" --reporter=blob spec/onboardingVisual.spec.ts || status=1
+          done
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
+          exit "$status"
 
       - name: Upload blob report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && !cancelled() }}
+        if: ${{ always() && !cancelled() && env.ACT != 'true' }}
         with:
           name: blob-report-${{ matrix.project }}-visual
           path: client/e2eTests/protoFleet/blob-report/
@@ -510,7 +659,7 @@ jobs:
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ failure() && !cancelled() }}
+        if: ${{ failure() && !cancelled() && env.ACT != 'true' }}
         with:
           name: screenshots-${{ matrix.project }}-visual
           path: client/e2eTests/protoFleet/test-results/
@@ -520,6 +669,8 @@ jobs:
       - name: Dump backend logs on failure
         if: failure()
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: |
           echo "=== Fleet API Logs ==="
           docker compose logs fleet-api
@@ -529,13 +680,15 @@ jobs:
       - name: Cleanup
         if: always()
         working-directory: server
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.LOCAL_CI_COMPOSE_PROJECT_NAME }}
         run: docker compose down -v
 
   merge-reports:
     name: Merge Test Reports
     runs-on: ubuntu-latest
     needs: [e2e-tests, visual-tests]
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && !github.event.act }}
     permissions:
       contents: read
     outputs:

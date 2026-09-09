@@ -228,19 +228,27 @@ run with up to four workers by default; pass a different limit as the second
 argument, for example `just ci main 6`.
 
 Docker must be running. The first run downloads the runner image and referenced
-actions; later runs reuse them. Local CI first runs independent checks in
-parallel, then runs the server and service-backed E2E workflows serially because
-GitHub's separate job runners share one Docker daemon and fixed test ports
-locally. Both phases run even when one fails. Local runners use the primary
-registry URLs selected by the host's standard `pip config` and `npm config`,
-without copying credentials or config files; absent an override, the package
-managers keep their public defaults. To protect an active development stack,
-the command refuses to start while the `server` Compose project or
-`fake-proto-rig` container name is in use, and it cleans up CI containers and
-volumes afterward. If the host package managers use a custom CA bundle, local
-CI copies its public certificates into the temporary run directory and mounts
-them read-only into the action containers. Host-specific registry URLs,
-certificates, and credentials are not stored in the repository.
+actions; later runs reuse them. Local CI runs independent checks in parallel,
+then isolates client, Python, Rust, Docker integration, contract, server, and
+E2E workloads so reusable workflows cannot multiply beyond the intended local
+load. The contract and E2E phases bind only the temporary clone so
+nested containers and dependent jobs see locally built outputs. GitHub cache
+and report-artifact transfers are skipped locally; they do not affect the
+checks and the temporary clone and Docker daemon already retain those inputs.
+Every phase runs even when an earlier one fails. Local runners use the canonical
+public PyPI and npm registries without copying host credentials or
+package-manager configuration. The host's machine-wide certificate roots are
+mounted read-only so TLS verification also works on networks that inspect
+HTTPS; verification remains enabled. Verified package, Go build, and Playwright
+browser caches are retained in checkout-scoped Docker volumes so later phases
+and subsequent runs reuse downloads without disabling network access. To
+protect active development stacks, each invocation uses a unique Compose
+project, collision-free `/24` network, simulator name, and ephemeral host
+ports. The network is reserved for the entire invocation so network discovery
+keeps PR fidelity without colliding with another checkout. Local CI removes
+only its own containers, network, and Compose volumes afterward; the
+checkout-scoped download caches remain available to later runs, and other
+checkouts can keep running while the suite executes.
 
 `act` cannot reproduce Windows runners or GitHub-hosted policy checks. The
 Windows C# and PowerShell jobs, dependency review, security review, and final

@@ -14,6 +14,7 @@ try {
 export const testConfig: TestConfig = {
   ...defaultTestConfig,
   ...localConfig,
+  baseUrl: process.env.E2E_BASE_URL?.trim() || localConfig.baseUrl || defaultTestConfig.baseUrl,
   admin: {
     ...defaultTestConfig.admin,
     ...localConfig.admin,

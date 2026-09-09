@@ -1,0 +1,6 @@
+# Local CI reserves this external /24 for its whole run. Keeping the network
+# small preserves the production-like local-subnet discovery exercised by E2E.
+networks:
+  fleet-network:
+    name: "${LOCAL_CI_COMPOSE_NETWORK_NAME}"
+    external: true

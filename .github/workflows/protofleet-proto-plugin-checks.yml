@@ -67,6 +67,16 @@ jobs:
             exit 1
           fi
 
+          if [[ -n "${ACT:-}" ]]; then
+            echo "Building the integration image through the host Docker CLI."
+            docker build --pull \
+              --tag proto-fleet-fake-rig:local-ci \
+              --file ../../server/fake-proto-rig/Dockerfile \
+              ../..
+            echo "PROTO_FLEET_FAKE_RIG_IMAGE=proto-fleet-fake-rig:local-ci" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
           docker pull hello-world:latest
           docker run --rm hello-world:latest
           docker pull ubuntu:22.04

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -31,13 +32,6 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 	// Start fake-proto-rig container (Go-based simulator)
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    "../../..",
-			Dockerfile: "server/fake-proto-rig/Dockerfile",
-			BuildOptionsModifier: func(opts *client.ImageBuildOptions) {
-				opts.Version = build.BuilderBuildKit
-			},
-		},
 		ExposedPorts: []string{"8080/tcp"},
 		WaitingFor:   wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(2 * time.Minute),
 		Env: map[string]string{
@@ -45,6 +39,19 @@ func TestProtoPluginIntegration(t *testing.T) {
 			"SERIAL_NUMBER":     "PROTO-SIM-TEST",
 			"FAKE_RIG_PASSWORD": "proto",
 		},
+	}
+	// Local CI prebuilds through the Docker CLI because Docker Desktop's proxy
+	// can drop Testcontainers' raw image-build stream.
+	if image := os.Getenv("PROTO_FLEET_FAKE_RIG_IMAGE"); image != "" {
+		req.Image = image
+	} else {
+		req.FromDockerfile = testcontainers.FromDockerfile{
+			Context:    "../../..",
+			Dockerfile: "server/fake-proto-rig/Dockerfile",
+			BuildOptionsModifier: func(opts *client.ImageBuildOptions) {
+				opts.Version = build.BuilderBuildKit
+			},
+		}
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

@@ -16,30 +16,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [desktop, mobile]
+        # act expands matrix entries concurrently even with one requested job.
+        # One local entry runs both projects below against a single simulator.
+        project: ${{ fromJSON(github.event.act && '["local"]' || '["desktop","mobile"]') }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          clean: ${{ env.ACT != 'true' }}
           persist-credentials: false
 
       - name: Build fake-proto-rig simulator
         run: |
+          simulator="${ACT:+${LOCAL_CI_COMPOSE_PROJECT_NAME}-}fake-proto-rig"
           echo "Building fake-proto-rig simulator..."
           docker build \
-            -t fake-proto-rig \
+            -t "$simulator" \
             -f server/fake-proto-rig/Dockerfile \
             .
 
       - name: Start fake-proto-rig simulator
         run: |
+          simulator="${ACT:+${LOCAL_CI_COMPOSE_PROJECT_NAME}-}fake-proto-rig"
+          simulator_port="${LOCAL_CI_PROTOOS_SIMULATOR_PORT:-8080}"
           docker run -d \
-            --name fake-proto-rig \
-            -p 8080:8080 \
-            fake-proto-rig
+            --name "$simulator" \
+            -p "$simulator_port:8080" \
+            "$simulator"
 
       - name: Cache Node modules
+        if: ${{ env.ACT != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -50,6 +57,7 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Install client dependencies
+        if: ${{ env.ACT != 'true' }}
         working-directory: client
         run: npm ci
 
@@ -60,9 +68,11 @@ jobs:
       - name: Start ProtoOS frontend
         working-directory: client
         run: |
-          npm run preview:protoOS -- --port 3000 --host 0.0.0.0 --strictPort > /tmp/vite-preview.log 2>&1 &
-        env:
-          PROXY_URL: http://localhost:8080
+          frontend_port="${LOCAL_CI_PROTOOS_FRONTEND_PORT:-3000}"
+          proxy_url="${LOCAL_CI_PROTOOS_PROXY_URL:-http://localhost:8080}"
+          nohup env PROXY_URL="$proxy_url" npm run preview:protoOS -- \
+            --port "$frontend_port" --host 0.0.0.0 --strictPort \
+            > /tmp/vite-preview.log 2>&1 < /dev/null &
 
       - name: Install Playwright browsers
         working-directory: client/e2eTests/protoOS
@@ -70,21 +80,40 @@ jobs:
 
       - name: Run Playwright tests (${{ matrix.project }})
         working-directory: client/e2eTests/protoOS
-        run: npx playwright test --project=${{ matrix.project }}
+        run: |
+          projects=("$MATRIX_PROJECT")
+          if [[ -n "${ACT:-}" ]]; then
+            projects=(desktop mobile)
+          fi
+
+          status=0
+          for project in "${projects[@]}"; do
+            if [[ -n "${ACT:-}" && "$project" != "${projects[0]}" ]]; then
+              simulator="${LOCAL_CI_COMPOSE_PROJECT_NAME}-fake-proto-rig"
+              simulator_port="${LOCAL_CI_PROTOOS_SIMULATOR_PORT:-8080}"
+              echo "Resetting simulator before local ${project} tests..."
+              docker rm -f "$simulator"
+              docker run -d --name "$simulator" -p "$simulator_port:8080" "$simulator"
+            fi
+            npx playwright test --project="$project" || status=1
+          done
+          exit "$status"
         env:
           CI: true
+          E2E_BASE_URL: ${{ env.LOCAL_CI_PROTOOS_BASE_URL }}
+          MATRIX_PROJECT: ${{ matrix.project }}
 
       - name: Upload Playwright report
         id: playwright-report-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.ACT != 'true' }}
         with:
           name: playwright-report-protoos-${{ matrix.project }}
           path: client/e2eTests/protoOS/playwright-report/
           retention-days: 30
 
       - name: Note report availability
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.ACT != 'true' }}
         env:
           PLAYWRIGHT_REPORT_ARTIFACT_URL: ${{ steps.playwright-report-artifact.outputs.artifact-url }}
         run: |
@@ -127,7 +156,7 @@ jobs:
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
+        if: ${{ failure() && env.ACT != 'true' }}
         with:
           name: playwright-screenshots-protoos-${{ matrix.project }}
           path: client/e2eTests/protoOS/test-results/
@@ -136,9 +165,12 @@ jobs:
       - name: Dump simulator logs on failure
         if: failure()
         run: |
+          simulator="${ACT:+${LOCAL_CI_COMPOSE_PROJECT_NAME}-}fake-proto-rig"
           echo "=== fake-proto-rig Logs ==="
-          docker logs fake-proto-rig 2>&1 || echo "No fake-proto-rig logs available"
+          docker logs "$simulator" 2>&1 || echo "No fake-proto-rig logs available"
 
       - name: Cleanup
         if: always()
-        run: docker rm -f fake-proto-rig || true
+        run: |
+          simulator="${ACT:+${LOCAL_CI_COMPOSE_PROJECT_NAME}-}fake-proto-rig"
+          docker rm -f "$simulator" || true
