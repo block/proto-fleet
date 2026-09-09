@@ -588,16 +588,27 @@ WHERE id = sqlc.arg('rollout_id') AND status = 'active';
 -- name: AdvanceFirmwareRolloutStage :execrows
 -- Stage transitions of an active rollout, attributed to an actor when one
 -- drove them. Returns the affected row count so callers can detect a lost race.
-UPDATE firmware_rollout
+-- Acquire the row before sampling the stage clock: an UPDATE expression can
+-- otherwise be evaluated before a row-lock wait. Never move the stage time back.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = sqlc.arg('rollout_id')
+      AND candidate.status = 'active'
+      AND candidate.stage = sqlc.arg('from_stage')
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET stage = sqlc.arg('stage'),
     current_batch = sqlc.arg('current_batch'),
-    stage_changed_at = now(),
-    last_action_by_type = COALESCE(sqlc.narg('actor_type')::text, last_action_by_type),
-    last_action_by_id = COALESCE(sqlc.narg('actor_id')::bigint, last_action_by_id),
-    last_action_by_name = COALESCE(sqlc.narg('actor_name')::text, last_action_by_name)
-WHERE id = sqlc.arg('rollout_id')
-  AND status = 'active'
-  AND stage = sqlc.arg('from_stage');
+    stage_changed_at = GREATEST(locked_rollout.stage_changed_at, clock_timestamp()),
+    last_action_by_type = COALESCE(sqlc.narg('actor_type')::text, r.last_action_by_type),
+    last_action_by_id = COALESCE(sqlc.narg('actor_id')::bigint, r.last_action_by_id),
+    last_action_by_name = COALESCE(sqlc.narg('actor_name')::text, r.last_action_by_name)
+FROM locked_rollout
+WHERE r.id = locked_rollout.id
+  AND r.status = 'active'
+  AND r.stage = sqlc.arg('from_stage');
 
 -- name: PauseFirmwareRollout :execrows
 UPDATE firmware_rollout

@@ -35,6 +35,8 @@ type Querier interface {
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
 	// Stage transitions of an active rollout, attributed to an actor when one
 	// drove them. Returns the affected row count so callers can detect a lost race.
+	// Acquire the row before sampling the stage clock: an UPDATE expression can
+	// otherwise be evaluated before a row-lock wait. Never move the stage time back.
 	AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
 	// Returns true if all provided device identifiers belong to the specified organization.

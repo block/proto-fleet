@@ -14,16 +14,25 @@ import (
 )
 
 const advanceFirmwareRolloutStage = `-- name: AdvanceFirmwareRolloutStage :execrows
-UPDATE firmware_rollout
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = $7
+      AND candidate.status = 'active'
+      AND candidate.stage = $6
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET stage = $1,
     current_batch = $2,
-    stage_changed_at = now(),
-    last_action_by_type = COALESCE($3::text, last_action_by_type),
-    last_action_by_id = COALESCE($4::bigint, last_action_by_id),
-    last_action_by_name = COALESCE($5::text, last_action_by_name)
-WHERE id = $6
-  AND status = 'active'
-  AND stage = $7
+    stage_changed_at = GREATEST(locked_rollout.stage_changed_at, clock_timestamp()),
+    last_action_by_type = COALESCE($3::text, r.last_action_by_type),
+    last_action_by_id = COALESCE($4::bigint, r.last_action_by_id),
+    last_action_by_name = COALESCE($5::text, r.last_action_by_name)
+FROM locked_rollout
+WHERE r.id = locked_rollout.id
+  AND r.status = 'active'
+  AND r.stage = $6
 `
 
 type AdvanceFirmwareRolloutStageParams struct {
@@ -32,12 +41,14 @@ type AdvanceFirmwareRolloutStageParams struct {
 	ActorType    sql.NullString
 	ActorID      sql.NullInt64
 	ActorName    sql.NullString
-	RolloutID    int64
 	FromStage    string
+	RolloutID    int64
 }
 
 // Stage transitions of an active rollout, attributed to an actor when one
 // drove them. Returns the affected row count so callers can detect a lost race.
+// Acquire the row before sampling the stage clock: an UPDATE expression can
+// otherwise be evaluated before a row-lock wait. Never move the stage time back.
 func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error) {
 	result, err := q.exec(ctx, q.advanceFirmwareRolloutStageStmt, advanceFirmwareRolloutStage,
 		arg.Stage,
@@ -45,8 +56,8 @@ func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFi
 		arg.ActorType,
 		arg.ActorID,
 		arg.ActorName,
-		arg.RolloutID,
 		arg.FromStage,
+		arg.RolloutID,
 	)
 	if err != nil {
 		return 0, err
