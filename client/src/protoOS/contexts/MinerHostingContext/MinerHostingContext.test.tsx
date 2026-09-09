@@ -7,6 +7,12 @@ import { useMinerHosting } from "./useMinerHosting";
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+const htmlResponse = (status = 200) =>
+  new Response("<!doctype html><html><body>captive portal</body></html>", {
+    status,
+    headers: { "Content-Type": "text/html" },
+  });
+
 const ContextState = () => {
   const { resolution } = useMinerHosting();
   return <div data-testid="resolution">{`${resolution.status}:${resolution.adapterId ?? "none"}`}</div>;
@@ -56,7 +62,13 @@ describe("MinerHostingProvider adapter resolution", () => {
   });
 
   test("shows a generic unsupported page when no registered probe matches", async () => {
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ unexpected: true })));
+    // A miner that answers every probe path with the same generic body. Each
+    // probe is a separate fetch, so hand back a fresh Response per call (a real
+    // fetch never yields the same body-consumed Response twice).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(jsonResponse({ unexpected: true }))),
+    );
 
     render(
       <MinerHostingProvider>
@@ -66,6 +78,99 @@ describe("MinerHostingProvider adapter resolution", () => {
 
     await screen.findByRole("heading", { name: "This miner isn't supported yet" });
     expect(screen.getByText("ProtoOS couldn't identify a supported miner API.")).toBeInTheDocument();
+  });
+
+  test("treats a 2xx non-JSON body as unsupported, not a retryable unreachable", async () => {
+    // A captive portal / reverse proxy answering 200 with HTML on every probe
+    // path. A non-JSON 2xx body is a well-formed non-match, not a probe error,
+    // so resolution must be terminal "unsupported" — never the retry loop.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(htmlResponse())),
+    );
+
+    render(
+      <MinerHostingProvider>
+        <div>Miner application</div>
+      </MinerHostingProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "This miner isn't supported yet" });
+  });
+
+  test("treats an empty 2xx body as unsupported, not a retryable unreachable", async () => {
+    // A 200 with an empty body fails JSON parsing just like a non-JSON body; it
+    // must resolve to a well-formed non-match (terminal "unsupported"), not a
+    // probe error (retryable "unreachable").
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(new Response("", { status: 200 }))),
+    );
+
+    render(
+      <MinerHostingProvider>
+        <div>Miner application</div>
+      </MinerHostingProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "This miner isn't supported yet" });
+  });
+
+  test("never exposes the raw miner client on window.api", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({}, 404))
+      .mockResolvedValueOnce(jsonResponse({ "system-info": { product_name: "Proto Rig" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MinerHostingProvider>
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v1"));
+    // The provider must resolve an adapter without ever leaking the raw generated
+    // client onto the global (the #59 invariant the removed window.api violated).
+    expect((window as unknown as { api?: unknown }).api).toBeUndefined();
+  });
+
+  test("returns to probing when only the hosting mode changes", async () => {
+    let call = 0;
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      call += 1;
+      const url = String(input);
+      // Direct pass (calls 1-2): v2 misses, v1 identifies the miner.
+      if (call <= 2) {
+        return Promise.resolve(
+          url.endsWith("/api/v2/system/info")
+            ? jsonResponse({}, 404)
+            : jsonResponse({ "system-info": { product_name: "Proto Rig" } }),
+        );
+      }
+      // Fleet re-probe: never settle (except on abort) so the new probe stays pending.
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <MinerHostingProvider baseUrl="/miner-one" mode="direct">
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v1"));
+
+    rerender(
+      <MinerHostingProvider baseUrl="/miner-one" mode="fleet">
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+
+    // Same baseUrl but a different mode selects a different credential, so the
+    // prior mode's resolved adapter must not flash through during the switch.
+    expect(screen.getByTestId("resolution")).toHaveTextContent("probing:none");
   });
 
   test("aborts an in-flight probe and ignores its result when the miner changes", async () => {
