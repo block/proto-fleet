@@ -2,6 +2,7 @@ package sqlstores_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,12 @@ func TestReleaseChannelQueries_QueuedFirmwareChecksumIdentity(t *testing.T) {
 			device := f.device("current", "Bitmain", "S19", "v2")
 			rollout := f.rollout(channel, "Bitmain", "S19")
 			require.NoError(t, f.q.AppendFirmwareRolloutDevices(t.Context(), sqlc.AppendFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{device.id}}))
-			require.NoError(t, f.q.RecordFirmwareDeployment(t.Context(), sqlc.RecordFirmwareDeploymentParams{DeviceIds: []int64{device.id}, FirmwareChecksum: "sum", FirmwareVersion: "v2"}))
+			require.NoError(t, f.q.RecordFirmwareDeployment(t.Context(), sqlc.RecordFirmwareDeploymentParams{
+				DeviceIds: []int64{device.id}, FirmwareChecksum: "sum", FirmwareVersion: "v2",
+				ExpectedDeploymentPresent: []bool{false},
+				ExpectedDeployedAts:       []time.Time{{}},
+				ExpectedFirmwareChecksums: []string{""},
+			}))
 			status, commandType := tc.status, tc.commandType
 			if status == "" {
 				status = "PENDING"
