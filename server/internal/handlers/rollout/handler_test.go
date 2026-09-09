@@ -114,9 +114,9 @@ func (f *fakeService) RollbackFirmware(_ context.Context, orgID, rolloutID int64
 	return f.channel.ID, []rollout.Rollout{*f.rollout}, nil
 }
 
-func (f *fakeService) ListRollouts(_ context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, error) {
+func (f *fakeService) ListRollouts(_ context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, string, error) {
 	f.lastOrgID, f.lastFilter = orgID, filter
-	return []rollout.Rollout{*f.rollout}, "next-cursor", nil
+	return []rollout.Rollout{*f.rollout}, "next-cursor", "next-poll-cursor", nil
 }
 
 func (f *fakeService) GetRollout(_ context.Context, orgID, rolloutID int64) (*rollout.Rollout, error) {
@@ -577,6 +577,7 @@ func TestListRolloutsTranslatesFilterAndCursor(t *testing.T) {
 	require.NotNil(t, svc.lastFilter.UpdatedAfter)
 	assert.True(t, svc.lastFilter.UpdatedAfter.Equal(since))
 	assert.Equal(t, "next-cursor", resp.Msg.Cursor)
+	assert.Equal(t, "next-poll-cursor", resp.Msg.PollCursor)
 	require.Len(t, resp.Msg.Rollouts, 1)
 	assert.Equal(t, int64(9), resp.Msg.Rollouts[0].Id)
 
@@ -597,6 +598,26 @@ func TestListRolloutsTranslatesFilterAndCursor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), svc.lastID)
 	assert.Equal(t, "Canary", ch.Msg.Channel.Name)
+}
+
+func TestListRolloutsTranslatesPollCursor(t *testing.T) {
+	t.Parallel()
+	svc := newFakeService()
+	h := NewHandler(svc)
+	ctx := ctxWithPermissions(t, authz.PermMinerFirmwareUpdate)
+
+	resp, err := h.ListRollouts(ctx, connect.NewRequest(&pb.ListRolloutsRequest{
+		ChannelId: 3, Status: pb.RolloutStatus_ROLLOUT_STATUS_ACTIVE, PageSize: 25,
+		Cursor: "current-page", PollCursor: "previous-poll-cursor",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, rollout.RolloutFilter{
+		ChannelID: 3, Status: rollout.StatusActive, PageSize: 25,
+		Cursor: "current-page", PollCursor: "previous-poll-cursor",
+	}, svc.lastFilter)
+	assert.Equal(t, "next-cursor", resp.Msg.Cursor)
+	assert.Equal(t, "next-poll-cursor", resp.Msg.PollCursor)
 }
 
 func TestListReleaseChannelMinersTranslatesPage(t *testing.T) {
