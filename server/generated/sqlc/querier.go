@@ -668,6 +668,9 @@ type Querier interface {
 	// Locks the row for a mutation so the revision rule can be checked and the
 	// change applied without a concurrent actor slipping in between.
 	GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwareRolloutForUpdateParams) (FirmwareRollout, error)
+	// Capture before the first page's read. Every transaction still invisible to
+	// that page has an ID at or above this bound, even if it commits out of order.
+	GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, error)
 	GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirmwareRolloutWithChannelParams) (GetFirmwareRolloutWithChannelRow, error)
 	GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error)
 	GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error)
@@ -1141,7 +1144,9 @@ type Querier interface {
 	// with empty identity and is out of scope.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
-	// previous page; rows strictly older than it are returned.
+	// previous page; rows strictly older than it are returned. Incremental polls
+	// include the previous cycle's xmin and all later transaction IDs, allowing
+	// replay while retaining late commits. updated_after is only a date filter.
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
