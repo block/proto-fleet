@@ -327,10 +327,9 @@ func TestResolveNmapTargets_ExpandsLocalSubnetWithKnownSubnets(t *testing.T) {
 		GetKnownSubnets(gomock.Any(), int64(42), 24, true).
 		Return([]string{"192.168.25.0/24", "192.168.1.0/24", "not-a-cidr"}, nil)
 
-	targets, isLocalSubnet, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
+	targets, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.1.0/24", "192.168.25.0/24"}, targets)
-	require.True(t, isLocalSubnet)
 }
 
 func TestResolveNmapTargets_SkipsExpansionForNonLocalTargets(t *testing.T) {
@@ -347,10 +346,9 @@ func TestResolveNmapTargets_SkipsExpansionForNonLocalTargets(t *testing.T) {
 
 	ctx := mockSessionContext(t.Context(), 1, 42)
 
-	targets, isLocalSubnet, err := service.resolveNmapTargets(ctx, "192.168.25.0/24")
+	targets, err := service.resolveNmapTargets(ctx, "192.168.25.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.25.0/24"}, targets)
-	require.False(t, isLocalSubnet)
 }
 
 func TestResolveNmapTargets_FallsBackWhenLocalNetworkInfoFails(t *testing.T) {
@@ -367,10 +365,9 @@ func TestResolveNmapTargets_FallsBackWhenLocalNetworkInfoFails(t *testing.T) {
 
 	ctx := mockSessionContext(t.Context(), 1, 42)
 
-	targets, isLocalSubnet, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
+	targets, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.1.0/24"}, targets)
-	require.False(t, isLocalSubnet, "no local network info means we can't confirm a local-subnet scan")
 }
 
 func TestResolveNmapTargets_DoesNotExpandIPv6Targets(t *testing.T) {
@@ -392,10 +389,9 @@ func TestResolveNmapTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 
 	// IPv6 targets should not be auto-expanded because IPv6 subnets are
 	// too large for nmap sweeps.
-	targets, isLocalSubnet, err := service.resolveNmapTargets(ctx, "fd00::/64")
+	targets, err := service.resolveNmapTargets(ctx, "fd00::/64")
 	require.NoError(t, err)
 	require.Equal(t, []string{"fd00::/64"}, targets)
-	require.False(t, isLocalSubnet, "IPv6 target is never treated as the local-subnet scan")
 }
 
 func TestValidateNmapTargets(t *testing.T) {

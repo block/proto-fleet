@@ -304,11 +304,8 @@ func mergeAutoDiscoveryTargets(baseTarget string, knownSubnets []string) []strin
 	return targets
 }
 
-// resolveNmapTargets returns the scan targets and whether `target` is the cloud
-// host's own local subnet (isLocalSubnet) — the same condition that drives
-// known-subnet expansion. Callers reuse isLocalSubnet as the legacy Fleet Node
-// targeting default when the request omits an explicit preference.
-func (s *Service) resolveNmapTargets(ctx context.Context, target string) (targets []string, isLocalSubnet bool, err error) {
+// resolveNmapTargets expands the cloud host's local subnet with known subnets.
+func (s *Service) resolveNmapTargets(ctx context.Context, target string) (targets []string, err error) {
 	targets = []string{target}
 
 	localNetworkInfo, err := s.GetLocalNetworkInfo(ctx)
@@ -316,7 +313,7 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 		slog.Debug("Skipping known-subnet expansion for nmap discovery because local network info is unavailable",
 			"target", target,
 			"error", err)
-		return targets, false, nil
+		return targets, nil
 	}
 
 	maskBits, shouldExpand := maskBitsForLocalSubnetTarget(target, localNetworkInfo.Subnet)
@@ -324,14 +321,14 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 		slog.Debug("Skipping known-subnet expansion because target does not match local subnet",
 			"target", target,
 			"local_subnet", localNetworkInfo.Subnet)
-		return targets, false, nil
+		return targets, nil
 	}
 
 	// Subnet expansion only runs for IPv4 targets matching the local subnet
 	// (the guard above ensures this). Pass isIPv4=true directly.
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	knownSubnets, err := s.deviceStore.GetKnownSubnets(ctx, info.OrganizationID, maskBits, true)
@@ -339,7 +336,7 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 		slog.Debug("Skipping known-subnet expansion because subnet query failed",
 			"target", target,
 			"error", err)
-		return targets, true, nil
+		return targets, nil
 	}
 
 	expandedTargets := mergeAutoDiscoveryTargets(target, knownSubnets)
@@ -350,7 +347,7 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 			"organization_id", info.OrganizationID)
 	}
 
-	return expandedTargets, true, nil
+	return expandedTargets, nil
 }
 
 // validateNmapTargets validates targets and resolves hostnames to IP literals
@@ -490,20 +487,18 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 	return resultChan, nil
 }
 
-// DiscoverWithNmap discovers devices using Nmap. isLocalSubnet reports whether
-// the target is the cloud host's own local subnet (the "Scan your network"
-// action), which remains the Fleet Node targeting default for legacy clients.
-func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (results <-chan *pb.DiscoverResponse, isLocalSubnet bool, err error) {
+// DiscoverWithNmap discovers devices using Nmap.
+func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	if r.Target == "" {
-		return nil, false, fleeterror.NewInvalidArgumentError("nmap discovery target is required")
+		return nil, fleeterror.NewInvalidArgumentError("nmap discovery target is required")
 	}
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	targets, isLocalSubnet, err := s.resolveNmapTargets(ctx, r.Target)
+	targets, err := s.resolveNmapTargets(ctx, r.Target)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	// Apply server-controlled timeout before any DNS work so hostname
@@ -513,7 +508,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 	targets, useIPv6Scanning, err := validateNmapTargets(timeoutCtx, targets, net.DefaultResolver.LookupIPAddr)
 	if err != nil {
 		cancel()
-		return nil, false, err
+		return nil, err
 	}
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
@@ -679,7 +674,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		wg.Wait()
 	}()
 
-	return resultChan, isLocalSubnet, nil
+	return resultChan, nil
 }
 
 // DiscoverWithIPRange discovers devices using an IPv4 IP range.

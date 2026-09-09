@@ -20,7 +20,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -73,128 +72,44 @@ func ctxWithPerms(perms ...string) context.Context {
 	))
 }
 
-func TestCallerCanManageFleetNodes(t *testing.T) {
-	tests := []struct {
-		name  string
-		perms []string
-		want  bool
-	}{
-		{
-			// The fan-out regression: miner:pair alone (no fleetnode:manage) must
-			// NOT unlock fleet-node discovery commands.
-			name:  "miner:pair only does not grant fleet-node management",
-			perms: []string{authz.PermMinerPair},
-			want:  false,
-		},
-		{
-			name:  "fleetnode:manage grants it",
-			perms: []string{authz.PermMinerPair, authz.PermFleetnodeManage},
-			want:  true,
-		},
-		{
-			name:  "fleetnode:read alone does not grant it",
-			perms: []string{authz.PermMinerPair, authz.PermFleetnodeRead},
-			want:  false,
-		},
-		{
-			name:  "no permissions",
-			perms: nil,
-			want:  false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			ctx := ctxWithPerms(tc.perms...)
-
-			// Act
-			got := callerCanManageFleetNodes(ctx)
-
-			// Assert
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestFleetNodeDiscoveryRequest(t *testing.T) {
-	trueValue := true
-	falseValue := false
 	ipList := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
 		IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"},
 	}}}
 	ipRange := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
 		StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"},
 	}}}
-	explicitNmap := func(flag *bool) *pb.DiscoverRequest {
+	nmapRequest := func(localSubnet bool) *pb.DiscoverRequest {
 		return &pb.DiscoverRequest{
 			Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
-				Target: "192.168.1.0/24", Ports: []string{"4028"},
+				Target: "192.168.1.0/24", Ports: []string{"4028"}, UseFleetNodeLocalSubnet: localSubnet,
 			}},
-			UseFleetNodeLocalSubnet: flag,
 		}
 	}
 
-	assert.Same(t, ipList, fleetNodeDiscoveryRequest(ipList, false))
-	assert.Same(t, ipRange, fleetNodeDiscoveryRequest(ipRange, false))
+	assert.Same(t, ipList, fleetNodeDiscoveryRequest(ipList))
+	assert.Same(t, ipRange, fleetNodeDiscoveryRequest(ipRange))
 	assert.Nil(t, fleetNodeDiscoveryRequest(&pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
-	}, false))
-
-	manual := explicitNmap(&falseValue)
-	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual, true), "explicit false must override legacy inference")
-
-	automatic := explicitNmap(&trueValue)
-	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic, false), "the discovery service owns explicit flag translation")
-
-	legacyAutomatic := explicitNmap(nil)
-	got := fleetNodeDiscoveryRequest(legacyAutomatic, true)
-	assert.Equal(t, nmaptarget.LocalSubnetTarget, got.GetNmap().GetTarget())
-	assert.Equal(t, []string{"4028"}, got.GetNmap().GetPorts())
-
-	legacyManual := explicitNmap(nil)
-	assert.Same(t, legacyManual, fleetNodeDiscoveryRequest(legacyManual, false))
+	}))
+	manual := nmapRequest(false)
+	automatic := nmapRequest(true)
+	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual))
+	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic))
 }
 
 func TestValidateManualNmapTarget(t *testing.T) {
-	trueValue := true
-	falseValue := false
-	request := func(target string, flag *bool) *pb.DiscoverRequest {
+	request := func(target string, localSubnet bool) *pb.DiscoverRequest {
 		return &pb.DiscoverRequest{
-			Mode:                    &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: target}},
-			UseFleetNodeLocalSubnet: flag,
+			Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+				Target: target, UseFleetNodeLocalSubnet: localSubnet,
+			}},
 		}
 	}
 
-	assert.NoError(t, validateManualNmapTarget(request("192.168.1.0/24", &falseValue)))
-	assert.ErrorContains(t, validateManualNmapTarget(request("192.168.0.0/21", &falseValue)), "supported minimum /22")
-	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", &trueValue)))
-	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", nil)), "omitted flags preserve legacy behavior")
-}
-
-func TestDiscoverRequest_FleetNodeLocalSubnetRequiresNmap(t *testing.T) {
-	falseValue := false
-	for _, req := range []*pb.DiscoverRequest{
-		{
-			Mode:                    &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
-			UseFleetNodeLocalSubnet: &falseValue,
-		},
-		{
-			Mode:                    &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "192.168.1.10", EndIp: "192.168.1.20"}},
-			UseFleetNodeLocalSubnet: &falseValue,
-		},
-		{
-			Mode:                    &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
-			UseFleetNodeLocalSubnet: &falseValue,
-		},
-	} {
-		assert.Error(t, protovalidate.Validate(req))
-	}
-
-	assert.NoError(t, protovalidate.Validate(&pb.DiscoverRequest{
-		Mode:                    &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24"}},
-		UseFleetNodeLocalSubnet: &falseValue,
-	}))
+	assert.NoError(t, validateManualNmapTarget(request("192.168.1.0/24", false)))
+	assert.ErrorContains(t, validateManualNmapTarget(request("192.168.0.0/21", false)), "supported minimum /22")
+	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", true)))
 }
 
 func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
@@ -236,7 +151,7 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 				return nil
 			}, nil)
 
-			h.forwardDiscoverySources(ctxWithPerms(authz.PermFleetnodeManage), 1, serverResults, req, fwd)
+			h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, req, fwd)
 
 			require.Len(t, runner.requests, 2)
 			for _, got := range runner.requests {
@@ -251,33 +166,12 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 	}
 }
 
-func TestForwardDiscoverySources_WithoutFleetNodePermissionIsServerOnly(t *testing.T) {
-	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
-	h := &Handler{discovery: runner}
-	serverResults := make(chan *pb.DiscoverResponse, 1)
-	serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}
-	close(serverResults)
-	var sent []*pb.Device
-	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
-		sent = append(sent, resp.GetDevices()...)
-		return nil
-	}, nil)
-
-	h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
-		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
-	}, fwd)
-
-	assert.Empty(t, runner.requests)
-	require.Len(t, sent, 1)
-	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
-}
-
 func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
 	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7, 8}}
 	h := &Handler{discovery: runner}
 	serverResults := make(chan *pb.DiscoverResponse)
 	close(serverResults)
-	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermFleetnodeManage))
+	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermMinerPair))
 	cancel()
 	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return nil }, nil)
 
@@ -300,7 +194,7 @@ func TestForwardDiscoverySources_EligibleNodeLookupFailureKeepsServerResults(t *
 		return nil
 	}, nil)
 
-	h.forwardDiscoverySources(ctxWithPerms(authz.PermFleetnodeManage), 1, serverResults, &pb.DiscoverRequest{
+	h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
 	}, fwd)
 

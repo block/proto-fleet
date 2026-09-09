@@ -262,9 +262,8 @@ var ProcedurePermissions = map[string]string{
 
 	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
 	// manage for everything that mutates fleet-node state or triggers a scan.
-	// ListFleetNodes also permits fleetnode:manage because Add Miners uses its
-	// connection fields to report degraded remote coverage without exposing
-	// Fleet Node topology.
+	// ListFleetNodes also permits fleetnode:manage and miner:pair because Add
+	// Miners uses a redacted projection to report degraded remote coverage.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:           authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:                 authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:               authz.PermFleetnodeManage,
@@ -274,8 +273,8 @@ var ProcedurePermissions = map[string]string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:           authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:            authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDiscoveredDevicesProcedure: authz.PermFleetnodeRead,
-	// Pairing miners requires both miner:pair (primary gate, matches all other
-	// miner onboarding paths) and fleetnode:manage (inline handler check below).
+	// Pairing through the Fleet Node admin flow requires miner:pair here and
+	// fleetnode:manage in the handler.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: authz.PermMinerPair,
 
 	// ForemanImportService — bulk miner import flow. Gated on

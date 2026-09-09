@@ -65,7 +65,7 @@ const MinersPage = ({
 
   const { discover, pairingPending, pair } = useMinerPairing();
   const { listFleetNodes } = useFleetNodes();
-  const canManageFleetNodes = useHasPermission("fleetnode:manage");
+  const canPairMiners = useHasPermission("miner:pair");
   const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [manualDiscoveryPending, setManualDiscoveryPending] = useState(false);
@@ -80,7 +80,7 @@ const MinersPage = ({
   const [remoteDiscoveryWarning, setRemoteDiscoveryWarning] = useState<string>();
 
   useEffect(() => {
-    if (!canManageFleetNodes) return;
+    if (!canPairMiners) return;
 
     let canceled = false;
     void listFleetNodes()
@@ -106,7 +106,7 @@ const MinersPage = ({
     return () => {
       canceled = true;
     };
-  }, [canManageFleetNodes, listFleetNodes]);
+  }, [canPairMiners, listFleetNodes]);
 
   // Show a toast if pairing takes longer than the threshold
   useEffect(() => {
@@ -188,11 +188,11 @@ const MinersPage = ({
     setLastDiscoveryMode(minerDiscoveryModes.scan);
     setLastManualTargets(null);
     const discoverRequest = create(DiscoverRequestSchema, {
-      useFleetNodeLocalSubnet: true,
       mode: {
         case: "nmap",
         value: {
           target: networkInfo.subnet,
+          useFleetNodeLocalSubnet: true,
         },
       },
     });
@@ -255,7 +255,6 @@ const MinersPage = ({
       targets.subnets.forEach((subnet) => {
         discoverRequests.push(
           create(DiscoverRequestSchema, {
-            useFleetNodeLocalSubnet: false,
             mode: {
               case: "nmap",
               value: {
@@ -485,7 +484,7 @@ const MinersPage = ({
       onRescan={handleRescan}
       onForemanImport={handleForemanImport}
       foremanImportPending={foremanImportPending}
-      remoteDiscoveryWarning={canManageFleetNodes ? remoteDiscoveryWarning : undefined}
+      remoteDiscoveryWarning={canPairMiners ? remoteDiscoveryWarning : undefined}
       mode={mode}
     />
   );

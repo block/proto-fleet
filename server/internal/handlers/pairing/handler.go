@@ -66,7 +66,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	if err != nil {
 		return err
 	}
-	if h.discovery != nil && callerCanManageFleetNodes(ctx) {
+	if h.discovery != nil {
 		if err := validateManualNmapTarget(r.Msg); err != nil {
 			return err
 		}
@@ -82,14 +82,13 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	fwd := newDedupForwarder(s.Send, cancel)
 
 	var resultChan <-chan *pb.DiscoverResponse
-	var isLocalSubnetNmap bool
 	switch r.Msg.Mode.(type) {
 	case *pb.DiscoverRequest_IpList:
 		resultChan, err = h.pairingSvc.DiscoverWithIPList(streamCtx, r.Msg.GetIpList())
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_Nmap:
-		resultChan, isLocalSubnetNmap, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
+		resultChan, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
 	default:
@@ -99,7 +98,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return err
 	}
 
-	nodeReq := fleetNodeDiscoveryRequest(r.Msg, isLocalSubnetNmap)
+	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
 	h.forwardDiscoverySources(streamCtx, info.OrganizationID, resultChan, nodeReq, fwd)
 	if err := fwd.failure(); err != nil {
 		return err
@@ -141,9 +140,7 @@ func (h *Handler) forwardDiscoverySources(
 		}
 	}()
 
-	// Without fleetnode:manage, discovery remains server-only so miner:pair alone
-	// cannot drive commands on fleet nodes.
-	if nodeReq != nil && h.discovery != nil && callerCanManageFleetNodes(ctx) {
+	if nodeReq != nil && h.discovery != nil {
 		nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, organizationID)
 		if err != nil {
 			// Fan-out is best-effort; a lookup failure must never break the
@@ -176,48 +173,27 @@ func (h *Handler) forwardDiscoverySources(
 	wg.Wait()
 }
 
-// fleetNodeDiscoveryRequest returns the request nodes should execute. The new
-// targeting flag distinguishes automatic local-subnet scans from explicit
-// Nmap targets; absent flags retain the legacy subnet inference.
-func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest, legacyLocalSubnet bool) *pb.DiscoverRequest {
+// fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The
+// discovery service translates automatic local-subnet scans before dispatch.
+func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest) *pb.DiscoverRequest {
 	switch req.GetMode().(type) {
-	case *pb.DiscoverRequest_IpList, *pb.DiscoverRequest_IpRange:
+	case *pb.DiscoverRequest_IpList, *pb.DiscoverRequest_IpRange, *pb.DiscoverRequest_Nmap:
 		return req
-	case *pb.DiscoverRequest_Nmap:
-		if req.UseFleetNodeLocalSubnet != nil {
-			return req
-		}
-		if !legacyLocalSubnet {
-			return req
-		}
-		return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
-			Target: nmaptarget.LocalSubnetTarget,
-			Ports:  req.GetNmap().GetPorts(),
-		}}}
 	default:
 		return nil
 	}
 }
 
 // validateManualNmapTarget preflights explicit node-bound Nmap targets before
-// local work begins. Omitted flags retain legacy behavior.
+// local work begins.
 func validateManualNmapTarget(req *pb.DiscoverRequest) error {
-	if req.GetNmap() == nil || req.UseFleetNodeLocalSubnet == nil || req.GetUseFleetNodeLocalSubnet() {
+	if req.GetNmap() == nil || req.GetNmap().GetUseFleetNodeLocalSubnet() {
 		return nil
 	}
 	if err := nmaptarget.Validate(req.GetNmap().GetTarget()); err != nil {
 		return fleeterror.NewInvalidArgumentError(err.Error())
 	}
 	return nil
-}
-
-// callerCanManageFleetNodes reports whether the request holds fleetnode:manage.
-// It reuses the canonical permission path (so the synthesized-actor and
-// fail-closed semantics match) but treats absence as a soft signal to skip
-// fan-out rather than an error to return.
-func callerCanManageFleetNodes(ctx context.Context) bool {
-	_, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
-	return err == nil
 }
 
 // Pair implements pairingv1connect.PairingServiceHandler.
@@ -296,7 +272,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		routedAllDevices: map[string]struct{}{},
 	}
 	resp := &pb.PairResponse{}
-	if h.discovery == nil || h.fleetNodePairing == nil || !callerCanManageFleetNodes(ctx) {
+	if h.discovery == nil || h.fleetNodePairing == nil {
 		return resp, route, nil
 	}
 

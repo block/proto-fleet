@@ -143,7 +143,7 @@ describe("MinersWrapper", () => {
         }),
       );
       const scanRequest = mockDiscover.mock.calls[0][0].discoverRequest;
-      expect(scanRequest.useFleetNodeLocalSubnet).toBe(true);
+      expect(scanRequest.mode.value.useFleetNodeLocalSubnet).toBe(true);
       expect(scanRequest.mode.value.ports).toEqual([]);
     });
 
@@ -420,7 +420,7 @@ describe("MinersWrapper", () => {
         }),
       );
       expect(mockDiscover.mock.calls[1][0].discoverRequest.mode.value.ports).toEqual([]);
-      expect(mockDiscover.mock.calls[1][0].discoverRequest.useFleetNodeLocalSubnet).toBe(false);
+      expect(mockDiscover.mock.calls[1][0].discoverRequest.mode.value.useFleetNodeLocalSubnet).toBe(false);
 
       expect(mockDiscover).toHaveBeenNthCalledWith(
         3,
@@ -590,16 +590,17 @@ describe("MinersWrapper", () => {
       expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
     });
 
-    it("does not load or show node coverage without fleetnode management permission", () => {
+    it("does not load or show node coverage without miner pairing permission", () => {
       vi.mocked(useHasPermission).mockReturnValue(false);
 
       renderMinersPage("pairing");
 
+      expect(useHasPermission).toHaveBeenCalledWith("miner:pair");
       expect(mockListFleetNodes).not.toHaveBeenCalled();
       expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
     });
 
-    it("hides loaded coverage state when fleetnode management permission is removed", async () => {
+    it("hides loaded coverage state when miner pairing permission is removed", async () => {
       mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
       const view = renderMinersPage("pairing");
       expect(await screen.findByTestId("remote-discovery-warning")).toBeInTheDocument();

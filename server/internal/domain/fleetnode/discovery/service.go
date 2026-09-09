@@ -111,9 +111,9 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 }
 
 // requestForNode translates the shared request flag into the sentinel understood
-// by the Fleet Node command runner. Omitted and false flags preserve the target.
+// by the Fleet Node command runner. False preserves the target.
 func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
-	if req == nil || req.UseFleetNodeLocalSubnet == nil || !req.GetUseFleetNodeLocalSubnet() || req.GetNmap() == nil {
+	if req == nil || req.GetNmap() == nil || !req.GetNmap().GetUseFleetNodeLocalSubnet() {
 		return req
 	}
 	out := proto.CloneOf(req)
