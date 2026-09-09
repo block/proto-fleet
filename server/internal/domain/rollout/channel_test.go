@@ -161,6 +161,61 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 	assert.ErrorContains(t, f.svc.DeleteChannel(ctx, f.orgID, siteChannel.ID), "not found")
 }
 
+func TestScopePreviewCountsMinersOnceAcrossConflictingChannels(t *testing.T) {
+	f := newFixture(t, 4)
+	ctx := t.Context()
+	groupA := f.addGroup(t, "Group A")
+	groupB := f.addGroup(t, "Group B")
+	f.placeInSet(t, groupA, "group", "miner-0")
+	f.placeInSet(t, groupB, "group", "miner-1")
+	a, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{
+		Name: "Channel A", Scope: Scope{GroupIDs: []int64{groupA}, DeviceIdentifiers: []string{"miner-2"}},
+	})
+	require.NoError(t, err)
+	b, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{
+		Name: "Channel B", Scope: Scope{GroupIDs: []int64{groupB}},
+	})
+	require.NoError(t, err)
+
+	// Moving a miner after save makes it match both channels, including
+	// two selectors in A. The other candidate miner remains unclaimed.
+	f.placeInSet(t, groupA, "group", "miner-2")
+	f.placeInSet(t, groupB, "group", "miner-2")
+	scope := Scope{DeviceIdentifiers: []string{"miner-2", "miner-3"}}
+	preview, err := f.svc.PreviewScope(ctx, f.orgID, scope, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), preview.MinerCount)
+	assert.Equal(t, int32(1), preview.ModelCount)
+	assert.Equal(t, []ModelCount{{Manufacturer: "proto", Model: "Rig", MinerCount: 2}}, preview.Models)
+	assert.Equal(t, int32(2), preview.ConflictCount)
+	assert.Equal(t, []ScopeConflict{
+		{ChannelID: a.ID, ChannelName: a.Name, MinerCount: 1},
+		{ChannelID: b.ID, ChannelName: b.Name, MinerCount: 1},
+	}, preview.Conflicts)
+
+	_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Candidate", Scope: scope})
+	require.ErrorContains(t, err, "Channel A (1 miners)")
+	require.ErrorContains(t, err, "Channel B (1 miners)")
+	channels, err := f.svc.ListChannels(ctx, f.orgID)
+	require.NoError(t, err)
+	assert.Len(t, channels, 2, "the rejected save must not create a channel")
+
+	// Editing A excludes all of its selector hits while retaining B's
+	// conflict; that exclusion must not affect the unique miner counts.
+	preview, err = f.svc.PreviewScope(ctx, f.orgID, scope, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), preview.MinerCount)
+	assert.Equal(t, []ModelCount{{Manufacturer: "proto", Model: "Rig", MinerCount: 2}}, preview.Models)
+	assert.Equal(t, int32(1), preview.ConflictCount)
+	assert.Equal(t, []ScopeConflict{{ChannelID: b.ID, ChannelName: b.Name, MinerCount: 1}}, preview.Conflicts)
+	_, err = f.svc.UpdateChannel(ctx, f.orgID, a.ID, ChannelSpec{Name: a.Name, Scope: scope})
+	require.ErrorContains(t, err, "Channel B (1 miners)")
+	assert.NotContains(t, err.Error(), "Channel A")
+	unchanged, err := f.svc.GetChannel(ctx, f.orgID, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, a.Scope, unchanged.Scope, "the rejected edit must retain the existing scope")
+}
+
 func TestBehaviorValidation(t *testing.T) {
 	f := newFixture(t, 1)
 	ctx := t.Context()
