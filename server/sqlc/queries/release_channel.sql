@@ -241,9 +241,11 @@ ORDER BY d.device_identifier, d.id, k.channel_id
 LIMIT sqlc.arg('page_limit');
 
 -- name: ResolveReleaseChannelScope :many
--- Miners a candidate scope covers, each with the most specific other channel
--- (if any) whose selectors already match it. Used to preview a scope and to
--- reject overlapping saves; exclude_channel_id is the channel being edited.
+-- Miners a candidate scope covers, one row per distinct other channel whose
+-- selectors already match each miner, or one row with no owner for a miner
+-- without conflicts. Callers count distinct miners for scope/model totals and
+-- aggregate every conflicting channel. Used to preview a scope and reject
+-- overlapping saves; exclude_channel_id is the channel being edited.
 WITH scoped AS (
     SELECT p.device_id
     FROM release_channel_placement p
@@ -275,16 +277,14 @@ FROM scoped s
 JOIN device d ON d.id = s.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN LATERAL (
-    SELECT c.id AS channel_id, c.name
+    SELECT DISTINCT c.id AS channel_id, c.name
     FROM release_channel_match rm
     JOIN release_channel c ON c.id = rm.channel_id
     WHERE rm.org_id = sqlc.arg('org_id')
       AND rm.device_id = s.device_id
       AND rm.channel_id <> sqlc.arg('exclude_channel_id')
-    ORDER BY rm.specificity, c.id
-    LIMIT 1
 ) owner ON true
-ORDER BY d.device_identifier;
+ORDER BY d.device_identifier, d.id, owner.channel_id;
 
 -- --- Firmware assignments ---
 

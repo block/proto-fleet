@@ -1094,6 +1094,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 		name             string
 		artifactSnapshot bool
 		metadataState    string
+		payloadState     string
 		checksumMismatch bool
 		wantError        string
 	}{
@@ -1101,7 +1102,12 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 		{name: "artifact after metadata edit", artifactSnapshot: true, metadataState: "edited"},
 		{name: "artifact after metadata corruption", artifactSnapshot: true, metadataState: "corrupt"},
 		{name: "artifact after metadata removal", artifactSnapshot: true, metadataState: "missing"},
-		{name: "artifact checksum mismatch", artifactSnapshot: true, checksumMismatch: true, wantError: "checksum"},
+		{name: "artifact checksum mismatch", artifactSnapshot: true, checksumMismatch: true, wantError: "firmware artifact not found"},
+		{name: "artifact reuploaded under a different ID", artifactSnapshot: true, payloadState: "reuploaded"},
+		{name: "artifact original corrupted with a healthy copy", artifactSnapshot: true, payloadState: "corrupt original"},
+		{name: "artifact different bytes do not replace deleted payload", artifactSnapshot: true, payloadState: "different bytes", wantError: "firmware artifact not found"},
+		{name: "manual command retains deleted original ID", payloadState: "reuploaded", wantError: "firmware file not found"},
+		{name: "manual command retains original ID with duplicate", payloadState: "duplicate"},
 		{name: "manual corrupt metadata remains rejected", metadataState: "corrupt", wantError: "metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1153,6 +1159,32 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 			case "missing":
 				require.NoError(t, os.Remove(filepath.Join(filepath.Dir(info.FilePath), "metadata.json")))
 			}
+			deliveryInfo := info
+			if tc.payloadState != "" {
+				if tc.payloadState == "reuploaded" || tc.payloadState == "different bytes" {
+					require.NoError(t, filesService.DeleteFirmwareFile(fileID))
+				}
+				replacementContent := content
+				if tc.payloadState == "different bytes" {
+					replacementContent = strings.Repeat("x", len(content))
+				}
+				// Different sidecar metadata prevents upload reuse when the
+				// original still exists; the saved assignment owns its metadata.
+				replacementID, err := filesService.SaveFirmwareFile("replacement.swu", strings.NewReader(replacementContent), files.FirmwareMetadata{
+					TargetManufacturer: "Other", TargetModel: "Other", FirmwareVersion: "9.9.9",
+				})
+				require.NoError(t, err)
+				require.NotEqual(t, fileID, replacementID)
+				replacementReader, replacementInfo, err := filesService.OpenFirmwareFileWithInfo(replacementID)
+				require.NoError(t, err)
+				require.NoError(t, replacementReader.Close())
+				if tc.artifactSnapshot {
+					deliveryInfo = replacementInfo
+				}
+				if tc.payloadState == "corrupt original" {
+					require.NoError(t, os.WriteFile(info.FilePath, []byte(strings.Repeat("x", len(content))), 0600))
+				}
+			}
 
 			mockQueue := mocks.NewMockMessageQueue(ctrl)
 			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
@@ -1164,11 +1196,11 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 			if tc.wantError == "" {
 				mockMiner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
-						assert.Equal(t, fileID, firmware.ID)
-						assert.Equal(t, "update.swu", firmware.Filename)
+						assert.Equal(t, deliveryInfo.ID, firmware.ID)
+						assert.Equal(t, deliveryInfo.Filename, firmware.Filename)
 						assert.Equal(t, int64(len(content)), firmware.Size)
 						assert.Equal(t, info.SHA256, firmware.SHA256)
-						assert.Equal(t, info.FilePath, firmware.FilePath)
+						assert.Equal(t, deliveryInfo.FilePath, firmware.FilePath)
 						data, err := io.ReadAll(firmware.Reader)
 						require.NoError(t, err)
 						assert.Equal(t, content, string(data))

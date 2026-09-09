@@ -145,7 +145,81 @@ func TestFirmwareArtifact_RejectsInvalidChecksums(t *testing.T) {
 		reader, _, err := svc.OpenFirmwareArtifact("00000000-0000-7000-8000-000000000000", checksum)
 		requireFleetCode(t, err, connect.CodeInvalidArgument)
 		assert.Nil(t, reader)
+		reader, _, err = svc.OpenFirmwareArtifactByChecksum(checksum)
+		requireFleetCode(t, err, connect.CodeInvalidArgument)
+		assert.Nil(t, reader)
+		_, available := svc.FindFirmwareFileIDByChecksum(checksum)
+		assert.False(t, available)
 	}
+}
+
+func TestFindFirmwareFileIDByChecksum_VerifiesAvailabilityAndRecovery(t *testing.T) {
+	for _, failure := range []string{"corrupted", "unreadable"} {
+		t.Run(failure, func(t *testing.T) {
+			if failure == "unreadable" && os.Geteuid() == 0 {
+				t.Skip("root can read files regardless of permission bits")
+			}
+			svc := setupService(t)
+			content := "firmware payload for availability"
+			checksum := checksumOf(content)
+			fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+			require.NoError(t, err)
+			foundID, available := svc.FindFirmwareFileIDByChecksum(checksum)
+			require.True(t, available)
+			require.Equal(t, fileID, foundID)
+			filePath, err := getFirmwareFilePathForCanonicalID(fileID)
+			require.NoError(t, err)
+			if failure == "corrupted" {
+				require.NoError(t, os.WriteFile(filePath, []byte(strings.Repeat("x", len(content))), 0600))
+			} else {
+				require.NoError(t, os.Chmod(filePath, 0000))
+			}
+
+			for range 2 {
+				foundID, available = svc.FindFirmwareFileIDByChecksum(checksum)
+				assert.False(t, available, "a cached checksum must not advertise unusable bytes")
+				assert.Empty(t, foundID)
+			}
+			require.NoError(t, os.Chmod(filePath, 0600))
+			require.NoError(t, os.WriteFile(filePath, []byte(content), 0600))
+			foundID, available = svc.FindFirmwareFileIDByChecksum(checksum)
+			assert.True(t, available, "restoration must recover without restarting the service")
+			assert.Equal(t, fileID, foundID)
+		})
+	}
+}
+
+func TestOpenFirmwareArtifactByChecksum_ResolvesReplacementWithoutChangingExactIDOpen(t *testing.T) {
+	svc := setupService(t)
+	content := "assigned payload reuploaded later"
+	checksum := checksumOf(content)
+	oldID, err := svc.SaveFirmwareFile("original.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, svc.DeleteFirmwareFile(oldID))
+	_, err = svc.SaveFirmwareFile("different.swu", strings.NewReader("different payload"), testFirmwareMetadata())
+	require.NoError(t, err)
+	reader, _, err := svc.OpenFirmwareArtifactByChecksum(checksum)
+	requireFleetCode(t, err, connect.CodeNotFound)
+	assert.Nil(t, reader, "a different checksum must not substitute for the assignment")
+
+	newID, err := svc.SaveFirmwareFile("replacement.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NotEqual(t, oldID, newID)
+	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(newID), firmwareMetadataFilename)))
+	reader, info, err := svc.OpenFirmwareArtifactByChecksum(checksum)
+	require.NoError(t, err)
+	delivered, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	require.NoError(t, readErr)
+	require.NoError(t, closeErr)
+	assert.Equal(t, content, string(delivered))
+	assert.Equal(t, newID, info.ID)
+	assert.Equal(t, "replacement.swu", info.Filename)
+	assert.Equal(t, checksum, info.SHA256)
+	assert.Empty(t, info.TargetManufacturer)
+	reader, _, err = svc.OpenFirmwareArtifact(oldID, checksum)
+	requireFleetCode(t, err, connect.CodeNotFound)
+	assert.Nil(t, reader, "a grant for the removed ID must not authorize its replacement")
 }
 
 func TestLeaseFirmwareArtifact_SkipsCorruptCopyOnRepeatedAttempts(t *testing.T) {
@@ -167,6 +241,9 @@ func TestLeaseFirmwareArtifact_SkipsCorruptCopyOnRepeatedAttempts(t *testing.T) 
 	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(healthy), firmwareMetadataFilename)))
 
 	for range 3 {
+		foundID, available := svc.FindFirmwareFileIDByChecksum(checksum)
+		require.True(t, available)
+		assert.Equal(t, healthy, foundID, "availability must identify a verified copy")
 		leasedID, release, err := svc.LeaseFirmwareArtifact(checksum)
 		require.NoError(t, err)
 		assert.Equal(t, healthy, leasedID)
