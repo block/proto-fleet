@@ -35,6 +35,68 @@ func TestResolveFirmwareArtifact_ReturnsChecksumAndMetadata(t *testing.T) {
 	assert.Equal(t, testFirmwareMetadata(), artifact.Metadata)
 }
 
+func TestResolveFirmwareArtifact_VerifiesPayloadWithWarmChecksumCache(t *testing.T) {
+	for _, failure := range []string{"changed", "unreadable"} {
+		t.Run(failure, func(t *testing.T) {
+			if failure == "unreadable" && os.Geteuid() == 0 {
+				t.Skip("root can read files without read permission")
+			}
+			svc := setupService(t)
+			content := "firmware payload before assignment"
+			fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+			require.NoError(t, err)
+			checksum, cached := svc.lookupFirmwareChecksum(fileID)
+			require.True(t, cached)
+			require.Equal(t, checksumOf(content), checksum)
+			filePath, err := getFirmwareFilePathForCanonicalID(fileID)
+			require.NoError(t, err)
+
+			wantCode := connect.CodeFailedPrecondition
+			if failure == "changed" {
+				// Same-size changes must not be hidden by the upload checksum.
+				require.NoError(t, os.WriteFile(filePath, []byte(strings.Repeat("x", len(content))), 0600))
+			} else {
+				require.NoError(t, os.Chmod(filePath, 0000))
+				t.Cleanup(func() { _ = os.Chmod(filePath, 0600) })
+				wantCode = connect.CodeInternal
+			}
+			artifact, err := svc.ResolveFirmwareArtifact(fileID)
+			requireFleetCode(t, err, wantCode)
+			assert.Empty(t, artifact)
+			cachedChecksum, cached := svc.lookupFirmwareChecksum(fileID)
+			assert.True(t, cached)
+			assert.Equal(t, checksum, cachedChecksum, "a failed assignment must not redefine the upload")
+
+			require.NoError(t, os.Chmod(filePath, 0600))
+			require.NoError(t, os.WriteFile(filePath, []byte(content), 0600))
+			artifact, err = svc.ResolveFirmwareArtifact(fileID)
+			require.NoError(t, err)
+			assert.Equal(t, checksum, artifact.Checksum)
+			foundID, available := svc.FindFirmwareFileIDByChecksum(checksum)
+			assert.True(t, available, "restored bytes remain discoverable")
+			assert.Equal(t, fileID, foundID)
+		})
+	}
+}
+
+func TestResolveFirmwareArtifact_IndexesUncachedPayload(t *testing.T) {
+	svc := setupService(t)
+	content := "uncached firmware payload"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	// A valid payload discovered after startup has no cached identity yet.
+	svc.mu.Lock()
+	svc.removeFirmwareChecksumLocked(checksumOf(content), fileID)
+	svc.mu.Unlock()
+
+	artifact, err := svc.ResolveFirmwareArtifact(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, checksumOf(content), artifact.Checksum)
+	foundID, available := svc.FindFirmwareFileIDByChecksum(artifact.Checksum)
+	assert.True(t, available)
+	assert.Equal(t, fileID, foundID)
+}
+
 func TestResolveFirmwareArtifact_ErrorCodes(t *testing.T) {
 	svc := setupService(t)
 
