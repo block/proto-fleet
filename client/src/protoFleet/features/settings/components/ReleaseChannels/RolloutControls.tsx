@@ -35,7 +35,7 @@ interface RolloutControlsProps {
 // The "Update behavior" controls, per the release channels design: Method,
 // Order, batch sizing, review and auto-continue with its thresholds, and
 // the ceiling on miners offline at once. Fields a method cannot use are
-// hidden; the server normalizes them away on save as well.
+// hidden; the client request builder omits their retained draft values on save.
 const RolloutControls = ({
   behavior,
   onChange,
