@@ -33,12 +33,16 @@ type FirmwareArtifact struct {
 // the full upload rules (ValidateFirmwareUploadMetadata), since the
 // assignment snapshots it and enforces the version; a legacy sidecar without
 // firmware_version must be repaired first. A missing file is NotFound and a
-// missing or incomplete sidecar InvalidArgument.
+// missing or incomplete sidecar InvalidArgument. Current payload bytes are
+// rehashed; a change from the known upload checksum is FailedPrecondition.
 func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return FirmwareArtifact{}, err
 	}
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
 	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
 		return FirmwareArtifact{}, err
@@ -53,9 +57,19 @@ func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, erro
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return FirmwareArtifact{}, fleeterror.NewInvalidArgumentErrorf("firmware file %s metadata is incomplete: %v", fileID, err)
 	}
-	checksum, err := s.firmwareChecksum(canonical, filePath, true)
+	checksum, err := computeFileChecksum(filePath)
 	if err != nil {
-		return FirmwareArtifact{}, err
+		return FirmwareArtifact{}, fleeterror.NewInternalErrorf("failed to compute firmware checksum: %v", err)
+	}
+	if cachedChecksum, cached := s.lookupFirmwareChecksum(canonical); cached {
+		// Uploaded bytes are immutable. Do not redefine their identity using
+		// changed bytes and the original upload's metadata; keep the cached
+		// identity so restoring the original payload makes it usable again.
+		if checksum != cachedChecksum {
+			return FirmwareArtifact{}, fleeterror.NewFailedPreconditionError("firmware payload does not match the uploaded checksum")
+		}
+	} else {
+		s.rememberFirmwareChecksum(checksum, canonical)
 	}
 	return FirmwareArtifact{FileID: canonical, Checksum: checksum, Metadata: metadata.normalized()}, nil
 }
