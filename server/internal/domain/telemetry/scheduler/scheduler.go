@@ -90,6 +90,12 @@ func (s *scheduler) AddDevices(ctx context.Context, devices ...models.Device) er
 	return s.addDevices(ctx, devices...)
 }
 
+// RequeueDevices adds checked-out devices back to the scheduler without changing
+// their consecutive failure history.
+func (s *scheduler) RequeueDevices(ctx context.Context, devices ...models.Device) error {
+	return s.addDevices(ctx, devices...)
+}
+
 func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) error {
 	var alreadyScheduled []models.DeviceIdentifier
 

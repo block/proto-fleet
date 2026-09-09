@@ -46,7 +46,7 @@ func TestProcessDevice_ResourceExhaustedSkipsStatusRetry(t *testing.T) {
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
 		Return(modelsV2.DeviceMetrics{}, fleeterror.NewPlainError("fleet node busy", connect.CodeResourceExhausted))
-	mockScheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).DoAndReturn(
+	mockScheduler.EXPECT().RequeueDevices(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, devices ...models.Device) error {
 			require.Len(t, devices, 1)
 			assert.Equal(t, device.ID, devices[0].ID)
@@ -4177,6 +4177,38 @@ func TestStatusPollingRoutine_EnqueuesDeviceWithNoKnownStatus(t *testing.T) {
 	assert.Contains(t, enqueued, deviceID)
 }
 
+func TestStatusPollingRoutine_BulkNewDevicesWaitForInitialTelemetryAdmission(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	bulkDevices := []models.DeviceIdentifier{"bulk-device-1", "bulk-device-2"}
+	mockScheduler.EXPECT().
+		AddNewDevices(gomock.Any(), bulkDevices[0], bulkDevices[1]).
+		Return(nil)
+	for _, deviceID := range bulkDevices {
+		mockScheduler.EXPECT().
+			IsFailedDevice(gomock.Any(), deviceID).
+			Return(false, time.Time{}, nil).
+			AnyTimes()
+	}
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	require.NoError(t, service.AddDevices(t.Context(), bulkDevices...))
+
+	// Act: cross the first status-poll tick while the devices still belong to
+	// the scheduler's initial admission path.
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert
+	for _, deviceID := range bulkDevices {
+		assert.NotContains(t, enqueued, deviceID, "status polling must not bypass initial telemetry admission")
+		_, awaiting := service.awaitingInitialTelemetry.Load(deviceID)
+		assert.True(t, awaiting)
+	}
+}
+
 func TestStatusPollingRoutine_EnqueuesFailedDeviceEvenIfCachedActive(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -4193,6 +4225,7 @@ func TestStatusPollingRoutine_EnqueuesFailedDeviceEvenIfCachedActive(t *testing.
 
 	service := newStatusPollingService(t, ctrl, mockScheduler)
 	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	service.awaitingInitialTelemetry.Store(deviceID, struct{}{})
 	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusActive)
 
 	// Act

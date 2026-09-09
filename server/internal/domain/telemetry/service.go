@@ -175,6 +175,7 @@ const (
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
+	RequeueDevices(ctx context.Context, devices ...models.Device) error
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
 	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
@@ -330,6 +331,10 @@ type TelemetryService struct {
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
 	devicesForStatusPolling sync.Map
+	// awaitingInitialTelemetry tracks newly paired devices until the scheduler
+	// dispatches their first full telemetry task. Status polling must not bypass
+	// the scheduler's initial admission spread for these devices.
+	awaitingInitialTelemetry sync.Map
 	// lastKnownStatuses tracks the most recent status written to DB for each device.
 	// Used by status polling to avoid re-polling healthy devices.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
@@ -387,14 +392,27 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	if len(deviceID) == 0 {
 		return nil
 	}
+	var newlyTracked []models.DeviceIdentifier
 	for _, id := range deviceID {
-		s.devicesForStatusPolling.Store(id, struct{}{})
+		if _, alreadyTracked := s.devicesForStatusPolling.LoadOrStore(id, struct{}{}); !alreadyTracked {
+			s.awaitingInitialTelemetry.Store(id, struct{}{})
+			newlyTracked = append(newlyTracked, id)
+		}
 		s.lastDefaultPwActive.Delete(id)
 	}
 	// The scheduler is the single admission path. It makes one new device
 	// immediately eligible and spreads bulk startup discovery across the poll
 	// window, avoiding an immediate queue plus a duplicate scheduler wave.
-	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
+	if err := s.updateScheduler.AddNewDevices(ctx, deviceID...); err != nil {
+		// A device that was not admitted by the scheduler must remain eligible
+		// for status polling rather than getting stuck behind an initial task
+		// that will never arrive.
+		for _, id := range newlyTracked {
+			s.awaitingInitialTelemetry.Delete(id)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
@@ -404,6 +422,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 	for _, id := range deviceIDs {
 		s.invalidateDeviceSamples(id)
 		s.devicesForStatusPolling.Delete(id)
+		s.awaitingInitialTelemetry.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
@@ -644,7 +663,8 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 	return nil
 }
 
-// statusPollingRoutine sends all paired devices to the statusTasks channel at regular intervals.
+// statusPollingRoutine sends paired devices eligible for recovery checks to the statusTasks
+// channel at regular intervals. Initial collection remains owned by the telemetry scheduler.
 // This is essential for recovering failed devices: when a device exceeds MaxConsecutiveFailures,
 // the scheduler stops including it in telemetry fetches. This routine ensures we continue
 // checking status so devices can be restored when they come back online.
@@ -666,6 +686,16 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context, statusTasks
 				deviceID, ok := key.(models.DeviceIdentifier)
 				if !ok {
 					return true
+				}
+
+				if _, awaitingInitialTelemetry := s.awaitingInitialTelemetry.Load(deviceID); awaitingInitialTelemetry {
+					// The scheduler owns initial admission, including the startup
+					// spread for bulk-loaded devices. A failed device is allowed
+					// through so this guard cannot suppress offline recovery.
+					failed, _, err := s.updateScheduler.IsFailedDevice(ctx, deviceID)
+					if err != nil || !failed {
+						return true
+					}
 				}
 
 				// Skip devices that are healthy — the main telemetry loop already updates them.
@@ -804,6 +834,9 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 				}
 				continue
 			}
+			// Claim before clearing this marker so status polling cannot race in
+			// between initial scheduler admission and the in-flight guard.
+			s.awaitingInitialTelemetry.Delete(device.ID)
 			_ = s.processDevice(ctx, device, activation.results)
 			s.releaseInFlight(device.ID, entry)
 
@@ -866,7 +899,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		// the normal cadence without counting it as a device failure, and do not
 		// issue the same telemetry command again through GetDeviceStatus.
 		if fleeterror.IsResourceExhaustedError(telemetryErr) {
-			if addErr := s.updateScheduler.AddDevices(ctx, models.Device{
+			if addErr := s.updateScheduler.RequeueDevices(ctx, models.Device{
 				ID:            device.ID,
 				LastUpdatedAt: time.Now(),
 			}); addErr != nil {
@@ -948,7 +981,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // This function is the recovery mechanism for failed devices. When a device exceeds
 // MaxConsecutiveFailures in the main telemetry loop, the scheduler marks it as "failed"
 // and stops including it in regular telemetry fetches. However, statusPollingRoutine
-// continues to send ALL paired devices here for status checks.
+// continues to send paired devices that have completed initial admission here for status checks.
 //
 // Recovery logic:
 //   - A device is considered "recovered" when it returns a healthy status (not offline/error).

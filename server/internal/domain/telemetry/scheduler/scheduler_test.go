@@ -978,6 +978,41 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 	})
 }
 
+func TestScheduler_RequeueDevicesPreservesFailureCount(t *testing.T) {
+	// Arrange
+	config := Config{MaxConsecutiveFailures: 2}
+	s := NewScheduler(config)
+	ctx := t.Context()
+	deviceID := models.DeviceIdentifier("busy-between-failures")
+	require.NoError(t, s.AddNewDevices(ctx, deviceID))
+
+	firstAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, firstAttempt, 1)
+	require.NoError(t, s.AddFailedDevices(ctx, firstAttempt[0]))
+
+	busyAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, busyAttempt, 1)
+
+	// Act: a capacity rejection requeues the device without representing either
+	// a successful recovery or an additional device failure.
+	require.NoError(t, s.RequeueDevices(ctx, busyAttempt[0]))
+
+	secondFailure, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, secondFailure, 1)
+	secondFailure[0].LastUpdatedAt = time.Now()
+	require.NoError(t, s.AddFailedDevices(ctx, secondFailure[0]))
+
+	// Assert: the failures on either side of BUSY remain consecutive.
+	failed, failedAt, err := s.IsFailedDevice(ctx, deviceID)
+	require.NoError(t, err)
+	assert.True(t, failed)
+	assert.False(t, failedAt.IsZero())
+	assert.Equal(t, 0, s.GetDeviceCount())
+}
+
 func TestScheduler_ConcurrentAccess(t *testing.T) {
 	t.Run("concurrent add and remove operations", func(t *testing.T) {
 		config := Config{
