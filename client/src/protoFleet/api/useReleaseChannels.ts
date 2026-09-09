@@ -12,6 +12,7 @@ import type {
   RolloutBehavior,
   RolloutDevice,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 
 // A channel as the UI works with it: the server's channel (scope included)
 // together with its manufacturer/model groups, which the API pages
@@ -127,7 +128,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
 
   const createChannel = useCallback(
     async (draft: ReleaseChannelDraft) => {
-      const resp = await rolloutClient.createReleaseChannel(draft);
+      const resp = await rolloutClient.createReleaseChannel({
+        ...draft,
+        behavior: rolloutBehaviorForRequest(draft.behavior),
+      });
       const view = resp.channel ? await loadChannel(resp.channel.id) : undefined;
       await refresh();
       return view;
@@ -137,7 +141,11 @@ export function useReleaseChannels(): ReleaseChannelsApi {
 
   const updateChannel = useCallback(
     async (channelId: bigint, draft: ReleaseChannelDraft) => {
-      await rolloutClient.updateReleaseChannel({ channelId, ...draft });
+      await rolloutClient.updateReleaseChannel({
+        channelId,
+        ...draft,
+        behavior: rolloutBehaviorForRequest(draft.behavior),
+      });
       const view = await loadChannel(channelId);
       await refresh();
       return view;

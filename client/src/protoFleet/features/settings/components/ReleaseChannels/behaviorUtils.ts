@@ -11,7 +11,8 @@ import {
 
 // Behavior a new channel starts with: a single batch, least efficient first,
 // no ceiling on miners offline. Batch sizing and thresholds carry sensible
-// starting points for when the operator switches to a paced method.
+// starting points for when the operator switches to a paced method. The API
+// request builder removes inactive settings before sending this form draft.
 export const defaultBehavior = (): RolloutBehavior =>
   create(RolloutBehaviorSchema, {
     method: RolloutMethod.ALL_AT_ONCE,
@@ -37,7 +38,8 @@ export const isPacedMethod = (method: RolloutMethod): boolean =>
 // Whether a finished batch holds for review (and so whether auto-continue
 // and its thresholds apply).
 export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>
-  behavior.method === RolloutMethod.PILOT_THEN_CONTINUE || behavior.reviewAfterEachBatch;
+  behavior.method === RolloutMethod.PILOT_THEN_CONTINUE ||
+  (behavior.method === RolloutMethod.BATCHED && behavior.reviewAfterEachBatch);
 
 // Live plan readout: "~3 batches of 10" for the miners currently in scope.
 export function planReadout(behavior: RolloutBehavior, inScopeCount: number): string | null {
