@@ -415,15 +415,21 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 	}
 	models := map[PairKey]*ModelCount{}
 	conflicts := map[int64]*ScopeConflict{}
+	countedMiners := make(map[int64]struct{}, len(rows))
 	for _, r := range rows {
-		preview.MinerCount++
-		key := PairKey{Manufacturer: r.Manufacturer, Model: r.Model}
-		m, ok := models[key]
-		if !ok {
-			m = &ModelCount{Manufacturer: r.Manufacturer, Model: r.Model}
-			models[key] = m
+		// A miner contributes one row per conflicting channel, but counts
+		// only once in the scope and its observed hardware group.
+		if _, counted := countedMiners[r.DeviceID]; !counted {
+			countedMiners[r.DeviceID] = struct{}{}
+			preview.MinerCount++
+			key := PairKey{Manufacturer: r.Manufacturer, Model: r.Model}
+			m, ok := models[key]
+			if !ok {
+				m = &ModelCount{Manufacturer: r.Manufacturer, Model: r.Model}
+				models[key] = m
+			}
+			m.MinerCount++
 		}
-		m.MinerCount++
 		if r.OwnerChannelID != 0 {
 			c, ok := conflicts[r.OwnerChannelID]
 			if !ok {
