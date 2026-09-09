@@ -116,8 +116,7 @@ func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	if req == nil || req.UseFleetNodeLocalSubnet == nil || !req.GetUseFleetNodeLocalSubnet() || req.GetNmap() == nil {
 		return req
 	}
-	out := &pairingpb.DiscoverRequest{}
-	proto.Merge(out, req)
+	out := proto.CloneOf(req)
 	out.GetNmap().Target = nmaptarget.LocalSubnetTarget
 	return out
 }

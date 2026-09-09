@@ -146,11 +146,11 @@ const MinersPage = ({
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
+        const existingMinerIds = new Set(prevMiners.map((miner) => miner.deviceIdentifier));
         const newMiners = devices.filter(
-          (device) =>
-            !prevMiners.some((prevMiner) => prevMiner.deviceIdentifier === device.deviceIdentifier) &&
-            !pairedMinerIdSet.has(device.deviceIdentifier),
+          (device) => !existingMinerIds.has(device.deviceIdentifier) && !pairedMinerIdSet.has(device.deviceIdentifier),
         );
+        if (newMiners.length === 0) return prevMiners;
         return [...prevMiners, ...newMiners];
       });
     },
@@ -231,7 +231,7 @@ const MinersPage = ({
   const handleManualDiscovery = useCallback(
     async (targets: ManualDiscoveryTargets) => {
       setFoundMiners([]);
-      setLastDiscoveryMode(minerDiscoveryModes.ipList);
+      setLastDiscoveryMode(minerDiscoveryModes.manual);
       setLastManualTargets(targets);
       const discoverRequests: DiscoverRequest[] = [];
 
@@ -299,7 +299,7 @@ const MinersPage = ({
 
     const wasForeman = lastDiscoveryMode === minerDiscoveryModes.foreman;
 
-    if ((lastDiscoveryMode === minerDiscoveryModes.ipList || wasForeman) && lastManualTargets) {
+    if ((lastDiscoveryMode === minerDiscoveryModes.manual || wasForeman) && lastManualTargets) {
       handleManualDiscovery(lastManualTargets);
       // Preserve foreman mode so completeImport still fires after pairing
       if (wasForeman) {
