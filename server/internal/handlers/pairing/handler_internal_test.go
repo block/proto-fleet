@@ -43,8 +43,7 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	req *pb.DiscoverRequest,
 	onBatch func(*pb.DiscoverResponse) error,
 ) error {
-	cloned := &pb.DiscoverRequest{}
-	proto.Merge(cloned, req)
+	cloned := proto.CloneOf(req)
 	s.mu.Lock()
 	s.requests = append(s.requests, cloned)
 	s.mu.Unlock()

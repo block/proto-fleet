@@ -341,6 +341,28 @@ describe("MinersWrapper", () => {
       });
       expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
     });
+
+    it("keeps discovery results that have no usable identity", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("", ""), createDiscoveredMiner("", "")]);
+      });
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => expect(screen.getByText("2 miners found on your network")).toBeInTheDocument(), {
+        timeout: 4000,
+      });
+    });
   });
 
   describe("manual discovery", () => {

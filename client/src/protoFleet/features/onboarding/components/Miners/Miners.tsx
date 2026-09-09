@@ -78,7 +78,10 @@ const Miners = ({
     const seen = new Set<string>();
 
     return foundMiners.filter((miner) => {
-      const identity = miner.deviceIdentifier || `${miner.ipAddress}:${miner.port}`;
+      const identity = miner.deviceIdentifier || (miner.ipAddress && `${miner.ipAddress}:${miner.port}`);
+      if (!identity) {
+        return true;
+      }
       if (seen.has(identity)) {
         return false;
       }

@@ -147,9 +147,13 @@ const MinersPage = ({
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
         const existingMinerIds = new Set(prevMiners.map((miner) => miner.deviceIdentifier));
-        const newMiners = devices.filter(
-          (device) => !existingMinerIds.has(device.deviceIdentifier) && !pairedMinerIdSet.has(device.deviceIdentifier),
-        );
+        const newMiners = devices.filter((device) => {
+          const id = device.deviceIdentifier;
+          if (!id) return true;
+          if (existingMinerIds.has(id) || pairedMinerIdSet.has(id)) return false;
+          existingMinerIds.add(id);
+          return true;
+        });
         if (newMiners.length === 0) return prevMiners;
         return [...prevMiners, ...newMiners];
       });
