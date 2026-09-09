@@ -209,7 +209,7 @@ const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 INSERT INTO firmware_rollout (
     org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version,
     previous_firmware_checksum, previous_firmware_version, assignment_generation,
-    stage,
+    stage, stage_changed_at,
     method, order_by, batch_size, pilot_size, wait_between_batches_seconds,
     review_after_each_batch, auto_continue, stabilization_seconds,
     max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors,
@@ -220,7 +220,7 @@ INSERT INTO firmware_rollout (
 VALUES (
     $1, $2, $3, $4, $5, $6,
     $7, $8, $9,
-    $10,
+    $10, clock_timestamp(),
     $11, $12, $13, $14, $15,
     $16, $17, $18,
     $19::double precision, $20::double precision,
@@ -265,6 +265,8 @@ type CreateFirmwareRolloutParams struct {
 }
 
 // --- Rollouts ---
+// Creation follows assignment/scope locks; start the initial stage at this
+// write rather than at the beginning of a transaction that may have waited.
 func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareRolloutParams) (FirmwareRollout, error) {
 	row := q.queryRow(ctx, q.createFirmwareRolloutStmt, createFirmwareRollout,
 		arg.OrgID,
