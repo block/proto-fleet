@@ -123,6 +123,16 @@ export class MdkV2Adapter implements MinerAdapter {
     this.deviceId = match.deviceId;
   }
 
+  /**
+   * Build an adapter that owns its transport: constructs the generated MDK v2
+   * client for `baseUrl`. The provider resolves miners through this factory so
+   * no generated v2 runtime leaks into MinerHostingContext; tests construct the
+   * class directly with a mock client.
+   */
+  static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Adapter {
+    return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+  }
+
   private containerDeviceId(context?: { deviceId: string }) {
     return this.deviceId ?? (context ? toWireDeviceId(context.deviceId) : DEFAULT_DEVICE_ID);
   }

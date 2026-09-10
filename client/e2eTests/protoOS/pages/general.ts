@@ -4,55 +4,62 @@ import { BasePage } from "./base";
 type ThemeLabel = "System" | "Light" | "Dark";
 type ThemeColor = "light" | "dark";
 
-type ProtoOsApi = {
-  getSystemTag: () => Promise<{ data: unknown }>;
-  deleteSystemTag: () => Promise<void>;
-};
+// The miner's v1 system-tag endpoint. Test setup/teardown reads and clears the
+// Miner ID here directly: the UI has no affordance to distinguish a not-yet-
+// loaded tag from an unset one (needed for a reliable read), and none at all to
+// clear a tag (needed to restore a rig that started without one).
+const SYSTEM_TAG_PATH = "/api/v1/system/tag";
 
 export class GeneralPage extends BasePage {
-  private async getSystemTagFromApi(): Promise<string | null> {
-    return this.page.evaluate(async () => {
-      const protoOsWindow = window as Window & { api?: ProtoOsApi };
-      if (!protoOsWindow.api) {
-        throw new Error("ProtoOS API is not available on window");
-      }
-
+  // The app authenticates to the miner with a bearer it persists to
+  // localStorage. Reuse that token for the suite's own requests rather than
+  // depending on the app exposing its internal client on `window`.
+  private async minerAuthHeaders(): Promise<Record<string, string>> {
+    const token = await this.page.evaluate(() => {
+      const raw = localStorage.getItem("proto-os-auth");
+      if (!raw) return null;
       try {
-        const response = await protoOsWindow.api.getSystemTag();
-        const data = response.data;
-        // Mirror the app's normalizeSystemTag (useSystemTag.ts): accept a raw
-        // string or a { tag } object, and treat an empty/whitespace value as
-        // "no Miner ID set". Without this, a { tag: "" } response (what the rig
-        // returns when unset) reads as a truthy JSON string and diverges from
-        // the UI, which correctly shows the "Add" affordance.
-        let tag: string;
-        if (typeof data === "string") {
-          tag = data;
-        } else if (data && typeof data === "object" && typeof (data as { tag?: unknown }).tag === "string") {
-          tag = (data as { tag: string }).tag;
-        } else {
-          tag = JSON.stringify(data);
-        }
-        return tag.trim() || null;
-      } catch (error: unknown) {
-        if ((error as { status?: number })?.status === 404) {
-          return null;
-        }
-
-        throw error;
+        const parsed = JSON.parse(raw) as {
+          state?: { auth?: { session?: { accessToken?: { value?: string } } } };
+        };
+        return parsed.state?.auth?.session?.accessToken?.value ?? null;
+      } catch {
+        return null;
       }
     });
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  private async getSystemTagFromApi(): Promise<string | null> {
+    const response = await this.page.request.get(SYSTEM_TAG_PATH, { headers: await this.minerAuthHeaders() });
+    if (response.status() === 404) {
+      return null;
+    }
+    if (!response.ok()) {
+      throw new Error(`Failed to read Miner ID: HTTP ${response.status()}`);
+    }
+
+    const data: unknown = await response.json();
+    // Mirror the app's normalizeSystemTag (useSystemTag.ts): accept a raw string
+    // or a { tag } object, and treat an empty/whitespace value as "no Miner ID
+    // set". A { tag: "" } response (what the rig returns when unset) must read as
+    // null so it matches the UI, which shows the "Add" affordance.
+    let tag: string;
+    if (typeof data === "string") {
+      tag = data;
+    } else if (data && typeof data === "object" && typeof (data as { tag?: unknown }).tag === "string") {
+      tag = (data as { tag: string }).tag;
+    } else {
+      tag = JSON.stringify(data);
+    }
+    return tag.trim() || null;
   }
 
   private async deleteSystemTagViaApi() {
-    await this.page.evaluate(async () => {
-      const protoOsWindow = window as Window & { api?: ProtoOsApi };
-      if (!protoOsWindow.api) {
-        throw new Error("ProtoOS API is not available on window");
-      }
-
-      await protoOsWindow.api.deleteSystemTag();
-    });
+    const response = await this.page.request.delete(SYSTEM_TAG_PATH, { headers: await this.minerAuthHeaders() });
+    if (!response.ok() && response.status() !== 404) {
+      throw new Error(`Failed to reset Miner ID: HTTP ${response.status()}`);
+    }
   }
 
   async clickThemeButton() {

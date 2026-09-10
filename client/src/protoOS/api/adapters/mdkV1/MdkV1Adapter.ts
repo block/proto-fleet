@@ -9,7 +9,7 @@ import type {
   TimeSeriesQuery,
 } from "../types";
 import {
-  type Api,
+  Api,
   type ChangePasswordRequest,
   type GetCurrentTelemetryParams,
   type LocateSystemParams,
@@ -90,6 +90,16 @@ export class MdkV1Adapter implements MinerAdapter {
     private readonly client: MdkV1Client,
     private readonly getAccessToken?: () => string,
   ) {}
+
+  /**
+   * Build an adapter that owns its transport: constructs the generated MDK v1
+   * client for `baseUrl` and wires the credential. The provider resolves miners
+   * through this factory so no generated v1 runtime leaks into
+   * MinerHostingContext; tests construct the class directly with a mock client.
+   */
+  static fromConfig(config: { baseUrl: string; getAccessToken?: () => string }): MdkV1Adapter {
+    return new MdkV1Adapter(new Api({ baseUrl: config.baseUrl }).api, config.getAccessToken);
+  }
 
   // v1 gates nearly every endpoint on a bearer token exchanged from the miner
   // password. Attach it to every request that has one. The public endpoints

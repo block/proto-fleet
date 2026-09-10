@@ -1,9 +1,7 @@
 import { createContext, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
-import { Api, RequestParams } from "@/protoOS/api/adapters/mdkV1";
 import { createMdkV1Definition } from "@/protoOS/api/adapters/mdkV1/definition";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
-import { Api as MdkV2Api } from "@/protoOS/api/adapters/mdkV2";
 import { createMdkV2Ct1Definition, mdkV2Definition } from "@/protoOS/api/adapters/mdkV2/definition";
 import { MdkV2Adapter } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
 import { resolveMinerAdapter } from "@/protoOS/api/adapters/resolveMinerAdapter";
@@ -27,43 +25,10 @@ const EMPTY_METADATA: MinerHostingMetadata = {};
 // auth, so the adapter gets no credential and decorates nothing.
 const directAccessToken = () => authTokensFromSlice(useMinerStore.getState().auth).accessToken.value;
 
-// Authenticates the raw client exposed on `window.api` below. The app itself
-// authenticates through the adapter's decorate(); this securityWorker exists
-// only so the standalone/E2E window handle — which calls generated methods
-// directly, with no adapter in front of it — still carries a bearer on its
-// @secure calls (e.g. deleteSystemTag). Wired in direct mode only, where the
-// window handle is exposed; in fleet mode the store holds no token and the
-// minerproxy owns auth, so it never fires.
-const directBearerSecurityWorker = (): RequestParams | void => {
-  const token = directAccessToken();
-  if (!token) return;
-  return { headers: { Authorization: `Bearer ${token}` } };
-};
-
 const normalizedBaseUrl = (baseUrl: string) =>
   baseUrl.length ? (baseUrl.startsWith("/") ? baseUrl : `/${baseUrl}`) : "";
 
-const CreateApi = (baseUrl: string, mode: MinerHostingMode) => {
-  const url = normalizedBaseUrl(baseUrl);
-  const instance = new Api({
-    baseUrl: url,
-    securityWorker: mode === "direct" ? directBearerSecurityWorker : undefined,
-  });
-
-  // The standalone protoOS app and its E2E suite read the miner client off the
-  // window (e.g. general.spec.ts verifies the system tag via window.api). Only
-  // expose it in direct mode — never leak the fleet-proxied client globally.
-  if (mode === "direct") {
-    (window as unknown as { api: InstanceType<typeof Api>["api"] }).api = instance.api;
-  }
-
-  return instance;
-};
-
-type ApiT = InstanceType<typeof Api>["api"];
-
 type MinerHostingContextType = {
-  api: ApiT | null;
   adapter: MinerAdapter | null;
   resolution: AdapterResolution;
   minerRoot: string;
@@ -91,7 +56,6 @@ const UNREACHABLE_RESOLUTION: AdapterResolution = {
 const PROBE_TIMEOUT_MS = 5000;
 
 const MinerHostingContext = createContext<MinerHostingContextType>({
-  api: null,
   adapter: null,
   resolution: PROBING_RESOLUTION,
   minerRoot: "",
@@ -117,43 +81,50 @@ export const MinerHostingProvider = ({
   mode = "direct",
   metadata = EMPTY_METADATA,
 }: MinerHostingProviderProps) => {
-  const instance = useMemo(() => CreateApi(baseUrl, mode), [baseUrl, mode]);
-  const api = instance.api;
+  // The normalized base is the miner's transport identity: each adapter builds
+  // its own generated client for this URL, and the probe fetches against it.
+  const url = normalizedBaseUrl(baseUrl);
   // The provider carries the credential to the adapter: direct mode hands v1 the
   // store bearer to decorate with; fleet mode hands none (proxy owns auth).
   const credential = mode === "direct" ? directAccessToken : undefined;
-  const v2Client = useMemo(() => new MdkV2Api({ baseUrl: normalizedBaseUrl(baseUrl) }).api, [baseUrl]);
+  // Each definition owns its transport construction (adapter.fromConfig builds
+  // the generation-specific client for this URL), so the context imports no
+  // generated runtime — only the adapter's dialect knows the wire.
   const definitions = useMemo(
     () => [
-      createMdkV2Ct1Definition((match) => new MdkV2Adapter(v2Client, match)),
+      createMdkV2Ct1Definition((match) => MdkV2Adapter.fromConfig({ baseUrl: url }, match)),
       mdkV2Definition,
-      createMdkV1Definition(() => new MdkV1Adapter(api, credential)),
+      createMdkV1Definition(() => MdkV1Adapter.fromConfig({ baseUrl: url, getAccessToken: credential })),
     ],
-    [api, credential, v2Client],
+    [url, credential],
   );
-  const [resolved, setResolved] = useState<{ instance: typeof instance; resolution: AdapterResolution }>(() => ({
-    instance,
-    resolution: PROBING_RESOLUTION,
-  }));
+  const [resolved, setResolved] = useState<{ url: string; mode: MinerHostingMode; resolution: AdapterResolution }>(
+    () => ({ url, mode, resolution: PROBING_RESOLUTION }),
+  );
   // Bumped to force a re-probe (e.g. the retry button on the unreachable state).
   const [retryToken, setRetryToken] = useState(0);
-  // Only surface a resolution that belongs to the *current* api instance. When
-  // baseUrl/mode change, `instance` is recreated before the new probe settles;
-  // discarding the previous instance's still-pending resolution here keeps us in
+  // Only surface a resolution that belongs to the *current* miner URL and hosting
+  // mode. When either changes, a fresh probe is kicked off before it settles;
+  // discarding the previous identity's still-pending resolution keeps us in
   // `probing` instead of flashing the prior miner's adapter (a stale-adapter
-  // flash) during the switch.
-  const resolution = resolved.instance === instance ? resolved.resolution : PROBING_RESOLUTION;
+  // flash). Mode is part of the key because it selects the credential the adapter
+  // is built with, so a mode flip must not surface an adapter carrying the wrong one.
+  const resolution = resolved.url === url && resolved.mode === mode ? resolved.resolution : PROBING_RESOLUTION;
   const adapter = resolution.status === "ready" ? resolution.adapter : null;
 
   const retry = useCallback(() => {
     // Show probing immediately, then re-run the effect via the deps bump.
-    setResolved({ instance, resolution: PROBING_RESOLUTION });
+    setResolved({ url, mode, resolution: PROBING_RESOLUTION });
     setRetryToken((token) => token + 1);
-  }, [instance]);
+  }, [url, mode]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const probe = async (path: string, signal: AbortSignal) => {
+    // Probe with plain fetch, not a generation-specific client: identification
+    // must not depend on any one adapter's wire (probing v2 with the v1 client
+    // was the coupling this removes). An adapter builds its own client only once
+    // its probe matches.
+    const probe = async (path: string, signal: AbortSignal): Promise<unknown> => {
       // Race the request against a per-attempt timeout: a child controller
       // aborts on timeout OR when the effect's parent signal aborts. The parent
       // signal itself is left untouched by the timeout, so a timeout reads as a
@@ -167,13 +138,20 @@ export const MinerHostingProvider = ({
       }
       const timeout = setTimeout(forwardAbort, PROBE_TIMEOUT_MS);
       try {
-        const response = await instance.request<unknown, unknown>({
-          path,
+        const response = await fetch(`${url}${path}`, {
           method: "GET",
-          format: "json",
           signal: attempt.signal,
+          // Match the generated client, which set referrerPolicy: "no-referrer".
+          referrerPolicy: "no-referrer",
         });
-        return response.data;
+        // Only a non-2xx is a probe error (→ recoverable "unreachable"). A 2xx
+        // body that fails to parse is NOT an error: the generated v1 client
+        // swallowed JSON-parse failures on ok responses and yielded a null body,
+        // which resolveMinerAdapter reads as a well-formed non-match. Preserve
+        // that so a non-miner server answering 200 with HTML on every probe path
+        // lands on the terminal "unsupported" page instead of looping on retry.
+        if (!response.ok) throw new Error(`Probe ${path} failed with status ${response.status}`);
+        return await response.json().catch(() => null);
       } finally {
         clearTimeout(timeout);
         signal.removeEventListener("abort", forwardAbort);
@@ -182,23 +160,23 @@ export const MinerHostingProvider = ({
 
     void resolveMinerAdapter(definitions, probe, controller.signal)
       .then((nextResolution) => {
-        if (!controller.signal.aborted) setResolved({ instance, resolution: nextResolution });
+        if (!controller.signal.aborted) setResolved({ url, mode, resolution: nextResolution });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         console.error("Miner adapter resolution failed", error);
-        setResolved({ instance, resolution: UNREACHABLE_RESOLUTION });
+        setResolved({ url, mode, resolution: UNREACHABLE_RESOLUTION });
       });
 
     return () => controller.abort();
-  }, [definitions, instance, retryToken]);
+  }, [definitions, url, mode, retryToken]);
 
   // baseUrl is per-miner in fleet mode, so this clears the singleton device
   // store when switching miners (no-op in direct mode, where baseUrl is fixed).
   useResetDeviceStateOnMinerChange(baseUrl);
 
   return (
-    <MinerHostingContext.Provider value={{ api, adapter, resolution, minerRoot, closeButton, mode, metadata }}>
+    <MinerHostingContext.Provider value={{ adapter, resolution, minerRoot, closeButton, mode, metadata }}>
       {resolution.status === "unsupported" ? (
         <UnsupportedMiner adapterId={resolution.adapterId} closeButton={closeButton} />
       ) : resolution.status === "unreachable" ? (
