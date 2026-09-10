@@ -295,7 +295,7 @@ update-go-deps:
 # --- Packaging ---
 
 # Build the fleetnode operator CLI into server/.fleetnode/ along with native
-# plugins and an nmap symlink so the binary-adjacent defaults in
+# plugins so the binary-adjacent defaults in
 # `fleetnode run` resolve without flags. Kept separate from server/plugins/
 # because `just dev` puts cross-compiled Linux/arm64 plugins there for the
 # Docker server, and the native agent can't exec ELF binaries.
@@ -305,13 +305,6 @@ build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins") (_asicrs
   cd server
   mkdir -p ./.fleetnode
   go build -o ./.fleetnode/fleetnode ./cmd/fleetnode
-  if NMAP=$(command -v nmap 2>/dev/null); then
-    ln -sfn "$NMAP" ./.fleetnode/nmap
-    echo "linked server/.fleetnode/nmap -> $NMAP"
-  else
-    rm -f ./.fleetnode/nmap
-    echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) so the agent finds it at scan time"
-  fi
   echo "agent staged at server/.fleetnode/fleetnode"
 
 # build Windows installer

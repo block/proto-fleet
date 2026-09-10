@@ -7,7 +7,6 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
 
 // buildReportScope derives, from the validated request, a matcher that accepts
@@ -23,7 +22,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			return inPort(port) && inIP(ip)
 		}
 	case *pairingpb.DiscoverRequest_IpRange:
-		start, end, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
+		target, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
 		if err != nil {
 			return func(string, string) bool { return false }
 		}
@@ -36,8 +35,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			if !ok || !addr.Is4() {
 				return false
 			}
-			value := netutil.IPv4ToUint32(addr)
-			return value >= start && value <= end
+			return target.Contains(addr)
 		}
 	case *pairingpb.DiscoverRequest_Nmap:
 		inPort := portMatcher(m.Nmap.GetPorts())
@@ -67,7 +65,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 // parseScopeAddr parses an address and unmaps IPv4-mapped IPv6 (e.g.
 // ::ffff:192.168.1.10) to its IPv4 form, so a requested literal and the address
 // the agent actually reports compare in the same representation: the agent's
-// NormalizeIPListEntry already collapses mapped literals before probing.
+// ResolveAddr already collapses mapped literals before probing.
 func parseScopeAddr(s string) (netip.Addr, bool) {
 	addr, err := netip.ParseAddr(s)
 	if err != nil {
@@ -77,7 +75,7 @@ func parseScopeAddr(s string) (netip.Addr, bool) {
 }
 
 // ipListMatcher accepts the listed literal IPs. A hostname entry resolves
-// agent-side (via NormalizeIPListEntry) to an IP the server can't predict, so if
+// agent-side (via ResolveAddr) to an IP the server can't predict, so if
 // any entry is a hostname the IP scope can't be enforced and only ports constrain
 // the report (matching the Nmap hostname path); otherwise a reported IP must be
 // one of the listed addresses (compared in canonical, unmapped form).

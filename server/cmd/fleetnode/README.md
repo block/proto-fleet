@@ -34,7 +34,6 @@ The repository's `just build-fleetnode` target stages a working layout at `serve
 ```
 server/.fleetnode/
 ├── fleetnode
-├── nmap         (symlink to system nmap, if present)
 └── plugins/
     ├── proto-plugin
     ├── antminer-plugin
@@ -42,11 +41,11 @@ server/.fleetnode/
     └── asicrs-plugin
 ```
 
-## Nmap
+## TCP discovery
 
-When a server-issued `DiscoverRequest` arrives in `NmapModeRequest` form, the agent shells out to `<exe-dir>/nmap` if that file exists and is executable, otherwise to `nmap` on `PATH`. Install via `brew install nmap` (macOS) or your distro package manager.
+Network discovery uses the in-process TCP scanner in `internal/domain/netscan`. The scanner connects to the requested ports, closes each connection immediately, and hands open endpoints to the existing miner plugins for identification. IP-list and IP-range discovery send every requested endpoint directly to bounded plugin identification, including virtual miners that have no TCP listeners. No mode needs a scanner executable or raw-socket capability.
 
-The target is validated against a strict grammar before invocation: bare IPv4/IPv6, CIDR, `A.B.C.D-N` range, or hostname. Leading dashes, whitespace, and shell metacharacters are rejected — this defends against a compromised server crafting a target like `-iL/etc/passwd` that nmap would otherwise interpret as a flag. See `validateNmapTarget` in [nmap.go](nmap.go).
+TCP connection attempts share a 512-socket process budget, with a three-second timeout each. Plugin identification uses 32 concurrent probes with ten seconds per probe. Target parsing, private DNS selection, and port validation use the same shared helpers as Fleet Server. IPv4 CIDRs omit their actual network and broadcast addresses through /30; /31, /32, and explicit ranges include every address. Eligible IPv6 literals are supported, while IPv6 CIDRs are rejected.
 
 For automatic "local subnet" discovery commands, the server sends the reserved `fleet-node-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
 
@@ -55,7 +54,7 @@ fleetnode run --local-discovery-subnet=10.90.0.0/24
 FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
 ```
 
-The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR and no broader than the supported nmap scan-size limit.
+The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR and no broader than the supported scan-size limit.
 
 ## Control stream
 
@@ -64,7 +63,7 @@ The configured subnet is validated the same way as an auto-detected local subnet
 1. Agent dials gateway, sends `ControlHello`.
 2. Server replies `ControlAccepted`; stream stays open.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `pairing.v1.DiscoverRequest`.
-4. Agent runs the scan locally (plugin probes for `IPList`/`Mdns`, nmap for `Nmap`), batches results, and sends each batch via `ReportDiscoveredDevices` with `command_id` set.
+4. Agent scans the requested TCP endpoints and identifies open ports using plugins. After scanning, it sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 30-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
 
 If the server side is older than RFC-0001 phase 2, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
@@ -74,7 +73,7 @@ Reconnect is newest-wins on the server: a freshly opened stream evicts any prior
 ## Build
 
 ```bash
-just build-fleetnode               # produces server/.fleetnode/{fleetnode, nmap, plugins/}
+just build-fleetnode               # produces server/.fleetnode/{fleetnode, plugins/}
 go build -o fleetnode ./server/cmd/fleetnode   # fast iteration
 ```
 
@@ -103,7 +102,7 @@ If anything is interrupted between Register and Complete, `fleetnode refresh` re
 - **State file.** `state.yaml` is `0600` under a `0700` directory; the writer fsyncs the temp file, renames, then fsyncs the directory. Symlinks at the state dir leaf are refused.
 - **Lock contention.** PID is written under the lock so contention reports are actionable.
 - **Plugins.** The directory must be owned by root or the running uid and must not be group- or world-writable; the agent refuses to load otherwise. The Windows build performs an existence-only check — production Windows installs must place the binary under an Administrator-only directory (e.g., `%ProgramFiles%\fleetnode\`) so the `plugins\` subdirectory inherits a safe ACL.
-- **Nmap targets.** Server-supplied targets are restricted by `validateNmapTarget` (no leading dashes, no whitespace, no shell metacharacters).
+- **Scan targets.** Server-supplied targets use the shared `netscan` grammar, private-address policy, and per-command limits. Leading dashes, whitespace, and shell metacharacters are rejected.
 - **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers return `Unimplemented` and the agent reconnects with backoff without crashing.
 
 ## Development

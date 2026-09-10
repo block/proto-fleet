@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"math/rand"
-	"net"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -27,7 +27,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
@@ -381,26 +381,25 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	reports, truncated, err := r.discoverForCommand(cmdCtx, req, logger)
-	if err != nil {
-		code := pb.AckCode_ACK_CODE_INTERNAL
-		var ce *commandError
-		if errors.As(err, &ce) {
-			code = ce.code
-		}
-		r.sendAck(stream, commandID, code, err.Error(), logger)
-		return
-	}
-	// Stream on parent ctx, not cmdCtx: if the scan hit commandTimeout,
-	// cmdCtx is dead and partial reports would never upload. Each batch is
-	// still bounded by discoveryReportTimeout.
+	reports, truncated, scanErr := r.discoverForCommand(cmdCtx, req, logger)
+	// Completed identification survives a late scan failure or deadline. Upload
+	// on the live parent context, with one budget for the whole final phase.
 	if err := r.streamReports(ctx, client, commandID, reports, logger); err != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_REPORT_FAILED, err.Error(), logger)
 		return
 	}
+	if scanErr != nil && !errors.Is(scanErr, context.DeadlineExceeded) && !errors.Is(scanErr, context.Canceled) {
+		code := pb.AckCode_ACK_CODE_SCAN_FAILED
+		var ce *commandError
+		if errors.As(scanErr, &ce) {
+			code = ce.code
+		}
+		r.sendAck(stream, commandID, code, scanErr.Error(), logger)
+		return
+	}
 	// Two PARTIAL sources: cmdCtx deadline (commandTimeout) or fanOutProbes
 	// supervisor (a probe ignored ctx). Either way reports already uploaded.
-	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
+	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) || errors.Is(scanErr, context.DeadlineExceeded) {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports)), logger)
 		return
 	}
@@ -408,26 +407,11 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("probe supervisor budget exceeded; %d report(s) uploaded, some endpoints not probed", len(reports)), logger)
 		return
 	}
+	if errors.Is(scanErr, context.Canceled) {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan canceled; %d report(s) uploaded", len(reports)), logger)
+		return
+	}
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
-}
-
-// Filter DNS answers before normalization applies its IPv4 preference.
-type privateIPListResolver struct {
-	netutil.IPListResolver
-}
-
-func (r privateIPListResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
-	addrs, err := r.IPListResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	private := make([]net.IPAddr, 0, len(addrs))
-	for _, addr := range addrs {
-		if addr.IP.IsPrivate() {
-			private = append(private, addr)
-		}
-	}
-	return private, nil
 }
 
 func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool, error) {
@@ -447,46 +431,49 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if err != nil {
 			return nil, false, err
 		}
-		var resolver netutil.IPListResolver = net.DefaultResolver
-		if r.resolver != nil {
-			resolver = r.resolver
-		}
-		normalized := make([]string, 0, len(ips))
+		normalized := make([]netip.Addr, 0, len(ips))
+		seen := make(map[netip.Addr]struct{}, len(ips))
 		for _, raw := range ips {
-			n, err := netutil.NormalizeIPListEntry(ctx, raw, privateIPListResolver{resolver})
+			addr, err := netscan.ResolveAddr(ctx, raw, r.resolver, true)
 			if err != nil {
+				if ctx.Err() != nil {
+					return nil, false, fmt.Errorf("resolve IP list: %w", ctx.Err())
+				}
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
 			}
-			addr, err := netip.ParseAddr(n)
-			if err != nil || !addr.Unmap().IsPrivate() {
-				logger.Debug("skipping non-private ipList entry", "input", raw)
-				continue
+			if _, duplicate := seen[addr]; !duplicate {
+				seen[addr] = struct{}{}
+				normalized = append(normalized, addr)
 			}
-			normalized = append(normalized, n)
 		}
 		if len(normalized) == 0 {
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		reports, truncated := r.probeIPsAndPorts(ctx, normalized, ports, logger)
-		return reports, truncated, nil
+		return r.probeTargets(ctx, slices.Values(normalized), ports, logger)
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpRange.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		ips, err := expandIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp(), maxIPsPerCommand)
+		target, err := netscan.Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
 		if err != nil {
-			return nil, false, err
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 		}
-		reports, truncated := r.probeIPsAndPorts(ctx, ips, ports, logger)
-		return reports, truncated, nil
+		if target.Count() > maxIPsPerCommand {
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
+		}
+		return r.probeTargets(ctx, target.Addresses(), ports, logger)
 	case *pairingpb.DiscoverRequest_Nmap:
 		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		return r.runNmapDiscovery(ctx, m.Nmap, ports, logger)
+		targets, err := r.networkScanTargets(ctx, m.Nmap)
+		if err != nil {
+			return nil, false, err
+		}
+		return r.scanAndProbe(ctx, targets, ports, logger)
 	case *pairingpb.DiscoverRequest_Mdns:
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "mdns mode is not supported on the fleet node agent")
 	default:
@@ -494,95 +481,29 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 	}
 }
 
-func (r *RunCmd) probeIPsAndPorts(ctx context.Context, ips []string, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
-	endpoints := make([]endpoint, 0, len(ips)*len(ports))
-	for _, ip := range ips {
-		for _, port := range ports {
-			endpoints = append(endpoints, endpoint{ip: ip, port: port})
-		}
+func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]uint16, error) {
+	var defaults []string
+	if len(supplied) == 0 {
+		defaults = r.discoverer.DefaultDiscoveryPorts(ctx)
 	}
-	return fanOutProbes(ctx, endpoints, probeConcurrency, r.discoverer.Probe, logger)
-}
-
-// Single decimal port only; range/comma syntax would let one entry bypass
-// maxPortsPerIP. Plugin defaults pass through the same validator.
-func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]string, error) {
-	ports := supplied
-	if len(ports) == 0 {
-		ports = r.discoverer.DefaultDiscoveryPorts(ctx)
-	}
-	if len(ports) == 0 {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ports must be non-empty (no defaults available)")
-	}
-	if len(ports) > maxPortsPerIP {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
-	}
-	// Emit canonical form so "+80"/"080" don't reach the gateway's ^[1-9][0-9]*$ check.
-	seen := make(map[string]struct{}, len(ports))
-	out := make([]string, 0, len(ports))
-	for _, p := range ports {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 1 || n > 65535 {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid port %q: must be decimal 1-65535 (ranges, commas, and protocol prefixes are not allowed)", p)
-		}
-		canonical := strconv.Itoa(n)
-		if _, dup := seen[canonical]; dup {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		out = append(out, canonical)
-	}
-	return out, nil
-}
-
-// Skips .0/.1 at the range start to match server's DiscoverWithIPRange,
-// except inside 127.0.0.0/8 where dev fixtures bind.
-func expandIPv4Range(startStr, endStr string, maxCount int) ([]string, error) {
-	startAddr, err := netutil.ParseIPv4(startStr)
+	ports, err := netscan.Ports(supplied, defaults)
 	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "start_ip %q: %s", startStr, err)
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
-	endAddr, err := netutil.ParseIPv4(endStr)
-	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "end_ip %q: %s", endStr, err)
-	}
-	startU := netutil.IPv4ToUint32(startAddr)
-	endU := netutil.IPv4ToUint32(endAddr)
-	if endU < startU {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "end_ip %q must be >= start_ip %q", endStr, startStr)
-	}
-	startU = netutil.AdjustIPv4RangeStart(startU)
-	if endU < startU {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "range %q-%q only covers network/gateway addresses", startStr, endStr)
-	}
-	size := int(endU - startU + 1)
-	if size > maxCount {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", size, maxCount)
-	}
-	out := make([]string, 0, size)
-	for v := startU; ; v++ {
-		out = append(out, netutil.Uint32ToIPv4(v))
-		if v == endU {
-			break
-		}
-	}
-	return out, nil
+	return ports, nil
 }
 
 // Returns (reports, truncated). Supervisor caps wg.Wait at perProbeTimeout*2
 // so a plugin Probe that ignores ctx can't pin the agent; truncated=true
 // lets the caller ack PARTIAL.
-func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
-	if len(endpoints) == 0 {
-		return nil, false
-	}
+func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	var (
 		mu      sync.Mutex
 		reports []*pb.DiscoveredDeviceReport
 		wg      sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
-	for _, e := range endpoints {
+	for e := range endpoints {
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
@@ -655,13 +576,13 @@ func waitSupervisor[T any](wg *sync.WaitGroup, mu *sync.Mutex, results *[]T, max
 }
 
 func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, commandID string, reports []*pb.DiscoveredDeviceReport, logger *slog.Logger) error {
+	callCtx, cancel := context.WithTimeout(ctx, discoveryReportTimeout)
+	defer cancel()
 	for chunk := range slices.Chunk(reports, maxDevicesPerReport) {
-		callCtx, cancel := context.WithTimeout(ctx, discoveryReportTimeout)
 		_, err := client.ReportDiscoveredDevices(callCtx, connect.NewRequest(&pb.ReportDiscoveredDevicesRequest{
 			CommandId: commandID,
 			Devices:   chunk,
 		}))
-		cancel()
 		if err != nil {
 			logger.Error("report failed", "command_id", commandID, "err", err)
 			return fmt.Errorf("report devices: %w", err)

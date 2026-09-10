@@ -9,6 +9,8 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile.fleetnode.dev
+    cap_drop:
+      - NET_RAW
     command: ["--state-dir=/state", "run"]
     environment:
       FLEETNODE_LOCAL_DISCOVERY_SUBNET: "10.90.0.0/24"

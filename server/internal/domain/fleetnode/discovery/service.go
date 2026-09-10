@@ -19,7 +19,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
@@ -148,7 +147,7 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 		}
 		return nil
 	case *pairingpb.DiscoverRequest_IpRange:
-		if _, _, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp()); err != nil {
+		if _, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp()); err != nil {
 			return err
 		}
 		if err := checkScanLimits(nil, m.IpRange.GetPorts()); err != nil {
@@ -206,37 +205,16 @@ func checkScanLimits(ipAddresses, ports []string) error {
 	return nil
 }
 
-func validatedIPv4Range(startStr, endStr string) (uint32, uint32, error) {
-	startAddr, err := netutil.ParseIPv4(startStr)
+func validatedIPv4Range(startStr, endStr string) (netscan.Target, error) {
+	target, err := netscan.Range(startStr, endStr)
 	if err != nil {
-		return 0, 0, fleeterror.NewInvalidArgumentErrorf("invalid start_ip: %v", err)
+		return netscan.Target{}, fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	endAddr, err := netutil.ParseIPv4(endStr)
-	if err != nil {
-		return 0, 0, fleeterror.NewInvalidArgumentErrorf("invalid end_ip: %v", err)
+	if !target.IsPrivate() {
+		return netscan.Target{}, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
 	}
-	// Both ends must be private. The MaxScanTargets cap below keeps the range far
-	// smaller than the gap between RFC1918 blocks, so private endpoints imply a
-	// fully private range. A public range scans fine but every report is rejected
-	// by validateReport, surfacing as a late REPORT_FAILED.
-	if !startAddr.IsPrivate() || !endAddr.IsPrivate() {
-		return 0, 0, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
+	if target.Count() > discoverylimits.MaxScanTargets {
+		return netscan.Target{}, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
 	}
-	start, end := netutil.IPv4ToUint32(startAddr), netutil.IPv4ToUint32(endAddr)
-	if end < start {
-		return 0, 0, fleeterror.NewInvalidArgumentError("end_ip must be >= start_ip")
-	}
-	// Skip the network (.0) and gateway (.1) start addresses, matching the agent
-	// and server discovery; gateways answer on many ports and look like miners.
-	start = netutil.AdjustIPv4RangeStart(start)
-	if end < start {
-		return 0, 0, fleeterror.NewInvalidArgumentError("ip range covers only network/gateway addresses")
-	}
-	// uint64 math so a range ending at 255.255.255.255 can't wrap (in uint32,
-	// end-start+1 would overflow to 0, bypassing the cap and never terminating).
-	size := uint64(end) - uint64(start) + 1
-	if size > discoverylimits.MaxScanTargets {
-		return 0, 0, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
-	}
-	return start, end, nil
+	return target, nil
 }
