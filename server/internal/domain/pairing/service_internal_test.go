@@ -309,7 +309,7 @@ func TestMergeAutoDiscoveryTargets(t *testing.T) {
 	}
 }
 
-func TestResolveNmapTargets_ExpandsLocalSubnetWithKnownSubnets(t *testing.T) {
+func TestResolveNetworkScanTargets_ExpandsLocalSubnetWithKnownSubnets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -326,12 +326,12 @@ func TestResolveNmapTargets_ExpandsLocalSubnetWithKnownSubnets(t *testing.T) {
 		GetKnownSubnets(gomock.Any(), int64(42), 24, true).
 		Return([]string{"192.168.25.0/24", "192.168.1.0/24", "not-a-cidr"}, nil)
 
-	targets, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
+	targets, err := service.resolveNetworkScanTargets(ctx, "192.168.1.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.1.0/24", "192.168.25.0/24"}, targets)
 }
 
-func TestResolveNmapTargets_SkipsExpansionForNonLocalTargets(t *testing.T) {
+func TestResolveNetworkScanTargets_SkipsExpansionForNonLocalTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -345,12 +345,12 @@ func TestResolveNmapTargets_SkipsExpansionForNonLocalTargets(t *testing.T) {
 
 	ctx := mockSessionContext(t.Context(), 1, 42)
 
-	targets, err := service.resolveNmapTargets(ctx, "192.168.25.0/24")
+	targets, err := service.resolveNetworkScanTargets(ctx, "192.168.25.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.25.0/24"}, targets)
 }
 
-func TestResolveNmapTargets_FallsBackWhenLocalNetworkInfoFails(t *testing.T) {
+func TestResolveNetworkScanTargets_FallsBackWhenLocalNetworkInfoFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -364,12 +364,12 @@ func TestResolveNmapTargets_FallsBackWhenLocalNetworkInfoFails(t *testing.T) {
 
 	ctx := mockSessionContext(t.Context(), 1, 42)
 
-	targets, err := service.resolveNmapTargets(ctx, "192.168.1.0/24")
+	targets, err := service.resolveNetworkScanTargets(ctx, "192.168.1.0/24")
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.1.0/24"}, targets)
 }
 
-func TestResolveNmapTargets_DoesNotExpandIPv6Targets(t *testing.T) {
+func TestResolveNetworkScanTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -388,7 +388,7 @@ func TestResolveNmapTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 
 	// IPv6 targets should not be auto-expanded because IPv6 subnets are
 	// too large for network sweeps.
-	targets, err := service.resolveNmapTargets(ctx, "fd00::/64")
+	targets, err := service.resolveNetworkScanTargets(ctx, "fd00::/64")
 	require.NoError(t, err)
 	require.Equal(t, []string{"fd00::/64"}, targets)
 }

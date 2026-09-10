@@ -231,7 +231,7 @@ describe("MinersWrapper", () => {
         expect.objectContaining({
           discoverRequest: expect.objectContaining({
             mode: expect.objectContaining({
-              case: "nmap",
+              case: "networkScan",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
               }),
@@ -508,7 +508,7 @@ describe("MinersWrapper", () => {
         expect.objectContaining({
           discoverRequest: expect.objectContaining({
             mode: expect.objectContaining({
-              case: "nmap",
+              case: "networkScan",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
               }),

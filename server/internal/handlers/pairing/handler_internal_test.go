@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -106,9 +107,9 @@ func TestFleetNodeDiscoveryRequest(t *testing.T) {
 	ipRange := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
 		StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"},
 	}}}
-	nmapRequest := func(localSubnet bool) *pb.DiscoverRequest {
+	networkScanRequest := func(localSubnet bool) *pb.DiscoverRequest {
 		return &pb.DiscoverRequest{
-			Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+			Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 				Target: "192.168.1.0/24", Ports: []string{"4028"}, UseFleetNodeLocalSubnet: localSubnet,
 			}},
 		}
@@ -119,14 +120,14 @@ func TestFleetNodeDiscoveryRequest(t *testing.T) {
 	assert.Nil(t, fleetNodeDiscoveryRequest(&pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
 	}))
-	manual := nmapRequest(false)
-	automatic := nmapRequest(true)
+	manual := networkScanRequest(false)
+	automatic := networkScanRequest(true)
 	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual))
 	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic))
 }
 
 func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
-	addresses := make([]string, 1024)
+	addresses := make([]string, 4096)
 	for i := range addresses {
 		addresses[i] = "192.168.1.10"
 	}
@@ -139,11 +140,42 @@ func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
 	assert.Error(t, protovalidate.Validate(request))
 }
 
+func TestDiscoverRequest_RawPortLimit(t *testing.T) {
+	requests := []func([]string) *pb.DiscoverRequest{
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+				IpAddresses: []string{"10.0.0.1"}, Ports: ports,
+			}}}
+		},
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
+				StartIp: "10.0.0.1", EndIp: "10.0.0.2", Ports: ports,
+			}}}
+		},
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
+				Target: "10.0.0.0/20", Ports: ports,
+			}}}
+		},
+	}
+	for _, request := range requests {
+		t.Run(fmt.Sprintf("%T", request(nil).GetMode()), func(t *testing.T) {
+			// Duplicate strings still consume the raw request budget, before normalization.
+			ports := make([]string, 10)
+			for i := range ports {
+				ports[i] = "80"
+			}
+			assert.NoError(t, protovalidate.Validate(request(ports)))
+			assert.Error(t, protovalidate.Validate(request(slices.Concat(ports, []string{"80"}))))
+		})
+	}
+}
+
 func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing.T) {
 	requests := []*pb.DiscoverRequest{
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}},
 		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"}}}},
-		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24", Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "192.168.1.0/24", Ports: []string{"4028"}}}},
 	}
 
 	for _, req := range requests {
@@ -366,8 +398,8 @@ func TestDiscover_InvalidInputIsTerminalBeforeFanOut(t *testing.T) {
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"bad"}}}},
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}}}},
 		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.2", EndIp: "10.0.0.1"}}},
-		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "not/a/target"}}},
-		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"}}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "not/a/target"}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"}}}},
 	} {
 		t.Run(req.String(), func(t *testing.T) {
 			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}

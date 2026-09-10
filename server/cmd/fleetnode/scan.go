@@ -107,7 +107,7 @@ func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 	return []string{info.Subnet}, nil
 }
 
-func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NmapModeRequest) (iter.Seq[netip.Addr], error) {
+func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NetworkScanModeRequest) (iter.Seq[netip.Addr], error) {
 	raw := strings.TrimSpace(req.GetTarget())
 	if raw != netscan.LocalSubnetTarget {
 		target, err := netscan.ParseBoundedTarget(raw)

@@ -37,13 +37,13 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			}
 			return target.Contains(addr)
 		}
-	case *pairingpb.DiscoverRequest_Nmap:
-		inPort := portMatcher(m.Nmap.GetPorts())
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		inPort := portMatcher(m.NetworkScan.GetPorts())
 		// The LocalSubnetTarget sentinel lets the agent pick its own subnet, so
 		// the server can't predict the IPs. Degrade the IP scope to the
 		// private-only invariant (RFC1918/RFC4193) that validateReport
 		// independently enforces; port scoping is still applied.
-		if m.Nmap.GetTarget() == netscan.LocalSubnetTarget {
+		if m.NetworkScan.GetTarget() == netscan.LocalSubnetTarget {
 			return func(ip, port string) bool {
 				if !inPort(port) {
 					return false
@@ -52,7 +52,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 				return ok && a.IsPrivate()
 			}
 		}
-		inTarget := nmapTargetMatcher(m.Nmap.GetTarget())
+		inTarget := networkScanTargetMatcher(m.NetworkScan.GetTarget())
 		return func(ip, port string) bool {
 			return inPort(port) && inTarget(ip)
 		}
@@ -77,7 +77,7 @@ func parseScopeAddr(s string) (netip.Addr, bool) {
 // ipListMatcher accepts the listed literal IPs. A hostname entry resolves
 // agent-side (via ResolveAddr) to an IP the server can't predict, so if
 // any entry is a hostname the IP scope can't be enforced and only ports constrain
-// the report (matching the Nmap hostname path); otherwise a reported IP must be
+// the report (matching the network scan hostname path); otherwise a reported IP must be
 // one of the listed addresses (compared in canonical, unmapped form).
 func ipListMatcher(entries []string) func(string) bool {
 	set := make(map[string]bool, len(entries))
@@ -112,10 +112,10 @@ func portMatcher(ports []string) func(string) bool {
 	}
 }
 
-// nmapTargetMatcher scopes reports using the same target parser as execution.
+// networkScanTargetMatcher scopes reports using the same target parser as execution.
 // Hostnames resolve on the node, so their reports remain constrained by ports
 // and the report validator's private-address policy.
-func nmapTargetMatcher(raw string) func(string) bool {
+func networkScanTargetMatcher(raw string) func(string) bool {
 	target, err := netscan.ParseTarget(raw)
 	return func(ip string) bool {
 		addr, ok := parseScopeAddr(ip)

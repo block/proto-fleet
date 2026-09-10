@@ -54,7 +54,11 @@ fleetnode run --local-discovery-subnet=10.90.0.0/24
 FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
 ```
 
-The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR and no broader than the supported scan-size limit.
+The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR, /20 or narrower. Each command accepts at most 4,096 target addresses and ten raw port entries. A /20 enumerates 4,094 usable addresses; an explicit 4,096-address range includes every address. Fleet Server keeps its broader address policy and can scan the aggregate of its known subnets without a Fleet Node command cap.
+
+The public discovery API names this mode `network_scan` (`NetworkScanModeRequest`). Nodes retain the ten-minute command budget, so a /20 with responsive ports and slow plugin identification can finish partially. Identified devices remain available, and incomplete discovery produces a source-specific warning. Update Fleet Server, Fleet Nodes, and clients together for this API change; the existing command-version and capability checks continue to support maintenance.
+
+A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. This capacity does not guarantee completion within the command deadline.
 
 ## Control stream
 
