@@ -4,7 +4,7 @@
  * End-to-end script that bootstraps a Fleet instance by:
  * 1. Authenticating (creating an admin user via REST if needed)
  * 2. Resolving a discovery target subnet (from env or the NetworkInfo REST endpoint)
- * 3. Running nmap-based device discovery via Connect-RPC streaming
+ * 3. Running network scan-based device discovery via Connect-RPC streaming
  * 4. Pairing newly discovered devices (all or Proto-only, based on env config)
  * 5. Reporting the final fleet inventory
  *
@@ -199,11 +199,11 @@ async function getDiscoveryTarget(sessionCookie: string): Promise<string> {
   return normalizedSubnet;
 }
 
-// Step 3: Discover devices via nmap Connect-RPC streaming
+// Step 3: Discover devices via network scan Connect-RPC streaming
 async function discoverDevices(sessionCookie: string, target: string): Promise<Device[]> {
   const request = create(DiscoverRequestSchema, {
     mode: {
-      case: "nmap",
+      case: "networkScan",
       value:
         discoveryPorts.length > 0
           ? {

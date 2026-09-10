@@ -19,6 +19,7 @@ import (
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -111,7 +112,7 @@ func TestNetworkScanTCPPrefilter(t *testing.T) {
 	})
 	s.localNetworkInfo = func(context.Context) (*NetworkInfo, error) { return nil, errors.New("no local subnet") }
 	ctx := mockSessionContext(t.Context(), 1, 1)
-	results, err := s.DiscoverWithNmap(ctx, &pb.NmapModeRequest{Target: "127.0.0.1/32", Ports: ports})
+	results, err := s.DiscoverWithNetworkScan(ctx, &pb.NetworkScanModeRequest{Target: "127.0.0.1/32", Ports: ports})
 	require.NoError(t, err)
 	var devices []*pb.Device
 	for result := range results {
@@ -137,7 +138,7 @@ func TestNetworkScanStreamsBeforeTerminalFailure(t *testing.T) {
 				return terminal
 			})
 			ctx := mockSessionContext(t.Context(), 1, 1)
-			results, err := s.DiscoverWithNmap(ctx, &pb.NmapModeRequest{Target: "192.168.1.1", Ports: []string{"80"}})
+			results, err := s.DiscoverWithNetworkScan(ctx, &pb.NetworkScanModeRequest{Target: "192.168.1.1", Ports: []string{"80"}})
 			require.NoError(t, err)
 			select {
 			case result := <-results:
@@ -282,6 +283,31 @@ func TestNetworkScanExplicitRangeIncludesZeroAndOne(t *testing.T) {
 	require.ElementsMatch(t, []string{"192.168.1.0", "192.168.1.1"}, addresses)
 }
 
+func TestNetworkScanKnownSubnetsExceedNodeTargetCap(t *testing.T) {
+	s := newScanTestService(t, nil)
+	s.localNetworkInfo = func(context.Context) (*NetworkInfo, error) {
+		return &NetworkInfo{NetworkInfo: networking.NetworkInfo{Subnet: "10.0.0.0/20"}}, nil
+	}
+	store := storemocks.NewMockDeviceStore(gomock.NewController(t))
+	store.EXPECT().GetKnownSubnets(gomock.Any(), int64(1), 20, true).Return([]string{"10.0.16.0/20"}, nil)
+	s.deviceStore = store
+	count := 0
+	s.scanner = scanFunc(func(_ context.Context, addrs iter.Seq[netip.Addr], _ []uint16, _ func(netscan.HostResult) error) error {
+		for range addrs {
+			count++
+		}
+		return nil
+	})
+	results, err := s.DiscoverWithNetworkScan(mockSessionContext(t.Context(), 1, 1), &pb.NetworkScanModeRequest{
+		Target: "10.0.0.0/20", Ports: []string{"80"},
+	})
+	require.NoError(t, err)
+	for result := range results {
+		require.Empty(t, result.Warning)
+	}
+	require.Equal(t, 8188, count, "Fleet Server must scan both subnets without the Fleet Node command cap")
+}
+
 func TestNetworkScanProbeDeadlineBoundsNoncooperativePlugin(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -354,7 +380,7 @@ func TestNetworkScanInvalidInputsPrecedeDefaultPortLookup(t *testing.T) {
 		run  func(*Service) error
 	}{
 		{"network target", func(s *Service) error {
-			_, err := s.DiscoverWithNmap(t.Context(), &pb.NmapModeRequest{Target: "not/a/target"})
+			_, err := s.DiscoverWithNetworkScan(t.Context(), &pb.NetworkScanModeRequest{Target: "not/a/target"})
 			return err
 		}},
 		{"list target", func(s *Service) error {

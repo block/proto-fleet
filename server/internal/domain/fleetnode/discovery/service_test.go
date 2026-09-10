@@ -353,10 +353,10 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 				cmd := <-stream.Outgoing
 				var env gatewaypb.AgentCommand
 				require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
-				gotTarget <- env.GetDiscover().GetNmap().GetTarget()
+				gotTarget <- env.GetDiscover().GetNetworkScan().GetTarget()
 				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 			}()
-			req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{
+			req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{
 				Target:                  tc.target,
 				UseFleetNodeLocalSubnet: tc.localSubnet,
 			}}}

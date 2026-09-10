@@ -259,8 +259,8 @@ func mergeAutoDiscoveryTargets(baseTarget string, knownSubnets []string) []strin
 	return targets
 }
 
-// resolveNmapTargets expands the cloud host's local subnet with known subnets.
-func (s *Service) resolveNmapTargets(ctx context.Context, target string) (targets []string, err error) {
+// resolveNetworkScanTargets expands the cloud host's local subnet with known subnets.
+func (s *Service) resolveNetworkScanTargets(ctx context.Context, target string) (targets []string, err error) {
 	targets = []string{target}
 
 	localNetworkInfo, err := s.GetLocalNetworkInfo(ctx)

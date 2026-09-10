@@ -475,12 +475,12 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
 		}
 		return r.probeTargets(ctx, target.Addresses(), ports, logger)
-	case *pairingpb.DiscoverRequest_Nmap:
-		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		ports, err := r.resolveAndValidatePorts(ctx, m.NetworkScan.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		targets, err := r.networkScanTargets(ctx, m.Nmap)
+		targets, err := r.networkScanTargets(ctx, m.NetworkScan)
 		if err != nil {
 			return nil, false, err
 		}

@@ -187,7 +187,7 @@ const MinersPage = ({
     [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
-  const handleNmapDiscovery = useCallback(() => {
+  const handleNetworkScanDiscovery = useCallback(() => {
     if (!networkInfo?.subnet) return;
 
     foremanCredsRef.current = null;
@@ -197,7 +197,7 @@ const MinersPage = ({
     setLastManualTargets(null);
     const discoverRequest = create(DiscoverRequestSchema, {
       mode: {
-        case: "nmap",
+        case: "networkScan",
         value: {
           target: networkInfo.subnet,
           useFleetNodeLocalSubnet: true,
@@ -264,7 +264,7 @@ const MinersPage = ({
         discoverRequests.push(
           create(DiscoverRequestSchema, {
             mode: {
-              case: "nmap",
+              case: "networkScan",
               value: {
                 target: subnet,
               },
@@ -317,7 +317,7 @@ const MinersPage = ({
         setLastDiscoveryMode(minerDiscoveryModes.foreman);
       }
     } else {
-      handleNmapDiscovery();
+      handleNetworkScanDiscovery();
     }
   }, [
     scanDiscoveryPending,
@@ -325,7 +325,7 @@ const MinersPage = ({
     lastDiscoveryMode,
     lastManualTargets,
     handleManualDiscovery,
-    handleNmapDiscovery,
+    handleNetworkScanDiscovery,
   ]);
 
   // Helper to clear all loading toasts
