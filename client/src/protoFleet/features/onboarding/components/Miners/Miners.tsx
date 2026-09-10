@@ -7,9 +7,10 @@ import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
-import { Dismiss, LogoAlt } from "@/shared/assets/icons";
+import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
@@ -21,7 +22,7 @@ import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets }
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
-  ipListDiscoveryPending: boolean;
+  manualDiscoveryPending: boolean;
   pairingPending: boolean;
   networkInfoPending: boolean;
   scanAvailable: boolean;
@@ -32,6 +33,7 @@ interface MinersProps {
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
+  remoteDiscoveryWarning?: string;
   mode?: MinerDiscoveryMode;
 }
 
@@ -40,7 +42,7 @@ const MIN_LOADING_TIME = 2000;
 
 const Miners = ({
   scanDiscoveryPending,
-  ipListDiscoveryPending,
+  manualDiscoveryPending,
   pairingPending,
   networkInfoPending,
   scanAvailable,
@@ -51,6 +53,7 @@ const Miners = ({
   onRescan,
   onForemanImport,
   foremanImportPending = false,
+  remoteDiscoveryWarning,
   mode = "onboarding",
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
@@ -69,13 +72,13 @@ const Miners = ({
   const [foremanClientId, setForemanClientId] = useState("");
   const { isPhone } = useWindowDimensions();
 
-  const discoveryPending = scanDiscoveryPending || ipListDiscoveryPending;
+  const discoveryPending = scanDiscoveryPending || manualDiscoveryPending;
   const showLoadingSkeleton = showScanLoading || discoveryPending;
   const displayMiners = useMemo(() => {
     const seen = new Set<string>();
 
     return foundMiners.filter((miner) => {
-      const identity = miner.ipAddress || miner.deviceIdentifier;
+      const identity = miner.deviceIdentifier || (miner.ipAddress && `${miner.ipAddress}:${miner.port}`);
       if (!identity) {
         return true;
       }
@@ -88,6 +91,15 @@ const Miners = ({
   }, [foundMiners]);
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
   const useCompactHeaderActions = isPhone;
+  const coverageWarning = remoteDiscoveryWarning ? (
+    <Callout
+      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
+      intent="warning"
+      prefixIcon={<Alert />}
+      title={remoteDiscoveryWarning}
+      testId="remote-discovery-warning"
+    />
+  ) : null;
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -307,6 +319,8 @@ const Miners = ({
                 inline
               />
 
+              {coverageWarning}
+
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
                   className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6"
@@ -378,7 +392,7 @@ const Miners = ({
                   <Button
                     variant={variants.secondary}
                     size={sizes.base}
-                    loading={ipListDiscoveryPending}
+                    loading={manualDiscoveryPending}
                     onClick={() => {
                       const shouldProceed = handleManualDiscovery();
                       if (shouldProceed) {
@@ -396,6 +410,7 @@ const Miners = ({
           ) : null}
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
+              {coverageWarning}
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}

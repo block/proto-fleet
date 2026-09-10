@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -63,7 +64,7 @@ func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 func TestControlLoop_AcksAndReports(t *testing.T) {
 	happyDisc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028":    {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		"fd00::1|4028":     {DeviceIdentifier: "auto:v6", IpAddress: "fd00::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"192.168.1.4|4028": {DeviceIdentifier: "auto:r1", IpAddress: "192.168.1.4", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"192.168.1.5|4028": {DeviceIdentifier: "auto:r2", IpAddress: "192.168.1.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
@@ -99,7 +100,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 		{
 			name:          "iplist normalizes scoped and canonical ipv6",
 			discoverer:    happyDisc,
-			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "2001:0DB8::1"}, []string{"4028"}),
+			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "FD00::1"}, []string{"4028"}),
 			wantSucceeded: true,
 			wantCode:      pb.AckCode_ACK_CODE_OK,
 			wantDevices:   1,
@@ -211,6 +212,104 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		answers []string
+		wantIP  string
+	}{
+		{name: "private IPv4 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5"},
+		{name: "private IPv4 preferred over private IPv6", input: "miner.lan", answers: []string{"fd00::5", "8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "mapped private IPv4 DNS answer", input: "miner.lan", answers: []string{"8.8.8.8", "::ffff:10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "private IPv4 literal", input: "10.0.0.5", wantIP: "10.0.0.5"},
+		{name: "mapped private IPv4 literal", input: "::ffff:10.0.0.5", wantIP: "10.0.0.5"},
+		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			answers := make([]net.IPAddr, 0, len(tc.answers))
+			for _, answer := range tc.answers {
+				answers = append(answers, net.IPAddr{IP: net.ParseIP(answer)})
+			}
+			originalAnswers := append([]net.IPAddr{}, answers...)
+			r := &RunCmd{
+				resolver: stubResolver{"miner.lan": answers},
+				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+					tc.wantIP + "|4028": {
+						DeviceIdentifier: "auto:1",
+						IpAddress:        tc.wantIP,
+						Port:             "4028",
+						UrlScheme:        "http",
+						DriverName:       "antminer",
+					},
+				}},
+			}
+
+			// Act
+			reports, truncated, err := r.discoverForCommand(context.Background(), discoverIPList([]string{tc.input}, []string{"4028"}), testLogger())
+
+			// Assert
+			require.NoError(t, err)
+			assert.False(t, truncated)
+			require.Len(t, reports, 1)
+			assert.Equal(t, tc.wantIP, reports[0].GetIpAddress())
+			assert.Equal(t, originalAnswers, answers, "DNS answers must not be filtered in place")
+		})
+	}
+}
+
+func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) {
+	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
+		t.Run(resolved, func(t *testing.T) {
+			// Arrange
+			r := &RunCmd{
+				discoverer: &stubDiscoverer{},
+				resolver:   stubResolver{"miner.lan": {{IP: net.ParseIP(resolved)}}},
+			}
+
+			// Act
+			_, _, err := r.discoverForCommand(context.Background(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), testLogger())
+
+			// Assert: all-invalid input is still rejected after unsafe targets are skipped.
+			var commandErr *commandError
+			require.ErrorAs(t, err, &commandErr)
+			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, commandErr.code)
+			assert.Contains(t, commandErr.Error(), "no usable ip_addresses")
+		})
+	}
+}
+
+func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *testing.T) {
+	// Arrange
+	r := &RunCmd{
+		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+			"10.0.0.5|4028": {
+				DeviceIdentifier: "auto:1",
+				IpAddress:        "10.0.0.5",
+				Port:             "4028",
+				UrlScheme:        "http",
+				DriverName:       "antminer",
+			},
+		}},
+		resolver: stubResolver{"public.example": {{IP: net.ParseIP("8.8.8.8")}}},
+	}
+
+	// Act
+	reports, truncated, err := r.discoverForCommand(
+		context.Background(),
+		discoverIPList([]string{"public.example", "10.0.0.5"}, []string{"4028"}),
+		testLogger(),
+	)
+
+	// Assert
+	require.NoError(t, err)
+	assert.False(t, truncated)
+	require.Len(t, reports, 1)
+	assert.Equal(t, "10.0.0.5", reports[0].GetIpAddress())
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {

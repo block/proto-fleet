@@ -11,6 +11,7 @@ const baseNode: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  controlStreamConnected: false,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };

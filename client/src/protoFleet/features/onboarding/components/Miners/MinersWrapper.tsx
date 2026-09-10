@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { MinerDiscoveryMode } from "./types";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import {
   Device,
@@ -10,11 +11,13 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useForemanImport } from "@/protoFleet/api/useForemanImport";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { defaultTimeout } from "@/protoFleet/features/onboarding/constants";
+import { useHasPermission } from "@/protoFleet/store";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -22,6 +25,11 @@ import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
+const PARTIAL_REMOTE_COVERAGE_WARNING = "Some remote networks are currently unavailable and may not be searched.";
+const NO_REMOTE_COVERAGE_WARNING =
+  "Remote network discovery is currently unavailable. Some networks may not be searched.";
+const UNKNOWN_REMOTE_COVERAGE_WARNING =
+  "Remote network availability could not be checked. Some networks may not be searched.";
 
 type MinersPageProps = {
   /**
@@ -56,9 +64,11 @@ const MinersPage = ({
   const { data: networkInfo, pending: networkInfoPending } = useNetworkInfo();
 
   const { discover, pairingPending, pair } = useMinerPairing();
+  const { listFleetNodes } = useFleetNodes();
+  const canPairMiners = useHasPermission("miner:pair");
   const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
-  const [ipListDiscoveryPending, setIpListDiscoveryPending] = useState(false);
+  const [manualDiscoveryPending, setManualDiscoveryPending] = useState(false);
   const discoveryAbortController = useRef<AbortController>(new AbortController());
   const longPairingToastShown = useRef(false);
   const loadingToastIds = useRef<number[]>([]);
@@ -67,6 +77,42 @@ const MinersPage = ({
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
   const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
   const [lastManualTargets, setLastManualTargets] = useState<ManualDiscoveryTargets | null>(null);
+  const [remoteDiscoveryWarning, setRemoteDiscoveryWarning] = useState<string>();
+  const coverageRequestState = useRef({ latestId: 0 });
+
+  const refreshRemoteDiscoveryCoverage = useCallback(() => {
+    if (!canPairMiners) return;
+
+    const requestState = coverageRequestState.current;
+    const requestId = ++requestState.latestId;
+    void listFleetNodes()
+      .then((nodes) => {
+        if (requestId !== requestState.latestId) return;
+        const confirmed = nodes.filter((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED);
+        const eligible = confirmed.filter(
+          (node) => node.controlStreamConnected && !node.commandProtocolUpgradeRequired,
+        );
+
+        if (confirmed.length === 0 || eligible.length === confirmed.length) {
+          setRemoteDiscoveryWarning(undefined);
+        } else if (eligible.length === 0) {
+          setRemoteDiscoveryWarning(NO_REMOTE_COVERAGE_WARNING);
+        } else {
+          setRemoteDiscoveryWarning(PARTIAL_REMOTE_COVERAGE_WARNING);
+        }
+      })
+      .catch(() => {
+        if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
+      });
+  }, [canPairMiners, listFleetNodes]);
+
+  useEffect(() => {
+    const requestState = coverageRequestState.current;
+    refreshRemoteDiscoveryCoverage();
+    return () => {
+      requestState.latestId++;
+    };
+  }, [refreshRemoteDiscoveryCoverage]);
 
   // Show a toast if pairing takes longer than the threshold
   useEffect(() => {
@@ -89,9 +135,13 @@ const MinersPage = ({
     return () => clearTimeout(timeoutId);
   }, [pairingPending]);
 
-  // Clean up loading toasts on unmount to prevent lingering toasts if user navigates away
+  // Stop discovery and remove loading toasts when the user leaves this flow.
   useEffect(() => {
+    if (discoveryAbortController.current.signal.aborted) {
+      discoveryAbortController.current = new AbortController();
+    }
     return () => {
+      discoveryAbortController.current.abort();
       loadingToastIds.current.forEach((id) => removeToast(id));
     };
   }, []);
@@ -102,11 +152,15 @@ const MinersPage = ({
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
-        const newMiners = devices.filter(
-          (device) =>
-            !prevMiners.some((prevMiner) => prevMiner.deviceIdentifier === device.deviceIdentifier) &&
-            !pairedMinerIdSet.has(device.deviceIdentifier),
-        );
+        const existingMinerIds = new Set(prevMiners.map((miner) => miner.deviceIdentifier));
+        const newMiners = devices.filter((device) => {
+          const id = device.deviceIdentifier;
+          if (!id) return true;
+          if (existingMinerIds.has(id) || pairedMinerIdSet.has(id)) return false;
+          existingMinerIds.add(id);
+          return true;
+        });
+        if (newMiners.length === 0) return prevMiners;
         return [...prevMiners, ...newMiners];
       });
     },
@@ -115,6 +169,7 @@ const MinersPage = ({
 
   const handleDiscover = useCallback(
     (discoverRequest: DiscoverRequest, abortController?: AbortController) => {
+      refreshRemoteDiscoveryCoverage();
       return discover({
         discoverRequest: discoverRequest,
         discoverAbortController: abortController,
@@ -128,7 +183,7 @@ const MinersPage = ({
         },
       });
     },
-    [discover, processDiscoveredMiners],
+    [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
   const handleNmapDiscovery = useCallback(() => {
@@ -144,6 +199,7 @@ const MinersPage = ({
         case: "nmap",
         value: {
           target: networkInfo.subnet,
+          useFleetNodeLocalSubnet: true,
         },
       },
     });
@@ -158,7 +214,7 @@ const MinersPage = ({
   const cancelNetworkScan = useCallback(() => {
     foremanCredsRef.current = null;
     setScanDiscoveryPending(false);
-    setIpListDiscoveryPending(false);
+    setManualDiscoveryPending(false);
     setLastDiscoveryMode(minerDiscoveryModes.scan);
     setLastManualTargets(null);
     if (discoveryAbortController.current) {
@@ -186,7 +242,7 @@ const MinersPage = ({
   const handleManualDiscovery = useCallback(
     async (targets: ManualDiscoveryTargets) => {
       setFoundMiners([]);
-      setLastDiscoveryMode(minerDiscoveryModes.ipList);
+      setLastDiscoveryMode(minerDiscoveryModes.manual);
       setLastManualTargets(targets);
       const discoverRequests: DiscoverRequest[] = [];
 
@@ -233,12 +289,15 @@ const MinersPage = ({
       if (discoverRequests.length === 0) return;
 
       const controller = discoveryAbortController.current;
-      setIpListDiscoveryPending(true);
+      setManualDiscoveryPending(true);
       try {
-        await Promise.allSettled(discoverRequests.map((request) => handleDiscover(request, controller)));
+        for (const request of discoverRequests) {
+          if (controller.signal.aborted) break;
+          await handleDiscover(request, controller).catch(() => undefined);
+        }
       } finally {
         if (!controller.signal.aborted) {
-          setIpListDiscoveryPending(false);
+          setManualDiscoveryPending(false);
         }
       }
     },
@@ -246,11 +305,11 @@ const MinersPage = ({
   );
 
   const handleRescan = useCallback(() => {
-    if (scanDiscoveryPending || ipListDiscoveryPending) return;
+    if (scanDiscoveryPending || manualDiscoveryPending) return;
 
     const wasForeman = lastDiscoveryMode === minerDiscoveryModes.foreman;
 
-    if ((lastDiscoveryMode === minerDiscoveryModes.ipList || wasForeman) && lastManualTargets) {
+    if ((lastDiscoveryMode === minerDiscoveryModes.manual || wasForeman) && lastManualTargets) {
       handleManualDiscovery(lastManualTargets);
       // Preserve foreman mode so completeImport still fires after pairing
       if (wasForeman) {
@@ -261,7 +320,7 @@ const MinersPage = ({
     }
   }, [
     scanDiscoveryPending,
-    ipListDiscoveryPending,
+    manualDiscoveryPending,
     lastDiscoveryMode,
     lastManualTargets,
     handleManualDiscovery,
@@ -279,7 +338,7 @@ const MinersPage = ({
     discoveryAbortController.current.abort();
     discoveryAbortController.current = new AbortController();
     setScanDiscoveryPending(false);
-    setIpListDiscoveryPending(false);
+    setManualDiscoveryPending(false);
 
     // Clear any previous loading toasts and reset state
     clearLoadingToasts();
@@ -422,7 +481,7 @@ const MinersPage = ({
     <Miners
       foundMiners={foundMiners}
       scanDiscoveryPending={scanDiscoveryPending}
-      ipListDiscoveryPending={ipListDiscoveryPending}
+      manualDiscoveryPending={manualDiscoveryPending}
       pairingPending={pairingPending}
       networkInfoPending={networkInfoPending}
       scanAvailable={!!networkInfo?.subnet}
@@ -432,6 +491,7 @@ const MinersPage = ({
       onRescan={handleRescan}
       onForemanImport={handleForemanImport}
       foremanImportPending={foremanImportPending}
+      remoteDiscoveryWarning={canPairMiners ? remoteDiscoveryWarning : undefined}
       mode={mode}
     />
   );

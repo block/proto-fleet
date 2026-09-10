@@ -172,9 +172,12 @@ func TestResolveNmapTarget(t *testing.T) {
 		{name: "ipv4 range passes through", input: "10.0.0.1-50", lookup: failLookup, wantTarget: "10.0.0.1-50"},
 		{name: "ipv6 cidr rejected", input: "2001:db8::/32", lookup: failLookup, wantErr: true},
 		{name: "hostname substituted with ipv4", input: "miner.lan", lookup: stubLookup("10.0.0.5"), wantTarget: "10.0.0.5"},
-		{name: "dual-stack prefers ipv4", input: "miner.lan", lookup: stubLookup("2001:db8::2", "10.0.0.5"), wantTarget: "10.0.0.5"},
-		{name: "ipv6-only host flips to v6", input: "miner.lan", lookup: stubLookup("2001:db8::2"), wantTarget: "2001:db8::2", wantIPv6: true},
-		{name: "unresolvable hostname falls through", input: "no-such-host.invalid", lookup: failLookup, wantTarget: "no-such-host.invalid"},
+		{name: "dual-stack prefers private ipv4", input: "miner.lan", lookup: stubLookup("fd00::2", "10.0.0.5"), wantTarget: "10.0.0.5"},
+		{name: "private ipv6-only host flips to v6", input: "miner.lan", lookup: stubLookup("fd00::2"), wantTarget: "fd00::2", wantIPv6: true},
+		{name: "public hostname rejected", input: "public.example", lookup: stubLookup("8.8.8.8"), wantErr: true},
+		{name: "loopback hostname rejected", input: "localhost", lookup: stubLookup("127.0.0.1"), wantErr: true},
+		{name: "link-local hostname rejected", input: "link.local", lookup: stubLookup("169.254.1.1"), wantErr: true},
+		{name: "unresolvable hostname rejected", input: "no-such-host.invalid", lookup: failLookup, wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

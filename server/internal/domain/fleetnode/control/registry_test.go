@@ -384,6 +384,24 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	assert.False(t, errors.Is(err, ErrNoActiveStream))
 }
 
+func TestRegistry_CanceledContextDoesNotEnqueue(t *testing.T) {
+	r := NewRegistry()
+	stream := r.Register(1)
+	defer stream.Unregister()
+
+	session, err := r.Send(canceledCtx(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "canceled"}, nil, ReportKindDiscovery, nil)
+
+	require.Error(t, err)
+	assert.Nil(t, session)
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("canceled command %q was enqueued", cmd.GetCommandId())
+	default:
+	}
+	_, ok := r.ReportScopeFor(1, "canceled")
+	assert.False(t, ok)
+}
+
 func TestRegistry_AckRoutesByKind(t *testing.T) {
 	// Arrange: an ack-only command in flight.
 	r := NewRegistry()

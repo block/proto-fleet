@@ -22,6 +22,7 @@ const node = (upgradeRequired: boolean): FleetNodeItem => ({
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: upgradeRequired,
+  controlStreamConnected: true,
   createdAt: null,
   lastSeenAt: new Date(),
 });

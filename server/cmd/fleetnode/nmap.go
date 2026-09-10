@@ -217,9 +217,9 @@ func baseNmapOptions(binaryPath string, ports []string) []nmap.Option {
 	}
 }
 
-// Mirrors pairing-service validateNmapTargets so agent and server feed
-// nmap the same thing. IPv4 preferred for dual-stack hosts; literals,
-// CIDRs, and IPv4 ranges pass through.
+// Resolves hostnames on the node and permits only private results to reach
+// nmap. IPv4 is preferred for dual-stack hosts; literals, CIDRs, and IPv4
+// ranges were already validated by the server and pass through.
 func resolveNmapTarget(ctx context.Context, target string, lookup func(context.Context, string) ([]net.IPAddr, error)) (string, bool, error) {
 	if prefix, perr := netip.ParsePrefix(target); perr == nil {
 		if prefix.Addr().Is6() {
@@ -234,16 +234,23 @@ func resolveNmapTarget(ctx context.Context, target string, lookup func(context.C
 		return target, false, nil
 	}
 	addrs, lookupErr := lookup(ctx, target)
-	if lookupErr != nil || len(addrs) == 0 {
-		// Hand off to nmap's resolver on failure; matches pairing-service.
-		return target, false, nil //nolint:nilerr
+	if lookupErr != nil {
+		return "", false, fmt.Errorf("resolve hostname %q: %w", target, lookupErr)
 	}
 	var ipv4, ipv6 string
 	for _, a := range addrs {
-		if a.IP.To4() != nil && ipv4 == "" {
-			ipv4 = a.IP.String()
-		} else if a.IP.To4() == nil && ipv6 == "" {
-			ipv6 = a.IP.String()
+		addr, ok := netip.AddrFromSlice(a.IP)
+		if !ok {
+			continue
+		}
+		addr = addr.Unmap()
+		if !addr.IsPrivate() {
+			continue
+		}
+		if addr.Is4() && ipv4 == "" {
+			ipv4 = addr.String()
+		} else if addr.Is6() && ipv6 == "" {
+			ipv6 = addr.String()
 		}
 	}
 	if ipv4 != "" {
@@ -252,7 +259,7 @@ func resolveNmapTarget(ctx context.Context, target string, lookup func(context.C
 	if ipv6 != "" {
 		return ipv6, true, nil
 	}
-	return target, false, nil
+	return "", false, fmt.Errorf("hostname %q did not resolve to a private address", target)
 }
 
 type ipResolver interface {

@@ -80,6 +80,9 @@ func cloneArtifactExpectations(in []ArtifactExpectation) []artifactExpectation {
 // if the connection drops first or an Internal error if ctx expires. The caller owns
 // freeing the inflight entry on failure (Session.Close / removeCmd).
 func (r *Registry) enqueue(ctx context.Context, outgoing chan<- *gatewaypb.ControlCommand, connDone <-chan struct{}, cmd *gatewaypb.ControlCommand) error {
+	if err := ctx.Err(); err != nil {
+		return fleeterror.NewInternalErrorf("send command: %v", err)
+	}
 	select {
 	case outgoing <- cmd:
 		return nil

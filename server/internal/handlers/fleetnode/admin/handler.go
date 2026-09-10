@@ -50,29 +50,39 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.ListFleetNodesRequest]) (*connect.Response[pb.ListFleetNodesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeRead, authz.ResourceContext{})
+	info, err := middleware.RequireAnyPermission(ctx, []string{authz.PermFleetnodeRead, authz.PermFleetnodeManage, authz.PermMinerPair}, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
+	_, detailsErr := middleware.RequireAnyPermission(ctx, []string{authz.PermFleetnodeRead, authz.PermFleetnodeManage}, authz.ResourceContext{})
+	includeAdministrativeDetails := detailsErr == nil
 	fleetNodes, err := h.enrollment.ListFleetNodes(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
+	connected := make(map[int64]struct{})
+	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
+		connected[fleetNodeID] = struct{}{}
+	}
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
+		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
-			FleetNodeId:                    n.ID,
-			Name:                           n.Name,
 			EnrollmentStatus:               deriveDisplayStatus(n),
-			IdentityFingerprint:            enrollment.IdentityFingerprint(n.IdentityPubkey),
-			CreatedAt:                      timestamppb.New(n.CreatedAt),
 			CommandProtocolUpgradeRequired: h.registry.CommandProtocolUpgradeRequired(n.ID),
+			ControlStreamConnected:         controlStreamConnected,
 		}
-		if n.PendingEnrollmentID != nil {
-			summary.PendingEnrollmentId = n.PendingEnrollmentID
-		}
-		if n.LastSeenAt != nil {
-			summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
+		if includeAdministrativeDetails {
+			summary.FleetNodeId = n.ID
+			summary.Name = n.Name
+			summary.IdentityFingerprint = enrollment.IdentityFingerprint(n.IdentityPubkey)
+			summary.CreatedAt = timestamppb.New(n.CreatedAt)
+			if n.PendingEnrollmentID != nil {
+				summary.PendingEnrollmentId = n.PendingEnrollmentID
+			}
+			if n.LastSeenAt != nil {
+				summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
+			}
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}

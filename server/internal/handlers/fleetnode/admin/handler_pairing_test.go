@@ -125,7 +125,7 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	return devID
 }
 
-func TestListFleetNodes_ReportsActiveLegacyCommandProtocol(t *testing.T) {
+func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
 	stream, err := h.registry.RegisterAuthenticated(
@@ -135,16 +135,32 @@ func TestListFleetNodes_ReportsActiveLegacyCommandProtocol(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermFleetnodeManage), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+
+	resp, err = h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	pairingSummary := resp.Msg.GetFleetNodes()[0]
+	assert.Zero(t, pairingSummary.GetFleetNodeId())
+	assert.Empty(t, pairingSummary.GetName())
+	assert.Empty(t, pairingSummary.GetIdentityFingerprint())
+	assert.Nil(t, pairingSummary.GetCreatedAt())
+	assert.Nil(t, pairingSummary.GetLastSeenAt())
+	assert.Nil(t, pairingSummary.PendingEnrollmentId)
+	assert.Equal(t, pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED, pairingSummary.GetEnrollmentStatus())
+	assert.True(t, pairingSummary.GetCommandProtocolUpgradeRequired())
+	assert.True(t, pairingSummary.GetControlStreamConnected())
 
 	stream.Unregister()
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.False(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {

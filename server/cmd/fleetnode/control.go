@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -510,6 +511,25 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
 }
 
+// Filter DNS answers before normalization applies its IPv4 preference.
+type privateIPListResolver struct {
+	netutil.IPListResolver
+}
+
+func (r privateIPListResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	addrs, err := r.IPListResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	private := make([]net.IPAddr, 0, len(addrs))
+	for _, addr := range addrs {
+		if addr.IP.IsPrivate() {
+			private = append(private, addr)
+		}
+	}
+	return private, nil
+}
+
 func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool, error) {
 	if req.GetMode() == nil {
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "discover request mode is required")
@@ -527,17 +547,26 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if err != nil {
 			return nil, false, err
 		}
+		var resolver netutil.IPListResolver = net.DefaultResolver
+		if r.resolver != nil {
+			resolver = r.resolver
+		}
 		normalized := make([]string, 0, len(ips))
 		for _, raw := range ips {
-			n, err := netutil.NormalizeIPListEntry(ctx, raw, net.DefaultResolver)
+			n, err := netutil.NormalizeIPListEntry(ctx, raw, privateIPListResolver{resolver})
 			if err != nil {
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
+				continue
+			}
+			addr, err := netip.ParseAddr(n)
+			if err != nil || !addr.Unmap().IsPrivate() {
+				logger.Debug("skipping non-private ipList entry", "input", raw)
 				continue
 			}
 			normalized = append(normalized, n)
 		}
 		if len(normalized) == 0 {
-			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
 		reports, truncated := r.probeIPsAndPorts(ctx, normalized, ports, logger)
 		return reports, truncated, nil
