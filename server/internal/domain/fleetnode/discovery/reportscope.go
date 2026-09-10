@@ -60,7 +60,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			return inPort(port) && inTarget(ip)
 		}
 	default:
-		// validateDiscoverRequest rejects other modes; fail closed.
+		// ValidateRequest rejects other modes; fail closed.
 		return func(string, string) bool { return false }
 	}
 }

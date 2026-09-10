@@ -87,7 +87,7 @@ func TestNormalizeDiscoverRequest_RejectsMalformedIPListEntry(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "bad/entry"}, []string{"80"})
 
 	// Act
-	err := validateDiscoverRequest(req)
+	err := ValidateRequest(req)
 
 	// Assert
 	require.Error(t, err)
@@ -99,7 +99,7 @@ func TestNormalizeDiscoverRequest_AcceptsIPListHostname(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "miner.lan"}, []string{"80"})
 
 	// Act
-	err := validateDiscoverRequest(req)
+	err := ValidateRequest(req)
 
 	// Assert
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestNormalizeDiscoverRequest_RejectsInvalidPort(t *testing.T) {
 			req := ipListReq([]string{"192.168.1.10"}, []string{tc.port})
 
 			// Act
-			err := validateDiscoverRequest(req)
+			err := ValidateRequest(req)
 
 			// Assert
 			require.Error(t, err)
@@ -136,7 +136,7 @@ func TestNormalizeDiscoverRequest_RejectsPublicIPListEntry(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "8.8.8.8"}, []string{"80"})
 
 	// Act
-	err := validateDiscoverRequest(req)
+	err := ValidateRequest(req)
 
 	// Assert
 	require.Error(t, err)
@@ -158,7 +158,7 @@ func TestNormalizeDiscoverRequest_RejectsPublicNmapTarget(t *testing.T) {
 			req := nmapReq(tc.target, []string{"80"})
 
 			// Act
-			err := validateDiscoverRequest(req)
+			err := ValidateRequest(req)
 
 			// Assert
 			require.Error(t, err)
@@ -172,7 +172,7 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_Accepts(t *testing.T) {
 	req := autoNmapReq([]string{"80", "4028"})
 
 	// Act
-	err := validateDiscoverRequest(req)
+	err := ValidateRequest(req)
 
 	// Assert
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testin
 	req := autoNmapReq([]string{"80/tcp"})
 
 	// Act
-	err := validateDiscoverRequest(req)
+	err := ValidateRequest(req)
 
 	// Assert
 	require.Error(t, err)
@@ -215,4 +215,45 @@ func TestNmapTargetIsPrivate(t *testing.T) {
 			assert.Equal(t, tc.private, got)
 		})
 	}
+}
+
+func TestValidateRequest_IPRangeTargetLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		end     string
+		wantErr bool
+	}{
+		{name: "1024 targets", end: "10.0.4.1"},
+		{name: "1025 targets", end: "10.0.4.2", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			req := ipRangeReq("10.0.0.2", tc.end, []string{"4028"})
+
+			// Act
+			err := ValidateRequest(req)
+
+			// Assert
+			if tc.wantErr {
+				require.ErrorContains(t, err, "ip range exceeds 1024 addresses")
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, "10.0.0.2", req.GetIpRange().GetStartIp())
+			assert.Equal(t, tc.end, req.GetIpRange().GetEndIp())
+		})
+	}
+}
+
+func TestValidateRequest_AutomaticLocalSubnet(t *testing.T) {
+	// Arrange: Fleet Server's subnet is not the target sent to Fleet Nodes.
+	req := nmapReq("192.168.0.0/21", []string{"4028"})
+	req.GetNmap().UseFleetNodeLocalSubnet = true
+
+	// Act
+	err := ValidateRequest(req)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "192.168.0.0/21", req.GetNmap().GetTarget())
 }

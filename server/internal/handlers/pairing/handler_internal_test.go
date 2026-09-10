@@ -98,18 +98,56 @@ func TestFleetNodeDiscoveryRequest(t *testing.T) {
 	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic))
 }
 
-func TestValidateManualNmapTarget(t *testing.T) {
-	request := func(target string, localSubnet bool) *pb.DiscoverRequest {
-		return &pb.DiscoverRequest{
-			Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
-				Target: target, UseFleetNodeLocalSubnet: localSubnet,
-			}},
-		}
+func TestDiscover_RejectsInvalidNodeRequestBeforeStartingSources(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *pb.DiscoverRequest
+		want string
+	}{
+		{
+			name: "range exceeds 1024 targets",
+			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
+				StartIp: "10.0.0.2", EndIp: "10.0.4.2",
+			}}},
+			want: "ip range exceeds 1024 addresses",
+		},
+		{
+			name: "public IP list target",
+			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+				IpAddresses: []string{"8.8.8.8"},
+			}}},
+			want: "not a private",
+		},
+		{
+			name: "manual subnet exceeds minimum prefix",
+			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+				Target: "192.168.0.0/21",
+			}}},
+			want: "supported minimum /22",
+		},
+		{
+			name: "automatic subnet still validates ports",
+			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+				Target: "192.168.0.0/21", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"},
+			}}},
+			want: "invalid port",
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange: a nil local service and stream fail if discovery starts.
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			h := &Handler{discovery: runner}
 
-	assert.NoError(t, validateManualNmapTarget(request("192.168.1.0/24", false)))
-	assert.ErrorContains(t, validateManualNmapTarget(request("192.168.0.0/21", false)), "supported minimum /22")
-	assert.NoError(t, validateManualNmapTarget(request("192.168.0.0/21", true)))
+			// Act
+			err := h.Discover(ctxWithPerms(authz.PermMinerPair), connect.NewRequest(tt.req), nil)
+
+			// Assert
+			require.ErrorContains(t, err, tt.want)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Empty(t, runner.requests)
+		})
+	}
 }
 
 func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {

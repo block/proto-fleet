@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
@@ -66,8 +65,9 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	if err != nil {
 		return err
 	}
-	if h.discovery != nil {
-		if err := validateManualNmapTarget(r.Msg); err != nil {
+	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
+	if h.discovery != nil && nodeReq != nil {
+		if err := discovery.ValidateRequest(nodeReq); err != nil {
 			return err
 		}
 	}
@@ -98,7 +98,6 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return err
 	}
 
-	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
 	h.forwardDiscoverySources(streamCtx, info.OrganizationID, resultChan, nodeReq, fwd)
 	if err := fwd.failure(); err != nil {
 		return err
@@ -182,18 +181,6 @@ func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest) *pb.DiscoverRequest {
 	default:
 		return nil
 	}
-}
-
-// validateManualNmapTarget preflights explicit node-bound Nmap targets before
-// local work begins.
-func validateManualNmapTarget(req *pb.DiscoverRequest) error {
-	if req.GetNmap() == nil || req.GetNmap().GetUseFleetNodeLocalSubnet() {
-		return nil
-	}
-	if err := nmaptarget.Validate(req.GetNmap().GetTarget()); err != nil {
-		return fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	return nil
 }
 
 // Pair implements pairingv1connect.PairingServiceHandler.

@@ -87,7 +87,7 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 // is gone, so there is nothing left to forward).
 func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
 	req = requestForNode(req)
-	if err := validateDiscoverRequest(req); err != nil {
+	if err := ValidateRequest(req); err != nil {
 		return err
 	}
 
@@ -121,7 +121,9 @@ func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	return out
 }
 
-func validateDiscoverRequest(in *pairingpb.DiscoverRequest) error {
+// ValidateRequest checks Fleet Node target and port limits before discovery starts.
+// Automatic local-subnet scans validate ports here and resolve targets on the node.
+func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
 		if m.IpList == nil || len(m.IpList.GetIpAddresses()) == 0 {
@@ -160,11 +162,11 @@ func validateDiscoverRequest(in *pairingpb.DiscoverRequest) error {
 		return nil
 	case *pairingpb.DiscoverRequest_Nmap:
 		target := m.Nmap.GetTarget()
-		// The LocalSubnetTarget sentinel defers the target to the agent (it scans
+		// The local-subnet flag or sentinel defers the target to the agent (it scans
 		// its own private subnet(s)), so there is nothing to validate here; the
 		// report scope (buildReportScope) and validateReport still confine reports
 		// to private addresses.
-		if target == nmaptarget.LocalSubnetTarget {
+		if m.Nmap.GetUseFleetNodeLocalSubnet() || target == nmaptarget.LocalSubnetTarget {
 			if err := checkScanLimits(nil, m.Nmap.GetPorts()); err != nil {
 				return err
 			}
