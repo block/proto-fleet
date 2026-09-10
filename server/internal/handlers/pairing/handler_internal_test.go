@@ -4,22 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
+	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -30,6 +37,7 @@ type stubFleetNodeDiscoveryRunner struct {
 	eligibleErr error
 	requests    []*pb.DiscoverRequest
 	runErr      error
+	warning     string
 }
 
 func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
@@ -46,11 +54,19 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	s.mu.Lock()
 	s.requests = append(s.requests, cloned)
 	s.mu.Unlock()
+	if s.runErr != nil {
+		return s.runErr
+	}
 	if err := onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{
 		{DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028"},
 		{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID), IpAddress: "192.168.1.11", Port: "4028"},
 	}}); err != nil {
 		return err
+	}
+	if s.warning != "" {
+		if err := onBatch(&pb.DiscoverResponse{Warning: fmt.Sprintf("Fleet Node %d: %s", nodeID, s.warning)}); err != nil {
+			return err
+		}
 	}
 	return s.runErr
 }
@@ -175,7 +191,7 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 		t.Run(fmt.Sprintf("%T", req.GetMode()), func(t *testing.T) {
 			runner := &stubFleetNodeDiscoveryRunner{
 				nodeIDs: []int64{7, 8},
-				runErr:  errors.New("node busy"),
+				warning: "node busy",
 			}
 			h := &Handler{discovery: runner}
 			serverResults := make(chan *pb.DiscoverResponse, 1)
@@ -184,12 +200,17 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 			}}}
 			close(serverResults)
 			var sent []*pb.Device
+			var warnings []string
 			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
 				sent = append(sent, resp.GetDevices()...)
+				if resp.GetWarning() != "" {
+					warnings = append(warnings, resp.GetWarning())
+				}
 				return nil
 			}, nil)
 
-			h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, req, fwd)
+			require.NoError(t, h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, req, fwd))
+			assert.ElementsMatch(t, []string{"Fleet Node 7: node busy", "Fleet Node 8: node busy"}, warnings)
 
 			require.Len(t, runner.requests, 2)
 			for _, got := range runner.requests {
@@ -213,9 +234,9 @@ func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
 	cancel()
 	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return nil }, nil)
 
-	h.forwardDiscoverySources(ctx, 1, serverResults, &pb.DiscoverRequest{
+	require.NoError(t, h.forwardDiscoverySources(ctx, 1, serverResults, &pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
-	}, fwd)
+	}, fwd))
 
 	assert.Empty(t, runner.requests)
 }
@@ -227,18 +248,156 @@ func TestForwardDiscoverySources_EligibleNodeLookupFailureKeepsServerResults(t *
 	serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}
 	close(serverResults)
 	var sent []*pb.Device
+	var warnings []string
 	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
 		sent = append(sent, resp.GetDevices()...)
+		if resp.GetWarning() != "" {
+			warnings = append(warnings, resp.GetWarning())
+		}
 		return nil
 	}, nil)
-
-	h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
+	require.NoError(t, h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
-	}, fwd)
-
+	}, fwd))
 	assert.Empty(t, runner.requests)
 	require.Len(t, sent, 1)
 	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
+	assert.Equal(t, []string{"Fleet Nodes: unable to list connected nodes"}, warnings)
+}
+
+func TestForwardDiscoverySources_AuthenticationAndLookupValidationErrorsAreTerminal(t *testing.T) {
+	for _, sourceErr := range []error{fleeterror.NewInvalidArgumentError("invalid target"), fleeterror.NewUnauthenticatedError("expired session"), fleeterror.NewForbiddenError("no permission")} {
+		for _, lookup := range []bool{false, true} {
+			if !lookup && fleeterror.IsInvalidArgumentError(sourceErr) {
+				continue // Node-specific target policy failures are source warnings.
+			}
+			t.Run(fmt.Sprintf("%v/lookup-%t", sourceErr, lookup), func(t *testing.T) {
+				runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}, runErr: sourceErr}
+				if lookup {
+					runner.eligibleErr = sourceErr
+				}
+				h := &Handler{discovery: runner}
+				serverResults := make(chan *pb.DiscoverResponse)
+				close(serverResults)
+				fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error { assert.Empty(t, resp.GetWarning()); return nil }, nil)
+				err := h.forwardDiscoverySources(t.Context(), 1, serverResults, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}}}, fwd)
+				require.ErrorIs(t, err, sourceErr)
+			})
+		}
+	}
+}
+
+func TestForwardDiscoverySources_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  *pb.DiscoverRequest
+	}{
+		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}}}}},
+		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}, runErr: fleeterror.NewInvalidArgumentError("target is outside this node's scan policy")}
+			h := &Handler{discovery: runner}
+			serverResults := make(chan *pb.DiscoverResponse)
+			warningSent := make(chan struct{})
+			go func() {
+				defer close(serverResults)
+				select {
+				case <-warningSent:
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}:
+				case <-ctx.Done():
+				}
+			}()
+			var sent []*pb.DiscoverResponse
+			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+				sent = append(sent, resp)
+				if resp.GetWarning() != "" {
+					close(warningSent)
+				}
+				return nil
+			}, cancel)
+			require.NoError(t, h.forwardDiscoverySources(ctx, 1, serverResults, tc.req, fwd))
+			require.Len(t, sent, 2)
+			assert.Equal(t, "Fleet Node 7: target is outside this node's scan policy", sent[0].GetWarning())
+			require.Len(t, sent[1].GetDevices(), 1)
+			assert.Equal(t, "server", sent[1].GetDevices()[0].GetDeviceIdentifier())
+		})
+	}
+}
+
+func TestForwardDiscoverySources_StreamInvalidArgumentStaysTerminal(t *testing.T) {
+	sendErr := fleeterror.NewInvalidArgumentError("stream rejected response")
+	h := &Handler{discovery: &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}}
+	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return sendErr }, nil)
+	err := h.forwardDiscoverySources(t.Context(), 1, nil, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}}}, fwd)
+	require.ErrorIs(t, err, sendErr)
+	require.ErrorIs(t, fwd.failure(), sendErr)
+}
+
+func TestDiscover_ServerDefaultsUnavailableStillScansNodes(t *testing.T) {
+	for _, defaults := range [][]string{nil, {"not-a-port"}} {
+		t.Run(fmt.Sprint(defaults), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			client := discoveryClientWithDefaultPorts(t, runner, defaults)
+			stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}}}))
+			require.NoError(t, err)
+			var devices []*pb.Device
+			var warnings []string
+			for stream.Receive() {
+				devices = append(devices, stream.Msg().GetDevices()...)
+				if stream.Msg().GetWarning() != "" {
+					warnings = append(warnings, stream.Msg().GetWarning())
+				}
+			}
+			require.NoError(t, stream.Err())
+			require.Len(t, runner.requests, 1)
+			require.Len(t, devices, 2)
+			require.Len(t, warnings, 1)
+			assert.Contains(t, warnings[0], "Fleet Server: ")
+			assert.Contains(t, warnings[0], "discovery ports")
+			assert.NotContains(t, warnings[0], "FleetError:")
+		})
+	}
+}
+
+func TestDiscover_InvalidServerInputDoesNotFanOutWhenDefaultsUnavailable(t *testing.T) {
+	for _, req := range []*pb.DiscoverRequest{
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"bad"}}}},
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}}}},
+		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.2", EndIp: "10.0.0.1"}}},
+		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "not/a/target"}}},
+	} {
+		t.Run(req.String(), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			client := discoveryClientWithDefaultPorts(t, runner, nil)
+			stream, err := client.Discover(t.Context(), connect.NewRequest(req))
+			if err == nil {
+				assert.False(t, stream.Receive())
+				err = stream.Err()
+			}
+			require.Error(t, err)
+			assert.Empty(t, runner.requests)
+		})
+	}
+}
+
+func discoveryClientWithDefaultPorts(t *testing.T, runner *stubFleetNodeDiscoveryRunner, defaults []string) pairingv1connect.PairingServiceClient {
+	t.Helper()
+	caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
+	caps.EXPECT().GetDefaultDiscoveryPorts(gomock.Any()).Return(defaults).AnyTimes()
+	h := &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner}
+	_, handler := pairingv1connect.NewPairingServiceHandler(h)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r.WithContext(ctxWithPerms(authz.PermMinerPair)))
+	}))
+	t.Cleanup(server.Close)
+	return pairingv1connect.NewPairingServiceClient(server.Client(), server.URL)
 }
 
 func TestSelectedDeviceIdentifiers_IncludeDevices(t *testing.T) {

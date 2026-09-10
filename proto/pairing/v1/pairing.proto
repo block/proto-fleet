@@ -119,14 +119,14 @@ message DiscoverRequest {
   }
 }
 
-// Response message containing discovered devices or errors
+// Response message containing discovered devices and nonterminal source warnings
 message DiscoverResponse {
   // List of devices discovered in this response
   repeated Device devices = 1;
 
-  // Error message if discovery failed
-  // Empty if discovery was successful
-  string error = 2;
+  // A source could not finish discovery. Devices remain usable and later responses
+  // may contain more results. Empty when this response has no warning.
+  string warning = 2;
 }
 
 // Request to pair with discovered devices

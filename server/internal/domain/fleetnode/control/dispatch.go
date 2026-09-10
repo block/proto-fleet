@@ -22,7 +22,8 @@ type Sender interface {
 // ack, and maps the outcome to an error. Shared by discovery and pairing. kind/pair
 // are as in Send; minimumCommandProtocolVersion is the oldest protocol that may
 // receive cmd; noun names the command in errors. onData returns terminal=true to
-// stop early. Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
+// stop early. PARTIAL is delivered to onData before completion; OK is not.
+// Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
 func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -38,11 +39,12 @@ func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCo
 
 	handleEvent := func(ev CommandEvent) (terminal bool, err error) {
 		if ev.Ack != nil {
-			// PARTIAL: results already streamed, so treat it as usable, not a failure.
+			// Let discovery describe incomplete results; pairing ignores ACK-only events.
 			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
 				slog.Warn("fleet node command completed partially",
 					"fleet_node_id", fleetNodeID, "command", noun, "detail", ev.Ack.GetErrorMessage())
-				return true, nil
+				_, err := onData(ev)
+				return true, err
 			}
 			// Require the OK code, not just succeeded=true, so an inconsistent ack
 			// can't pass a failed command off as success.
@@ -96,6 +98,9 @@ func AckFailure(ack *gatewaypb.ControlAck, noun string) error {
 	code := ack.GetCode()
 	if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
 		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected %s command: %s", noun, reason)
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED {
+		return fleeterror.NewUnauthenticatedErrorf("fleet node rejected %s credentials: %s", noun, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		return fleeterror.NewPlainError(

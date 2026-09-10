@@ -1,7 +1,10 @@
 package control
 
 import (
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +27,11 @@ func TestAckFailure_MapsCodes(t *testing.T) {
 			name:     "bad request maps to invalid argument",
 			ack:      &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BAD_REQUEST},
 			wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name:     "unauthenticated stays an authentication error",
+			ack:      &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED},
+			wantCode: connect.CodeUnauthenticated,
 		},
 		{
 			name:     "busy maps to resource exhausted",
@@ -58,6 +66,27 @@ func TestAckFailure_MapsCodes(t *testing.T) {
 			var fe fleeterror.FleetError
 			require.ErrorAs(t, err, &fe)
 			assert.Equal(t, tc.wantCode, fe.ConnectError().Code())
+		})
+	}
+}
+
+func TestRunCommand_PartialAckReachesCallback(t *testing.T) {
+	for _, callbackErr := range []error{nil, errors.New("operator disconnected")} {
+		t.Run(fmt.Sprint(callbackErr), func(t *testing.T) {
+			registry := NewRegistry()
+			stream := registry.Register(7)
+			defer stream.Unregister()
+			go func() {
+				cmd := <-stream.Outgoing
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL, ErrorMessage: "scan deadline"})
+			}()
+			var got []*gatewaypb.ControlAck
+			err := RunCommand(t.Context(), registry, 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+				&gatewaypb.ControlCommand{CommandId: "partial"}, nil, ReportKindDiscovery, nil, time.Second, "discovery",
+				func(ev CommandEvent) (bool, error) { got = append(got, ev.Ack); return false, callbackErr })
+			require.ErrorIs(t, err, callbackErr)
+			require.Len(t, got, 1)
+			assert.Equal(t, "scan deadline", got[0].GetErrorMessage())
 		})
 	}
 }
