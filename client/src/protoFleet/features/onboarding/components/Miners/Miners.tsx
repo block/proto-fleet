@@ -91,6 +91,15 @@ const Miners = ({
   }, [foundMiners]);
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
   const useCompactHeaderActions = isPhone;
+  const coverageWarning = remoteDiscoveryWarning ? (
+    <Callout
+      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
+      intent="warning"
+      prefixIcon={<Alert />}
+      title={remoteDiscoveryWarning}
+      testId="remote-discovery-warning"
+    />
+  ) : null;
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -310,15 +319,7 @@ const Miners = ({
                 inline
               />
 
-              {remoteDiscoveryWarning ? (
-                <Callout
-                  className="mt-6"
-                  intent="warning"
-                  prefixIcon={<Alert />}
-                  title={remoteDiscoveryWarning}
-                  testId="remote-discovery-warning"
-                />
-              ) : null}
+              {coverageWarning}
 
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
@@ -409,6 +410,7 @@ const Miners = ({
           ) : null}
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
+              {coverageWarning}
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}

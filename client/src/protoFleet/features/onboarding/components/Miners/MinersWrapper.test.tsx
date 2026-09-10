@@ -596,22 +596,56 @@ describe("MinersWrapper", () => {
       fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
       fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
-      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
 
-      // Assert: the refreshed disconnected state is visible on the entry screen.
+      // Assert: the refreshed disconnected state is visible alongside results.
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
       expect(
         await screen.findByText(
           "Remote network discovery is currently unavailable. Some networks may not be searched.",
         ),
       ).toBeInTheDocument();
 
-      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
       await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
       fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
-      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(4));
-      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(3));
       expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
-      expect(mockDiscover).toHaveBeenCalledTimes(3);
+      expect(mockDiscover).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows delayed coverage warnings during scanning and keeps them alongside results", async () => {
+      // Arrange
+      let resolveCoverage!: (nodes: FleetNodeItem[]) => void;
+      let finishScan!: () => void;
+      mockListFleetNodes.mockResolvedValueOnce([fleetNode()]).mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve) => {
+            resolveCoverage = resolve;
+          }),
+      );
+      mockDiscover.mockImplementation(({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+        return new Promise<void>((resolve) => {
+          finishScan = resolve;
+        });
+      });
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act: start scanning before the coverage refresh finishes.
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+      await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
+
+      // Assert: delayed warnings are visible without leaving scanning or results.
+      const warning = "Some remote networks are currently unavailable and may not be searched.";
+      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
+      await act(async () => finishScan());
+      expect(screen.getByText("1 miners found on your network")).toBeInTheDocument();
+      expect(screen.getByText(warning)).toBeVisible();
+      expect(screen.queryByTestId("section-search-by-ip")).not.toBeInTheDocument();
     });
 
     it("recovers from a failed coverage check on automatic discovery without blocking the scan", async () => {
@@ -639,8 +673,8 @@ describe("MinersWrapper", () => {
       // Assert
       expect(mockListFleetNodes).toHaveBeenCalledTimes(2);
       expect(mockDiscover).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("remote-discovery-warning")).toBeVisible();
       await act(async () => resolveCoverage([fleetNode()]));
-      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
       expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
     });
 
@@ -654,7 +688,6 @@ describe("MinersWrapper", () => {
       fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
       fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
-      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
 
       // Assert
       expect(mockDiscover).toHaveBeenCalledTimes(1);
@@ -685,7 +718,6 @@ describe("MinersWrapper", () => {
         if (outcome === "success") resolveInitial([fleetNode()]);
         else rejectInitial(new Error("stale failure"));
       });
-      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
 
       // Assert: neither an older success nor failure overwrites the latest check.
       expect(
