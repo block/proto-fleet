@@ -22,9 +22,6 @@ RUN go build -gcflags="all=-N -l" -o out/ -v ./...
 
 FROM alpine:3.22.0 AS runner
 
-# Install Nmap
-RUN apk add --no-cache nmap
-
 # Set the working directory
 WORKDIR /app
 
