@@ -317,8 +317,6 @@ jobs:
         env:
           PACKAGE_DIR: ${{ github.workspace }}/server
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes nmap
           deployment-files/fleetnode/tests/qualify-package.sh "$VERSION" "$PACKAGE_DIR"
 
       - name: Upload Fleet Node artifact

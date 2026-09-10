@@ -129,10 +129,7 @@ if [[ "$TEST_MODE" != "1" && ! -x /usr/bin/env ]]; then
   echo "required command not found: /usr/bin/env" >&2
   exit 1
 fi
-if [[ "$ACTION" == "install" ]] && ! command -v nmap >/dev/null 2>&1; then
-  echo "required command not found: nmap; install nmap in the Fleet Node service PATH ($LINUX_SERVICE_PATH)" >&2
-  exit 1
-fi
+
 if [[ "$TEST_MODE" != "1" && "$ACTION" == "install" ]]; then
   for command in getent id nologin runuser useradd; do
     command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }

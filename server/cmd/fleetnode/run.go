@@ -18,6 +18,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
@@ -43,8 +44,8 @@ type RunCmd struct {
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
 	pairer                   pairer                                                                   `kong:"-"`
 	telemetry                telemetryFetcher                                                         `kong:"-"`
-	nmapPath                 string                                                                   `kong:"-"`
-	resolver                 ipResolver                                                               `kong:"-"`
+	scanner                  portScanner                                                              `kong:"-"`
+	resolver                 netscan.Resolver                                                         `kong:"-"`
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 	firmwareTempRoot         string                                                                   `kong:"-"`
 	notifyReady              func() error                                                             `kong:"-"`
@@ -54,6 +55,7 @@ type RunCmd struct {
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
+	scannerOnce                sync.Once      `kong:"-"`
 	controlConcurrencyOnce     sync.Once      `kong:"-"`
 	controlCommandSlots        chan struct{}  `kong:"-"`
 	controlDeferrableReadSlots chan struct{}  `kong:"-"`
@@ -107,7 +109,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
 	defer stop()
 
-	// Resolve binary-adjacent plugins/nmap before touching disk state so
+	// Resolve binary-adjacent plugins before touching disk state so
 	// misconfiguration fails fast.
 	exeDir := executableDir()
 	var resolvedPluginsDir string
@@ -131,7 +133,6 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(logOutput, nil))
-	r.nmapPath = resolveNmapPath(exeDir, logger)
 	switch {
 	case resolvedPluginsDir != "":
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
