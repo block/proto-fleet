@@ -78,14 +78,16 @@ const MinersPage = ({
   const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
   const [lastManualTargets, setLastManualTargets] = useState<ManualDiscoveryTargets | null>(null);
   const [remoteDiscoveryWarning, setRemoteDiscoveryWarning] = useState<string>();
+  const coverageRequestState = useRef({ latestId: 0 });
 
-  useEffect(() => {
+  const refreshRemoteDiscoveryCoverage = useCallback(() => {
     if (!canPairMiners) return;
 
-    let canceled = false;
+    const requestState = coverageRequestState.current;
+    const requestId = ++requestState.latestId;
     void listFleetNodes()
       .then((nodes) => {
-        if (canceled) return;
+        if (requestId !== requestState.latestId) return;
         const confirmed = nodes.filter((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED);
         const eligible = confirmed.filter(
           (node) => node.controlStreamConnected && !node.commandProtocolUpgradeRequired,
@@ -100,13 +102,17 @@ const MinersPage = ({
         }
       })
       .catch(() => {
-        if (!canceled) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
+        if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
       });
-
-    return () => {
-      canceled = true;
-    };
   }, [canPairMiners, listFleetNodes]);
+
+  useEffect(() => {
+    const requestState = coverageRequestState.current;
+    refreshRemoteDiscoveryCoverage();
+    return () => {
+      requestState.latestId++;
+    };
+  }, [refreshRemoteDiscoveryCoverage]);
 
   // Show a toast if pairing takes longer than the threshold
   useEffect(() => {
@@ -163,6 +169,7 @@ const MinersPage = ({
 
   const handleDiscover = useCallback(
     (discoverRequest: DiscoverRequest, abortController?: AbortController) => {
+      refreshRemoteDiscoveryCoverage();
       return discover({
         discoverRequest: discoverRequest,
         discoverAbortController: abortController,
@@ -176,7 +183,7 @@ const MinersPage = ({
         },
       });
     },
-    [discover, processDiscoveredMiners],
+    [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
   const handleNmapDiscovery = useCallback(() => {

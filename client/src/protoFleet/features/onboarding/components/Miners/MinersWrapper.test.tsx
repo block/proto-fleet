@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
@@ -52,6 +52,7 @@ const mockListFleetNodes = vi.fn().mockResolvedValue([]);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDiscover.mockReset().mockResolvedValue(undefined);
 
   vi.mocked(useMinerPairing).mockReturnValue({
     discover: mockDiscover,
@@ -576,6 +577,121 @@ describe("MinersWrapper", () => {
 
       expect(
         await screen.findByText("Remote network availability could not be checked. Some networks may not be searched."),
+      ).toBeInTheDocument();
+    });
+
+    it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {
+      // Arrange
+      mockListFleetNodes
+        .mockResolvedValueOnce([fleetNode()])
+        .mockResolvedValueOnce([fleetNode({ controlStreamConnected: false })])
+        .mockResolvedValue([fleetNode()]);
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+      });
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act: the node disconnects before a manual scan, then reconnects before rescan.
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+
+      // Assert: the refreshed disconnected state is visible on the entry screen.
+      expect(
+        await screen.findByText(
+          "Remote network discovery is currently unavailable. Some networks may not be searched.",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
+      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(4));
+      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+      expect(mockDiscover).toHaveBeenCalledTimes(3);
+    });
+
+    it("recovers from a failed coverage check on automatic discovery without blocking the scan", async () => {
+      // Arrange
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      let resolveCoverage!: (nodes: FleetNodeItem[]) => void;
+      mockListFleetNodes.mockRejectedValueOnce(new Error("request failed")).mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve) => {
+            resolveCoverage = resolve;
+          }),
+      );
+      renderMinersPage("pairing");
+      expect(await screen.findByTestId("remote-discovery-warning")).toBeInTheDocument();
+
+      // Act: discovery starts while its refreshed health request is still pending.
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      // Assert
+      expect(mockListFleetNodes).toHaveBeenCalledTimes(2);
+      expect(mockDiscover).toHaveBeenCalledTimes(1);
+      await act(async () => resolveCoverage([fleetNode()]));
+      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+    });
+
+    it("continues discovery when the refreshed coverage check fails", async () => {
+      // Arrange
+      mockListFleetNodes.mockResolvedValueOnce([fleetNode()]).mockRejectedValueOnce(new Error("request failed"));
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+
+      // Assert
+      expect(mockDiscover).toHaveBeenCalledTimes(1);
+      expect(
+        await screen.findByText("Remote network availability could not be checked. Some networks may not be searched."),
+      ).toBeInTheDocument();
+    });
+
+    it.each(["success", "failure"])("ignores a stale initial coverage %s after a newer scan check", async (outcome) => {
+      // Arrange
+      let resolveInitial!: (nodes: FleetNodeItem[]) => void;
+      let rejectInitial!: (error: Error) => void;
+      mockListFleetNodes.mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve, reject) => {
+            resolveInitial = resolve;
+            rejectInitial = reject;
+          }),
+      );
+      mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
+      renderMinersPage("pairing");
+
+      // Act
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        if (outcome === "success") resolveInitial([fleetNode()]);
+        else rejectInitial(new Error("stale failure"));
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+
+      // Assert: neither an older success nor failure overwrites the latest check.
+      expect(
+        await screen.findByText(
+          "Remote network discovery is currently unavailable. Some networks may not be searched.",
+        ),
       ).toBeInTheDocument();
     });
 
