@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 )
 
 func ipListReq(ips, ports []string) *pairingpb.DiscoverRequest {
@@ -30,7 +30,7 @@ func ipRangeReq(start, end string, ports []string) *pairingpb.DiscoverRequest {
 
 func autoNmapReq(ports []string) *pairingpb.DiscoverRequest {
 	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
-		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: ports},
+		Nmap: &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: ports},
 	}}
 }
 
@@ -188,33 +188,6 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testin
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid port")
-}
-
-func TestNmapTargetIsPrivate(t *testing.T) {
-	tests := []struct {
-		name    string
-		target  string
-		private bool
-	}{
-		{"private literal", "192.168.1.5", true},
-		{"public literal", "8.8.8.8", false},
-		{"private cidr", "10.0.0.0/24", true},
-		{"public cidr", "8.8.8.0/24", false},
-		{"private range", "192.168.1.10-50", true},
-		{"public range", "8.8.8.10-50", false},
-		{"private ipv6 ula", "fd00::1", true},
-		{"public ipv6", "2001:db8::1", false},
-		{"hostname passes through", "miner.lan", true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			got := nmapTargetIsPrivate(tc.target)
-
-			// Assert
-			assert.Equal(t, tc.private, got)
-		})
-	}
 }
 
 func TestValidateRequest_IPRangeTargetLimit(t *testing.T) {

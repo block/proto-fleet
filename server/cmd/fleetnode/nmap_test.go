@@ -18,7 +18,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 )
 
 func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -99,7 +99,7 @@ func TestValidateNmapTarget(t *testing.T) {
 		{name: "ipv4", input: "10.0.0.1", wantErr: false},
 		{name: "ipv6", input: "2001:db8::1", wantErr: false},
 		{name: "ipv4 cidr", input: "10.0.0.0/24", wantErr: false},
-		{name: "ipv6 cidr", input: "2001:db8::/32", wantErr: false},
+		{name: "ipv6 cidr", input: "2001:db8::/32", wantErr: true},
 		{name: "ipv4 range", input: "10.0.0.1-50", wantErr: false},
 		{name: "hostname", input: "miner-01.lan", wantErr: false},
 		{name: "hostname single label", input: "miner", wantErr: false},
@@ -258,7 +258,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
 		discoverer:   &stubDiscoverer{},
 		localSubnets: func() ([]string, error) { return []string{"192.168.1.0/24"}, nil },
 	}
-	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+	req := &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: []string{"4028"}}
 
 	// Act
 	opts, err := r.buildNmapOptions(context.Background(), req, req.Ports)
@@ -270,7 +270,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
 	args := scanner.Args()
 	assert.True(t, slices.Contains(args, "192.168.1.0/24"), "expected detected subnet in argv: %v", args)
 	assert.False(t, slices.Contains(args, "-6"), "local-subnet scan must be IPv4-only: %v", args)
-	assert.False(t, slices.Contains(args, nmaptarget.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
+	assert.False(t, slices.Contains(args, netscan.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
 }
 
 func TestBuildNmapOptions_LocalSubnetTarget_UsesConfiguredCIDR(t *testing.T) {
@@ -280,7 +280,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesConfiguredCIDR(t *testing.T) {
 		discoverer:           &stubDiscoverer{},
 		LocalDiscoverySubnet: "10.90.0.0/24",
 	}
-	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+	req := &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: []string{"4028"}}
 
 	// Act
 	opts, err := r.buildNmapOptions(context.Background(), req, req.Ports)
@@ -313,7 +313,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_RejectsUnscannableSubnet(t *testing.
 				discoverer:   &stubDiscoverer{},
 				localSubnets: func() ([]string, error) { return []string{tc.subnet}, nil },
 			}
-			req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+			req := &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: []string{"4028"}}
 
 			// Act
 			_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
@@ -333,7 +333,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_RejectsConfiguredUnscannableSubnet(t
 		discoverer:           &stubDiscoverer{},
 		LocalDiscoverySubnet: "172.16.0.0/12",
 	}
-	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+	req := &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: []string{"4028"}}
 
 	// Act
 	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
@@ -351,7 +351,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.
 		discoverer:   &stubDiscoverer{},
 		localSubnets: func() ([]string, error) { return nil, errNoLocalSubnet },
 	}
-	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+	req := &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget, Ports: []string{"4028"}}
 
 	// Act
 	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)

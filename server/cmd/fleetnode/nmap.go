@@ -18,8 +18,9 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
 
@@ -29,7 +30,7 @@ import (
 var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
 
 // detectLocalSubnets returns the subnet(s) the agent scans for a local-subnet
-// nmap command (the nmaptarget.LocalSubnetTarget sentinel).
+// nmap command (the netscan.LocalSubnetTarget sentinel).
 //
 // It reuses the same primary-interface detection the cloud Discover path uses
 // (networking.GetLocalNetworkInfo). That is intentionally less robust than
@@ -55,9 +56,10 @@ func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 	return []string{info.Subnet}, nil
 }
 
-// validateNmapTarget enforces the shared nmap target grammar (see nmaptarget).
+// validateNmapTarget enforces the shared nmap target grammar (see netscan).
 func validateNmapTarget(s string) error {
-	return nmaptarget.Validate(s)
+	_, err := netscan.ParseBoundedTarget(s)
+	return err
 }
 
 // validateLocalSubnetTarget guards the local-subnet sentinel: a detected subnet
@@ -65,7 +67,7 @@ func validateNmapTarget(s string) error {
 // cap before it is scanned. Primary-interface detection doesn't filter for
 // RFC1918 and returns the raw OS interface mask, so a public NIC or an
 // over-broad prefix (e.g. 10.0.0.0/16) would otherwise reach nmap. The breadth
-// limit mirrors nmaptarget.Validate so the fan-out can't sweep more hosts per
+// limit mirrors netscan.ParseBoundedTarget so the fan-out can't sweep more hosts per
 // node than an operator-supplied target is allowed to.
 func validateLocalSubnetTarget(s string) error {
 	prefix, err := netip.ParsePrefix(s)
@@ -79,8 +81,8 @@ func validateLocalSubnetTarget(s string) error {
 	if !addr.IsPrivate() {
 		return errors.New("not in an RFC1918 private range")
 	}
-	if prefix.Bits() < nmaptarget.MinIPv4PrefixBits {
-		return fmt.Errorf("prefix /%d is broader than the supported maximum /%d", prefix.Bits(), nmaptarget.MinIPv4PrefixBits)
+	if prefix.Bits() < discoverylimits.MinIPv4PrefixBits {
+		return fmt.Errorf("prefix /%d is broader than the supported maximum /%d", prefix.Bits(), discoverylimits.MinIPv4PrefixBits)
 	}
 	return nil
 }
@@ -170,7 +172,7 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	// network, so the agent enumerates its own private IPv4 subnet(s) and scans
 	// those (IPv4 only, same as the manual path's IPv6-CIDR rejection). Matched
 	// exactly, before any hostname resolution.
-	if target == nmaptarget.LocalSubnetTarget {
+	if target == netscan.LocalSubnetTarget {
 		subnets, err := r.detectLocalSubnets()
 		if err != nil {
 			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
@@ -230,7 +232,7 @@ func resolveNmapTarget(ctx context.Context, target string, lookup func(context.C
 	if addr, perr := netip.ParseAddr(target); perr == nil {
 		return target, addr.Is6(), nil
 	}
-	if nmaptarget.IsIPv4Range(target) {
+	if netscan.IsIPv4Range(target) {
 		return target, false, nil
 	}
 	addrs, lookupErr := lookup(ctx, target)
