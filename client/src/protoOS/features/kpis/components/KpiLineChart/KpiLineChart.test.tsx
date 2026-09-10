@@ -96,10 +96,9 @@ describe("KpiLineChartWrapper", () => {
     expect(container).toBeInTheDocument();
   });
 
-  it("renders hashboard selector", () => {
+  it("renders the chart series selector", () => {
     render(<KpiLineChartWrapper chartData={[]} chartLines={[]} />);
 
-    // The wrapper should render the HashboardSelector with a Summary button
     expect(screen.getByText("Summary")).toBeInTheDocument();
   });
 

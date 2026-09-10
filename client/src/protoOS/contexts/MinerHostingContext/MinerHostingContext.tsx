@@ -3,7 +3,7 @@ import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerCh
 import { createMdkV1Definition } from "@/protoOS/api/adapters/mdkV1/definition";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
 import { createMdkV2Ct1Definition, mdkV2Definition } from "@/protoOS/api/adapters/mdkV2/definition";
-import { MdkV2Ct1Adapter } from "@/protoOS/api/adapters/mdkV2/MdkV2Ct1Adapter";
+import { MdkV2Adapter } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
 import { resolveMinerAdapter } from "@/protoOS/api/adapters/resolveMinerAdapter";
 import type { AdapterResolution, MinerAdapter } from "@/protoOS/api/adapters/types";
 import UnsupportedMiner from "@/protoOS/components/UnsupportedMiner";
@@ -92,7 +92,7 @@ export const MinerHostingProvider = ({
   // generated runtime — only the adapter's dialect knows the wire.
   const definitions = useMemo(
     () => [
-      createMdkV2Ct1Definition((match) => MdkV2Ct1Adapter.fromConfig({ baseUrl: url }, match)),
+      createMdkV2Ct1Definition((match) => MdkV2Adapter.fromConfig({ baseUrl: url }, match)),
       mdkV2Definition,
       createMdkV1Definition(() => MdkV1Adapter.fromConfig({ baseUrl: url, getAccessToken: credential })),
     ],

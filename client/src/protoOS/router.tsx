@@ -1,8 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { ComponentType, lazy, ReactNode } from "react";
-import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject } from "react-router-dom";
 
 import {
+  importContainerModules,
+  importContainerTanks,
   importDiagnosticView,
   importEfficiency,
   importHashboardTemperature,
@@ -26,8 +28,11 @@ import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
+import { useSystemInfo, useSystemInfoError } from "@/protoOS/store";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 // Custom route type with requiresAuth property
 export type CustomRouteObject = RouteObject & {
@@ -45,6 +50,8 @@ const Temperature = lazy(importTemperature);
 const HashboardTemperature = lazy(importHashboardTemperature);
 const DiagnosticView = lazy(importDiagnosticView);
 const Logs = lazy(importLogs);
+const ContainerTanks = lazy(importContainerTanks);
+const ContainerModules = lazy(importContainerModules);
 const Onboarding = lazy(importOnboarding);
 const OnboardingWelcome = lazy(importOnboardingWelcome);
 const OnboardingVerify = lazy(importOnboardingVerify);
@@ -56,6 +63,45 @@ const SettingsGeneral = lazy(importSettingsGeneral);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsHardware = lazy(importSettingsHardware);
 const SettingsCooling = lazy(importSettingsCooling);
+
+const ContainerRoute = ({ children }: { children: ReactNode }) => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+  const { minerRoot } = useMinerHosting();
+
+  if (systemInfo) {
+    return systemInfo.identity.deviceType === "container" ? (
+      children
+    ) : (
+      <Navigate to={`${minerRoot}/hashrate`} replace />
+    );
+  }
+
+  if (systemInfoError) return <Navigate to={`${minerRoot}/hashrate`} replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+};
+
+const HomeIndexRoute = () => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+
+  if (systemInfo) {
+    return systemInfo.identity.deviceType === "container" ? <Hashrate /> : <Navigate to="hashrate" replace />;
+  }
+
+  if (systemInfoError) return <Navigate to="hashrate" replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+};
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
@@ -81,6 +127,25 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
   ),
 });
 
+const kpiRoutes: CustomRouteObject[] = [
+  {
+    path: "hashrate",
+    element: <Hashrate />,
+  },
+  {
+    path: "efficiency",
+    element: <Efficiency />,
+  },
+  {
+    path: "power-usage",
+    element: <PowerUsage />,
+  },
+  {
+    path: "temperature",
+    element: <Temperature />,
+  },
+];
+
 export const routerConfig: CustomRouteObject[] = [
   {
     ...createRoute("", <Outlet />, {
@@ -91,24 +156,9 @@ export const routerConfig: CustomRouteObject[] = [
     children: [
       {
         index: true,
-        loader: () => redirect("hashrate"),
+        element: <HomeIndexRoute />,
       },
-      {
-        path: "hashrate",
-        element: <Hashrate />,
-      },
-      {
-        path: "efficiency",
-        element: <Efficiency />,
-      },
-      {
-        path: "power-usage",
-        element: <PowerUsage />,
-      },
-      {
-        path: "temperature",
-        element: <Temperature />,
-      },
+      ...kpiRoutes,
     ],
   },
   createRoute("temperature/:serial", <HashboardTemperature />, {
@@ -129,6 +179,53 @@ export const routerConfig: CustomRouteObject[] = [
     title: "Diagnostics",
     fullscreen: true,
   }),
+  createRoute(
+    "tanks/:tankId",
+    <ContainerRoute>
+      <ContainerModules />
+    </ContainerRoute>,
+    {
+      title: "Tanks",
+    },
+  ),
+  {
+    ...createRoute(
+      "tanks/:tankId/modules/:moduleId",
+      <ContainerRoute>
+        <Outlet />
+      </ContainerRoute>,
+      {
+        title: "Home",
+        ContentLayout: KpiLayout,
+      },
+    ),
+    requiresAuth: false,
+    children: [
+      {
+        index: true,
+        element: <Hashrate />,
+      },
+      ...kpiRoutes,
+    ],
+  },
+  createRoute(
+    "tanks",
+    <ContainerRoute>
+      <ContainerTanks />
+    </ContainerRoute>,
+    {
+      title: "Tanks",
+    },
+  ),
+  createRoute(
+    "modules",
+    <ContainerRoute>
+      <ContainerModules />
+    </ContainerRoute>,
+    {
+      title: "Modules",
+    },
+  ),
   // Note: Onboarding renders AppLayout directly in fullscreen mode
   createRoute("onboarding", <Onboarding />, {
     title: "Onboarding",

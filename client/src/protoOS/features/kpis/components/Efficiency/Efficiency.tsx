@@ -1,13 +1,8 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import {
-  convertAndFormatMeasurement,
-  useChartDataForMetric,
-  useMiner,
-  useMinerHashboards,
-  useMinerStore,
-} from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { getHighestAveragePerformer } from "@/protoOS/features/kpis/metricSeries";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -46,34 +41,25 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Efficiency = () => {
-  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("efficiency");
-  const miner = useMiner();
-  const hashboards = useMinerHashboards();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("efficiency");
   const aggregates = miner?.efficiency?.timeSeries?.aggregates;
 
-  const lowestPerformer = useMemo(() => {
-    if (hashboards.length === 0) return undefined;
-
-    let lowestSlot: number | undefined;
-    let lowestAvg = -Infinity; // For efficiency, lower is worse, so we want highest value (worst efficiency)
-
-    hashboards.forEach((hashboard) => {
-      const hashboardAvg = hashboard.efficiency?.timeSeries?.aggregates?.avg?.value;
-      if (typeof hashboardAvg === "number" && hashboardAvg > lowestAvg) {
-        lowestAvg = hashboardAvg;
-        lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
-      }
-    });
-
-    return lowestSlot === undefined ? undefined : "Hashboard " + lowestSlot;
-  }, [hashboards]);
+  // Higher J/TH means less efficient, so the highest average is the lowest performer.
+  const lowestPerformer = useMemo(() => getHighestAveragePerformer(series), [series]);
 
   return (
     <>
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="J/TH" xAxisDomainOverride={xAxisDomain} />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            series={series}
+            segmentsLabel={segmentsLabel}
+            units="J/TH"
+            xAxisDomainOverride={xAxisDomain}
+          />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

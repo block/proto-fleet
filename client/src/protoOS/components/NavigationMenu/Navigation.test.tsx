@@ -1,14 +1,15 @@
 import { render, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 
 import { navigationMenuTypes } from "./constants";
 import Navigation from "./Navigation";
+import { useDeviceType } from "@/protoOS/store";
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return {
     ...actual,
-    Link: vi.fn(({ children }) => children),
+    Link: vi.fn(({ children, to }) => <a href={to}>{children}</a>),
     useLocation: () => ({
       pathname: "localhost:3000/example/path",
     }),
@@ -18,9 +19,18 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
+vi.mock("@/protoOS/store", () => ({
+  useDeviceType: vi.fn(),
+}));
+
 describe("Navigation", () => {
   const macValue = "00:11:22:33:44:55";
   const versionValue = "1.2.3";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (useDeviceType as Mock).mockReturnValue("rig");
+  });
 
   test("renders mac info", () => {
     const { getByTestId } = render(
@@ -39,5 +49,13 @@ describe("Navigation", () => {
     const { getByText } = within(getByTestId("version-info-item"));
 
     expect(getByText(versionValue)).toBeInTheDocument();
+  });
+
+  test("uses the container index route for the app logo in container mode", () => {
+    (useDeviceType as Mock).mockReturnValue("container");
+
+    const { container } = render(<Navigation type={navigationMenuTypes.app} />);
+
+    expect(container.querySelector('a[href="/"]')).toBeInTheDocument();
   });
 });

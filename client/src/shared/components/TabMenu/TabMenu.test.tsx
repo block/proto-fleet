@@ -23,6 +23,7 @@ const mockUseLocation = vi.fn().mockImplementation(() => ({
 
 beforeEach(() => {
   // Reset and setup mocks in beforeEach
+  location = "/tab1";
   const mockNavigate = (path: string) => {
     location = path;
     mockUseLocation.mockImplementation(() => ({
@@ -76,6 +77,18 @@ describe("TabMenu", () => {
     expect(tab1).toHaveAttribute("aria-selected", "true");
     expect(tab2).toHaveAttribute("aria-selected", "false");
     expect(tab3).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("marks a tab active for configured path aliases", () => {
+    location = "/base";
+
+    render(
+      <MemoryRouter>
+        <TabMenu items={{ ...items }} activePathAliases={{ tab1: ["/base"] }} basePath="/base" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Tab 1").closest("button")).toHaveAttribute("aria-selected", "true");
   });
 
   it("respects basePath when navigating", () => {

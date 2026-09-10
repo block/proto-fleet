@@ -1,7 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { V2MiningOperatingState, V2PerformanceMode, V2PLLAlgorithm, V2PoolConnState } from "./generated/generatedApi";
-import { type MdkV2Client, MdkV2Ct1Adapter } from "./MdkV2Ct1Adapter";
+import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 const client = (overrides: Partial<MdkV2Client> = {}) =>
@@ -17,9 +17,13 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
     ...overrides,
   }) as unknown as MdkV2Client;
 
-describe("MdkV2Ct1Adapter", () => {
+describe("MdkV2Adapter", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("attributes requests while allowing an explicit caller actor to win", () => {
-    const adapter = new MdkV2Ct1Adapter(client());
+    const adapter = new MdkV2Adapter(client());
     expect(adapter.decorate()).toEqual({ headers: { "X-Frigate-Actor": "proto-os" } });
     expect(adapter.decorate({ headers: { "X-Frigate-Actor": "fleet-proxy", Trace: "abc" } })).toEqual({
       headers: { "X-Frigate-Actor": "fleet-proxy", Trace: "abc" },
@@ -27,7 +31,7 @@ describe("MdkV2Ct1Adapter", () => {
   });
 
   test("uses the canonical context device id without double-prefixing when no probe id was reported", async () => {
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({
         hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: { containerMap: { tanks: [] } } }),
         miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: {} }),
@@ -45,7 +49,7 @@ describe("MdkV2Ct1Adapter", () => {
   test("forwards scoped power and module-voltage writes with actor attribution", async () => {
     const setScopedPower = vi.fn().mockResolvedValue(undefined);
     const setModuleFixedVoltage = vi.fn().mockResolvedValue(undefined);
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({
         miningServiceSetPowerTargetScoped: setScopedPower,
         miningServiceSetModuleFixedVoltage: setModuleFixedVoltage,
@@ -83,7 +87,7 @@ describe("MdkV2Ct1Adapter", () => {
         hashOnDisconnect: false,
       },
     });
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({ miningServiceSetTargetPower: setTargetPower, miningServiceGetTargetPower: getTargetPower }),
     );
 
@@ -118,7 +122,7 @@ describe("MdkV2Ct1Adapter", () => {
     const getPoolDiagnostics = vi.fn().mockResolvedValue({
       data: { pools: [{ poolId: "1", connState: V2PoolConnState.POOL_CONN_STATE_ACTIVE }] },
     });
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({ poolServiceListPools: listPools, poolServiceGetPoolDiagnostics: getPoolDiagnostics }),
     );
 
@@ -144,7 +148,7 @@ describe("MdkV2Ct1Adapter", () => {
     const getContainerHealth = vi.fn().mockResolvedValue({
       data: { timestamp: "2026-09-02T12:00:00Z", plant: { facilityPowerW: 12_000 } },
     });
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({
         hashboardServiceGetContainerMap: getContainerMap,
         miningServiceGetMiningStatus: getMiningStatus,
@@ -172,7 +176,7 @@ describe("MdkV2Ct1Adapter", () => {
     const startModuleRunIn = vi.fn().mockResolvedValue({
       data: { taskId: "task-1", moduleId: "T1-M02", status: "HASHBOARD_RUN_IN_STATUS_QUEUED" },
     });
-    const adapter = new MdkV2Ct1Adapter(client({ runInServiceStartModuleRunIn: startModuleRunIn }));
+    const adapter = new MdkV2Adapter(client({ runInServiceStartModuleRunIn: startModuleRunIn }));
 
     const result = await adapter.startModuleRunIn("container:ct1-a:module:T1-M02", {
       taskId: "task-1",
@@ -205,7 +209,7 @@ describe("MdkV2Ct1Adapter", () => {
         },
       });
     });
-    const adapter = new MdkV2Ct1Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }), {
+    const adapter = new MdkV2Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }), {
       deviceId: "ct1-a",
     });
 
@@ -238,7 +242,7 @@ describe("MdkV2Ct1Adapter", () => {
     const queryTimeSeries = vi.fn().mockResolvedValue({
       data: { buckets: [{ time: "2026-09-02T11:00:00Z", avg: 100, count: "10" }] },
     });
-    const adapter = new MdkV2Ct1Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }));
+    const adapter = new MdkV2Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }));
 
     const telemetry = await adapter.getTimeSeries({
       startTime: "2026-08-31T12:00:00Z",
@@ -290,7 +294,7 @@ describe("MdkV2Ct1Adapter", () => {
         },
       }),
     );
-    const adapter = new MdkV2Ct1Adapter(
+    const adapter = new MdkV2Adapter(
       client({ hashboardServiceGetContainerMap: getContainerMap, telemetryServiceQueryTimeSeries: queryTimeSeries }),
       { deviceId: "ct1-a" },
     );
@@ -313,11 +317,57 @@ describe("MdkV2Ct1Adapter", () => {
     });
   });
 
+  test("caches selected hashboard histories between polling intervals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T12:00:00Z"));
+    const getContainerMap = vi.fn().mockResolvedValue({
+      data: {
+        containerMap: {
+          tanks: [{ id: 1, modules: [{ id: 1, slots: [{ hashboard: { macAddress: "26:B0:3F:F0:D7:92" } }] }] }],
+        },
+      },
+    });
+    const queryTimeSeries = vi.fn().mockResolvedValue({
+      data: {
+        buckets: [{ time: "2026-09-02T11:00:00Z", avg: 2, count: "10" }],
+      },
+    });
+    const adapter = new MdkV2Adapter(
+      client({ hashboardServiceGetContainerMap: getContainerMap, telemetryServiceQueryTimeSeries: queryTimeSeries }),
+      { deviceId: "ct1-a" },
+    );
+    const request = (startTime: string) => ({
+      startTime,
+      duration: "PT1H",
+      interval: "PT5M",
+      levels: [{ type: "hashboard" as const, indexes: [0], fields: ["hashrate" as const, "power" as const] }],
+    });
+
+    await adapter.getTimeSeries(request("2026-09-02T11:00:00Z"));
+    await adapter.getTimeSeries(request("2026-09-02T11:00:30Z"));
+    await adapter.getTimeSeries(request("2026-09-02T11:04:59Z"));
+
+    expect(getContainerMap).toHaveBeenCalledTimes(3);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(2);
+
+    await adapter.getTimeSeries(request("2026-09-02T11:05:01Z"));
+
+    expect(getContainerMap).toHaveBeenCalledTimes(4);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(4);
+
+    vi.setSystemTime(new Date("2026-09-02T12:05:01Z"));
+
+    await adapter.getTimeSeries(request("2026-09-02T11:05:30Z"));
+
+    expect(getContainerMap).toHaveBeenCalledTimes(5);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(6);
+  });
+
   test("returns CT1 plant fans from the cooling-status adapter method", async () => {
     const getContainerHealth = vi.fn().mockResolvedValue({
       data: { coolingFans: [{ componentId: "dry-cooler-1", powerW: 400, speedPercent: 75 }] },
     });
-    const adapter = new MdkV2Ct1Adapter(client({ telemetryServiceGetContainerHealth: getContainerHealth }), {
+    const adapter = new MdkV2Adapter(client({ telemetryServiceGetContainerHealth: getContainerHealth }), {
       deviceId: "ct1-a",
     });
 
@@ -335,7 +385,7 @@ describe("MdkV2Ct1Adapter", () => {
   });
 
   test("rejects unsupported granular histories instead of returning a container aggregate", async () => {
-    const adapter = new MdkV2Ct1Adapter(client());
+    const adapter = new MdkV2Adapter(client());
 
     await expect(
       adapter.getTimeSeries({
@@ -348,7 +398,7 @@ describe("MdkV2Ct1Adapter", () => {
 
   test("requires explicit hashboard indexes to avoid querying every CT1 board", async () => {
     const queryTimeSeries = vi.fn();
-    const adapter = new MdkV2Ct1Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }));
+    const adapter = new MdkV2Adapter(client({ telemetryServiceQueryTimeSeries: queryTimeSeries }));
 
     await expect(
       adapter.getTimeSeries({

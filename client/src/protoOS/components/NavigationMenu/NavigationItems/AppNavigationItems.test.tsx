@@ -1,16 +1,22 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 
 import AppNavigationItems from "./AppNavigationItems";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
 }));
 
+vi.mock("@/protoOS/store", () => ({
+  useDeviceType: vi.fn(),
+}));
+
 describe("AppNavigationItems", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (useDeviceType as Mock).mockReturnValue("rig");
   });
 
   const renderExpanded = () =>
@@ -39,5 +45,36 @@ describe("AppNavigationItems", () => {
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Hardware")).toBeInTheDocument();
     expect(screen.getByText("Cooling")).toBeInTheDocument();
+  });
+
+  test("shows tank and module destinations only for containers", () => {
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
+    (useDeviceType as Mock).mockReturnValue("container");
+
+    render(<AppNavigationItems onClick={vi.fn()} pageName="hashrate" />);
+
+    expect(screen.getByText("Tanks")).toBeInTheDocument();
+    expect(screen.getByText("Modules")).toBeInTheDocument();
+  });
+
+  test("uses the container index route for Home in container mode", () => {
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
+    (useDeviceType as Mock).mockReturnValue("container");
+    const onClick = vi.fn();
+
+    render(<AppNavigationItems onClick={onClick} pageName="" />);
+
+    fireEvent.click(screen.getByText("Home"));
+
+    expect(onClick).toHaveBeenCalledWith("");
+  });
+
+  test("keeps the rig navigation unchanged", () => {
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
+
+    render(<AppNavigationItems onClick={vi.fn()} pageName="hashrate" />);
+
+    expect(screen.queryByText("Tanks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Modules")).not.toBeInTheDocument();
   });
 });

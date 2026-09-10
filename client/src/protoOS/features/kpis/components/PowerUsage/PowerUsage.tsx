@@ -1,12 +1,12 @@
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/components/Stats";
 
-type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
+type StatsArgs = NonNullable<MetricTimeSeries["aggregates"]>;
 
 const getStats = (stats: StatsArgs): StatProps[] => {
   const { avg, max, min } = stats;
@@ -34,8 +34,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const PowerUsage = () => {
-  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("power");
-  const miner = useMiner();
+  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("power");
   const aggregates = miner?.power?.timeSeries?.aggregates;
 
   return (
@@ -43,7 +42,14 @@ const PowerUsage = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats(aggregates)} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" xAxisDomainOverride={xAxisDomain} />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            series={series}
+            segmentsLabel={segmentsLabel}
+            units="W"
+            xAxisDomainOverride={xAxisDomain}
+          />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

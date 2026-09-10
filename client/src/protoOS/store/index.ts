@@ -51,6 +51,7 @@ export {
   useChartDataForMetric,
   useAsicDataTransform,
 } from "./hooks/useMiner";
+export type { KpiChartSeries, KpiMetricName } from "./hooks/kpiChartData";
 
 export {
   useMinerTelemetry,

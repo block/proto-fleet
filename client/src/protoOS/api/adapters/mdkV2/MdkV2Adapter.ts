@@ -39,10 +39,12 @@ import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
 
 export type MdkV2Client = InstanceType<typeof Api>["api"];
+type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
 
 const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
 const HASHBOARD_CONCURRENCY = 8;
+const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -110,8 +112,9 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
   throw new Error(`Unknown CT1 PLL algorithm: ${value}`);
 };
 
-export class MdkV2Ct1Adapter implements MinerAdapter {
+export class MdkV2Adapter implements MinerAdapter {
   private deviceId: string | undefined;
+  private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
   constructor(
     private readonly client: MdkV2Client,
@@ -126,12 +129,18 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
    * no generated v2 runtime leaks into MinerHostingContext; tests construct the
    * class directly with a mock client.
    */
-  static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Ct1Adapter {
-    return new MdkV2Ct1Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+  static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Adapter {
+    return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
   }
 
   private containerDeviceId(context?: { deviceId: string }) {
     return this.deviceId ?? (context ? toWireDeviceId(context.deviceId) : DEFAULT_DEVICE_ID);
+  }
+
+  private removeExpiredHashboardTimeSeriesCacheEntries(nowMs: number) {
+    for (const [key, entry] of this.hashboardTimeSeriesCache.entries()) {
+      if (entry.expiresAtMs <= nowMs) this.hashboardTimeSeriesCache.delete(key);
+    }
   }
 
   decorate(params: AdapterRequestOptions = {}): AdapterRequestOptions {
@@ -343,21 +352,57 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     const end = request.endTime ?? (windowMs === undefined ? undefined : new Date(startMs + windowMs).toISOString());
     const bucket = bucketConfig(request.interval);
     const decorated = this.decorate(params);
+    const bucketedBoundary = (value: string | undefined) => {
+      if (!value) return undefined;
+      const valueMs = Date.parse(value);
+      return Number.isNaN(valueMs)
+        ? value
+        : new Date(Math.floor(valueMs / bucket.intervalMs) * bucket.intervalMs).toISOString();
+    };
+    const hashboardCacheKey = (query: TelemetryServiceQueryTimeSeriesParams) => {
+      if (!query.identifier) return undefined;
+
+      const slidingWindow = request.duration !== undefined && request.endTime === undefined;
+      return JSON.stringify({
+        deviceId: this.containerDeviceId(),
+        identifier: query.identifier,
+        metric: query.metric,
+        bucketSize: query.bucketSize,
+        aggregation,
+        duration: slidingWindow ? request.duration : undefined,
+        startTime: slidingWindow ? bucketedBoundary(query["range.start"]) : query["range.start"],
+        endTime: slidingWindow ? bucketedBoundary(query["range.end"]) : query["range.end"],
+      });
+    };
+    const queryTimeSeries = async (query: TelemetryServiceQueryTimeSeriesParams) => {
+      const now = Date.now();
+      this.removeExpiredHashboardTimeSeriesCacheEntries(now);
+
+      const cacheKey = hashboardCacheKey(query);
+      const cached = cacheKey ? this.hashboardTimeSeriesCache.get(cacheKey) : undefined;
+      if (cached && cached.expiresAtMs > now) return cached.data;
+
+      const response = await this.client.telemetryServiceQueryTimeSeries(query, decorated);
+      if (cacheKey) {
+        this.hashboardTimeSeriesCache.set(cacheKey, {
+          expiresAtMs: now + HASHBOARD_TIMESERIES_CACHE_MS,
+          data: response.data,
+        });
+      }
+      return response.data;
+    };
     const queryFields = async (fields: Set<ContainerSeriesField>, identifier?: string) =>
       Object.fromEntries(
         await Promise.all(
           [...fields].map(async (field) => {
-            const response = await this.client.telemetryServiceQueryTimeSeries(
-              {
-                metric: SERIES_METRICS[field],
-                "range.start": request.startTime,
-                "range.end": end,
-                bucketSize: bucket.size,
-                identifier,
-              },
-              decorated,
-            );
-            return [field, response.data] as const;
+            const query = {
+              metric: SERIES_METRICS[field],
+              "range.start": request.startTime,
+              "range.end": end,
+              bucketSize: bucket.size,
+              identifier,
+            };
+            return [field, await queryTimeSeries(query)] as const;
           }),
         ),
       );

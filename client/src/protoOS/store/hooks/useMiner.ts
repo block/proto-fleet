@@ -1,11 +1,86 @@
 import { useMemo } from "react";
-import { asAsicId, ROOT_MODULE_KEY } from "../contract";
+import {
+  asAsicId,
+  asEntityKey,
+  type HashboardId,
+  type LevelRollup,
+  type MetricTelemetry,
+  ROOT_MODULE_KEY,
+  type Topology,
+  type ViewSelection,
+} from "../contract";
+import type { HardwareSlice } from "../slices/hardwareSlice";
 import type { AsicData, FanData, HashboardData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
+import {
+  aggregateMetricTimeSeries,
+  buildKpiChartData,
+  type KpiChartResult,
+  type KpiMetricName,
+  kpiMetricUnits,
+  moduleHashboardIds,
+} from "./kpiChartData";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
-import { getDurationMs } from "@/shared/components/DurationSelector";
-import type { ChartData } from "@/shared/components/LineChart";
+
+const homeRollupKey = (topology: Topology | undefined) =>
+  topology?.kind === "container" ? asEntityKey(String(topology.containerId)) : ROOT_MODULE_KEY;
+
+const rollupKeyForSelection = (topology: Topology | undefined, selection: ViewSelection | undefined) => {
+  if (selection?.level === "container") return asEntityKey(String(selection.containerId));
+  if (selection?.level === "tank") return asEntityKey(String(selection.tankId));
+  if (selection?.level === "module" || selection?.level === "rig") return asEntityKey(String(selection.moduleId));
+  return homeRollupKey(topology);
+};
+
+const hashboardIdentities = (topology: Topology | undefined, hashboardIds: HashboardId[]) =>
+  hashboardIds.map((id) => topology?.hashboards.get(id)?.identity.value ?? String(id).replace(/^serial:/, ""));
+
+const withDerivedModuleHistory = (
+  rollup: LevelRollup | undefined,
+  hashboardIds: HashboardId[],
+  hashboardsTelemetry: Map<HashboardId, { [key in KpiMetricName]?: MetricTelemetry }>,
+): LevelRollup | undefined => {
+  if (!rollup && hashboardIds.length === 0) return undefined;
+
+  const derived = { ...(rollup ?? {}) };
+  (Object.keys(kpiMetricUnits) as KpiMetricName[]).forEach((metricName) => {
+    const existing = rollup?.[metricName];
+    if (existing?.timeSeries) return;
+    const selectedHashboardMetrics = hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId));
+    const timeSeries = aggregateMetricTimeSeries(
+      metricName,
+      selectedHashboardMetrics.map((metrics) => metrics?.[metricName]),
+      selectedHashboardMetrics,
+    );
+    if (timeSeries) derived[metricName] = { ...existing, timeSeries };
+  });
+
+  return derived;
+};
+
+const selectedMinerHardware = (
+  hardwareState: HardwareSlice,
+  selection: ViewSelection | undefined,
+  selectedModuleHashboardIds: HashboardId[],
+) => {
+  if (selection?.level === "module") {
+    return {
+      hashboardSerials: hashboardIdentities(hardwareState.topology, selectedModuleHashboardIds),
+      controlBoardSerial: [...hardwareState.controlBoards.values()][0]?.serialNumber,
+    };
+  }
+
+  const rigHardware = hardwareState.getMiner();
+  if (rigHardware) return rigHardware;
+
+  if (hardwareState.topology?.kind !== "container") return null;
+
+  return {
+    hashboardSerials: [...hardwareState.topology.hashboards.values()].map((board) => board.identity.value),
+    controlBoardSerial: [...hardwareState.controlBoards.values()][0]?.serialNumber,
+  };
+};
 
 // =============================================================================
 // Miner Convenience Hooks (combining hardware + telemetry slices)
@@ -14,12 +89,20 @@ import type { ChartData } from "@/shared/components/LineChart";
 /**
  * Get combined miner data combining hardware info + telemetry
  */
-export const useMiner = (): MinerData | null => {
+export const useMiner = (selection?: ViewSelection): MinerData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
+  const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
+  const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
 
   return useMemo(() => {
-    const hardware = hardwareState.getMiner();
+    const selectedModuleHashboardIds =
+      selection?.level === "module" ? moduleHashboardIds(hardwareState.topology, selection.moduleId) : [];
+    const hardware = selectedMinerHardware(hardwareState, selection, selectedModuleHashboardIds);
+    const rollup = withDerivedModuleHistory(
+      rollups.get(rollupKeyForSelection(hardwareState.topology, selection)),
+      selectedModuleHashboardIds,
+      hashboardsTelemetry,
+    );
 
     if (!hardware || !rollup) return null;
 
@@ -30,7 +113,7 @@ export const useMiner = (): MinerData | null => {
       efficiency: rollup.efficiency,
       temperature: rollup.temperature,
     };
-  }, [hardwareState, rollup]);
+  }, [hardwareState, hashboardsTelemetry, rollups, selection]);
 };
 
 /**
@@ -208,69 +291,23 @@ export const useMinerFans = (): FanData[] => {
  * Main chart data hook that combines miner and hashboard data for a specific metric
  * Transforms telemetry store data into chart-ready format
  */
-export const useChartDataForMetric = (
-  metricName: "hashrate" | "temperature" | "power" | "efficiency",
-): { chartData: ChartData[]; chartLines: string[]; xAxisDomain?: [number, number] } => {
+export const useChartDataForMetric = (metricName: KpiMetricName, selection?: ViewSelection): KpiChartResult => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
-  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
+  const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
   const hardware = useMinerStore((state) => state.hardware);
-  const intervalMs = useMinerStore(
-    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.[metricName]?.timeSeries?.bucketSizeMs,
-  );
   const duration = useMinerStore((state) => state.ui.duration);
 
   return useMemo(() => {
-    const minerPoints = rollup?.[metricName]?.timeSeries?.points ?? [];
-    if (!minerPoints.length || intervalMs === undefined) return { chartData: [], chartLines: [] };
-
-    // Anchor the series to the first bucket timestamp, then advance by the fixed
-    // bucket interval per index so miner + hashboard series stay index-aligned.
-    const startTime = minerPoints[0]?.timestampMs ?? 0;
-
-    // Get hashboards for this miner (from hardware), keep their telemetry + slot for sorting
-    const sortedHashboards = [...hardware.hashboards.values()]
-      .map((board) => {
-        const serial = board.identity.value;
-        return {
-          serial,
-          slot: hardware.getHashboard(serial)?.slot ?? 0,
-          telemetry: hashboardsTelemetry.get(getHashboardId(serial)),
-        };
-      })
-      .filter((board) => board.telemetry !== undefined)
-      .sort((a, b) => a.slot - b.slot);
-
-    // Generate chart lines (keys that will be in the data)
-    const chartLines = ["miner", ...sortedHashboards.map((hb) => hb.serial)];
-
-    // Create chart data points
-    const chartData = minerPoints.map((point, index) => {
-      const datetime = startTime + index * intervalMs;
-
-      const dataPoint: ChartData = {
-        datetime,
-        miner: point.value,
-      };
-
-      // Add hashboard values for the same metric and timestamp
-      sortedHashboards.forEach(({ serial, telemetry }) => {
-        const hashboardPoints = telemetry?.[metricName]?.timeSeries?.points;
-        if (hashboardPoints && hashboardPoints.length > index) {
-          dataPoint[serial] = hashboardPoints[index]?.value ?? null;
-        }
-      });
-
-      return dataPoint;
+    return buildKpiChartData({
+      duration,
+      hardware,
+      hashboardsTelemetry,
+      metricName,
+      rollups,
+      selection,
     });
-
-    // Anchor the X-axis to the data's startTime and extend by the exact
-    // selected duration so the chart always spans the full user-selected range
-    const durationMs = getDurationMs(duration);
-    const xAxisDomain: [number, number] = [startTime, startTime + durationMs];
-
-    return { chartData, chartLines, xAxisDomain };
-  }, [rollup, hashboardsTelemetry, hardware, intervalMs, metricName, duration]);
+  }, [rollups, hashboardsTelemetry, hardware, metricName, duration, selection]);
 };
 
 // =============================================================================

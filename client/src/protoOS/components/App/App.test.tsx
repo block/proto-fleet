@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   useSystemStatus: vi.fn(),
   useAccessToken: vi.fn(),
   useDefaultPasswordActive: vi.fn(),
+  useDeviceType: vi.fn(),
   useDeviceTheme: vi.fn(),
   useFirmwareUpdateInstalling: vi.fn(),
   useFwUpdateStatus: vi.fn(),
@@ -124,6 +125,7 @@ vi.mock("@/protoOS/features/auth/components/LoginModal", () => ({
 vi.mock("@/protoOS/store", () => ({
   useAccessToken: () => mocks.useAccessToken(),
   useDefaultPasswordActive: () => mocks.useDefaultPasswordActive(),
+  useDeviceType: () => mocks.useDeviceType(),
   useDeviceTheme: () => mocks.useDeviceTheme(),
   useFirmwareUpdateInstalling: () => mocks.useFirmwareUpdateInstalling(),
   useFwUpdateStatus: () => mocks.useFwUpdateStatus(),
@@ -193,6 +195,7 @@ describe("App auth gating", () => {
     mocks.useSystemInfo.mockReturnValue({ reload: mocks.reloadSystemInfo });
     mocks.useAccessToken.mockReturnValue({ hasAccess: true });
     mocks.useDefaultPasswordActive.mockReturnValue(false);
+    mocks.useDeviceType.mockReturnValue("rig");
     mocks.useDeviceTheme.mockReturnValue("light");
     mocks.useFirmwareUpdateInstalling.mockReturnValue(false);
     mocks.useFwUpdateStatus.mockReturnValue(undefined);
