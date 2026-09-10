@@ -83,7 +83,7 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 	<-agentDone
 }
 
-func TestDiscoverOnFleetNode_NoStreamReturnsFailedPrecondition(t *testing.T) {
+func TestDiscoverOnFleetNode_NoStreamReturnsWarning(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-no-stream")
@@ -99,16 +99,13 @@ func TestDiscoverOnFleetNode_NoStreamReturnsFailedPrecondition(t *testing.T) {
 		},
 	}))
 	require.NoError(t, err)
+	var warnings []string
 	for resp.Receive() {
-		t.Fatal("expected no batches before error")
+		warnings = append(warnings, resp.Msg().GetResponse().GetWarning())
 	}
-
-	// Assert
-	streamErr := resp.Err()
-	require.Error(t, streamErr)
-	var connErr *connect.Error
-	require.True(t, errors.As(streamErr, &connErr))
-	assert.Equal(t, connect.CodeFailedPrecondition, connErr.Code())
+	require.NoError(t, resp.Err())
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "has no active control stream")
 }
 
 func TestDiscoverOnFleetNode_FailedAckWithoutMessageReturnsError(t *testing.T) {
@@ -206,13 +203,19 @@ func TestDiscoverOnFleetNode_PartialAckCompletesSuccessfully(t *testing.T) {
 
 	// Assert: partial results are delivered and the stream completes without error.
 	var devices []*pairingpb.Device
+	var warnings []string
 	for resp.Receive() {
 		devices = append(devices, resp.Msg().GetResponse().GetDevices()...)
+		if warning := resp.Msg().GetResponse().GetWarning(); warning != "" {
+			warnings = append(warnings, warning)
+		}
 	}
 	require.NoError(t, resp.Err())
 	require.NoError(t, resp.Close())
 	require.Len(t, devices, 1)
 	assert.Equal(t, "auto:partial", devices[0].GetDeviceIdentifier())
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "scan exceeded command deadline")
 	<-agentDone
 }
 
@@ -585,14 +588,13 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 		},
 	}))
 	require.NoError(t, err)
+	var warnings []string
 	for resp.Receive() {
-		t.Fatal("expected no batches before timeout")
+		warnings = append(warnings, resp.Msg().GetResponse().GetWarning())
 	}
-
-	// Assert
-	var connErr *connect.Error
-	require.True(t, errors.As(resp.Err(), &connErr))
-	assert.Equal(t, connect.CodeDeadlineExceeded, connErr.Code())
+	require.NoError(t, resp.Err())
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "timed out")
 }
 
 func startAdminServer(t *testing.T, h *pairingHarness) fleetnodeadminv1connect.FleetNodeAdminServiceClient {
