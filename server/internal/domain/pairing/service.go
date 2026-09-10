@@ -14,13 +14,12 @@ import (
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -31,73 +30,24 @@ import (
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
-	"github.com/Ullaakut/nmap/v3"
 	"github.com/grandcat/zeroconf"
 )
 
 const (
-	// concurrentDiscoveryLimit caps concurrent IP probes. 254 covers a full /24 without queuing
-	// (.0 network and .1 gateway are skipped, leaving .2–.255 = 254 usable addresses);
-	// probes are I/O-bound so goroutine count is not a CPU concern.
+	// concurrentDiscoveryLimit caps concurrent host identification work.
 	concurrentDiscoveryLimit = 254
 
-	// MaxPortsPerIP caps per-IP parallel port fan-out to prevent resource exhaustion from
-	// caller-supplied port lists. Sourced from discoverylimits so the cloud and
-	// fleet-node discovery paths share one value.
-	MaxPortsPerIP = discoverylimits.MaxPortsPerIP
-
-	// globalProbeLimit caps total concurrent TCP dials across all IPs and ports. Each dial
-	// holds an OS file descriptor for its duration; 512 leaves headroom for DB connections
-	// and other process FDs while staying well below typical OS limits (1024–65536).
+	// globalProbeLimit caps concurrent plugin calls across requests. Plugins
+	// retain their permits until they return, even when they ignore cancellation.
 	globalProbeLimit = 512
 
-	// IP address constants for network address filtering
-	networkAddressLastOctet = 0   // Network address last octet (.0)
-	gatewayAddressLastOctet = 1   // Gateway address last octet (.1)
-	firstHostAddressOffset  = 2   // First usable host address offset
-	localhostFirstOctet     = 127 // Localhost IP range first octet (127.x.x.x)
-
 	// Discovery timeout constants
-	defaultNmapTimeoutSeconds     = 600              // Overall timeout for nmap discovery operation (10 minutes)
-	defaultIPDiscoveryTimeoutSecs = 600              // Overall timeout for IP-based discovery (10 minutes)
-	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
-	perDevicePairingTimeout       = 30 * time.Second // Timeout for pairing a single device (plugin RPC + DB writes)
-
-	// Nmap tuning parameters for faster scanning
-	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
-
-	// nmapHostTimeoutMilliseconds is the max time nmap waits for a single host to respond.
-	// 10s allows slow devices to respond while keeping scans reasonably fast.
-	nmapHostTimeoutMilliseconds = 10000
-
-	// nmapMinRTTTimeoutMilliseconds sets the minimum round-trip time (RTT) for probe packets.
-	// This sets a floor on how long nmap waits before retransmitting probes. 100ms is a reasonable
-	// baseline for local networks - lower values may cause unnecessary retransmissions.
-	nmapMinRTTTimeoutMilliseconds = 100
+	defaultIPDiscoveryTimeoutSecs = 600              // Overall discovery budget (10 minutes).
+	perDeviceDiscoveryTimeout     = 10 * time.Second // Plugin identification budget for a host.
+	perDevicePairingTimeout       = 30 * time.Second // Plugin RPC and DB writes when pairing.
 
 	discoveryPortsUnavailableError = "no discovery ports were provided and no loaded plugins reported canonical discovery ports"
 )
-
-// shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
-// or gateway address (.1), except for localhost addresses (127.x.x.x).
-// For IPv6 addresses (16 bytes), this always returns false since IPv6 has no .0/.1 convention.
-// Network and gateway addresses should be skipped during discovery to avoid false positives
-// where all devices appear to respond at the gateway IP.
-func shouldSkipNetworkOrGatewayAddress(ip net.IP) bool {
-	if ip == nil || len(ip) != 4 {
-		return false
-	}
-
-	// Check if this is localhost (127.x.x.x)
-	isLocalhost := ip[0] == localhostFirstOctet
-	if isLocalhost {
-		return false // Don't skip localhost addresses
-	}
-
-	// Check last octet for network (.0) or gateway (.1) addresses
-	lastOctet := ip[3]
-	return lastOctet == networkAddressLastOctet || lastOctet == gatewayAddressLastOctet
-}
 
 // DeviceDedupKey is the identity used to dedupe discovered devices: the
 // device_identifier, or "ip:port" when the plugin hasn't resolved one yet.
@@ -110,7 +60,7 @@ func DeviceDedupKey(d *pb.Device) string {
 	return d.GetIpAddress() + ":" + d.GetPort()
 }
 
-func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
+func dedupeDiscoverResponses(ctx context.Context, source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
 	resultChan := make(chan *pb.DiscoverResponse)
 
 	go func() {
@@ -143,9 +93,10 @@ func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.Disc
 				continue
 			}
 
-			resultChan <- &pb.DiscoverResponse{
-				Devices: dedupedDevices,
-				Error:   result.Error,
+			select {
+			case resultChan <- &pb.DiscoverResponse{Devices: dedupedDevices, Error: result.Error}:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
@@ -183,6 +134,8 @@ type Service struct {
 	listener              Listener
 	localNetworkInfo      func(context.Context) (*NetworkInfo, error)
 	probeSemaphore        chan struct{}
+	scanner               portScanner
+	resolver              netscan.Resolver
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
 	rigConfigReapplier    func(context.Context, int64, int64)
@@ -209,6 +162,8 @@ func NewService(
 		listener:              listener,
 		localNetworkInfo:      defaultLocalNetworkInfo,
 		probeSemaphore:        make(chan struct{}, globalProbeLimit),
+		scanner:               netscan.NewScanner(),
+		resolver:              net.DefaultResolver,
 	}
 }
 
@@ -310,7 +265,7 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 
 	localNetworkInfo, err := s.GetLocalNetworkInfo(ctx)
 	if err != nil {
-		slog.Debug("Skipping known-subnet expansion for nmap discovery because local network info is unavailable",
+		slog.Debug("Skipping known-subnet expansion for network discovery because local network info is unavailable",
 			"target", target,
 			"error", err)
 		return targets, nil
@@ -350,53 +305,6 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 	return expandedTargets, nil
 }
 
-// validateNmapTargets validates targets and resolves hostnames to IP literals
-// so nmap receives concrete addresses. Hostnames are replaced with their
-// resolved IP, preferring IPv4 to avoid flipping a dual-stack host into
-// IPv6-only mode. The returned flag indicates whether -6 is needed.
-func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr func(context.Context, string) ([]net.IPAddr, error)) ([]string, bool, error) {
-	resolved := make([]string, 0, len(targets))
-	var useIPv6 bool
-	for _, t := range targets {
-		if _, ipNet, err := net.ParseCIDR(t); err == nil {
-			if _, bits := ipNet.Mask.Size(); bits == 128 {
-				return nil, false, fleeterror.NewInvalidArgumentError(
-					"IPv6 CIDR subnet scanning is not supported; use mDNS or IP list discovery for IPv6 devices")
-			}
-			resolved = append(resolved, t)
-		} else if ip := net.ParseIP(t); ip != nil {
-			if ip.To4() == nil {
-				useIPv6 = true
-			}
-			resolved = append(resolved, t)
-		} else {
-			// Hostname — resolve and substitute the IP, preferring IPv4 so
-			// dual-stack hosts don't lose their v4 scan.
-			addrs, err := lookupIPAddr(ctx, t)
-			if err != nil || len(addrs) == 0 {
-				// Keep the original hostname; let nmap resolve it.
-				resolved = append(resolved, t)
-				continue
-			}
-			var ipv4, ipv6 string
-			for _, addr := range addrs {
-				if addr.IP.To4() != nil && ipv4 == "" {
-					ipv4 = addr.IP.String()
-				} else if addr.IP.To4() == nil && ipv6 == "" {
-					ipv6 = addr.IP.String()
-				}
-			}
-			if ipv4 != "" {
-				resolved = append(resolved, ipv4)
-			} else {
-				resolved = append(resolved, ipv6)
-				useIPv6 = true
-			}
-		}
-	}
-	return resolved, useIPv6, nil
-}
-
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
 	if len(requestPorts) > 0 {
 		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
@@ -421,7 +329,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
+	resultChan := dedupeDiscoverResponses(ctx, rawResultChan)
 
 	entries := make(chan *zeroconf.ServiceEntry)
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(r.TimeoutSeconds)*time.Second)
@@ -487,315 +395,12 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 	return resultChan, nil
 }
 
-// DiscoverWithNmap discovers devices using Nmap.
-func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	if r.Target == "" {
-		return nil, fleeterror.NewInvalidArgumentError("nmap discovery target is required")
-	}
-	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
-	if err != nil {
-		return nil, err
-	}
-	targets, err := s.resolveNmapTargets(ctx, r.Target)
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply server-controlled timeout before any DNS work so hostname
-	// resolution cannot outlive the scan budget.
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
-
-	targets, useIPv6Scanning, err := validateNmapTargets(timeoutCtx, targets, net.DefaultResolver.LookupIPAddr)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
-
-	go func() {
-		defer cancel()
-		defer close(rawResultChan)
-
-		var scanner *nmap.Scanner
-		var err error
-
-		// Common nmap options for faster scanning
-		nmapOpts := []nmap.Option{
-			nmap.WithTargets(targets...),
-			nmap.WithUnique(),
-			nmap.WithDisabledDNSResolution(),
-			nmap.WithTimingTemplate(nmap.TimingAggressive), // -T4 for faster scanning
-			nmap.WithMaxRetries(nmapMaxRetriesPerHost),
-			nmap.WithHostTimeout(time.Duration(nmapHostTimeoutMilliseconds) * time.Millisecond),
-			nmap.WithMinRTTTimeout(time.Duration(nmapMinRTTTimeoutMilliseconds) * time.Millisecond),
-		}
-
-		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(ports, ",")))
-
-		if useIPv6Scanning {
-			nmapOpts = append(nmapOpts, nmap.WithIPv6Scanning())
-		}
-
-		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
-		if err != nil {
-			rawResultChan <- &pb.DiscoverResponse{
-				Error: fmt.Sprintf("failed to create scanner: %v", err),
-			}
-			return
-		}
-
-		slog.Debug("Starting nmap scan",
-			"targets", targets,
-			"ports", ports,
-			"timeout_seconds", defaultNmapTimeoutSeconds)
-
-		result, _, err := scanner.Run()
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				slog.Info("Nmap scan timed out",
-					"targets", targets,
-					"timeout_seconds", defaultNmapTimeoutSeconds)
-				// After timeout, we cannot probe hosts because the context is expired.
-				// Send timeout error and return.
-				select {
-				case rawResultChan <- &pb.DiscoverResponse{
-					Error: fmt.Sprintf("scan timed out after %d seconds; some devices may not have been discovered", defaultNmapTimeoutSeconds),
-				}:
-				case <-timeoutCtx.Done():
-				}
-				return
-			}
-			// Non-timeout error
-			select {
-			case rawResultChan <- &pb.DiscoverResponse{
-				Error: fmt.Sprintf("scan failed: %v", err),
-			}:
-			case <-timeoutCtx.Done():
-			}
-			return
-		}
-
-		if result == nil {
-			// Scan timed out with no results - notify caller explicitly
-			select {
-			case rawResultChan <- &pb.DiscoverResponse{
-				Error: fmt.Sprintf("scan timed out after %d seconds without finding any hosts; verify the target network range is correct and devices are powered on", defaultNmapTimeoutSeconds),
-			}:
-			case <-timeoutCtx.Done():
-			}
-			return
-		}
-
-		// Collect all host:port combinations to probe
-		type hostPort struct {
-			ip   string
-			port string
-		}
-		var hostsToProbe []hostPort
-
-		for _, host := range result.Hosts {
-			if len(host.Addresses) == 0 {
-				continue
-			}
-
-			var openPortCount int32
-			for _, p := range host.Ports {
-				if p.Status() == "open" {
-					openPortCount++
-				}
-			}
-			if openPortCount == 0 {
-				continue
-			}
-
-			var ipAddress string
-			for _, addr := range host.Addresses {
-				if addr.AddrType == "ipv4" || addr.AddrType == "ipv6" {
-					ipAddress = addr.Addr
-					break
-				}
-			}
-
-			if ipAddress == "" {
-				continue
-			}
-
-			// Skip network address (.0) and gateway (.1) to avoid discovery issues
-			parsedIP := net.ParseIP(ipAddress)
-			if parsedIP != nil {
-				ipv4 := parsedIP.To4()
-				if shouldSkipNetworkOrGatewayAddress(ipv4) {
-					slog.Debug("Skipping network/gateway address", "ip", ipAddress)
-					continue
-				}
-			}
-
-			for _, port := range host.Ports {
-				if port.Status() == "open" {
-					hostsToProbe = append(hostsToProbe, hostPort{
-						ip:   ipAddress,
-						port: fmt.Sprintf("%d", port.ID),
-					})
-				}
-			}
-		}
-
-		slog.Debug("Probing discovered hosts",
-			"hosts_to_probe", len(hostsToProbe))
-
-		// Probe discovered hosts in parallel with concurrency limit
-		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
-
-		for _, hp := range hostsToProbe {
-			// Acquire semaphore with timeout support to prevent goroutine leak
-			select {
-			case <-timeoutCtx.Done():
-				slog.Debug("Discovery timeout reached, stopping device probing")
-				wg.Wait()
-				return
-			case semaphore <- struct{}{}:
-				wg.Add(1)
-				go func(ip, port string) {
-					defer wg.Done()
-					defer func() { <-semaphore }()
-
-					_, err := s.discoverDevice(timeoutCtx, ip, port, rawResultChan)
-					if err != nil {
-						slog.Debug("device discovery failed", "ip", ip, "port", port, "error", err)
-					}
-				}(hp.ip, hp.port)
-			}
-		}
-
-		wg.Wait()
-	}()
-
-	return resultChan, nil
-}
-
-// DiscoverWithIPRange discovers devices using an IPv4 IP range.
-// IPv6 is not supported for range-based discovery; use mDNS or IP list for IPv6 devices.
-func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	startAddr, err := netutil.ParseIPv4(r.StartIp)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
-	}
-	endAddr, err := netutil.ParseIPv4(r.EndIp)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing end ip: %v", err)
-	}
-	startIP := netutil.AdjustIPv4RangeStart(netutil.IPv4ToUint32(startAddr))
-	endIP := netutil.IPv4ToUint32(endAddr)
-
-	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
-	if err != nil {
-		return nil, err
-	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
-	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
-
-	// Apply server-controlled timeout for the entire discovery operation
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
-
-	go func() {
-		defer cancel()
-		defer close(rawResultChan)
-
-		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
-
-		for ip := startIP; ip <= endIP; ip++ {
-			// Acquire semaphore with timeout support to prevent goroutine leak
-			select {
-			case <-timeoutCtx.Done():
-				slog.Debug("Discovery timeout reached, stopping IP range scan")
-				wg.Wait()
-				return
-			case semaphore <- struct{}{}:
-				wg.Add(1)
-				go func(ipAddr string) {
-					defer wg.Done()
-					defer func() { <-semaphore }()
-
-					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
-				}(netutil.Uint32ToIPv4(ip))
-			}
-		}
-
-		wg.Wait()
-	}()
-
-	return resultChan, nil
-}
-
-// DiscoverWithIPList discovers devices from a list of IPs
-func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
-	if err != nil {
-		return nil, err
-	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
-	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
-
-	// Apply server-controlled timeout for the entire discovery operation
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
-
-	go func() {
-		defer cancel()
-		defer close(rawResultChan)
-
-		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
-
-		for _, ip := range r.IpAddresses {
-			// Acquire semaphore with timeout support to prevent goroutine leak
-			select {
-			case <-timeoutCtx.Done():
-				slog.Debug("Discovery timeout reached, stopping IP list scan")
-				wg.Wait()
-				return
-			case semaphore <- struct{}{}:
-				wg.Add(1)
-				go func(ipAddr string) {
-					defer wg.Done()
-					defer func() { <-semaphore }()
-
-					normalized, err := netutil.NormalizeIPListEntry(timeoutCtx, ipAddr, net.DefaultResolver)
-					if err != nil {
-						slog.Debug("skipping ipList entry", "input", ipAddr, "err", err)
-						return
-					}
-					s.discoverAllPortsForIP(timeoutCtx, normalized, ports, rawResultChan)
-				}(ip)
-			}
-		}
-
-		wg.Wait()
-	}()
-
-	return resultChan, nil
-}
-
 // discoverAllPortsForIP probes all ports for a single IP concurrently. Raw probe results are
 // fed into a buffered channel so processDiscoveredDevice is called sequentially — preventing
 // duplicate discovered_device rows from concurrent port wins. Siblings are cancelled only after
 // processDiscoveredDevice returns found==true, preserving fallback to other ports when the first
-// raw winner is collision-skipped or otherwise non-emitting. All probe goroutines are drained
-// before returning so the outer semaphore slot is not released prematurely.
+// raw winner is collision-skipped or otherwise non-emitting. A plugin that ignores cancellation
+// may outlive this function, but retains its global probe permit until it actually returns.
 func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, ports []string, resultChan chan<- *pb.DiscoverResponse) {
 	portCtx, portCancel := context.WithCancel(ctx)
 	defer portCancel()
@@ -820,42 +425,58 @@ func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, port
 			}
 			probeCtx, cancel := context.WithTimeout(portCtx, perDeviceDiscoveryTimeout)
 			defer cancel()
-			device, err := s.discoverer.Discover(probeCtx, ipAddr, p)
-			<-s.probeSemaphore
-			if err != nil {
-				if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-					slog.Debug("discovery failed", "ip", ipAddr, "port", p, "error", err)
+			completed := make(chan *discoverymodels.DiscoveredDevice, 1)
+			go func() {
+				defer func() { <-s.probeSemaphore }()
+				device, err := s.discoverer.Discover(probeCtx, ipAddr, p)
+				if err != nil {
+					if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+						slog.Debug("discovery failed", "ip", ipAddr, "port", p, "error", err)
+					}
+					device = nil
 				}
-				return
-			}
+				completed <- device
+			}()
 			select {
-			case rawCh <- rawResult{device, p}:
-			case <-portCtx.Done():
+			case device := <-completed:
+				if device == nil {
+					return
+				}
+				select {
+				case rawCh <- rawResult{device, p}:
+				case <-portCtx.Done():
+				}
+			case <-probeCtx.Done():
+				// Stop waiting even if the plugin ignores its deadline. The
+				// plugin retains its permit and owns its private result buffer.
 			}
 		}(port)
 	}
 
-	// Close rawCh once all probes finish. Use a done channel so we can wait for closure
-	// after draining rawCh below — ensuring no goroutines outlive this function.
-	allDone := make(chan struct{})
+	// Only producers close rawCh. Its bounded buffer lets a late plugin return
+	// without touching the response channel after this host has stopped.
 	go func() {
 		wg.Wait()
 		close(rawCh)
-		close(allDone)
 	}()
 
-	for w := range rawCh {
-		found, err := s.processDiscoveredDevice(ctx, w.device, ipAddr, w.port, resultChan)
-		if err != nil {
-			slog.Debug("failed to process discovered device", "ip", ipAddr, "port", w.port, "error", err)
-		}
-		if found {
-			portCancel()
-			break
+	for {
+		select {
+		case <-portCtx.Done():
+			return
+		case w, ok := <-rawCh:
+			if !ok || portCtx.Err() != nil {
+				return
+			}
+			found, err := s.processDiscoveredDevice(portCtx, w.device, ipAddr, w.port, resultChan)
+			if err != nil {
+				slog.Debug("failed to process discovered device", "ip", ipAddr, "port", w.port, "error", err)
+			}
+			if found {
+				return
+			}
 		}
 	}
-
-	<-allDone
 }
 
 // discoverDevice attempts to discover a device at the given IP and port. It returns (true, nil)
