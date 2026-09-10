@@ -213,6 +213,54 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	}
 }
 
+func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		answers []string
+		wantIP  string
+	}{
+		{name: "private IPv4 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5"},
+		{name: "private IPv4 preferred over private IPv6", input: "miner.lan", answers: []string{"fd00::5", "8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "mapped private IPv4 DNS answer", input: "miner.lan", answers: []string{"8.8.8.8", "::ffff:10.0.0.5"}, wantIP: "10.0.0.5"},
+		{name: "private IPv4 literal", input: "10.0.0.5", wantIP: "10.0.0.5"},
+		{name: "mapped private IPv4 literal", input: "::ffff:10.0.0.5", wantIP: "10.0.0.5"},
+		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			answers := make([]net.IPAddr, 0, len(tc.answers))
+			for _, answer := range tc.answers {
+				answers = append(answers, net.IPAddr{IP: net.ParseIP(answer)})
+			}
+			originalAnswers := append([]net.IPAddr{}, answers...)
+			r := &RunCmd{
+				resolver: stubResolver{"miner.lan": answers},
+				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+					tc.wantIP + "|4028": {
+						DeviceIdentifier: "auto:1",
+						IpAddress:        tc.wantIP,
+						Port:             "4028",
+						UrlScheme:        "http",
+						DriverName:       "antminer",
+					},
+				}},
+			}
+
+			// Act
+			reports, truncated, err := r.discoverForCommand(context.Background(), discoverIPList([]string{tc.input}, []string{"4028"}), testLogger())
+
+			// Assert
+			require.NoError(t, err)
+			assert.False(t, truncated)
+			require.Len(t, reports, 1)
+			assert.Equal(t, tc.wantIP, reports[0].GetIpAddress())
+			assert.Equal(t, originalAnswers, answers, "DNS answers must not be filtered in place")
+		})
+	}
+}
+
 func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) {
 	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
 		t.Run(resolved, func(t *testing.T) {

@@ -411,6 +411,25 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
 }
 
+// Filter DNS answers before normalization applies its IPv4 preference.
+type privateIPListResolver struct {
+	netutil.IPListResolver
+}
+
+func (r privateIPListResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	addrs, err := r.IPListResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	private := make([]net.IPAddr, 0, len(addrs))
+	for _, addr := range addrs {
+		if addr.IP.IsPrivate() {
+			private = append(private, addr)
+		}
+	}
+	return private, nil
+}
+
 func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool, error) {
 	if req.GetMode() == nil {
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "discover request mode is required")
@@ -434,7 +453,7 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		}
 		normalized := make([]string, 0, len(ips))
 		for _, raw := range ips {
-			n, err := netutil.NormalizeIPListEntry(ctx, raw, resolver)
+			n, err := netutil.NormalizeIPListEntry(ctx, raw, privateIPListResolver{resolver})
 			if err != nil {
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
