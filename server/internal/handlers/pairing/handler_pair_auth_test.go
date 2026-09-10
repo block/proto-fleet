@@ -60,9 +60,10 @@ func TestPairWithMinerPairOnlyRoutesWithinOrganization(t *testing.T) {
 		VALUES (1, 'pair-org-1', 'Pair Org 1'), (2, 'pair-org-2', 'Pair Org 2')`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO fleet_node
-		(id, org_id, name, identity_pubkey, enrollment_status)
-		VALUES (7, 1, 'node-1', 'key-1', 'CONFIRMED'),
-		       (8, 2, 'node-2', 'key-2', 'CONFIRMED')`)
+		(id, org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (7, 1, 'node-1', 'key-1', $1, 'CONFIRMED'),
+		       (8, 2, 'node-2', 'key-2', $1, 'CONFIRMED')`,
+		[]byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO discovered_device
 		(org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
