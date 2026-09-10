@@ -122,6 +122,17 @@ describe("ProtoOS router", () => {
     expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
   });
 
+  test("preserves container module routes when retained system info has a transient error", async () => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    mocks.systemInfoError = "Couldn't reach this miner";
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
+  });
+
   test("redirects rigs away from module KPI routes", async () => {
     mocks.systemInfo = { identity: { deviceType: "rig" } };
     const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });

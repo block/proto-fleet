@@ -69,34 +69,38 @@ const ContainerRoute = ({ children }: { children: ReactNode }) => {
   const systemInfoError = useSystemInfoError();
   const { minerRoot } = useMinerHosting();
 
-  if (systemInfoError) return <Navigate to={`${minerRoot}/hashrate`} replace />;
-
-  if (!systemInfo) {
-    return (
-      <div className="flex h-full min-h-64 items-center justify-center">
-        <ProgressCircular indeterminate />
-      </div>
+  if (systemInfo) {
+    return systemInfo.identity.deviceType === "container" ? (
+      children
+    ) : (
+      <Navigate to={`${minerRoot}/hashrate`} replace />
     );
   }
 
-  return systemInfo.identity.deviceType === "container" ? children : <Navigate to={`${minerRoot}/hashrate`} replace />;
+  if (systemInfoError) return <Navigate to={`${minerRoot}/hashrate`} replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
 };
 
 const HomeIndexRoute = () => {
   const systemInfo = useSystemInfo();
   const systemInfoError = useSystemInfoError();
 
-  if (systemInfoError) return <Navigate to="hashrate" replace />;
-
-  if (!systemInfo) {
-    return (
-      <div className="flex h-full min-h-64 items-center justify-center">
-        <ProgressCircular indeterminate />
-      </div>
-    );
+  if (systemInfo) {
+    return systemInfo.identity.deviceType === "container" ? <Hashrate /> : <Navigate to="hashrate" replace />;
   }
 
-  return systemInfo.identity.deviceType === "container" ? <Hashrate /> : <Navigate to="hashrate" replace />;
+  if (systemInfoError) return <Navigate to="hashrate" replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
 };
 
 // Helper to create route objects with App wrapper
