@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import { getHighestMaximumPerformer } from "@/protoOS/features/kpis/metricSeries";
 import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
-import { convertAndFormatMeasurement, type MetricTimeSeries, useTemperatureUnit } from "@/protoOS/store";
+import { convertAndFormatMeasurement, temperatureDisplayUnit, useTemperatureUnit } from "@/protoOS/store";
+import type { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -17,24 +18,25 @@ const singularTitleCase = (segmentsLabel: string) => {
 
 const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: string): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
+  const displayUnit = temperatureDisplayUnit(temperatureUnit);
 
   const baseStats: StatProps[] = [
     {
       label: "Average",
-      value: convertAndFormatMeasurement(avg, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(avg, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
     {
       label: "Highest",
-      value: convertAndFormatMeasurement(max, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(max, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
     {
       label: "Lowest",
-      value: convertAndFormatMeasurement(min, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(min, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
   ];
@@ -67,7 +69,7 @@ const Temperature = () => {
             chartLines={chartLines}
             series={series}
             segmentsLabel={segmentsLabel}
-            units={"°" + temperatureUnit}
+            units={temperatureDisplayUnit(temperatureUnit)}
             xAxisDomainOverride={xAxisDomain}
           />
         </ErrorBoundary>

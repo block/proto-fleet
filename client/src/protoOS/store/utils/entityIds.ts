@@ -19,3 +19,7 @@ export const getPsuId = (slot: number, moduleId: ModuleId = ROOT_MODULE_ID): Com
 
 export const getFanId = (slot: number, moduleId: ModuleId = ROOT_MODULE_ID): ComponentId =>
   asComponentId(`${moduleId}:fan:${slot}`);
+
+// Inverse of the slot-based id builders above: pull the trailing slot number back
+// out of a `${moduleId}:<kind>:<slot>` component id (0 when absent).
+export const getComponentSlot = (componentId: string): number => Number(componentId.match(/:(\d+)$/)?.[1] ?? 0);

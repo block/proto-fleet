@@ -2,7 +2,7 @@
 // Deprioritize for now, since this feature is turned off
 
 import { type MetricTimeSeries } from "@/protoOS/store";
-import { type TemperatureUnit } from "@/protoOS/store";
+import { temperatureDisplayUnit, type TemperatureUnit } from "@/protoOS/store";
 import { ChartData } from "@/shared/components/LineChart/types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertMegahashSecToTerahashSec } from "@/shared/utils/telemetryFormat";
@@ -34,11 +34,12 @@ export const convertAndFormatTemperature = (
     return "N/A";
   }
 
+  const unit = temperatureDisplayUnit(temperatureUnit);
   if (temperatureUnit === "F") {
-    return `${getDisplayValue(convertCtoF(tempC))} °${showUnits ? temperatureUnit : ""}`;
+    return `${getDisplayValue(convertCtoF(tempC))}${showUnits ? ` ${unit}` : ""}`;
   }
 
-  return `${getDisplayValue(tempC)} °${showUnits ? temperatureUnit : ""}`;
+  return `${getDisplayValue(tempC)}${showUnits ? ` ${unit}` : ""}`;
 };
 
 /**
@@ -48,11 +49,14 @@ export const convertTelemetryTemperatureToChartData = (
   metric: MetricTimeSeries,
   intervalMs: number | undefined,
 ): ChartData[] => {
-  if (!metric?.values?.length || intervalMs === undefined) return [];
+  const points = metric?.points ?? [];
+  if (!points.length || intervalMs === undefined) return [];
 
-  return metric.values.map((value, index) => ({
-    datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds
-    value,
+  // Anchor to the first bucket timestamp, then advance by the fixed bucket interval per index.
+  const startTime = points[0]?.timestampMs ?? 0;
+  return points.map((point, index) => ({
+    datetime: Math.floor((startTime + index * intervalMs) / 1000), // Convert to seconds
+    value: point.value,
   }));
 };
 
@@ -63,10 +67,12 @@ export const convertTelemetryHashrateToChartData = (
   metric: MetricTimeSeries,
   intervalMs: number | undefined,
 ): ChartData[] => {
-  if (!metric?.values?.length || intervalMs === undefined) return [];
+  const points = metric?.points ?? [];
+  if (!points.length || intervalMs === undefined) return [];
 
-  return metric.values.map((value, index) => ({
-    datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds
-    value: value ? convertMegahashSecToTerahashSec(value) : value, // Convert from MH/s to TH/s
+  const startTime = points[0]?.timestampMs ?? 0;
+  return points.map((point, index) => ({
+    datetime: Math.floor((startTime + index * intervalMs) / 1000), // Convert to seconds
+    value: point.value ? convertMegahashSecToTerahashSec(point.value) : point.value, // Convert from MH/s to TH/s
   }));
 };

@@ -6,10 +6,10 @@ import {
   type FanTelemetry,
   type Measurement,
   type MetricTelemetry,
+  type PsuTelemetry,
   ROOT_MODULE_KEY,
   type TelemetryState,
 } from "../contract";
-import type { FanTelemetryData, PsuTelemetryData } from "../types";
 import type { MinerStore } from "../useMinerStore";
 import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
@@ -103,19 +103,6 @@ const mergeMap = <K, V extends object>(target: Map<K, V>, incoming: Map<K, V>, g
   });
 };
 
-const mapMeasurement = (
-  value: { latest?: { value: number | null; units?: string } } | undefined,
-  fallback: Measurement["units"],
-): MetricTelemetry | undefined =>
-  value?.latest
-    ? {
-        latest: {
-          value: value.latest.value,
-          units: (value.latest.units as Measurement["units"] | undefined) ?? fallback,
-        },
-      }
-    : undefined;
-
 export interface TelemetrySlice extends TelemetryState {
   // Tracks the last-applied requestId per entity so newest-write-wins is enforced
   // per entity, independent of the caller's resource-key string. Not part of the
@@ -129,8 +116,8 @@ export interface TelemetrySlice extends TelemetryState {
     average?: Measurement,
     maximum?: Measurement,
   ) => void;
-  updatePsuTelemetry: (slot: number, telemetry: Partial<PsuTelemetryData>) => void;
-  updateFanTelemetry: (slot: number, telemetry: Partial<FanTelemetryData>) => void;
+  updatePsuTelemetry: (slot: number, telemetry: Partial<PsuTelemetry>) => void;
+  updateFanTelemetry: (slot: number, telemetry: Partial<FanTelemetry>) => void;
   replaceFanLiveTelemetry: (fans: FanTelemetry[]) => void;
   updateCoolingMode: (mode: CoolingMode) => void;
   clearOldData: (olderThanTimestamp: number) => void;
@@ -189,30 +176,14 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
   updatePsuTelemetry: (slot, input) =>
     set((state) => {
       const id = getPsuId(slot);
-      const current = state.telemetry.psus.get(id) ?? { componentId: id };
-      if (input.inputVoltage !== undefined) current.inputVoltage = mapMeasurement(input.inputVoltage, "V");
-      if (input.inputCurrent !== undefined) current.inputCurrent = mapMeasurement(input.inputCurrent, "A");
-      if (input.inputPower !== undefined) current.inputPower = mapMeasurement(input.inputPower, "W");
-      if (input.outputVoltage !== undefined) current.outputVoltage = mapMeasurement(input.outputVoltage, "V");
-      if (input.outputCurrent !== undefined) current.outputCurrent = mapMeasurement(input.outputCurrent, "A");
-      if (input.outputPower !== undefined) current.outputPower = mapMeasurement(input.outputPower, "W");
-      if (input.temperatureAmbient !== undefined)
-        current.ambientTemperature = mapMeasurement(input.temperatureAmbient, "°C");
-      if (input.temperatureAverage !== undefined)
-        current.averageTemperature = mapMeasurement(input.temperatureAverage, "°C");
-      if (input.temperatureHotspot !== undefined)
-        current.hotspotTemperature = mapMeasurement(input.temperatureHotspot, "°C");
-      state.telemetry.psus.set(id, current);
+      // Input is already the contract shape (Partial<PsuTelemetry>), so merge it
+      // straight in — mergeMetrics carries both `latest` and `timeSeries` per field.
+      state.telemetry.psus.set(id, mergeMetrics(state.telemetry.psus.get(id), { componentId: id, ...input }));
     }),
   updateFanTelemetry: (slot, input) =>
     set((state) => {
       const id = getFanId(slot);
-      const current = state.telemetry.fans.get(id) ?? { componentId: id };
-      if (input.rpm !== undefined) current.rpm = mapMeasurement(input.rpm, "RPM");
-      if (input.percentage !== undefined) current.speedPercent = mapMeasurement(input.percentage, "%");
-      if (input.minRpm !== undefined) current.minimumRpm = mapMeasurement(input.minRpm, "RPM");
-      if (input.maxRpm !== undefined) current.maximumRpm = mapMeasurement(input.maxRpm, "RPM");
-      state.telemetry.fans.set(id, current);
+      state.telemetry.fans.set(id, mergeMetrics(state.telemetry.fans.get(id), { componentId: id, ...input }));
     }),
   replaceFanLiveTelemetry: (fans) =>
     set((state) => {

@@ -33,14 +33,14 @@ function PsuStatusCard({ slot, showComponentIcon = true }: PsuStatusCardProps) {
 
   // Calculate avg and max temps from temperature array
   const { avgTemp, maxTemp } = useMemo(() => {
-    const averageTemp = psuData?.temperatureAverage?.latest?.value;
-    const hotspotTemp = psuData?.temperatureHotspot?.latest?.value;
+    const averageTemp = psuData?.averageTemperature?.latest?.value;
+    const hotspotTemp = psuData?.hotspotTemperature?.latest?.value;
 
     return {
       avgTemp: averageTemp, // Use the average temperature directly from API
       maxTemp: hotspotTemp, // Use the hotspot temperature as max
     };
-  }, [psuData?.temperatureAverage, psuData?.temperatureHotspot]);
+  }, [psuData?.averageTemperature, psuData?.hotspotTemperature]);
 
   const errors = useErrorsByComponent("PSU", slot);
   const hasErrors = errors.length > 0;

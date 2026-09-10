@@ -20,6 +20,7 @@ import {
   type TelemetryState,
 } from "../contract";
 import useMinerStore from "../useMinerStore";
+import { getHashboardId } from "../utils/entityIds";
 import { getAsicId } from "../utils/getAsicId";
 import { aggregateMetricTimeSeries } from "./kpiChartData";
 import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } from "./useHardware";
@@ -557,6 +558,63 @@ describe("useMiner", () => {
     const { result: moduleMiner } = renderHook(() => useMiner(moduleSelection));
     expect(moduleMiner.current?.hashboardSerials).toEqual(["HB-1"]);
     expect(moduleMiner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 11, units: "TH/s" });
+  });
+
+  it("builds a multi-series chart from bucketed points, filling gaps and null values with null", () => {
+    useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1 }]);
+    useMinerStore.getState().telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity: new Map([
+        [
+          ROOT_MODULE_KEY,
+          {
+            hashrate: {
+              timeSeries: {
+                bucketSizeMs: 1_000,
+                points: [
+                  { timestampMs: 10_000, value: 90 },
+                  { timestampMs: 11_000, value: 100 },
+                  { timestampMs: 12_000, value: null },
+                ],
+              },
+            },
+          },
+        ],
+      ]),
+      hashboards: new Map([
+        [
+          getHashboardId("HB-1"),
+          {
+            hashboardId: getHashboardId("HB-1"),
+            hashrate: {
+              timeSeries: {
+                bucketSizeMs: 1_000,
+                points: [
+                  { timestampMs: 10_000, value: 45 },
+                  { timestampMs: 11_000, value: null },
+                ],
+              },
+            },
+          },
+        ],
+      ]),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      plant: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    const { result } = renderHook(() => useChartDataForMetric("hashrate"));
+
+    expect(result.current.chartLines).toEqual(["miner", "HB-1"]);
+    expect(result.current.chartData).toEqual([
+      { datetime: 10_000, miner: 90, "HB-1": 45 },
+      { datetime: 11_000, miner: 100, "HB-1": null },
+      { datetime: 12_000, miner: null },
+    ]);
+    expect(result.current.xAxisDomain?.[0]).toBe(10_000);
   });
 
   it("derives aggregate efficiency history from total power and hashrate", () => {

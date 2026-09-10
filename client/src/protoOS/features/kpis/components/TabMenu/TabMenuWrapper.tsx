@@ -2,7 +2,13 @@ import { memo, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { resolvedKpiViewSelection, useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
-import { convertAndFormatMeasurement, convertValueUnits, useMiner, useTemperatureUnit } from "@/protoOS/store";
+import {
+  convertAndFormatMeasurement,
+  convertValueUnits,
+  temperatureDisplayUnit,
+  useMiner,
+  useTemperatureUnit,
+} from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
@@ -32,8 +38,8 @@ const TabMenuWrapper = memo(() => {
     () => ({
       hashrate: {
         name: "Hashrate",
-        value: convertAndFormatMeasurement(miner?.hashrate?.latest, "TH/S", false),
-        units: "TH/S",
+        value: convertAndFormatMeasurement(miner?.hashrate?.latest, "TH/s", false),
+        units: "TH/s",
         path: "/hashrate",
       },
       efficiency: {
@@ -54,14 +60,14 @@ const TabMenuWrapper = memo(() => {
           const latest = miner?.temperature?.latest;
           if (!latest) return undefined;
           if (latest.value === null) return "N/A";
-          const converted = convertValueUnits(latest, temperatureUnit);
+          const converted = convertValueUnits(latest, temperatureDisplayUnit(temperatureUnit));
           return converted?.value === null || converted?.value === undefined ? "N/A" : getDisplayValue(converted.value);
         })(),
         units:
           miner?.temperature?.latest?.value === null
             ? undefined
             : miner?.temperature
-              ? "°" + temperatureUnit
+              ? temperatureDisplayUnit(temperatureUnit)
               : undefined,
         path: "/temperature",
       },

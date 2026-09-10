@@ -5,6 +5,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry, useCoolingMode, useFansTelemetry, useMinerStore } from "@/protoOS/store";
 import type { CoolingMode } from "@/protoOS/store/contract";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
+import { getComponentSlot } from "@/protoOS/store/utils/entityIds";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseCoolingStatusProps {
@@ -34,9 +35,9 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
         ? {
             mode,
             fans: fans.map((fan) => ({
-              slot: fan.slot,
+              slot: getComponentSlot(fan.componentId),
               rpm: fan.rpm?.latest?.value ?? undefined,
-              percentage: fan.percentage?.latest?.value ?? undefined,
+              percentage: fan.speedPercent?.latest?.value ?? undefined,
             })),
           }
         : undefined,

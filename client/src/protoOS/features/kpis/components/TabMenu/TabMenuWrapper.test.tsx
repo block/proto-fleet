@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import TabMenuWrapper from "./TabMenuWrapper";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useMiner, useTemperatureUnit } from "@/protoOS/store";
 
 const mockNavigate = vi.fn();
 
@@ -21,11 +22,10 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
 }));
 
-vi.mock("@/protoOS/store", () => ({
+vi.mock("@/protoOS/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoOS/store")>()),
   useMiner: vi.fn(() => undefined),
   useTemperatureUnit: vi.fn(() => "F"),
-  convertAndFormatMeasurement: vi.fn(() => "--"),
-  convertValueUnits: vi.fn(() => ({ value: null })),
 }));
 
 describe("TabMenuWrapper", () => {
@@ -91,5 +91,17 @@ describe("TabMenuWrapper", () => {
     fireEvent.click(screen.getByText("Temperature").closest("button") as HTMLButtonElement);
 
     expect(mockNavigate).toHaveBeenCalledWith("/tanks/container%3Act1%3Atank%3A1/modules/module%3A1/temperature");
+  });
+
+  it("renders the temperature tab in the preferred unit with a single degree glyph", () => {
+    (useMinerHosting as Mock).mockReturnValue({ minerRoot: "" });
+    (useTemperatureUnit as Mock).mockReturnValue("F");
+    (useMiner as Mock).mockReturnValue({ temperature: { latest: { value: 62, units: "°C" } } });
+
+    render(<TabMenuWrapper />);
+
+    expect(screen.getByText("143.6")).toBeInTheDocument();
+    expect(screen.getByText("°F")).toBeInTheDocument();
+    expect(screen.queryByText("°°F")).toBeNull();
   });
 });

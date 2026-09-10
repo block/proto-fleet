@@ -94,63 +94,49 @@ const StoreDecorator = (Story: any, context: any) => {
         latest: { value: config.inputVoltage, units: "V" },
         timeSeries: {
           units: "V",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
       outputVoltage: {
         latest: { value: config.outputVoltage, units: "V" },
         timeSeries: {
           units: "V",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
       inputPower: {
         latest: { value: config.inputPower, units: "W" },
         timeSeries: {
           units: "W",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
       outputPower: {
         latest: { value: config.outputPower, units: "W" },
         timeSeries: {
           units: "W",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
-      temperatureAmbient: {
-        latest: { value: config.temps[0], units: "C" },
+      ambientTemperature: {
+        latest: { value: config.temps[0], units: "°C" },
         timeSeries: {
-          units: "C",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          units: "°C",
+          points: [],
         },
       },
-      temperatureAverage: {
-        latest: { value: config.temps[1], units: "C" },
+      averageTemperature: {
+        latest: { value: config.temps[1], units: "°C" },
         timeSeries: {
-          units: "C",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          units: "°C",
+          points: [],
         },
       },
-      temperatureHotspot: {
-        latest: { value: config.temps[2], units: "C" },
+      hotspotTemperature: {
+        latest: { value: config.temps[2], units: "°C" },
         timeSeries: {
-          units: "C",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          units: "°C",
+          points: [],
         },
       },
     });

@@ -18,7 +18,7 @@ function FanStatusCard({ slot }: FanStatusCardProps) {
 
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
-  const pwm = fanData?.percentage?.latest?.value ?? 0;
+  const pwm = fanData?.speedPercent?.latest?.value ?? 0;
   const position = fanData?.slot ?? slot;
   const name = `Fan ${position}`;
 

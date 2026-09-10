@@ -24,7 +24,7 @@ describe("convertAndFormatTemperature", () => {
   });
 
   test("hides unit when showUnits is false", () => {
-    expect(convertAndFormatTemperature(65.2, "C", false)).toBe("65.2 °");
+    expect(convertAndFormatTemperature(65.2, "C", false)).toBe("65.2");
   });
 
   test("uses correct degree sign (U+00B0), not ordinal indicator", () => {
@@ -36,10 +36,11 @@ describe("convertAndFormatTemperature", () => {
 
 describe("convertTelemetryTemperatureToChartData", () => {
   const metric = {
-    units: "C" as const,
-    values: [60, 61],
-    startTime: 1_000,
-    endTime: 61_000,
+    units: "°C" as const,
+    points: [
+      { timestampMs: 1_000, value: 60 },
+      { timestampMs: 61_000, value: 61 },
+    ],
   };
 
   test("uses the normalized bucket size", () => {

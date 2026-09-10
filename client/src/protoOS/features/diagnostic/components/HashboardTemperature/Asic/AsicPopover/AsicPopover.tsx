@@ -3,7 +3,7 @@ import AsicChart from "./AsicChart";
 import AsicPopoverRow from "./AsicPopoverRow";
 import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
-import { AsicData, convertAndFormatMeasurement, formatValue } from "@/protoOS/store";
+import { AsicData, convertAndFormatMeasurement, formatValue, temperatureDisplayUnit } from "@/protoOS/store";
 import { useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
@@ -82,7 +82,7 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
           label="Current temperature"
           value={
             asic.temperature?.latest
-              ? convertAndFormatMeasurement(asic.temperature.latest, temperatureUnit, false)
+              ? convertAndFormatMeasurement(asic.temperature.latest, temperatureDisplayUnit(temperatureUnit), false)
               : undefined
           }
           className="text-core-accent-fill"

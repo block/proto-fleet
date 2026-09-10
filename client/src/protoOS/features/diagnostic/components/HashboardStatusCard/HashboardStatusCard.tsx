@@ -41,8 +41,8 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   };
 
   // Compute display values from store data
-  const avgAsicTemp = hashboardData?.avgAsicTemp?.latest?.value ?? undefined;
-  const maxAsicTemp = hashboardData?.maxAsicTemp?.latest?.value ?? undefined;
+  const avgAsicTemp = hashboardData?.averageAsicTemperature?.latest?.value ?? undefined;
+  const maxAsicTemp = hashboardData?.maximumAsicTemperature?.latest?.value ?? undefined;
   const power = hashboardData?.power?.latest?.value ?? undefined;
   const hashrate = hashboardData?.hashrate?.latest?.value ?? undefined;
   const position = slot || 0;

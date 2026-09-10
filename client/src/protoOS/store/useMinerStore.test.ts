@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 
 import { asDeviceId, asHashboardId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
-import { getFanId } from "./utils/entityIds";
+import { getFanId, getPsuId } from "./utils/entityIds";
 import { getAsicId } from "./utils/getAsicId";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
@@ -93,20 +93,45 @@ describe("partial normalized store updates", () => {
   test("preserves fan calibration fields when a cooling poll only updates live values", () => {
     const telemetry = useMinerStore.getState().telemetry;
     telemetry.updateFanTelemetry(1, {
-      slot: 1,
-      minRpm: { latest: { value: 1_200, units: "RPM" } },
-      maxRpm: { latest: { value: 6_000, units: "RPM" } },
+      minimumRpm: { latest: { value: 1_200, units: "RPM" } },
+      maximumRpm: { latest: { value: 6_000, units: "RPM" } },
     });
 
     telemetry.updateFanTelemetry(1, {
-      slot: 1,
       rpm: { latest: { value: 4_800, units: "RPM" } },
-      percentage: { latest: { value: 75, units: "%" } },
+      speedPercent: { latest: { value: 75, units: "%" } },
     });
 
     const fan = useMinerStore.getState().telemetry.fans.get(getFanId(1));
     expect(fan?.minimumRpm?.latest?.value).toBe(1_200);
     expect(fan?.maximumRpm?.latest?.value).toBe(6_000);
+    expect(fan?.rpm?.latest?.value).toBe(4_800);
+  });
+
+  test("persists timeSeries through the PSU/fan writers, not just latest", () => {
+    const telemetry = useMinerStore.getState().telemetry;
+    const psuPoints = [{ timestampMs: 1_000, value: 3_000 }];
+    const fanPoints = [{ timestampMs: 1_000, value: 4_800 }];
+
+    telemetry.updatePsuTelemetry(2, {
+      inputPower: {
+        latest: { value: 3_000, units: "W" },
+        timeSeries: { points: psuPoints, bucketSizeMs: 1_000, units: "W" },
+      },
+    });
+    telemetry.updateFanTelemetry(3, {
+      rpm: {
+        latest: { value: 4_800, units: "RPM" },
+        timeSeries: { points: fanPoints, bucketSizeMs: 1_000, units: "RPM" },
+      },
+    });
+
+    const psu = useMinerStore.getState().telemetry.psus.get(getPsuId(2));
+    const fan = useMinerStore.getState().telemetry.fans.get(getFanId(3));
+    // Regression: the old mapMeasurement writer copied only `latest`, dropping this.
+    expect(psu?.inputPower?.timeSeries?.points).toEqual(psuPoints);
+    expect(psu?.inputPower?.latest?.value).toBe(3_000);
+    expect(fan?.rpm?.timeSeries?.points).toEqual(fanPoints);
     expect(fan?.rpm?.latest?.value).toBe(4_800);
   });
 

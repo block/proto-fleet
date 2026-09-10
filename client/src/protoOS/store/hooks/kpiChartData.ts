@@ -13,7 +13,6 @@ import {
   type TankNode,
   type ViewSelection,
 } from "../contract";
-import { hashboardTelemetryView, minerTelemetryView } from "../selectors/legacyTelemetry";
 import type { HardwareSlice } from "../slices/hardwareSlice";
 import { getHashboardId } from "../utils/entityIds";
 import { type Duration, getDurationMs } from "@/shared/components/DurationSelector";
@@ -396,29 +395,28 @@ const rigChartResult = (
   duration: Duration,
 ): KpiChartResult => {
   const rollup = rollups.get(ROOT_MODULE_KEY);
-  const intervalMs = rollup?.[metricName]?.timeSeries?.bucketSizeMs;
-  const miner = minerTelemetryView(
-    rollup,
-    [...hardware.hashboards.values()].map((board) => board.identity.value),
-  );
-  if (!miner) return emptyHashboardChart();
+  const aggregateMetric = rollup?.[metricName]?.timeSeries;
+  if (!aggregateMetric?.points.length || aggregateMetric.bucketSizeMs === undefined) return emptyHashboardChart();
 
-  const minerMetric = miner[metricName]?.timeSeries;
-  if (!minerMetric?.values.length || intervalMs === undefined) return emptyHashboardChart();
+  const sortedMinerHashboards = [...hardware.hashboards.values()]
+    .flatMap((board) => {
+      const serial = board.identity.value;
+      const telemetry = hashboardsTelemetry.get(getHashboardId(serial));
+      if (!telemetry) return [];
 
-  const sortedMinerHashboards = miner.hashboards
-    .map((id) => hashboardsTelemetry.get(getHashboardId(id)))
-    .filter((value): value is HashboardTelemetry => value !== undefined)
-    .map(hashboardTelemetryView)
-    .sort((a, b) => {
-      const slotA = hardware.getHashboard(a.serial)?.slot;
-      const slotB = hardware.getHashboard(b.serial)?.slot;
-      return (slotA ?? 0) - (slotB ?? 0);
-    });
+      return [
+        {
+          serial,
+          slot: hardware.getHashboard(serial)?.slot ?? 0,
+          telemetry,
+        },
+      ];
+    })
+    .sort((a, b) => a.slot - b.slot);
 
   const series = sortedMinerHashboards.map<KpiChartSeries>((hashboard, index) => {
-    const slot = hardware.getHashboard(hashboard.serial)?.slot ?? index + 1;
-    const metric = hashboard[metricName]?.timeSeries;
+    const slot = hashboard.slot || index + 1;
+    const metric = hashboard.telemetry?.[metricName]?.timeSeries;
     return {
       key: hashboard.serial,
       label: String(slot),
@@ -428,16 +426,16 @@ const rigChartResult = (
       maximumValue: metric?.aggregates?.max?.value,
     };
   });
-  const chartData = minerMetric.values.map((minerValue, index) => {
+  const chartData = aggregateMetric.points.map((point, index) => {
     const dataPoint: ChartData = {
-      datetime: minerMetric.startTime + index * intervalMs,
-      miner: minerValue,
+      datetime: point.timestampMs,
+      miner: point.value,
     };
 
-    sortedMinerHashboards.forEach((hashboard) => {
-      const hashboardMetric = hashboard[metricName]?.timeSeries;
-      if (hashboardMetric?.values && hashboardMetric.values.length > index) {
-        dataPoint[hashboard.serial] = hashboardMetric.values[index];
+    sortedMinerHashboards.forEach(({ serial, telemetry }) => {
+      const hashboardPoints = telemetry?.[metricName]?.timeSeries?.points;
+      if (hashboardPoints && hashboardPoints.length > index) {
+        dataPoint[serial] = hashboardPoints[index]?.value ?? null;
       }
     });
 
@@ -449,7 +447,10 @@ const rigChartResult = (
     chartLines: ["miner", ...series.map(({ key }) => key)],
     series,
     segmentsLabel: "hashboards",
-    xAxisDomain: [minerMetric.startTime, minerMetric.startTime + getDurationMs(duration)],
+    xAxisDomain: [
+      aggregateMetric.points[0].timestampMs,
+      aggregateMetric.points[0].timestampMs + getDurationMs(duration),
+    ],
   };
 };
 

@@ -5,7 +5,13 @@ import { useAsicMetric } from "../AsicMetricContext";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
-import { AsicData, convertAndFormatMeasurement, type Measurement, useTemperatureUnit } from "@/protoOS/store";
+import {
+  AsicData,
+  convertAndFormatMeasurement,
+  type Measurement,
+  temperatureDisplayUnit,
+  useTemperatureUnit,
+} from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
 
 interface AsicButtonProps {
@@ -96,7 +102,7 @@ const AsicButton = ({
     }
 
     if (selectedMetric === "temperature") {
-      const formatted = convertAndFormatMeasurement(metricMeasurement, temperatureUnit, false);
+      const formatted = convertAndFormatMeasurement(metricMeasurement, temperatureDisplayUnit(temperatureUnit), false);
       return formatMetricDisplay(formatted || "--");
     }
 

@@ -1,15 +1,13 @@
 import { createElement } from "react";
 import type { ComponentHardware, ComponentTelemetry } from "./hooks";
 import { getComponentDisplayName } from "@/protoOS/hooks/status/useComponentDisplayName";
+import type { FanTelemetry, HashboardTelemetry, PsuTelemetry } from "@/protoOS/store/contract";
 import type {
   ControlBoardHardwareData,
   ErrorSource,
-  FanTelemetryData,
   HashboardHardwareData,
-  HashboardTelemetryData,
   MinerError,
   PsuHardwareData,
-  PsuTelemetryData,
 } from "@/protoOS/store/types";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
@@ -77,8 +75,8 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
   switch (type) {
     case "fan":
       if (telemetry) {
-        const rpm = (telemetry as FanTelemetryData).rpm?.latest?.value || 0;
-        const pwm = (telemetry as FanTelemetryData).percentage?.latest?.value || 0;
+        const rpm = (telemetry as FanTelemetry).rpm?.latest?.value || 0;
+        const pwm = (telemetry as FanTelemetry).speedPercent?.latest?.value || 0;
 
         metrics.push({
           label: `${pwm}% PWM`,
@@ -89,7 +87,7 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
 
     case "psu":
       if (telemetry) {
-        const psuTelemetry = telemetry as PsuTelemetryData;
+        const psuTelemetry = telemetry as PsuTelemetry;
         metrics.push(
           {
             label: "Input Power",
@@ -106,13 +104,13 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
           {
             label: "Average Temp",
             value: createElement(TemperatureValue, {
-              value: psuTelemetry.temperatureAverage?.latest?.value,
+              value: psuTelemetry.averageTemperature?.latest?.value,
             }),
           },
           {
             label: "Max Temp",
             value: createElement(TemperatureValue, {
-              value: psuTelemetry.temperatureHotspot?.latest?.value,
+              value: psuTelemetry.hotspotTemperature?.latest?.value,
             }),
           },
         );
@@ -125,31 +123,31 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
           {
             label: "Hashrate",
             value: createElement(HashRateValue, {
-              value: (telemetry as HashboardTelemetryData).hashrate?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).hashrate?.latest?.value || 0,
             }),
           },
           {
             label: "Power",
             value: createElement(PowerValue, {
-              value: (telemetry as HashboardTelemetryData).power?.latest?.value,
+              value: (telemetry as HashboardTelemetry).power?.latest?.value,
             }),
           },
           {
             label: "ASIC Avg Temp",
             value: createElement(TemperatureValue, {
-              value: (telemetry as HashboardTelemetryData).avgAsicTemp?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).averageAsicTemperature?.latest?.value || 0,
             }),
           },
           {
             label: "ASIC High Temp",
             value: createElement(TemperatureValue, {
-              value: (telemetry as HashboardTelemetryData).maxAsicTemp?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).maximumAsicTemperature?.latest?.value || 0,
             }),
           },
           {
             label: "Efficiency",
             value: createElement(EfficiencyValue, {
-              value: (telemetry as HashboardTelemetryData).efficiency?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).efficiency?.latest?.value || 0,
             }),
           },
         );
