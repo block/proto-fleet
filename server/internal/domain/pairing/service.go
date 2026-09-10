@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -350,9 +351,9 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) (target
 	return expandedTargets, nil
 }
 
-// validateNmapTargets validates targets and resolves hostnames to IP literals
-// so nmap receives concrete addresses. Hostnames are replaced with their
-// resolved IP, preferring IPv4 to avoid flipping a dual-stack host into
+// validateNmapTargets restricts scans to private networks and resolves hostnames
+// to private IP literals so nmap cannot resolve them again. Hostnames are replaced
+// with their resolved IP, preferring IPv4 to avoid flipping a dual-stack host into
 // IPv6-only mode. The returned flag indicates whether -6 is needed.
 func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr func(context.Context, string) ([]net.IPAddr, error)) ([]string, bool, error) {
 	resolved := make([]string, 0, len(targets))
@@ -363,23 +364,52 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 				return nil, false, fleeterror.NewInvalidArgumentError(
 					"IPv6 CIDR subnet scanning is not supported; use mDNS or IP list discovery for IPv6 devices")
 			}
+			// Check both ends: a private network address alone does not make
+			// a broad CIDR private (for example, 10.0.0.0/7 also covers 11/8).
+			last := make(net.IP, len(ipNet.IP))
+			for i := range last {
+				last[i] = ipNet.IP[i] | ^ipNet.Mask[i]
+			}
+			if !ipNet.IP.IsPrivate() || !last.IsPrivate() {
+				return nil, false, fleeterror.NewInvalidArgumentError("nmap target must be within a private (RFC1918/RFC4193) range")
+			}
 			resolved = append(resolved, t)
 		} else if ip := net.ParseIP(t); ip != nil {
+			if !ip.IsPrivate() {
+				return nil, false, fleeterror.NewInvalidArgumentError("nmap target must be within a private (RFC1918/RFC4193) range")
+			}
 			if ip.To4() == nil {
 				useIPv6 = true
+			}
+			resolved = append(resolved, ip.String())
+		} else if nmaptarget.IsIPv4Range(t) {
+			if err := nmaptarget.Validate(t); err != nil {
+				return nil, false, fleeterror.NewInvalidArgumentError(err.Error())
+			}
+			// A last-octet range stays within the starting address's /24.
+			start, _, _ := strings.Cut(t, "-")
+			if !net.ParseIP(start).IsPrivate() {
+				return nil, false, fleeterror.NewInvalidArgumentError("nmap target must be within a private (RFC1918/RFC4193) range")
 			}
 			resolved = append(resolved, t)
 		} else {
 			// Hostname — resolve and substitute the IP, preferring IPv4 so
 			// dual-stack hosts don't lose their v4 scan.
 			addrs, err := lookupIPAddr(ctx, t)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				if errors.Is(ctxErr, context.DeadlineExceeded) {
+					return nil, false, fleeterror.NewPlainError("discovery deadline exceeded", connect.CodeDeadlineExceeded)
+				}
+				return nil, false, fleeterror.NewCanceledError()
+			}
 			if err != nil || len(addrs) == 0 {
-				// Keep the original hostname; let nmap resolve it.
-				resolved = append(resolved, t)
-				continue
+				return nil, false, fleeterror.NewInvalidArgumentError(fmt.Sprintf("could not resolve nmap target %q", t))
 			}
 			var ipv4, ipv6 string
 			for _, addr := range addrs {
+				if !addr.IP.IsPrivate() {
+					continue
+				}
 				if addr.IP.To4() != nil && ipv4 == "" {
 					ipv4 = addr.IP.String()
 				} else if addr.IP.To4() == nil && ipv6 == "" {
@@ -388,9 +418,11 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 			}
 			if ipv4 != "" {
 				resolved = append(resolved, ipv4)
-			} else {
+			} else if ipv6 != "" {
 				resolved = append(resolved, ipv6)
 				useIPv6 = true
+			} else {
+				return nil, false, fleeterror.NewInvalidArgumentError("nmap target must resolve to a private (RFC1918/RFC4193) address")
 			}
 		}
 	}

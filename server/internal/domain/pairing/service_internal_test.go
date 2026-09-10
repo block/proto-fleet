@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -465,11 +466,10 @@ func TestValidateNmapTargets(t *testing.T) {
 			wantIPv6:    false,
 		},
 		{
-			name:        "unresolvable hostname is kept for nmap",
-			targets:     []string{"unresolvable.local"},
-			lookup:      noopLookup,
-			wantTargets: []string{"unresolvable.local"},
-			wantIPv6:    false,
+			name:       "unresolvable hostname is rejected",
+			targets:    []string{"unresolvable.local"},
+			lookup:     noopLookup,
+			wantErrMsg: "could not resolve nmap target",
 		},
 		{
 			name:    "mixed IPv4 literal and IPv6-only hostname",
@@ -496,6 +496,131 @@ func TestValidateNmapTargets(t *testing.T) {
 				require.Equal(t, tt.wantIPv6, ipv6)
 			}
 		})
+	}
+}
+
+func TestValidateNmapTargets_PrivateNetworks(t *testing.T) {
+	for _, tt := range []struct {
+		target string
+		want   string
+	}{
+		{target: "169.254.169.254"},
+		{target: "8.8.8.8"},
+		{target: "127.0.0.1"},
+		{target: "0.0.0.0"},
+		{target: "::1"},
+		{target: "fe80::1"},
+		{target: "2001:4860:4860::8888"},
+		{target: "::ffff:169.254.169.254"},
+		{target: "::ffff:8.8.8.8"},
+		{target: "::ffff:127.0.0.1"},
+		{target: "::ffff:192.168.1.2", want: "192.168.1.2"},
+		{target: "10.0.0.0/7"},
+		{target: "172.16.0.0/11"},
+		{target: "192.168.0.0/15"},
+		{target: "192.168.1.2/0"},
+		{target: "169.254.0.0/16"},
+		{target: "8.8.8.0/24"},
+		{target: "127.0.0.0/8"},
+		{target: "10.0.0.0/8", want: "10.0.0.0/8"},
+		{target: "172.16.0.0/12", want: "172.16.0.0/12"},
+		{target: "192.168.0.0/16", want: "192.168.0.0/16"},
+		{target: "192.168.1.2/21", want: "192.168.1.2/21"},
+		{target: "10.0.0.1/32", want: "10.0.0.1/32"},
+		{target: "192.168.1.2-254", want: "192.168.1.2-254"},
+		{target: "169.254.169.1-254"},
+		{target: "8.8.8.1-254"},
+		{target: "192.168.1.254-2"},
+	} {
+		t.Run(tt.target, func(t *testing.T) {
+			// Arrange: literal targets must never fall back to hostname resolution.
+			lookup := func(context.Context, string) ([]net.IPAddr, error) {
+				t.Fatal("unexpected DNS lookup")
+				return nil, nil
+			}
+
+			// Act.
+			got, ipv6, err := validateNmapTargets(t.Context(), []string{tt.target}, lookup)
+
+			// Assert.
+			if tt.want == "" {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []string{tt.want}, got)
+			require.False(t, ipv6)
+		})
+	}
+}
+
+func TestValidateNmapTargets_PrivateHostnameAnswers(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		answers []string
+		want    string
+		ipv6    bool
+	}{
+		{name: "empty response"},
+		{name: "public only", answers: []string{"8.8.8.8", "2001:4860:4860::8888"}},
+		{name: "metadata only", answers: []string{"169.254.169.254"}},
+		{name: "loopback and link local", answers: []string{"127.0.0.1", "::1", "fe80::1"}},
+		{name: "mapped public only", answers: []string{"::ffff:8.8.8.8"}},
+		{name: "mixed private and public", answers: []string{"8.8.8.8", "fd00::1", "192.168.1.1"}, want: "192.168.1.1"},
+		{name: "private IPv6 and public IPv4", answers: []string{"8.8.8.8", "fd00::1"}, want: "fd00::1", ipv6: true},
+		{name: "mapped private IPv4", answers: []string{"::ffff:192.168.1.1"}, want: "192.168.1.1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange.
+			lookup := func(_ context.Context, host string) ([]net.IPAddr, error) {
+				require.Equal(t, "miner.local", host)
+				var addrs []net.IPAddr
+				for _, answer := range tt.answers {
+					addrs = append(addrs, net.IPAddr{IP: net.ParseIP(answer)})
+				}
+				return addrs, nil
+			}
+
+			// Act.
+			got, ipv6, err := validateNmapTargets(t.Context(), []string{"miner.local"}, lookup)
+
+			// Assert: successful resolutions pin one private literal for nmap.
+			if tt.want == "" {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []string{tt.want}, got)
+			require.Equal(t, tt.ipv6, ipv6)
+		})
+	}
+}
+
+func TestValidateNmapTargets_CanceledLookup(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		// Arrange: DNS lookup ends with the scan context.
+		ctx, cancel := context.WithCancel(t.Context())
+		wantCode := connect.CodeCanceled
+		if deadline {
+			cancel()
+			ctx, cancel = context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+			wantCode = connect.CodeDeadlineExceeded
+		}
+		cancel()
+		lookup := func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+			return nil, ctx.Err()
+		}
+
+		// Act.
+		got, _, err := validateNmapTargets(ctx, []string{"miner.local"}, lookup)
+
+		// Assert: cancellation is not reported as invalid operator input.
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		require.Equal(t, wantCode, fleetErr.GRPCCode)
+		require.Nil(t, got)
 	}
 }
 
