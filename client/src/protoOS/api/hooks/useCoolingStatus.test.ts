@@ -100,10 +100,9 @@ describe("useCoolingStatus", () => {
 
   test("clears stale live fan readings when a cooling snapshot omits a fan", async () => {
     useMinerStore.getState().telemetry.updateFanTelemetry(1, {
-      slot: 1,
       rpm: { latest: { value: 4_800, units: "RPM" } },
-      percentage: { latest: { value: 75, units: "%" } },
-      minRpm: { latest: { value: 1_200, units: "RPM" } },
+      speedPercent: { latest: { value: 75, units: "%" } },
+      minimumRpm: { latest: { value: 1_200, units: "RPM" } },
     });
     mockGetCoolingStatus.mockResolvedValue({ mode: "automatic", fans: [] });
 

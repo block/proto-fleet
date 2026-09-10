@@ -8,87 +8,40 @@
 // Currently we do this separately on each client before passing built-in types to shared components.
 // This could also help with rendering single miner views in ProtoFleet.
 
+import type {
+  AsicTelemetry,
+  MetricUnit as ContractMetricUnit,
+  FanTelemetry,
+  HashboardTelemetry,
+  LevelRollup,
+  PsuTelemetry,
+} from "./contract";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
 
 // reexporting types defined in shared.  Eventually all of these types should be defined in shared
 // and we wont need to do any reexporting
 export { Theme, ThemeColor, TemperatureUnit };
 
-export type PowerUnit = "W" | "kW" | "MW";
-export type HashrateUnit = "TH/s" | "TH/S" | "GH/s" | "GH/S" | "MH/s" | "MH/S";
-export type EfficiencyUnit = "J/TH";
-export type PercentageUnit = "%";
-export type RpmUnit = "RPM";
-export type VoltageUnit = "V" | "mV";
-export type CurrentUnit = "A" | "mA";
-export type FrequencyUnit = "MHz" | "GHz";
-
 type Value = number | null;
 
-export type MetricUnit =
-  | TemperatureUnit
-  | PowerUnit
-  | HashrateUnit
-  | EfficiencyUnit
-  | PercentageUnit
-  | RpmUnit
-  | VoltageUnit
-  | CurrentUnit
-  | FrequencyUnit;
+// Display units = the canonical contract unit vocabulary (`contract.MetricUnit`)
+// plus the alternate/derived units we only ever convert *to* for display and never
+// store: Fahrenheit, kW/MW, mV/mA, GHz. Because this is a strict superset of the
+// contract units, a measurement read straight off the contract is assignable here
+// without adaptation. The Celsius/Fahrenheit *preference* is a separate semantic
+// enum (`TemperatureUnit`, "C" | "F") mapped to "°C" | "°F" at the render boundary
+// via `temperatureDisplayUnit`.
+export type DisplayMetricUnit = ContractMetricUnit | "°F" | "kW" | "MW" | "mV" | "mA" | "GHz";
 
-// Time Series Data Types
-export interface MetricTimeSeries {
-  aggregates?: {
-    min?: Measurement;
-    avg?: Measurement;
-    max?: Measurement;
-  };
-  units: MetricUnit;
-  values: Value[];
-  startTime: number;
-  endTime: number;
-  bucketSizeMs?: number;
-}
-
+// Display measurement: the value/units pair consumed by formatting + unit-conversion
+// helpers (`telemetryUtils`) and the value components. Same shape as the store's
+// canonical `contract.Measurement`, but its `units` may also be a post-conversion
+// display unit ("kW", "°F", ...).
 export type Measurement = {
   value: Value;
-  units: MetricUnit | undefined;
+  units: DisplayMetricUnit | undefined;
   formatted?: string;
 };
-
-export type MetricTelemetry = {
-  timeSeries?: MetricTimeSeries;
-  latest?: Measurement;
-};
-
-// Telemetry Types
-export interface MinerTelemetryData {
-  hashboards: string[]; // hashboard ids
-  hashrate?: MetricTelemetry;
-  temperature?: MetricTelemetry;
-  power?: MetricTelemetry;
-  efficiency?: MetricTelemetry;
-}
-
-export interface HashboardTelemetryData {
-  serial: string;
-  inletTemp?: MetricTelemetry;
-  outletTemp?: MetricTelemetry;
-  avgAsicTemp?: MetricTelemetry;
-  maxAsicTemp?: MetricTelemetry;
-  hashrate?: MetricTelemetry;
-  temperature?: MetricTelemetry;
-  power?: MetricTelemetry;
-  efficiency?: MetricTelemetry;
-}
-
-export interface AsicTelemetryData {
-  id: string;
-  hashrate?: MetricTelemetry;
-  temperature?: MetricTelemetry;
-  voltage?: MetricTelemetry;
-  frequency?: MetricTelemetry;
-}
 
 // Chart data transformation types
 export interface ChartDataPoint {
@@ -172,12 +125,14 @@ export interface AsicHardwareData {
 export type HashboardMap = Map<string, HashboardHardwareData>;
 export type AsicMap = Map<string, AsicHardwareData>;
 
-// Data Types (combining hardware + telemetry)
-export type AsicData = AsicHardwareData & AsicTelemetryData;
+// Data Types (combining hardware + normalized-contract telemetry). The telemetry
+// half is the contract entity type minus its id key (the hardware half already
+// carries the identifier), so consumers read the normalized contract shape directly.
+export type AsicData = AsicHardwareData & Omit<AsicTelemetry, "asicId">;
 
-export type HashboardData = HashboardHardwareData & HashboardTelemetryData;
+export type HashboardData = HashboardHardwareData & Omit<HashboardTelemetry, "hashboardId">;
 
-export type MinerData = MinerHardwareData & MinerTelemetryData;
+export type MinerData = MinerHardwareData & Pick<LevelRollup, "hashrate" | "power" | "efficiency" | "temperature">;
 
 // PSU Types
 export interface PsuHardwareData {
@@ -193,21 +148,8 @@ export interface PsuHardwareData {
   };
 }
 
-export interface PsuTelemetryData {
-  id: number;
-  inputVoltage?: MetricTelemetry;
-  inputCurrent?: MetricTelemetry;
-  inputPower?: MetricTelemetry;
-  outputVoltage?: MetricTelemetry;
-  outputCurrent?: MetricTelemetry;
-  outputPower?: MetricTelemetry;
-  temperatureAmbient?: MetricTelemetry;
-  temperatureAverage?: MetricTelemetry;
-  temperatureHotspot?: MetricTelemetry;
-}
-
 export type PsuMap = Map<number, PsuHardwareData>;
-export type PsuData = PsuHardwareData & PsuTelemetryData;
+export type PsuData = PsuHardwareData & Omit<PsuTelemetry, "componentId">;
 
 // Fan Types
 export interface FanHardwareData {
@@ -215,16 +157,8 @@ export interface FanHardwareData {
   name?: string;
 }
 
-export interface FanTelemetryData {
-  slot: number; // matches FanHardwareData.slot
-  rpm?: MetricTelemetry;
-  percentage?: MetricTelemetry;
-  minRpm?: MetricTelemetry;
-  maxRpm?: MetricTelemetry;
-}
-
 export type FanMap = Map<number, FanHardwareData>;
-export type FanData = FanHardwareData & FanTelemetryData;
+export type FanData = FanHardwareData & Omit<FanTelemetry, "componentId">;
 
 // Error Types
 export type ErrorSource = "RIG" | "FAN" | "PSU" | "HASHBOARD";

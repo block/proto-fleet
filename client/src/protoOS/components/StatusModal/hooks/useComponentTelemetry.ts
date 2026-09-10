@@ -7,17 +7,11 @@ import {
   useMinerTelemetry,
   usePsuTelemetry,
 } from "@/protoOS/store";
-import type {
-  ErrorSource,
-  FanTelemetryData,
-  HashboardTelemetryData,
-  MinerTelemetryData,
-  PsuTelemetryData,
-} from "@/protoOS/store/types";
+import type { FanTelemetry, HashboardTelemetry, LevelRollup, PsuTelemetry } from "@/protoOS/store/contract";
+import type { ErrorSource } from "@/protoOS/store/types";
 
-// Union type for component telemetry data
-export type ComponentTelemetry =
-  FanTelemetryData | PsuTelemetryData | HashboardTelemetryData | MinerTelemetryData | undefined | null;
+// Union type for component telemetry data (normalized contract entities)
+export type ComponentTelemetry = FanTelemetry | PsuTelemetry | HashboardTelemetry | LevelRollup | undefined | null;
 
 /**
  * Hook to fetch component telemetry data reactively

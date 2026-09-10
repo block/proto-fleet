@@ -3,27 +3,28 @@ export { default as useMinerStore } from "./useMinerStore";
 export type {
   ChartDataPoint,
   Measurement,
-  MetricUnit,
+  DisplayMetricUnit,
   AsicHardwareData,
   HashboardHardwareData,
   MinerHardwareData,
   ControlBoardHardwareData,
-  AsicTelemetryData,
-  HashboardTelemetryData,
-  MinerTelemetryData,
   AsicData,
   HashboardData,
   MinerData,
-  MetricTimeSeries,
   PsuHardwareData,
-  PsuTelemetryData,
   PsuData,
   FanHardwareData,
-  FanTelemetryData,
   FanData,
 } from "./types";
 
-export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
+export type { MetricTimeSeries, MetricTelemetry } from "./contract";
+
+export {
+  convertValueUnits,
+  formatValue,
+  convertAndFormatMeasurement,
+  temperatureDisplayUnit,
+} from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
 export { getFanId, getHashboardId, getPsuId } from "./utils/entityIds";

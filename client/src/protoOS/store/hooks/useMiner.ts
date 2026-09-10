@@ -1,13 +1,6 @@
 import { useMemo } from "react";
 import { asAsicId, ROOT_MODULE_KEY } from "../contract";
-import {
-  asicTelemetryView,
-  fanTelemetryView,
-  hashboardTelemetryView,
-  minerTelemetryView,
-  psuTelemetryView,
-} from "../selectors/legacyTelemetry";
-import type { AsicData, FanData, HashboardData, HashboardTelemetryData, MinerData, PsuData } from "../types";
+import type { AsicData, FanData, HashboardData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
@@ -27,16 +20,15 @@ export const useMiner = (): MinerData | null => {
 
   return useMemo(() => {
     const hardware = hardwareState.getMiner();
-    const telemetry = minerTelemetryView(
-      rollup,
-      [...hardwareState.hashboards.values()].map((board) => board.identity.value),
-    );
 
-    if (!hardware || !telemetry) return null;
+    if (!hardware || !rollup) return null;
 
     return {
       ...hardware,
-      ...telemetry,
+      hashrate: rollup.hashrate,
+      power: rollup.power,
+      efficiency: rollup.efficiency,
+      temperature: rollup.temperature,
     };
   }, [hardwareState, rollup]);
 };
@@ -46,7 +38,7 @@ export const useMiner = (): MinerData | null => {
  */
 export const useMinerHashboard = (serial: string | null): HashboardData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const telemetryValue = useMinerStore((state) =>
+  const telemetry = useMinerStore((state) =>
     serial ? state.telemetry.hashboards.get(getHashboardId(serial)) : undefined,
   );
 
@@ -54,13 +46,12 @@ export const useMinerHashboard = (serial: string | null): HashboardData | null =
     if (!serial) return null;
     const hardware = hardwareState.getHashboard(serial);
     if (!hardware) return null;
-    const telemetry = telemetryValue ? hashboardTelemetryView(telemetryValue) : undefined;
 
     return {
       ...hardware,
       ...telemetry,
     };
-  }, [serial, hardwareState, telemetryValue]);
+  }, [serial, hardwareState, telemetry]);
 };
 
 /**
@@ -76,8 +67,7 @@ export const useMinerHashboards = (): HashboardData[] => {
       .filter((board) => board !== undefined);
 
     return hashboards.map((hardware) => {
-      const normalized = telemetryHashboards.get(getHashboardId(hardware.serial));
-      const telemetry = normalized ? hashboardTelemetryView(normalized) : undefined;
+      const telemetry = telemetryHashboards.get(getHashboardId(hardware.serial));
 
       return {
         ...hardware,
@@ -92,18 +82,17 @@ export const useMinerHashboards = (): HashboardData[] => {
  */
 export const useMinerAsic = (asicId: string): AsicData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const telemetryValue = useMinerStore((state) => state.telemetry.asics.get(asAsicId(asicId)));
+  const telemetry = useMinerStore((state) => state.telemetry.asics.get(asAsicId(asicId)));
 
   return useMemo(() => {
     const hardware = hardwareState.getAsic(asicId);
     if (!hardware) return null;
-    const telemetry = telemetryValue ? asicTelemetryView(telemetryValue) : undefined;
 
     return {
       ...hardware,
       ...telemetry,
     };
-  }, [asicId, hardwareState, telemetryValue]);
+  }, [asicId, hardwareState, telemetry]);
 };
 
 /**
@@ -121,8 +110,7 @@ export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
       const asicHardware = hardware.getAsic(asicId);
       if (!asicHardware) return acc;
 
-      const telemetryValue = telemetryData.get(asAsicId(asicId));
-      const telemetry = telemetryValue ? asicTelemetryView(telemetryValue) : undefined;
+      const telemetry = telemetryData.get(asAsicId(asicId));
 
       acc.push({
         ...asicHardware,
@@ -139,18 +127,17 @@ export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
  */
 export const useMinerPsu = (id: number): PsuData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const telemetryValue = useMinerStore((state) => state.telemetry.psus.get(getPsuId(id)));
+  const telemetry = useMinerStore((state) => state.telemetry.psus.get(getPsuId(id)));
 
   return useMemo(() => {
     const hardware = hardwareState.getPsu(id);
     if (!hardware) return null;
-    const telemetry = telemetryValue ? psuTelemetryView(telemetryValue) : undefined;
 
     return {
       ...hardware,
       ...telemetry,
     };
-  }, [hardwareState, id, telemetryValue]);
+  }, [hardwareState, id, telemetry]);
 };
 
 /**
@@ -164,8 +151,7 @@ export const useMinerPsus = (): PsuData[] => {
     const psus = hardware.getAllPsus();
 
     return psus.map((hardware) => {
-      const value = telemetryPsus.get(getPsuId(hardware.id));
-      const telemetry = value ? psuTelemetryView(value) : undefined;
+      const telemetry = telemetryPsus.get(getPsuId(hardware.id));
 
       return {
         ...hardware,
@@ -180,18 +166,17 @@ export const useMinerPsus = (): PsuData[] => {
  */
 export const useMinerFan = (id: number): FanData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const telemetryValue = useMinerStore((state) => state.telemetry.fans.get(getFanId(id)));
+  const telemetry = useMinerStore((state) => state.telemetry.fans.get(getFanId(id)));
 
   return useMemo(() => {
     const hardware = hardwareState.getFan(id);
     if (!hardware) return null;
-    const telemetry = telemetryValue ? fanTelemetryView(telemetryValue) : undefined;
 
     return {
       ...hardware,
       ...telemetry,
     };
-  }, [hardwareState, id, telemetryValue]);
+  }, [hardwareState, id, telemetry]);
 };
 
 /**
@@ -205,8 +190,7 @@ export const useMinerFans = (): FanData[] => {
     const fans = hardware.getAllFans();
 
     return fans.map((hardware) => {
-      const value = telemetryFans.get(getFanId(hardware.slot));
-      const telemetry = value ? fanTelemetryView(value) : undefined;
+      const telemetry = telemetryFans.get(getFanId(hardware.slot));
 
       return {
         ...hardware,
@@ -237,45 +221,43 @@ export const useChartDataForMetric = (
   const duration = useMinerStore((state) => state.ui.duration);
 
   return useMemo(() => {
-    const miner = minerTelemetryView(
-      rollup,
-      [...hardware.hashboards.values()].map((board) => board.identity.value),
-    );
-    if (!miner) return { chartData: [], chartLines: [] };
+    const minerPoints = rollup?.[metricName]?.timeSeries?.points ?? [];
+    if (!minerPoints.length || intervalMs === undefined) return { chartData: [], chartLines: [] };
 
-    const minerMetric = miner[metricName]?.timeSeries;
-    if (!minerMetric?.values.length || intervalMs === undefined) return { chartData: [], chartLines: [] };
+    // Anchor the series to the first bucket timestamp, then advance by the fixed
+    // bucket interval per index so miner + hashboard series stay index-aligned.
+    const startTime = minerPoints[0]?.timestampMs ?? 0;
 
-    // Get hashboards associated with this miner
-    const minerHashboards = miner.hashboards
-      .map((id) => hashboardsTelemetry.get(getHashboardId(id)))
-      .filter((value) => value !== undefined)
-      .map(hashboardTelemetryView) as HashboardTelemetryData[];
-
-    // Sort hashboards by slot using hardware slice
-    const sortedMinerHashboards = minerHashboards.sort((a, b) => {
-      const slotA = hardware.getHashboard(a.serial)?.slot;
-      const slotB = hardware.getHashboard(b.serial)?.slot;
-      return (slotA ?? 0) - (slotB ?? 0);
-    });
+    // Get hashboards for this miner (from hardware), keep their telemetry + slot for sorting
+    const sortedHashboards = [...hardware.hashboards.values()]
+      .map((board) => {
+        const serial = board.identity.value;
+        return {
+          serial,
+          slot: hardware.getHashboard(serial)?.slot ?? 0,
+          telemetry: hashboardsTelemetry.get(getHashboardId(serial)),
+        };
+      })
+      .filter((board) => board.telemetry !== undefined)
+      .sort((a, b) => a.slot - b.slot);
 
     // Generate chart lines (keys that will be in the data)
-    const chartLines = ["miner", ...sortedMinerHashboards.map((hb) => hb.serial)];
+    const chartLines = ["miner", ...sortedHashboards.map((hb) => hb.serial)];
 
     // Create chart data points
-    const chartData = minerMetric.values.map((minerValue, index) => {
-      const datetime = minerMetric.startTime + index * intervalMs;
+    const chartData = minerPoints.map((point, index) => {
+      const datetime = startTime + index * intervalMs;
 
       const dataPoint: ChartData = {
         datetime,
-        miner: minerValue,
+        miner: point.value,
       };
 
       // Add hashboard values for the same metric and timestamp
-      sortedMinerHashboards.forEach((hashboard) => {
-        const hashboardMetric = hashboard[metricName]?.timeSeries;
-        if (hashboardMetric?.values && hashboardMetric?.values.length > index) {
-          dataPoint[hashboard.serial] = hashboardMetric?.values[index];
+      sortedHashboards.forEach(({ serial, telemetry }) => {
+        const hashboardPoints = telemetry?.[metricName]?.timeSeries?.points;
+        if (hashboardPoints && hashboardPoints.length > index) {
+          dataPoint[serial] = hashboardPoints[index]?.value ?? null;
         }
       });
 
@@ -285,7 +267,7 @@ export const useChartDataForMetric = (
     // Anchor the X-axis to the data's startTime and extend by the exact
     // selected duration so the chart always spans the full user-selected range
     const durationMs = getDurationMs(duration);
-    const xAxisDomain: [number, number] = [minerMetric.startTime, minerMetric.startTime + durationMs];
+    const xAxisDomain: [number, number] = [startTime, startTime + durationMs];
 
     return { chartData, chartLines, xAxisDomain };
   }, [rollup, hashboardsTelemetry, hardware, intervalMs, metricName, duration]);

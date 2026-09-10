@@ -16,6 +16,7 @@ import {
   formatValue,
   HashboardData,
   type Measurement,
+  temperatureDisplayUnit,
   type TemperatureUnit,
   useHashboardsHardware,
   useMinerHashboard,
@@ -84,7 +85,9 @@ const HashboardRail = ({ rail, center, readings, temperatureUnit }: HashboardRai
   const endText = (end: RailEnd) => {
     const measurement = readings[end.reading];
 
-    return measurement ? `${end.label} ${convertAndFormatMeasurement(measurement, temperatureUnit, false)}` : end.label;
+    return measurement
+      ? `${end.label} ${convertAndFormatMeasurement(measurement, temperatureDisplayUnit(temperatureUnit), false)}`
+      : end.label;
   };
 
   return (
@@ -141,12 +144,18 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const stats = useMemo(
     () =>
       getStats(
-        convertValueUnits(hashboard?.avgAsicTemp?.latest, temperatureUnit),
-        convertValueUnits(hashboard?.maxAsicTemp?.latest, temperatureUnit),
+        convertValueUnits(hashboard?.averageAsicTemperature?.latest, temperatureDisplayUnit(temperatureUnit)),
+        convertValueUnits(hashboard?.maximumAsicTemperature?.latest, temperatureDisplayUnit(temperatureUnit)),
         convertValueUnits(hashboard?.power?.latest, "kW"),
-        convertValueUnits(hashboard?.hashrate?.latest, "TH/S"),
+        convertValueUnits(hashboard?.hashrate?.latest, "TH/s"),
       ),
-    [temperatureUnit, hashboard?.avgAsicTemp, hashboard?.maxAsicTemp, hashboard?.power, hashboard?.hashrate],
+    [
+      temperatureUnit,
+      hashboard?.averageAsicTemperature,
+      hashboard?.maximumAsicTemperature,
+      hashboard?.power,
+      hashboard?.hashrate,
+    ],
   );
 
   // Rail temperatures. Where each reading surfaces depends on airflow direction,
@@ -154,8 +163,8 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   // and outlet at opposite ends), container modules run bottom-to-top (outlet
   // across the top rail, inlet across the bottom).
   const railReadings: RailReadings = {
-    inlet: hashboard?.inletTemp?.latest,
-    outlet: hashboard?.outletTemp?.latest,
+    inlet: hashboard?.inletTemperature?.latest,
+    outlet: hashboard?.outletTemperature?.latest,
   };
 
   return (
@@ -194,7 +203,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           segments={[
             {
               key: "temperature",
-              title: `Temperature (°${temperatureUnit})`,
+              title: `Temperature (${temperatureDisplayUnit(temperatureUnit)})`,
             },
             {
               key: "hashrate",

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import {
   convertAndFormatMeasurement,
+  temperatureDisplayUnit,
   useChartDataForMetric,
   useMiner,
   useMinerHashboards,
@@ -18,24 +19,25 @@ type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
 const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
+  const displayUnit = temperatureDisplayUnit(temperatureUnit);
 
   const baseStats: StatProps[] = [
     {
       label: "Average",
-      value: convertAndFormatMeasurement(avg, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(avg, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
     {
       label: "Highest",
-      value: convertAndFormatMeasurement(max, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(max, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
     {
       label: "Lowest",
-      value: convertAndFormatMeasurement(min, temperatureUnit, false),
-      units: "°" + temperatureUnit,
+      value: convertAndFormatMeasurement(min, displayUnit, false),
+      units: displayUnit,
       size: "small",
     },
   ];
@@ -83,7 +85,7 @@ const Temperature = () => {
           <KpiLineChart
             chartData={chartData}
             chartLines={chartLines}
-            units={"°" + temperatureUnit}
+            units={temperatureDisplayUnit(temperatureUnit)}
             xAxisDomainOverride={xAxisDomain}
           />
         </ErrorBoundary>

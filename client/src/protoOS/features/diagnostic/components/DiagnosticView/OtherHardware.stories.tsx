@@ -52,19 +52,17 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       firmware: { appVersion: "2.1.5", bootloaderVersion: "1.2.0" },
     });
 
-    const series = <U extends "V" | "W" | "C">(units: U) => ({
+    const series = <U extends "V" | "W" | "°C">(units: U) => ({
       units,
-      values: [],
-      startTime: Date.now(),
-      endTime: Date.now(),
+      points: [],
     });
     store.telemetry.updatePsuTelemetry(PSU_SLOT, {
       inputVoltage: { latest: { value: 220.0, units: "V" }, timeSeries: series("V") },
       outputVoltage: { latest: { value: 12.5, units: "V" }, timeSeries: series("V") },
       inputPower: { latest: { value: 3200, units: "W" }, timeSeries: series("W") },
       outputPower: { latest: { value: 3000, units: "W" }, timeSeries: series("W") },
-      temperatureAverage: { latest: { value: 48.0, units: "C" }, timeSeries: series("C") },
-      temperatureHotspot: { latest: { value: 55.0, units: "C" }, timeSeries: series("C") },
+      averageTemperature: { latest: { value: 48.0, units: "°C" }, timeSeries: series("°C") },
+      hotspotTemperature: { latest: { value: 55.0, units: "°C" }, timeSeries: series("°C") },
     });
 
     // A control board so the production single-controller fallback would also

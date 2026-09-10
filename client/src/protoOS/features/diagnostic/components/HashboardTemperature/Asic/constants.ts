@@ -15,18 +15,16 @@ const createMockAsic = (id: number, row: number, column: number, tempC: number, 
   temperature: {
     latest: {
       value: tempC,
-      units: "C" as const,
+      units: "°C" as const,
     },
     timeSeries: {
-      units: "C" as const,
-      values: [tempC],
+      units: "°C" as const,
+      points: [{ timestampMs: Date.now(), value: tempC }],
       aggregates: {
-        avg: { value: tempC, units: "C" },
-        min: { value: tempC, units: "C" },
-        max: { value: tempC, units: "C" },
+        avg: { value: tempC, units: "°C" },
+        min: { value: tempC, units: "°C" },
+        max: { value: tempC, units: "°C" },
       },
-      startTime: Date.now() - 3600000,
-      endTime: Date.now(),
     },
   },
   hashrate: {
@@ -36,14 +34,12 @@ const createMockAsic = (id: number, row: number, column: number, tempC: number, 
     },
     timeSeries: {
       units: "GH/s" as const,
-      values: [hashrateGhs],
+      points: [{ timestampMs: Date.now(), value: hashrateGhs }],
       aggregates: {
         avg: { value: hashrateGhs, units: "GH/s" },
         min: { value: hashrateGhs, units: "GH/s" },
         max: { value: hashrateGhs, units: "GH/s" },
       },
-      startTime: Date.now() - 3600000,
-      endTime: Date.now(),
     },
   },
 });
