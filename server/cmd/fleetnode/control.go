@@ -501,7 +501,7 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	// supervisor (a probe ignored ctx). Either way reports already uploaded.
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) || errors.Is(scanErr, context.DeadlineExceeded) {
 		message := fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports))
-		if req.GetNmap() != nil {
+		if req.GetNetworkScan() != nil {
 			message += ". Retry to check other addresses, or narrow the range."
 		}
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, message, logger)
@@ -579,12 +579,12 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
 		}
 		return r.probeTargets(ctx, target.Addresses(), ports, logger)
-	case *pairingpb.DiscoverRequest_Nmap:
-		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		ports, err := r.resolveAndValidatePorts(ctx, m.NetworkScan.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		targets, err := r.networkScanTargets(ctx, m.Nmap)
+		targets, err := r.networkScanTargets(ctx, m.NetworkScan)
 		if err != nil {
 			return nil, false, err
 		}

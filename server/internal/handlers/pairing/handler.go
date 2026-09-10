@@ -88,8 +88,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		resultChan, err = h.pairingSvc.DiscoverWithIPList(streamCtx, r.Msg.GetIpList())
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
-	case *pb.DiscoverRequest_Nmap:
-		resultChan, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
+	case *pb.DiscoverRequest_NetworkScan:
+		resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
 	default:
@@ -214,7 +214,7 @@ func discoverySourceWarning(source string, err error) *pb.DiscoverResponse {
 // discovery service translates automatic local-subnet scans before dispatch.
 func fleetNodeDiscoveryRequest(req *pb.DiscoverRequest) *pb.DiscoverRequest {
 	switch req.GetMode().(type) {
-	case *pb.DiscoverRequest_IpList, *pb.DiscoverRequest_IpRange, *pb.DiscoverRequest_Nmap:
+	case *pb.DiscoverRequest_IpList, *pb.DiscoverRequest_IpRange, *pb.DiscoverRequest_NetworkScan:
 		return req
 	default:
 		return nil
