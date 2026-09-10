@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -118,6 +119,9 @@ func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NmapMode
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("resolve scan target: %w", ctx.Err())
 			}
+			if isDNSResolutionError(err) {
+				return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", err)
+			}
 			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 		}
 		return target.Addresses(), nil
@@ -164,4 +168,9 @@ func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NmapMode
 			}
 		}
 	}, nil
+}
+
+func isDNSResolutionError(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
 }

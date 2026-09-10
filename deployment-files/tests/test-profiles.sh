@@ -233,6 +233,22 @@ check_control_stream_route() { # config upstream_host
     fi
 }
 
+check_discovery_routes() { # config upstream_host
+    local config="$1" upstream_host="$2" route block expected
+    for route in pairing.v1.PairingService/Discover fleetnodeadmin.v1.FleetNodeAdminService/DiscoverOnFleetNode; do
+        block=$(sed -n "\|location = /api-proxy/${route} {|,/^[[:space:]]*}/p" "$config")
+        for expected in "proxy_pass http://${upstream_host}:4000/${route};" 'proxy_read_timeout 13m;' 'proxy_buffering off;'; do
+            if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+                fail "$(basename "$config"): ${route} route does not contain: $expected"
+            fi
+        done
+    done
+}
+
+check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_discovery_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+
 check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
 check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
 check_control_stream_route "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1

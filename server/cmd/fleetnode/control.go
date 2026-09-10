@@ -433,11 +433,15 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		}
 		normalized := make([]netip.Addr, 0, len(ips))
 		seen := make(map[netip.Addr]struct{}, len(ips))
+		var resolutionErr error
 		for _, raw := range ips {
 			addr, err := netscan.ResolveAddr(ctx, raw, r.resolver, true)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, false, fmt.Errorf("resolve IP list: %w", ctx.Err())
+				}
+				if resolutionErr == nil && isDNSResolutionError(err) {
+					resolutionErr = err
 				}
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
@@ -448,9 +452,16 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			}
 		}
 		if len(normalized) == 0 {
+			if resolutionErr != nil {
+				return nil, false, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
+			}
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		return r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		reports, truncated, probeErr := r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		if resolutionErr != nil && !errors.Is(ctx.Err(), context.Canceled) {
+			return reports, truncated, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
+		}
+		return reports, truncated, probeErr
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpRange.GetPorts())
 		if err != nil {

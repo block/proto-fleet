@@ -11,6 +11,7 @@ import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useHasPermission } from "@/protoFleet/store";
+import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/api/useFleetNodes");
 vi.mock("@/protoFleet/api/useMinerPairing");
@@ -111,6 +112,33 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
 
 describe("MinersWrapper", () => {
   describe("network scan discovery", () => {
+    it("shows an incomplete-discovery notification with the source and keeps discovered miners", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover.mockImplementationOnce(async ({ onStreamData, onWarning }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.101")]);
+        onWarning("Fleet Node north: scan timed out");
+        onStreamData([createDiscoveredMiner("miner-2", "192.168.1.102")]);
+      });
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => {
+        expect(screen.getByText("2 miners found on your network")).toBeInTheDocument();
+      });
+      expect(pushToast).toHaveBeenCalledWith({
+        message: "Discovery incomplete: Fleet Node north: scan timed out",
+        status: "error",
+      });
+    });
+
     it("shows loading skeleton when network info is available and Find miners is clicked", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
@@ -552,9 +580,7 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(
-        await screen.findByText("Some remote networks are currently unavailable and may not be searched."),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
       expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
     });
 
@@ -563,11 +589,24 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(
-        await screen.findByText(
-          "Remote network discovery is currently unavailable. Some networks may not be searched.",
-        ),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+    });
+
+    it("links coverage warnings to Fleet Node settings", async () => {
+      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
+      renderMinersPage("pairing");
+      expect(await screen.findByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute(
+        "href",
+        "/settings/nodes",
+      );
+    });
+
+    it("hides the settings link without Fleet Node read permission", async () => {
+      vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:read");
+      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
+      renderMinersPage("pairing");
+      await screen.findByTestId("remote-discovery-warning");
+      expect(screen.queryByRole("link", { name: "View Fleet Node settings" })).not.toBeInTheDocument();
     });
 
     it("warns when remote coverage cannot be checked", async () => {
@@ -575,9 +614,7 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(
-        await screen.findByText("Remote network availability could not be checked. Some networks may not be searched."),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
     });
 
     it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {
@@ -599,11 +636,7 @@ describe("MinersWrapper", () => {
 
       // Assert: the refreshed disconnected state is visible alongside results.
       expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
-      expect(
-        await screen.findByText(
-          "Remote network discovery is currently unavailable. Some networks may not be searched.",
-        ),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
 
       await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
       fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
@@ -639,7 +672,7 @@ describe("MinersWrapper", () => {
       await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
 
       // Assert: delayed warnings are visible without leaving scanning or results.
-      const warning = "Some remote networks are currently unavailable and may not be searched.";
+      const warning = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
       expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
       await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
       await act(async () => finishScan());
@@ -691,9 +724,7 @@ describe("MinersWrapper", () => {
 
       // Assert
       expect(mockDiscover).toHaveBeenCalledTimes(1);
-      expect(
-        await screen.findByText("Remote network availability could not be checked. Some networks may not be searched."),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
     });
 
     it.each(["success", "failure"])("ignores a stale initial coverage %s after a newer scan check", async (outcome) => {
@@ -720,11 +751,7 @@ describe("MinersWrapper", () => {
       });
 
       // Assert: neither an older success nor failure overwrites the latest check.
-      expect(
-        await screen.findByText(
-          "Remote network discovery is currently unavailable. Some networks may not be searched.",
-        ),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
     });
 
     it("shows no warning when there are no confirmed nodes", async () => {
