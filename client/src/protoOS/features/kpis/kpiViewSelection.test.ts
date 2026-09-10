@@ -104,12 +104,15 @@ describe("resolveKpiViewSelection", () => {
     expect(resolveKpiViewSelection(topology, String(tankId), "1")).toEqual({ level: "module", moduleId });
   });
 
-  it("falls back to the container scope when a container route cannot be resolved", () => {
+  it("returns not-found when a container route tank cannot be resolved", () => {
     const topology = containerTopology();
 
-    expect(resolveKpiViewSelection(topology, "missing", "1")).toEqual({
-      level: "container",
-      containerId: topology.containerId,
-    });
+    expect(resolveKpiViewSelection(topology, "missing", "1")).toEqual({ level: "notFound" });
+  });
+
+  it("returns not-found when a module route cannot be resolved", () => {
+    const topology = containerTopology();
+
+    expect(resolveKpiViewSelection(topology, "tank:slotless", "missing")).toEqual({ level: "notFound" });
   });
 });

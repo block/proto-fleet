@@ -342,6 +342,13 @@ export class MdkV2Adapter implements MinerAdapter {
     const end = request.endTime ?? (windowMs === undefined ? undefined : new Date(startMs + windowMs).toISOString());
     const bucket = bucketConfig(request.interval);
     const decorated = this.decorate(params);
+    const bucketedBoundary = (value: string | undefined) => {
+      if (!value) return undefined;
+      const valueMs = Date.parse(value);
+      return Number.isNaN(valueMs)
+        ? value
+        : new Date(Math.floor(valueMs / bucket.intervalMs) * bucket.intervalMs).toISOString();
+    };
     const hashboardCacheKey = (query: TelemetryServiceQueryTimeSeriesParams) => {
       if (!query.identifier) return undefined;
 
@@ -353,8 +360,8 @@ export class MdkV2Adapter implements MinerAdapter {
         bucketSize: query.bucketSize,
         aggregation,
         duration: slidingWindow ? request.duration : undefined,
-        startTime: slidingWindow ? undefined : query["range.start"],
-        endTime: slidingWindow ? undefined : query["range.end"],
+        startTime: slidingWindow ? bucketedBoundary(query["range.start"]) : query["range.start"],
+        endTime: slidingWindow ? bucketedBoundary(query["range.end"]) : query["range.end"],
       });
     };
     const queryTimeSeries = async (query: TelemetryServiceQueryTimeSeriesParams) => {

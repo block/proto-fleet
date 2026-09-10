@@ -345,16 +345,22 @@ describe("MdkV2Adapter", () => {
 
     await adapter.getTimeSeries(request("2026-09-02T11:00:00Z"));
     await adapter.getTimeSeries(request("2026-09-02T11:00:30Z"));
+    await adapter.getTimeSeries(request("2026-09-02T11:04:59Z"));
 
-    expect(getContainerMap).toHaveBeenCalledTimes(2);
+    expect(getContainerMap).toHaveBeenCalledTimes(3);
     expect(queryTimeSeries).toHaveBeenCalledTimes(2);
-
-    vi.setSystemTime(new Date("2026-09-02T12:05:01Z"));
 
     await adapter.getTimeSeries(request("2026-09-02T11:05:01Z"));
 
-    expect(getContainerMap).toHaveBeenCalledTimes(3);
+    expect(getContainerMap).toHaveBeenCalledTimes(4);
     expect(queryTimeSeries).toHaveBeenCalledTimes(4);
+
+    vi.setSystemTime(new Date("2026-09-02T12:05:01Z"));
+
+    await adapter.getTimeSeries(request("2026-09-02T11:05:30Z"));
+
+    expect(getContainerMap).toHaveBeenCalledTimes(5);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(6);
   });
 
   test("returns CT1 plant fans from the cooling-status adapter method", async () => {

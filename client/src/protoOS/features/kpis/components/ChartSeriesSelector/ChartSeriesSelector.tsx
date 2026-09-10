@@ -38,6 +38,7 @@ const SeriesButton = ({
     <Button
       size={sizes.compact}
       variant={selected ? variants.secondary : variants.ghost}
+      ariaPressed={selected}
       className={buttonClassName(selected)}
       prefixIcon={<Circle className="mr-1" width="w-2" style={{ background: color }} />}
       text={option.label}
@@ -93,6 +94,7 @@ const ChartSeriesSelector = ({
       <Button
         size={sizes.compact}
         variant={aggregateSelected ? variants.secondary : variants.ghost}
+        ariaPressed={aggregateSelected}
         className={buttonClassName(aggregateSelected)}
         text="Summary"
         onClick={toggleAggregate}
@@ -102,6 +104,7 @@ const ChartSeriesSelector = ({
         <Button
           size={sizes.compact}
           variant={allSeriesSelected ? variants.secondary : variants.ghost}
+          ariaPressed={allSeriesSelected}
           className={buttonClassName(allSeriesSelected)}
           text={`All ${segmentsLabel}`}
           onClick={toggleAllSeries}

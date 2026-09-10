@@ -54,4 +54,20 @@ describe("ChartSeriesSelector", () => {
 
     expect(onChange).toHaveBeenCalledWith(["tank:3"]);
   });
+
+  test("exposes selected filter state to assistive technology", () => {
+    render(
+      <ChartSeriesSelector
+        activeKeys={["miner", ...tanks.map(({ key }) => key)]}
+        aggregateKey="miner"
+        onChange={vi.fn()}
+        segmentsLabel="tanks"
+        series={tanks}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Summary", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All tanks", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "3", pressed: true })).toBeInTheDocument();
+  });
 });

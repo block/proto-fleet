@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import type { TelemetryLevel, TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
@@ -42,11 +42,10 @@ const selectedContainerHashboardIndexes = (
   });
 };
 
-const KpiLayout = () => {
+const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined }) => {
   const poolsInfo = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
-  const selection = useKpiViewSelection();
   const isContainer = useMinerStore((state) => state.hardware.topology?.kind === "container");
   const hardware = useMinerStore((state) => state.hardware);
   const { minerRoot } = useMinerHosting();
@@ -155,6 +154,15 @@ const KpiLayout = () => {
       </div>
     </ErrorBoundary>
   );
+};
+
+const KpiLayout = () => {
+  const selection = useKpiViewSelection();
+  const { minerRoot } = useMinerHosting();
+
+  if (selection?.level === "notFound") return <Navigate to={`${minerRoot}/`} replace />;
+
+  return <KpiLayoutContent selection={selection} />;
 };
 
 export default KpiLayout;
