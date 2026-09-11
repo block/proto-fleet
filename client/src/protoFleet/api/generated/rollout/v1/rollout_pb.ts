@@ -1411,13 +1411,15 @@ export type RolloutDevice = Message<"rollout.v1.RolloutDevice"> & {
   tempC?: MetricComparison | undefined;
 
   /**
-   * Update commands sent to this miner so far.
+   * Dispatch attempts for this miner so far, including preflight skips.
    *
    * @generated from field: int32 attempts = 18;
    */
   attempts: number;
 
   /**
+   * Time of the last dispatch attempt, whether dispatched or preflight-skipped.
+   *
    * @generated from field: google.protobuf.Timestamp last_sent_at = 19;
    */
   lastSentAt?: Timestamp | undefined;
@@ -3453,7 +3455,8 @@ export enum RolloutDevicePhase {
   DONE = 4,
 
   /**
-   * Attempts exhausted, or the rollout was canceled before this miner
+   * Attempts exhausted, reported manufacturer/model became incompatible
+   * before verification, or the rollout was canceled before this miner
    * updated. Retried only by RetryFailedRolloutDevices. Offline accounting
    * follows RolloutBehavior.max_concurrent_offline.
    *
@@ -3754,6 +3757,21 @@ export const RolloutErrorReasonSchema: GenEnum<RolloutErrorReason> =
  * channels lose. If channels tie at the highest specificity, the miner belongs
  * to none until the conflict is removed. Query every matching channel in
  * either overlap with ListReleaseChannelMembershipConflicts.
+ *
+ * Target membership rule: once enrolled, a rollout target remains tied to its
+ * paired device while that device belongs to the channel. A firmware-induced
+ * change to the reported manufacturer or model does not exclude the target or
+ * prove success: the server still requires the normal artifact and health
+ * evidence. Dispatch requires the current reported pair to match the assigned
+ * firmware. To establish new provenance after a reported pair changes, the
+ * server also requires a successful device result from that target's actual
+ * dispatch batch for the assigned artifact. Merely queuing or failing an update
+ * cannot prove a rename, even if both artifacts report the same version.
+ * An incompatible target that has not verified after the last
+ * dispatch attempt's wait is FAILED with an explanation instead of being sent
+ * another update. A preflight-skipped attempt cannot establish deployment
+ * provenance. Deleting and re-pairing a miner does not transfer the old target's
+ * history to the new paired device.
  *
  * Assignment-generation rule: every (channel, manufacturer, model) pair has a
  * generation counter, exposed as ReleaseChannelModelGroup.assignment_generation,

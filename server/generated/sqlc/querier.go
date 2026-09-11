@@ -1139,8 +1139,11 @@ type Querier interface {
 	// status, latest telemetry within 15 minutes of this statement, open errors
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
-	// and whether it is still a member of the
-	// channel for the rollout's pair. Live health is evidence for the engine's
+	// and channel membership separately from eligibility for the rollout's pair.
+	// Existing targets remain tied to their paired device when firmware changes its
+	// reported manufacturer/model: the engine still verifies the update's outcome,
+	// but in_scope must be true before dispatching another compatible update.
+	// Live health is evidence for the engine's
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
 	// with empty identity and is out of scope.
@@ -1468,6 +1471,8 @@ type Querier interface {
 	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
+	// Every attempted target advances retry pacing, including preflight skips.
+	// Only targets actually dispatched to may authorize a later provenance write.
 	MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFirmwareRolloutDevicesSentParams) error
 	// Latches convergence for miners that meet every criterion this tick, so the
 	// phase change is a rollout change under the revision rule.

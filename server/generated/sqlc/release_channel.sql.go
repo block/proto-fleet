@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 	"github.com/lib/pq"
 )
 
@@ -209,59 +210,36 @@ const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 INSERT INTO firmware_rollout (
     org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version,
     previous_firmware_checksum, previous_firmware_version, assignment_generation,
-    stage, stage_changed_at,
-    method, order_by, batch_size, pilot_size, wait_between_batches_seconds,
-    review_after_each_batch, auto_continue, stabilization_seconds,
-    max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors,
-    min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count,
+    stage, stage_changed_at, behavior_snapshot, batch_count,
     started_by_type, started_by_id, started_by_name,
     last_action_by_type, last_action_by_id, last_action_by_name
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
     $7, $8, $9,
-    $10, clock_timestamp(),
-    $11, $12, $13, $14, $15,
-    $16, $17, $18,
-    $19::double precision, $20::double precision,
-    $21::double precision, $22::int,
-    $23::double precision, $24, $25, $26,
-    $27, $28, $29,
-    $27, $28, $29
+    $10, clock_timestamp(), $11, $12,
+    $13, $14, $15,
+    $13, $14, $15
 )
-RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at
+RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at
 `
 
 type CreateFirmwareRolloutParams struct {
-	OrgID                        int64
-	ChannelID                    int64
-	Manufacturer                 string
-	Model                        string
-	FirmwareChecksum             string
-	FirmwareVersion              string
-	PreviousFirmwareChecksum     string
-	PreviousFirmwareVersion      string
-	AssignmentGeneration         int64
-	Stage                        string
-	Method                       string
-	OrderBy                      string
-	BatchSize                    int32
-	PilotSize                    int32
-	WaitBetweenBatchesSeconds    int32
-	ReviewAfterEachBatch         bool
-	AutoContinue                 bool
-	StabilizationSeconds         int32
-	MaxHashrateDropPercent       sql.NullFloat64
-	MaxEfficiencyIncreasePercent sql.NullFloat64
-	MaxTempIncreaseC             sql.NullFloat64
-	MaxNewErrors                 sql.NullInt32
-	MinSampleCoveragePercent     sql.NullFloat64
-	MaxConcurrentOffline         int32
-	ControllerTimeoutSeconds     int32
-	BatchCount                   int32
-	ActorType                    string
-	ActorID                      int64
-	ActorName                    string
+	OrgID                    int64
+	ChannelID                int64
+	Manufacturer             string
+	Model                    string
+	FirmwareChecksum         string
+	FirmwareVersion          string
+	PreviousFirmwareChecksum string
+	PreviousFirmwareVersion  string
+	AssignmentGeneration     int64
+	Stage                    string
+	BehaviorSnapshot         dbtypes.RolloutBehaviorSnapshot
+	BatchCount               int32
+	ActorType                string
+	ActorID                  int64
+	ActorName                string
 }
 
 // --- Rollouts ---
@@ -279,21 +257,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.PreviousFirmwareVersion,
 		arg.AssignmentGeneration,
 		arg.Stage,
-		arg.Method,
-		arg.OrderBy,
-		arg.BatchSize,
-		arg.PilotSize,
-		arg.WaitBetweenBatchesSeconds,
-		arg.ReviewAfterEachBatch,
-		arg.AutoContinue,
-		arg.StabilizationSeconds,
-		arg.MaxHashrateDropPercent,
-		arg.MaxEfficiencyIncreasePercent,
-		arg.MaxTempIncreaseC,
-		arg.MaxNewErrors,
-		arg.MinSampleCoveragePercent,
-		arg.MaxConcurrentOffline,
-		arg.ControllerTimeoutSeconds,
+		arg.BehaviorSnapshot,
 		arg.BatchCount,
 		arg.ActorType,
 		arg.ActorID,
@@ -314,21 +278,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.Status,
 		&i.CancelReason,
 		&i.Stage,
-		&i.Method,
-		&i.OrderBy,
-		&i.BatchSize,
-		&i.PilotSize,
-		&i.WaitBetweenBatchesSeconds,
-		&i.ReviewAfterEachBatch,
-		&i.AutoContinue,
-		&i.StabilizationSeconds,
-		&i.MaxHashrateDropPercent,
-		&i.MaxEfficiencyIncreasePercent,
-		&i.MaxTempIncreaseC,
-		&i.MaxNewErrors,
-		&i.MinSampleCoveragePercent,
-		&i.MaxConcurrentOffline,
-		&i.ControllerTimeoutSeconds,
+		&i.BehaviorSnapshot,
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
@@ -511,7 +461,7 @@ func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareR
 }
 
 const getActiveFirmwareRolloutForPair = `-- name: GetActiveFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -541,21 +491,7 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 		&i.Status,
 		&i.CancelReason,
 		&i.Stage,
-		&i.Method,
-		&i.OrderBy,
-		&i.BatchSize,
-		&i.PilotSize,
-		&i.WaitBetweenBatchesSeconds,
-		&i.ReviewAfterEachBatch,
-		&i.AutoContinue,
-		&i.StabilizationSeconds,
-		&i.MaxHashrateDropPercent,
-		&i.MaxEfficiencyIncreasePercent,
-		&i.MaxTempIncreaseC,
-		&i.MaxNewErrors,
-		&i.MinSampleCoveragePercent,
-		&i.MaxConcurrentOffline,
-		&i.ControllerTimeoutSeconds,
+		&i.BehaviorSnapshot,
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
@@ -576,7 +512,7 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 `
 
@@ -602,21 +538,7 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.Status,
 		&i.CancelReason,
 		&i.Stage,
-		&i.Method,
-		&i.OrderBy,
-		&i.BatchSize,
-		&i.PilotSize,
-		&i.WaitBetweenBatchesSeconds,
-		&i.ReviewAfterEachBatch,
-		&i.AutoContinue,
-		&i.StabilizationSeconds,
-		&i.MaxHashrateDropPercent,
-		&i.MaxEfficiencyIncreasePercent,
-		&i.MaxTempIncreaseC,
-		&i.MaxNewErrors,
-		&i.MinSampleCoveragePercent,
-		&i.MaxConcurrentOffline,
-		&i.ControllerTimeoutSeconds,
+		&i.BehaviorSnapshot,
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
@@ -637,7 +559,7 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 }
 
 const getFirmwareRolloutForUpdate = `-- name: GetFirmwareRolloutForUpdate :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
 `
@@ -666,21 +588,7 @@ func (q *Queries) GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwa
 		&i.Status,
 		&i.CancelReason,
 		&i.Stage,
-		&i.Method,
-		&i.OrderBy,
-		&i.BatchSize,
-		&i.PilotSize,
-		&i.WaitBetweenBatchesSeconds,
-		&i.ReviewAfterEachBatch,
-		&i.AutoContinue,
-		&i.StabilizationSeconds,
-		&i.MaxHashrateDropPercent,
-		&i.MaxEfficiencyIncreasePercent,
-		&i.MaxTempIncreaseC,
-		&i.MaxNewErrors,
-		&i.MinSampleCoveragePercent,
-		&i.MaxConcurrentOffline,
-		&i.ControllerTimeoutSeconds,
+		&i.BehaviorSnapshot,
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
@@ -714,7 +622,7 @@ func (q *Queries) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, e
 }
 
 const getFirmwareRolloutWithChannel = `-- name: GetFirmwareRolloutWithChannel :one
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.method, r.order_by, r.batch_size, r.pilot_size, r.wait_between_batches_seconds, r.review_after_each_batch, r.auto_continue, r.stabilization_seconds, r.max_hashrate_drop_percent, r.max_efficiency_increase_percent, r.max_temp_increase_c, r.max_new_errors, r.min_sample_coverage_percent, r.max_concurrent_offline, r.controller_timeout_seconds, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.id = $1 AND r.org_id = $2
@@ -747,21 +655,7 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 		&i.FirmwareRollout.Status,
 		&i.FirmwareRollout.CancelReason,
 		&i.FirmwareRollout.Stage,
-		&i.FirmwareRollout.Method,
-		&i.FirmwareRollout.OrderBy,
-		&i.FirmwareRollout.BatchSize,
-		&i.FirmwareRollout.PilotSize,
-		&i.FirmwareRollout.WaitBetweenBatchesSeconds,
-		&i.FirmwareRollout.ReviewAfterEachBatch,
-		&i.FirmwareRollout.AutoContinue,
-		&i.FirmwareRollout.StabilizationSeconds,
-		&i.FirmwareRollout.MaxHashrateDropPercent,
-		&i.FirmwareRollout.MaxEfficiencyIncreasePercent,
-		&i.FirmwareRollout.MaxTempIncreaseC,
-		&i.FirmwareRollout.MaxNewErrors,
-		&i.FirmwareRollout.MinSampleCoveragePercent,
-		&i.FirmwareRollout.MaxConcurrentOffline,
-		&i.FirmwareRollout.ControllerTimeoutSeconds,
+		&i.FirmwareRollout.BehaviorSnapshot,
 		&i.FirmwareRollout.BatchCount,
 		&i.FirmwareRollout.CurrentBatch,
 		&i.FirmwareRollout.StageChangedAt,
@@ -783,7 +677,7 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 }
 
 const getLatestFirmwareRolloutForPair = `-- name: GetLatestFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -823,21 +717,7 @@ func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLa
 		&i.Status,
 		&i.CancelReason,
 		&i.Stage,
-		&i.Method,
-		&i.OrderBy,
-		&i.BatchSize,
-		&i.PilotSize,
-		&i.WaitBetweenBatchesSeconds,
-		&i.ReviewAfterEachBatch,
-		&i.AutoContinue,
-		&i.StabilizationSeconds,
-		&i.MaxHashrateDropPercent,
-		&i.MaxEfficiencyIncreasePercent,
-		&i.MaxTempIncreaseC,
-		&i.MaxNewErrors,
-		&i.MinSampleCoveragePercent,
-		&i.MaxConcurrentOffline,
-		&i.ControllerTimeoutSeconds,
+		&i.BehaviorSnapshot,
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
@@ -999,7 +879,7 @@ func (q *Queries) InsertReleaseChannelTargets(ctx context.Context, arg InsertRel
 }
 
 const listActiveFirmwareRollouts = `-- name: ListActiveFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.method, r.order_by, r.batch_size, r.pilot_size, r.wait_between_batches_seconds, r.review_after_each_batch, r.auto_continue, r.stabilization_seconds, r.max_hashrate_drop_percent, r.max_efficiency_increase_percent, r.max_temp_increase_c, r.max_new_errors, r.min_sample_coverage_percent, r.max_concurrent_offline, r.controller_timeout_seconds, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.status = 'active'
@@ -1037,21 +917,7 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 			&i.FirmwareRollout.Status,
 			&i.FirmwareRollout.CancelReason,
 			&i.FirmwareRollout.Stage,
-			&i.FirmwareRollout.Method,
-			&i.FirmwareRollout.OrderBy,
-			&i.FirmwareRollout.BatchSize,
-			&i.FirmwareRollout.PilotSize,
-			&i.FirmwareRollout.WaitBetweenBatchesSeconds,
-			&i.FirmwareRollout.ReviewAfterEachBatch,
-			&i.FirmwareRollout.AutoContinue,
-			&i.FirmwareRollout.StabilizationSeconds,
-			&i.FirmwareRollout.MaxHashrateDropPercent,
-			&i.FirmwareRollout.MaxEfficiencyIncreasePercent,
-			&i.FirmwareRollout.MaxTempIncreaseC,
-			&i.FirmwareRollout.MaxNewErrors,
-			&i.FirmwareRollout.MinSampleCoveragePercent,
-			&i.FirmwareRollout.MaxConcurrentOffline,
-			&i.FirmwareRollout.ControllerTimeoutSeconds,
+			&i.FirmwareRollout.BehaviorSnapshot,
 			&i.FirmwareRollout.BatchCount,
 			&i.FirmwareRollout.CurrentBatch,
 			&i.FirmwareRollout.StageChangedAt,
@@ -1136,6 +1002,20 @@ SELECT rd.device_id,
        rd.attempts,
        rd.first_sent_at,
        rd.last_sent_at,
+       rd.last_dispatched_at,
+       rd.last_dispatched_batch_uuid,
+       (EXISTS (
+           SELECT 1
+           FROM command_batch_log batch
+           JOIN command_on_device_log result ON result.command_batch_log_id = batch.id
+           WHERE batch.uuid = rd.last_dispatched_batch_uuid
+             AND batch.organization_id = r.org_id
+             AND batch.type = 'FirmwareUpdate'
+             AND batch.payload->>'firmware_checksum' = r.firmware_checksum
+             AND result.org_id = r.org_id
+             AND result.device_id = rd.device_id
+             AND result.status = 'SUCCESS'
+       ))::boolean AS last_dispatch_succeeded,
        rd.verified_at,
        rd.halted_at,
        rd.halt_reason,
@@ -1176,15 +1056,15 @@ SELECT rd.device_id,
              AND qm.status IN ('PENDING', 'PROCESSING')
              AND COALESCE(qm.payload->>'firmware_checksum', '') = ''
        ), '{}'::text[])::text[] AS pending_legacy_firmware_file_ids,
-       EXISTS (
-           SELECT 1 FROM release_channel_member m
-           WHERE m.org_id = r.org_id AND m.device_id = d.id AND m.channel_id = r.channel_id
-       )
+       (member.device_id IS NOT NULL)::boolean AS is_channel_member,
+       member.device_id IS NOT NULL
        AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(r.manufacturer)
        AND release_channel_pair_key(dd.model) = release_channel_pair_key(r.model) AS in_scope
 FROM firmware_rollout_device rd
 JOIN firmware_rollout r ON r.id = rd.rollout_id
 JOIN device d ON d.id = rd.device_id
+LEFT JOIN release_channel_member member ON member.org_id = r.org_id
+    AND member.device_id = d.id AND member.channel_id = r.channel_id
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
@@ -1210,6 +1090,9 @@ type ListFirmwareRolloutDevicesRow struct {
 	Attempts                     int32
 	FirstSentAt                  sql.NullTime
 	LastSentAt                   sql.NullTime
+	LastDispatchedAt             sql.NullTime
+	LastDispatchedBatchUuid      sql.NullString
+	LastDispatchSucceeded        bool
 	VerifiedAt                   sql.NullTime
 	HaltedAt                     sql.NullTime
 	HaltReason                   string
@@ -1234,6 +1117,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	LastDeployedAt               sql.NullTime
 	PendingFirmwareChecksums     []string
 	PendingLegacyFirmwareFileIds []string
+	IsChannelMember              bool
 	InScope                      sql.NullBool
 }
 
@@ -1242,8 +1126,11 @@ type ListFirmwareRolloutDevicesRow struct {
 // status, latest telemetry within 15 minutes of this statement, open errors
 // and errors opened since its baseline), provenance, the checksums of pending or processing
 // FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
-// and whether it is still a member of the
-// channel for the rollout's pair. Live health is evidence for the engine's
+// and channel membership separately from eligibility for the rollout's pair.
+// Existing targets remain tied to their paired device when firmware changes its
+// reported manufacturer/model: the engine still verifies the update's outcome,
+// but in_scope must be true before dispatching another compatible update.
+// Live health is evidence for the engine's
 // next decision; the persisted columns (verified_at, halted_at, excluded_at)
 // carry the miner's phase. A miner whose discovery row was soft-deleted reads
 // with empty identity and is out of scope.
@@ -1266,6 +1153,9 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.Attempts,
 			&i.FirstSentAt,
 			&i.LastSentAt,
+			&i.LastDispatchedAt,
+			&i.LastDispatchedBatchUuid,
+			&i.LastDispatchSucceeded,
 			&i.VerifiedAt,
 			&i.HaltedAt,
 			&i.HaltReason,
@@ -1290,6 +1180,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.LastDeployedAt,
 			pq.Array(&i.PendingFirmwareChecksums),
 			pq.Array(&i.PendingLegacyFirmwareFileIds),
+			&i.IsChannelMember,
 			&i.InScope,
 		); err != nil {
 			return nil, err
@@ -1306,7 +1197,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.method, r.order_by, r.batch_size, r.pilot_size, r.wait_between_batches_seconds, r.review_after_each_batch, r.auto_continue, r.stabilization_seconds, r.max_hashrate_drop_percent, r.max_efficiency_increase_percent, r.max_temp_increase_c, r.max_new_errors, r.min_sample_coverage_percent, r.max_concurrent_offline, r.controller_timeout_seconds, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.org_id = $1
@@ -1374,21 +1265,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.FirmwareRollout.Status,
 			&i.FirmwareRollout.CancelReason,
 			&i.FirmwareRollout.Stage,
-			&i.FirmwareRollout.Method,
-			&i.FirmwareRollout.OrderBy,
-			&i.FirmwareRollout.BatchSize,
-			&i.FirmwareRollout.PilotSize,
-			&i.FirmwareRollout.WaitBetweenBatchesSeconds,
-			&i.FirmwareRollout.ReviewAfterEachBatch,
-			&i.FirmwareRollout.AutoContinue,
-			&i.FirmwareRollout.StabilizationSeconds,
-			&i.FirmwareRollout.MaxHashrateDropPercent,
-			&i.FirmwareRollout.MaxEfficiencyIncreasePercent,
-			&i.FirmwareRollout.MaxTempIncreaseC,
-			&i.FirmwareRollout.MaxNewErrors,
-			&i.FirmwareRollout.MinSampleCoveragePercent,
-			&i.FirmwareRollout.MaxConcurrentOffline,
-			&i.FirmwareRollout.ControllerTimeoutSeconds,
+			&i.FirmwareRollout.BehaviorSnapshot,
 			&i.FirmwareRollout.BatchCount,
 			&i.FirmwareRollout.CurrentBatch,
 			&i.FirmwareRollout.StageChangedAt,
@@ -2218,18 +2095,35 @@ const markFirmwareRolloutDevicesSent = `-- name: MarkFirmwareRolloutDevicesSent 
 UPDATE firmware_rollout_device
 SET attempts = attempts + 1,
     first_sent_at = COALESCE(first_sent_at, now()),
-    last_sent_at = now()
-WHERE rollout_id = $1
-  AND device_id = ANY($2::bigint[])
+    last_sent_at = now(),
+    last_dispatched_at = CASE
+        WHEN device_id = ANY($1::bigint[]) THEN now()
+        ELSE last_dispatched_at
+    END,
+    last_dispatched_batch_uuid = CASE
+        WHEN device_id = ANY($1::bigint[]) THEN NULLIF($2::text, '')
+        ELSE last_dispatched_batch_uuid
+    END
+WHERE rollout_id = $3
+  AND device_id = ANY($4::bigint[])
 `
 
 type MarkFirmwareRolloutDevicesSentParams struct {
-	RolloutID int64
-	DeviceIds []int64
+	DispatchedDeviceIds []int64
+	BatchUuid           string
+	RolloutID           int64
+	DeviceIds           []int64
 }
 
+// Every attempted target advances retry pacing, including preflight skips.
+// Only targets actually dispatched to may authorize a later provenance write.
 func (q *Queries) MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFirmwareRolloutDevicesSentParams) error {
-	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesSentStmt, markFirmwareRolloutDevicesSent, arg.RolloutID, pq.Array(arg.DeviceIds))
+	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesSentStmt, markFirmwareRolloutDevicesSent,
+		pq.Array(arg.DispatchedDeviceIds),
+		arg.BatchUuid,
+		arg.RolloutID,
+		pq.Array(arg.DeviceIds),
+	)
 	return err
 }
 
@@ -2401,6 +2295,8 @@ WITH reset AS (
         attempts = 0,
         first_sent_at = NULL,
         last_sent_at = NULL,
+        last_dispatched_at = NULL,
+        last_dispatched_batch_uuid = NULL,
         verified_at = NULL
     WHERE held.rollout_id = $1::bigint
       AND held.device_id = ANY($2::bigint[])

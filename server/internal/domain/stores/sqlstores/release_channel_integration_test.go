@@ -320,7 +320,8 @@ func newReleaseChannelQueryFixture(t *testing.T) *releaseChannelQueryFixture {
 	t.Helper()
 	db := testutil.GetTestDB(t)
 	f := &releaseChannelQueryFixture{t: t, db: db}
-	f.q = sqlstores.NewSQLReleaseChannelStore(db).Queries(f.t.Context())
+	queries := sqlstores.NewSQLConnectionManager(db)
+	f.q = queries.GetQueries(f.t.Context())
 	f.org = f.scanID(`INSERT INTO organization (org_id, name) VALUES ('release-channel-queries', 'Release Channel Queries') RETURNING id`)
 	f.site = f.scanID(`INSERT INTO site (org_id, name, slug) VALUES ($1, 'Site', 'release-channel-queries') RETURNING id`, f.org)
 	f.building = f.scanID(`INSERT INTO building (org_id, site_id, name) VALUES ($1, $2, 'Building') RETURNING id`, f.org, f.site)

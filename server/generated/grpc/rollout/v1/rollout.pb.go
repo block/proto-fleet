@@ -558,7 +558,8 @@ const (
 	// true or has_baseline is false. Per-device telemetry deltas do not affect
 	// this phase.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_DONE RolloutDevicePhase = 4
-	// Attempts exhausted, or the rollout was canceled before this miner
+	// Attempts exhausted, reported manufacturer/model became incompatible
+	// before verification, or the rollout was canceled before this miner
 	// updated. Retried only by RetryFailedRolloutDevices. Offline accounting
 	// follows RolloutBehavior.max_concurrent_offline.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_FAILED RolloutDevicePhase = 5
@@ -2928,8 +2929,9 @@ type RolloutDevice struct {
 	PowerW             *MetricComparison `protobuf:"bytes,15,opt,name=power_w,json=powerW,proto3" json:"power_w,omitempty"`
 	EfficiencyJh       *MetricComparison `protobuf:"bytes,16,opt,name=efficiency_jh,json=efficiencyJh,proto3" json:"efficiency_jh,omitempty"`
 	TempC              *MetricComparison `protobuf:"bytes,17,opt,name=temp_c,json=tempC,proto3" json:"temp_c,omitempty"`
-	// Update commands sent to this miner so far.
-	Attempts   int32                  `protobuf:"varint,18,opt,name=attempts,proto3" json:"attempts,omitempty"`
+	// Dispatch attempts for this miner so far, including preflight skips.
+	Attempts int32 `protobuf:"varint,18,opt,name=attempts,proto3" json:"attempts,omitempty"`
+	// Time of the last dispatch attempt, whether dispatched or preflight-skipped.
 	LastSentAt *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=last_sent_at,json=lastSentAt,proto3" json:"last_sent_at,omitempty"`
 	// Why the miner is FAILED, when known. Device-reported text is truncated
 	// to this limit before it is persisted or returned.

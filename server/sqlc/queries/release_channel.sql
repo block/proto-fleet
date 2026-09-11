@@ -474,23 +474,14 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 INSERT INTO firmware_rollout (
     org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version,
     previous_firmware_checksum, previous_firmware_version, assignment_generation,
-    stage, stage_changed_at,
-    method, order_by, batch_size, pilot_size, wait_between_batches_seconds,
-    review_after_each_batch, auto_continue, stabilization_seconds,
-    max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors,
-    min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, batch_count,
+    stage, stage_changed_at, behavior_snapshot, batch_count,
     started_by_type, started_by_id, started_by_name,
     last_action_by_type, last_action_by_id, last_action_by_name
 )
 VALUES (
     sqlc.arg('org_id'), sqlc.arg('channel_id'), sqlc.arg('manufacturer'), sqlc.arg('model'), sqlc.arg('firmware_checksum'), sqlc.arg('firmware_version'),
     sqlc.arg('previous_firmware_checksum'), sqlc.arg('previous_firmware_version'), sqlc.arg('assignment_generation'),
-    sqlc.arg('stage'), clock_timestamp(),
-    sqlc.arg('method'), sqlc.arg('order_by'), sqlc.arg('batch_size'), sqlc.arg('pilot_size'), sqlc.arg('wait_between_batches_seconds'),
-    sqlc.arg('review_after_each_batch'), sqlc.arg('auto_continue'), sqlc.arg('stabilization_seconds'),
-    sqlc.narg('max_hashrate_drop_percent')::double precision, sqlc.narg('max_efficiency_increase_percent')::double precision,
-    sqlc.narg('max_temp_increase_c')::double precision, sqlc.narg('max_new_errors')::int,
-    sqlc.narg('min_sample_coverage_percent')::double precision, sqlc.arg('max_concurrent_offline'), sqlc.arg('controller_timeout_seconds'), sqlc.arg('batch_count'),
+    sqlc.arg('stage'), clock_timestamp(), sqlc.arg('behavior_snapshot'), sqlc.arg('batch_count'),
     sqlc.arg('actor_type'), sqlc.arg('actor_id'), sqlc.arg('actor_name'),
     sqlc.arg('actor_type'), sqlc.arg('actor_id'), sqlc.arg('actor_name')
 )
@@ -653,8 +644,11 @@ WHERE id = sqlc.arg('rollout_id');
 -- status, latest telemetry within 15 minutes of this statement, open errors
 -- and errors opened since its baseline), provenance, the checksums of pending or processing
 -- FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
--- and whether it is still a member of the
--- channel for the rollout's pair. Live health is evidence for the engine's
+-- and channel membership separately from eligibility for the rollout's pair.
+-- Existing targets remain tied to their paired device when firmware changes its
+-- reported manufacturer/model: the engine still verifies the update's outcome,
+-- but in_scope must be true before dispatching another compatible update.
+-- Live health is evidence for the engine's
 -- next decision; the persisted columns (verified_at, halted_at, excluded_at)
 -- carry the miner's phase. A miner whose discovery row was soft-deleted reads
 -- with empty identity and is out of scope.
@@ -667,6 +661,20 @@ SELECT rd.device_id,
        rd.attempts,
        rd.first_sent_at,
        rd.last_sent_at,
+       rd.last_dispatched_at,
+       rd.last_dispatched_batch_uuid,
+       (EXISTS (
+           SELECT 1
+           FROM command_batch_log batch
+           JOIN command_on_device_log result ON result.command_batch_log_id = batch.id
+           WHERE batch.uuid = rd.last_dispatched_batch_uuid
+             AND batch.organization_id = r.org_id
+             AND batch.type = 'FirmwareUpdate'
+             AND batch.payload->>'firmware_checksum' = r.firmware_checksum
+             AND result.org_id = r.org_id
+             AND result.device_id = rd.device_id
+             AND result.status = 'SUCCESS'
+       ))::boolean AS last_dispatch_succeeded,
        rd.verified_at,
        rd.halted_at,
        rd.halt_reason,
@@ -707,15 +715,15 @@ SELECT rd.device_id,
              AND qm.status IN ('PENDING', 'PROCESSING')
              AND COALESCE(qm.payload->>'firmware_checksum', '') = ''
        ), '{}'::text[])::text[] AS pending_legacy_firmware_file_ids,
-       EXISTS (
-           SELECT 1 FROM release_channel_member m
-           WHERE m.org_id = r.org_id AND m.device_id = d.id AND m.channel_id = r.channel_id
-       )
+       (member.device_id IS NOT NULL)::boolean AS is_channel_member,
+       member.device_id IS NOT NULL
        AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(r.manufacturer)
        AND release_channel_pair_key(dd.model) = release_channel_pair_key(r.model) AS in_scope
 FROM firmware_rollout_device rd
 JOIN firmware_rollout r ON r.id = rd.rollout_id
 JOIN device d ON d.id = rd.device_id
+LEFT JOIN release_channel_member member ON member.org_id = r.org_id
+    AND member.device_id = d.id AND member.channel_id = r.channel_id
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
@@ -790,10 +798,20 @@ WHERE rollout_id = sqlc.arg('rollout_id')
   AND excluded_at IS NOT NULL;
 
 -- name: MarkFirmwareRolloutDevicesSent :exec
+-- Every attempted target advances retry pacing, including preflight skips.
+-- Only targets actually dispatched to may authorize a later provenance write.
 UPDATE firmware_rollout_device
 SET attempts = attempts + 1,
     first_sent_at = COALESCE(first_sent_at, now()),
-    last_sent_at = now()
+    last_sent_at = now(),
+    last_dispatched_at = CASE
+        WHEN device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN now()
+        ELSE last_dispatched_at
+    END,
+    last_dispatched_batch_uuid = CASE
+        WHEN device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN NULLIF(sqlc.arg('batch_uuid')::text, '')
+        ELSE last_dispatched_batch_uuid
+    END
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND device_id = ANY(sqlc.arg('device_ids')::bigint[]);
 
@@ -847,6 +865,8 @@ WITH reset AS (
         attempts = 0,
         first_sent_at = NULL,
         last_sent_at = NULL,
+        last_dispatched_at = NULL,
+        last_dispatched_batch_uuid = NULL,
         verified_at = NULL
     WHERE held.rollout_id = sqlc.arg('rollout_id')::bigint
       AND held.device_id = ANY(sqlc.arg('device_ids')::bigint[])

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 )
@@ -937,73 +938,61 @@ type Error struct {
 }
 
 type FirmwareRollout struct {
-	ID                           int64
-	OrgID                        int64
-	ChannelID                    int64
-	Manufacturer                 string
-	Model                        string
-	FirmwareChecksum             string
-	FirmwareVersion              string
-	PreviousFirmwareChecksum     string
-	PreviousFirmwareVersion      string
-	AssignmentGeneration         int64
-	Status                       string
-	CancelReason                 string
-	Stage                        string
-	Method                       string
-	OrderBy                      string
-	BatchSize                    int32
-	PilotSize                    int32
-	WaitBetweenBatchesSeconds    int32
-	ReviewAfterEachBatch         bool
-	AutoContinue                 bool
-	StabilizationSeconds         int32
-	MaxHashrateDropPercent       sql.NullFloat64
-	MaxEfficiencyIncreasePercent sql.NullFloat64
-	MaxTempIncreaseC             sql.NullFloat64
-	MaxNewErrors                 sql.NullInt32
-	MinSampleCoveragePercent     sql.NullFloat64
-	MaxConcurrentOffline         int32
-	ControllerTimeoutSeconds     int32
-	BatchCount                   int32
-	CurrentBatch                 int32
-	StageChangedAt               time.Time
-	PausedAt                     sql.NullTime
-	Revision                     int64
-	RevisionTxid                 int64
-	UpdatedAt                    time.Time
-	StartedByType                string
-	StartedByID                  int64
-	StartedByName                string
-	LastActionByType             string
-	LastActionByID               int64
-	LastActionByName             string
-	CreatedAt                    time.Time
-	FinishedAt                   sql.NullTime
+	ID                       int64
+	OrgID                    int64
+	ChannelID                int64
+	Manufacturer             string
+	Model                    string
+	FirmwareChecksum         string
+	FirmwareVersion          string
+	PreviousFirmwareChecksum string
+	PreviousFirmwareVersion  string
+	AssignmentGeneration     int64
+	Status                   string
+	CancelReason             string
+	Stage                    string
+	BehaviorSnapshot         dbtypes.RolloutBehaviorSnapshot
+	BatchCount               int32
+	CurrentBatch             int32
+	StageChangedAt           time.Time
+	PausedAt                 sql.NullTime
+	Revision                 int64
+	RevisionTxid             int64
+	UpdatedAt                time.Time
+	StartedByType            string
+	StartedByID              int64
+	StartedByName            string
+	LastActionByType         string
+	LastActionByID           int64
+	LastActionByName         string
+	CreatedAt                time.Time
+	FinishedAt               sql.NullTime
 }
 
 type FirmwareRolloutDevice struct {
-	RolloutID            int64
-	DeviceID             int64
-	BatchIndex           sql.NullInt32
-	Position             sql.NullInt32
-	Attempts             int32
-	FirstSentAt          sql.NullTime
-	LastSentAt           sql.NullTime
-	VerifiedAt           sql.NullTime
-	HaltedAt             sql.NullTime
-	HaltReason           string
-	LastError            string
-	SkipNote             string
-	ExcludedAt           sql.NullTime
-	BaselineStatus       sql.NullString
-	BaselineHashRateHs   sql.NullFloat64
-	BaselinePowerW       sql.NullFloat64
-	BaselineEfficiencyJh sql.NullFloat64
-	BaselineTempC        sql.NullFloat64
-	BaselineOpenErrors   sql.NullInt32
-	BaselineAt           sql.NullTime
-	AddedAt              time.Time
+	RolloutID               int64
+	DeviceID                int64
+	BatchIndex              sql.NullInt32
+	Position                sql.NullInt32
+	Attempts                int32
+	FirstSentAt             sql.NullTime
+	LastSentAt              sql.NullTime
+	LastDispatchedAt        sql.NullTime
+	LastDispatchedBatchUuid sql.NullString
+	VerifiedAt              sql.NullTime
+	HaltedAt                sql.NullTime
+	HaltReason              string
+	LastError               string
+	SkipNote                string
+	ExcludedAt              sql.NullTime
+	BaselineStatus          sql.NullString
+	BaselineHashRateHs      sql.NullFloat64
+	BaselinePowerW          sql.NullFloat64
+	BaselineEfficiencyJh    sql.NullFloat64
+	BaselineTempC           sql.NullFloat64
+	BaselineOpenErrors      sql.NullInt32
+	BaselineAt              sql.NullTime
+	AddedAt                 time.Time
 }
 
 type FirmwareRolloutSuppressedDevice struct {
