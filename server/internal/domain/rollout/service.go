@@ -789,7 +789,7 @@ type FirmwarePlan struct {
 func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, channelID int64, assignments []Assignment, override *Behavior) ([]Rollout, error) {
 	var started []Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		channel, err := s.store.Queries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+		channel, err := s.store.GetQueries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 		if err != nil {
 			return fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
 		}
@@ -808,7 +808,7 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, c
 // the rollout would be batched. Fails with the same preconditions Apply
 // would.
 func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, assignments []Assignment, override *Behavior) ([]FirmwarePlan, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 	if err != nil {
 		return nil, fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
@@ -901,7 +901,7 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 		started   []Rollout
 	)
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		q := s.store.Queries(ctx)
+		q := s.store.GetQueries(ctx)
 		row, _, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
 		if err != nil {
 			return err
@@ -949,7 +949,7 @@ type resolvedAssignment struct {
 // loads current rows and resolves file ids to artifacts whose target metadata
 // must match the pair.
 func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseChannel, assignments []Assignment) ([]resolvedAssignment, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	existing, err := q.ListReleaseChannelFirmware(ctx, channel.OrgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel firmware: %v", err)
@@ -1010,7 +1010,7 @@ func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChan
 }
 
 func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, resolved []resolvedAssignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	var started []Rollout
 	for _, a := range resolved {
 		cancel := func(why string) error {

@@ -29,7 +29,7 @@ func TestRolloutStackLateJoinerAndReturningTargetKeepDistinctBaselines(t *testin
 	f.svc.EnforceTick(t.Context())
 	f.finishUpdate(t, "miner-0", "2.0.0")
 	f.svc.EnforceTick(t.Context())
-	row, err := f.svc.store.Queries(t.Context()).GetFirmwareRolloutWithChannel(t.Context(), sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: started.ID, OrgID: f.orgID})
+	row, err := f.svc.store.GetQueries(t.Context()).GetFirmwareRolloutWithChannel(t.Context(), sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: started.ID, OrgID: f.orgID})
 	require.NoError(t, err)
 	targets, err := f.svc.listTargets(t.Context(), row.FirmwareRollout)
 	require.NoError(t, err)

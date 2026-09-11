@@ -7,6 +7,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 )
 
 const (
@@ -322,24 +323,45 @@ func (k PairKey) folded() PairKey {
 }
 
 func behaviorFromRollout(r sqlc.FirmwareRollout) Behavior {
+	b := r.BehaviorSnapshot
 	return Behavior{
-		Method:                    r.Method,
-		Order:                     r.OrderBy,
-		BatchSize:                 r.BatchSize,
-		PilotSize:                 r.PilotSize,
-		WaitBetweenBatchesSeconds: r.WaitBetweenBatchesSeconds,
-		ReviewAfterEachBatch:      r.ReviewAfterEachBatch,
-		AutoContinue:              r.AutoContinue,
-		StabilizationSeconds:      r.StabilizationSeconds,
-		MaxConcurrentOffline:      r.MaxConcurrentOffline,
-		ControllerTimeoutSeconds:  r.ControllerTimeoutSeconds,
+		Method:                    b.Method,
+		Order:                     b.OrderBy,
+		BatchSize:                 b.BatchSize,
+		PilotSize:                 b.PilotSize,
+		WaitBetweenBatchesSeconds: b.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:      b.ReviewAfterEachBatch,
+		AutoContinue:              b.AutoContinue,
+		StabilizationSeconds:      b.StabilizationSeconds,
+		MaxConcurrentOffline:      b.MaxConcurrentOffline,
+		ControllerTimeoutSeconds:  b.ControllerTimeoutSeconds,
 		Thresholds: Thresholds{
-			MaxHashrateDropPercent:       nullFloat(r.MaxHashrateDropPercent),
-			MaxEfficiencyIncreasePercent: nullFloat(r.MaxEfficiencyIncreasePercent),
-			MaxTempIncreaseC:             nullFloat(r.MaxTempIncreaseC),
-			MaxNewErrors:                 nullInt(r.MaxNewErrors),
-			MinSampleCoveragePercent:     nullFloat(r.MinSampleCoveragePercent),
+			MaxHashrateDropPercent:       b.MaxHashrateDropPercent,
+			MaxEfficiencyIncreasePercent: b.MaxEfficiencyIncreasePercent,
+			MaxTempIncreaseC:             b.MaxTempIncreaseC,
+			MaxNewErrors:                 b.MaxNewErrors,
+			MinSampleCoveragePercent:     b.MinSampleCoveragePercent,
 		},
+	}
+}
+
+func (b *Behavior) snapshot() dbtypes.RolloutBehaviorSnapshot {
+	return dbtypes.RolloutBehaviorSnapshot{
+		Method:                       b.Method,
+		OrderBy:                      b.Order,
+		BatchSize:                    b.BatchSize,
+		PilotSize:                    b.PilotSize,
+		WaitBetweenBatchesSeconds:    b.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:         b.ReviewAfterEachBatch,
+		AutoContinue:                 b.AutoContinue,
+		StabilizationSeconds:         b.StabilizationSeconds,
+		MaxHashrateDropPercent:       b.Thresholds.MaxHashrateDropPercent,
+		MaxEfficiencyIncreasePercent: b.Thresholds.MaxEfficiencyIncreasePercent,
+		MaxTempIncreaseC:             b.Thresholds.MaxTempIncreaseC,
+		MaxNewErrors:                 b.Thresholds.MaxNewErrors,
+		MinSampleCoveragePercent:     b.Thresholds.MinSampleCoveragePercent,
+		MaxConcurrentOffline:         b.MaxConcurrentOffline,
+		ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
 	}
 }
 
