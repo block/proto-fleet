@@ -305,6 +305,45 @@ drain:
 	assert.Equal(t, commandEventBuffer-1, batches, "exactly one best-effort batch is evicted for the ack")
 }
 
+func TestRegistry_MaximumDiscoveryReportsAndAckFitWithoutDraining(t *testing.T) {
+	r := NewRegistry()
+	stream := r.Register(1)
+	defer stream.Unregister()
+	session, err := r.Send(t.Context(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		&gatewaypb.ControlCommand{CommandId: "full-scan"}, nil, ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	require.Equal(t, "full-scan", recvCommandID(t, stream))
+
+	// A node can identify one device at every endpoint: 4,096 targets × 10 ports.
+	// End-only upload must fit even when the operator has not drained any events.
+	const reportBatchSize = 1024
+	require.Equal(t, 40960, maxReportsPerCommand)
+	const batches = 40
+	require.LessOrEqual(t, batches+1, commandEventBuffer)
+	want := make([]*pairingpb.DiscoverResponse, batches)
+	for i := range want {
+		want[i] = &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, reportBatchSize)}
+		require.NoError(t, r.AdmitReport(1, "full-scan", len(want[i].Devices), ReportKindDiscovery))
+		r.PublishBatch(1, "full-scan", want[i])
+	}
+	assert.ErrorIs(t, r.AdmitReport(1, "full-scan", 1, ReportKindDiscovery), ErrReportQuotaExceeded)
+	stream.PublishAck(&gatewaypb.ControlAck{CommandId: "full-scan", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+
+	for _, batch := range want {
+		event := receive(t, session.Events())
+		require.Same(t, batch, event.Batch, "no upload batch may be evicted for the ACK")
+	}
+	event := receive(t, session.Events())
+	require.NotNil(t, event.Ack)
+	assert.Equal(t, gatewaypb.AckCode_ACK_CODE_OK, event.Ack.GetCode())
+	select {
+	case extra := <-session.Events():
+		t.Fatalf("unexpected extra event: %+v", extra)
+	default:
+	}
+}
+
 func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 	// Arrange: a discovery is already in flight.
 	r := NewRegistry()

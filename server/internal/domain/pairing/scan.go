@@ -19,10 +19,9 @@ type portScanner interface {
 	Scan(ctx context.Context, addrs iter.Seq[netip.Addr], ports []uint16, emit func(netscan.HostResult) error) error
 }
 
-// DiscoverWithNmap discovers miners on a network using TCP connect probes.
-// The wire mode is renamed with the coordinated contract update.
-func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	rawTargets, err := s.resolveNmapTargets(ctx, r.Target)
+// DiscoverWithNetworkScan discovers miners on a network using TCP connect probes.
+func (s *Service) DiscoverWithNetworkScan(ctx context.Context, r *pb.NetworkScanModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	rawTargets, err := s.resolveNetworkScanTargets(ctx, r.Target)
 	if err != nil {
 		return nil, err
 	}

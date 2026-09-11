@@ -135,8 +135,8 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			wantErrSubstr: "mdns",
 		},
 		{
-			name:          "nmap port-range bypass rejected",
-			request:       &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: "10.0.0.1", Ports: []string{"1-65535"}}}},
+			name:          "network scan port-range bypass rejected",
+			request:       &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.1", Ports: []string{"1-65535"}}}},
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
 			wantErrSubstr: "invalid port",

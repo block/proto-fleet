@@ -115,7 +115,7 @@ func TestExplicitDiscoveryCancelsPluginProbes(t *testing.T) {
 }
 
 func discoverNetworkScan(target string, ports []string) *pairingpb.DiscoverRequest {
-	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: target, Ports: ports}}}
+	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: target, Ports: ports}}}
 }
 
 func TestNetworkScanOnlyIdentifiesOpenPorts(t *testing.T) {
@@ -268,7 +268,7 @@ func TestNetworkTargetsLocalSubnetPolicy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &RunCmd{localSubnets: func() ([]string, error) { return tc.subnets, nil }}
-			addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+			addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
 			if tc.want == 0 {
 				var ce *commandError
 				require.ErrorAs(t, err, &ce)
@@ -283,7 +283,7 @@ func TestNetworkTargetsLocalSubnetPolicy(t *testing.T) {
 
 func TestConfiguredSubnetAvoidsPlatformDetection(t *testing.T) {
 	r := &RunCmd{LocalDiscoverySubnet: "10.90.0.0/30"}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
 	require.NoError(t, err)
 	assert.Len(t, slices.Collect(addrs), 2)
 }
@@ -292,7 +292,7 @@ func TestNetworkTargetsInterleaveLocalSubnets(t *testing.T) {
 	r := &RunCmd{localSubnets: func() ([]string, error) {
 		return []string{"10.0.0.0/29", "192.168.1.0/29"}, nil
 	}}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
 	require.NoError(t, err)
 	first, err := netscan.ParseTarget("10.0.0.0/29")
 	require.NoError(t, err)
@@ -312,11 +312,49 @@ func TestNetworkTargetsDeduplicateOverlappingLocalSubnets(t *testing.T) {
 	r := &RunCmd{localSubnets: func() ([]string, error) {
 		return []string{"10.0.0.0/29", "10.0.0.0/30", "10.0.0.0/29"}, nil
 	}}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
 	require.NoError(t, err)
 	target, err := netscan.ParseTarget("10.0.0.0/29")
 	require.NoError(t, err)
 	assert.ElementsMatch(t, slices.Collect(target.Addresses()), slices.Collect(addrs))
+}
+
+func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
+	addresses := make([]string, 4096)
+	devices := make(map[string]*pb.DiscoveredDeviceReport, len(addresses))
+	for i := range addresses {
+		addresses[i] = fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+		devices[addresses[i]+"|80"] = &pb.DiscoveredDeviceReport{DeviceIdentifier: addresses[i], DriverName: "virtual", UrlScheme: "http"}
+	}
+	for _, tc := range []struct {
+		name string
+		req  *pairingpb.DiscoverRequest
+		want int
+	}{
+		{"list at 4096", discoverIPList(addresses, []string{"80"}), 4096},
+		{"list over 4096", discoverIPList(append(slices.Clone(addresses), "10.0.16.0"), []string{"80"}), 0},
+		{"range at 4096", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{IpRange: &pairingpb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.15.255", Ports: []string{"80"}}}}, 4096},
+		{"range over 4096", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{IpRange: &pairingpb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.16.0", Ports: []string{"80"}}}}, 0},
+		{"network at /20", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/20", Ports: []string{"80"}}}}, 4094},
+		{"network over /20", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/19", Ports: []string{"80"}}}}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &RunCmd{discoverer: &stubDiscoverer{probes: devices}}
+			if tc.req.GetNetworkScan() != nil {
+				r.scanner = allOpenScanner{}
+			}
+			reports, _, err := r.discoverForCommand(t.Context(), tc.req, discardLogger(t))
+			if tc.want == 0 {
+				var ce *commandError
+				require.ErrorAs(t, err, &ce)
+				assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ce.code)
+				assert.Empty(t, reports, "over-cap requests must fail before discovery")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, reports, tc.want)
+		})
+	}
 }
 
 func TestIPListChoosesPrivateDNSBeforeIPv4Preference(t *testing.T) {
