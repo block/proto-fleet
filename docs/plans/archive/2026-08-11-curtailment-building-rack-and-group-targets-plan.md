@@ -1,7 +1,7 @@
 ---
 title: "Curtailment building, rack, and group targets"
 date: 2026-08-11
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/909
 ---
