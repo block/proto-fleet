@@ -80,7 +80,7 @@ type AppendFirmwareRolloutDevicesParams struct {
 }
 
 // Adds late joiners: unbatched, unordered (they sort last) and without a
-// baseline, so they are judged on version and being online only. Miners
+// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 // already in the rollout are left as they are.
 func (q *Queries) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error {
 	_, err := q.exec(ctx, q.appendFirmwareRolloutDevicesStmt, appendFirmwareRolloutDevices, arg.RolloutID, pq.Array(arg.DeviceIds))

@@ -7,6 +7,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 )
 
 const (
@@ -171,6 +172,10 @@ type Behavior struct {
 	ControllerTimeoutSeconds int32
 }
 
+// allAtOnce is the behavior of drift-correction and rollback rollouts: no
+// operator is present to review a gate, so they never stage.
+var allAtOnce = Behavior{Method: MethodAllAtOnce, Order: OrderLeastEfficientFirst}
+
 // gatesAfterBatch reports whether a finished batch holds for review.
 func (b *Behavior) gatesAfterBatch() bool {
 	return b.Method == MethodPilotThenContinue || b.ReviewAfterEachBatch
@@ -315,6 +320,49 @@ func (k PairKey) matchesObserved(manufacturer, model string) bool {
 // folded returns the comparison form of the key.
 func (k PairKey) folded() PairKey {
 	return PairKey{Manufacturer: fold(k.Manufacturer), Model: fold(k.Model)}
+}
+
+func behaviorFromRollout(r sqlc.FirmwareRollout) Behavior {
+	b := r.BehaviorSnapshot
+	return Behavior{
+		Method:                    b.Method,
+		Order:                     b.OrderBy,
+		BatchSize:                 b.BatchSize,
+		PilotSize:                 b.PilotSize,
+		WaitBetweenBatchesSeconds: b.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:      b.ReviewAfterEachBatch,
+		AutoContinue:              b.AutoContinue,
+		StabilizationSeconds:      b.StabilizationSeconds,
+		MaxConcurrentOffline:      b.MaxConcurrentOffline,
+		ControllerTimeoutSeconds:  b.ControllerTimeoutSeconds,
+		Thresholds: Thresholds{
+			MaxHashrateDropPercent:       b.MaxHashrateDropPercent,
+			MaxEfficiencyIncreasePercent: b.MaxEfficiencyIncreasePercent,
+			MaxTempIncreaseC:             b.MaxTempIncreaseC,
+			MaxNewErrors:                 b.MaxNewErrors,
+			MinSampleCoveragePercent:     b.MinSampleCoveragePercent,
+		},
+	}
+}
+
+func (b *Behavior) snapshot() dbtypes.RolloutBehaviorSnapshot {
+	return dbtypes.RolloutBehaviorSnapshot{
+		Method:                       b.Method,
+		OrderBy:                      b.Order,
+		BatchSize:                    b.BatchSize,
+		PilotSize:                    b.PilotSize,
+		WaitBetweenBatchesSeconds:    b.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:         b.ReviewAfterEachBatch,
+		AutoContinue:                 b.AutoContinue,
+		StabilizationSeconds:         b.StabilizationSeconds,
+		MaxHashrateDropPercent:       b.Thresholds.MaxHashrateDropPercent,
+		MaxEfficiencyIncreasePercent: b.Thresholds.MaxEfficiencyIncreasePercent,
+		MaxTempIncreaseC:             b.Thresholds.MaxTempIncreaseC,
+		MaxNewErrors:                 b.Thresholds.MaxNewErrors,
+		MinSampleCoveragePercent:     b.Thresholds.MinSampleCoveragePercent,
+		MaxConcurrentOffline:         b.MaxConcurrentOffline,
+		ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
+	}
 }
 
 func nullFloat(v sql.NullFloat64) *float64 {

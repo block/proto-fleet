@@ -897,9 +897,8 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "verified above online is rejected",
+			name:     "persisted verification can exceed current online count",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 1},
-			wantErr:  true,
 		},
 		{
 			name:     "unverified baseline hashers need not be hashing",
@@ -1179,6 +1178,24 @@ func TestRolloutPaginationValidation(t *testing.T) {
 		{
 			name:    "rollout list rejects oversized page",
 			request: &rolloutv1.ListRolloutsRequest{PageSize: 1001},
+			wantErr: true,
+		},
+		{
+			name:    "rollout list accepts a poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz"},
+		},
+		{
+			name:    "rollout list accepts a page within a polling cycle",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", Cursor: "page"},
+		},
+		{
+			name:    "rollout list rejects poll cursor with timestamp filter",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", UpdatedAfter: timestamppb.Now()},
+			wantErr: true,
+		},
+		{
+			name:    "rollout list rejects oversized poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: strings.Repeat("c", 101)},
 			wantErr: true,
 		},
 		{

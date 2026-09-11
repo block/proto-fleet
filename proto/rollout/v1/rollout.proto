@@ -308,7 +308,9 @@ service RolloutService {
     rpc CancelRollout(CancelRolloutRequest) returns (CancelRolloutResponse);
 
     // Re-queues the suppressed members of a rollout's manufacturer/model pair.
-    // An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+    // An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
+    // and adds suppressed members from earlier rollouts of the generation as
+    // unbatched late joiners without baselines. A
     // finished rollout, while it is current under the RolloutService
     // assignment-generation rule and its pair has no active rollout under the
     // single-active-rollout rule, starts one all-at-once rollout for every
@@ -796,11 +798,12 @@ enum RolloutDevicePhase {
     ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
     // The first attempt did not take; the update was re-sent.
     ROLLOUT_DEVICE_PHASE_RETRYING = 3;
-    // Meets every convergence criterion: reports the target version; its
+    // The server latches this phase when the miner reports the target version; its
     // RolloutService managed-deployment provenance equals the rollout's
     // firmware_checksum; is online; and is hashing when baseline_hashing is
-    // true or has_baseline is false. Per-device telemetry deltas do not affect
-    // this phase.
+    // true or has_baseline is false. Later health changes do not rewrite this
+    // phase. While the rollout is active, firmware/provenance drift or a
+    // foreign firmware command reopens convergence; finished history stays fixed.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, reported manufacturer/model became incompatible
     // before verification, or the rollout was canceled before this miner
@@ -862,13 +865,14 @@ message RolloutDeviceCounts {
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"
-        message: "verified plus failed plus excluded plus skipped, online, and baseline_hashing must not exceed devices_total, and verified and hashing must not exceed online"
-        expression: "this.verified + this.failed + this.excluded + this.skipped <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
+        message: "verified plus failed plus excluded plus skipped, online, and baseline_hashing must not exceed devices_total, and hashing must not exceed online"
+        expression: "this.verified + this.failed + this.excluded + this.skipped <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.hashing <= this.online"
     };
 
     int32 devices_total = 1 [(buf.validate.field).int32.gte = 0];
     // Miners in the DONE phase. Per-device telemetry deltas do not affect
-    // this count.
+    // this count. The server latches verification, so a later offline
+    // observation can make this count exceed online.
     int32 verified = 2 [(buf.validate.field).int32.gte = 0];
     int32 online = 3 [(buf.validate.field).int32.gte = 0];
     int32 hashing = 4 [(buf.validate.field).int32.gte = 0];

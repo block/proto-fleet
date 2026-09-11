@@ -236,7 +236,9 @@ type RolloutServiceClient interface {
 	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
-	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
+	// and adds suppressed members from earlier rollouts of the generation as
+	// unbatched late joiners without baselines. A
 	// finished rollout, while it is current under the RolloutService
 	// assignment-generation rule and its pair has no active rollout under the
 	// single-active-rollout rule, starts one all-at-once rollout for every
@@ -682,7 +684,9 @@ type RolloutServiceHandler interface {
 	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
-	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
+	// and adds suppressed members from earlier rollouts of the generation as
+	// unbatched late joiners without baselines. A
 	// finished rollout, while it is current under the RolloutService
 	// assignment-generation rule and its pair has no active rollout under the
 	// single-active-rollout rule, starts one all-at-once rollout for every

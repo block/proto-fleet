@@ -43,7 +43,7 @@ type Querier interface {
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
 	// Adds late joiners: unbatched, unordered (they sort last) and without a
-	// baseline, so they are judged on version and being online only. Miners
+	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
 	// Move a building to a different site (or to "unassigned" by passing
