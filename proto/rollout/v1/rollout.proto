@@ -24,6 +24,21 @@ import "google/protobuf/timestamp.proto";
 // to none until the conflict is removed. Query every matching channel in
 // either overlap with ListReleaseChannelMembershipConflicts.
 //
+// Target membership rule: once enrolled, a rollout target remains tied to its
+// paired device while that device belongs to the channel. A firmware-induced
+// change to the reported manufacturer or model does not exclude the target or
+// prove success: the server still requires the normal artifact and health
+// evidence. Dispatch requires the current reported pair to match the assigned
+// firmware. To establish new provenance after a reported pair changes, the
+// server also requires a successful device result from that target's actual
+// dispatch batch for the assigned artifact. Merely queuing or failing an update
+// cannot prove a rename, even if both artifacts report the same version.
+// An incompatible target that has not verified after the last
+// dispatch attempt's wait is FAILED with an explanation instead of being sent
+// another update. A preflight-skipped attempt cannot establish deployment
+// provenance. Deleting and re-pairing a miner does not transfer the old target's
+// history to the new paired device.
+//
 // Assignment-generation rule: every (channel, manufacturer, model) pair has a
 // generation counter, exposed as ReleaseChannelModelGroup.assignment_generation,
 // that starts at 0 and increments each time ApplyReleaseChannelFirmware or
@@ -787,7 +802,8 @@ enum RolloutDevicePhase {
     // true or has_baseline is false. Per-device telemetry deltas do not affect
     // this phase.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
-    // Attempts exhausted, or the rollout was canceled before this miner
+    // Attempts exhausted, reported manufacturer/model became incompatible
+    // before verification, or the rollout was canceled before this miner
     // updated. Retried only by RetryFailedRolloutDevices. Offline accounting
     // follows RolloutBehavior.max_concurrent_offline.
     ROLLOUT_DEVICE_PHASE_FAILED = 5;
@@ -1184,8 +1200,9 @@ message RolloutDevice {
     MetricComparison power_w = 15;
     MetricComparison efficiency_jh = 16;
     MetricComparison temp_c = 17;
-    // Update commands sent to this miner so far.
+    // Dispatch attempts for this miner so far, including preflight skips.
     int32 attempts = 18 [(buf.validate.field).int32.gte = 0];
+    // Time of the last dispatch attempt, whether dispatched or preflight-skipped.
     google.protobuf.Timestamp last_sent_at = 19;
     // Why the miner is FAILED, when known. Device-reported text is truncated
     // to this limit before it is persisted or returned.
@@ -1478,6 +1495,11 @@ message RollbackReleaseChannelFirmwareResponse {
 }
 
 message ListRolloutsRequest {
+    option (buf.validate.message).cel = {
+        id: "rollout_poll_cursor_excludes_updated_after"
+        message: "poll_cursor and updated_after cannot be combined"
+        expression: "this.poll_cursor == '' || !has(this.updated_after)"
+    };
     // When set, only rollouts for this channel are returned.
     int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
     // When set, only rollouts with this status are returned.
@@ -1487,14 +1509,29 @@ message ListRolloutsRequest {
     // Cursor returned by a previous call; leave empty for the first page.
     string cursor = 4 [(buf.validate.field).string.max_len = 100];
     // When set, only rollouts whose updated_at is at or after this time are
-    // returned, so a poller can fetch what changed since its last call.
+    // returned. This is a date filter, not a lossless polling cursor: a
+    // transaction can commit later with an older updated_at. Use poll_cursor
+    // for incremental polling. Cannot be combined with poll_cursor.
     google.protobuf.Timestamp updated_after = 5;
+    // Opaque cursor from the preceding polling cycle. Leave empty for an
+    // initial full list. Keep it and the other filters unchanged while
+    // draining every page via cursor, then use the response's poll_cursor
+    // for the next cycle. Transactions that commit late remain eligible;
+    // unchanged rows can be replayed, so merge by rollout id and revision.
+    // Filters describe current rows, not removals: leave status unset when
+    // polling all status changes. Cannot be combined with updated_after.
+    string poll_cursor = 6 [(buf.validate.field).string.max_len = 100];
 }
 
 message ListRolloutsResponse {
     repeated Rollout rollouts = 1 [(buf.validate.field).repeated.max_items = 1000];
     // Cursor for the next page; empty when there are no more rollouts.
     string cursor = 2 [(buf.validate.field).string.max_len = 100];
+    // Cursor for the next polling cycle, identical across this cycle's pages.
+    // Use it only after consuming every page, including an empty result.
+    // The server derives a bound that includes transactions still invisible
+    // to the first page; never derive this cursor from rollout.updated_at.
+    string poll_cursor = 3 [(buf.validate.field).string.max_len = 100];
 }
 
 message GetRolloutRequest {
