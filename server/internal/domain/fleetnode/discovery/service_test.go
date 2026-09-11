@@ -16,7 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 )
 
 type stubLister struct {
@@ -256,8 +256,8 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 		localSubnet bool
 		wantTarget  string
 	}{
-		{name: "sentinel passes through", target: nmaptarget.LocalSubnetTarget, wantTarget: nmaptarget.LocalSubnetTarget},
-		{name: "true uses node local subnet", target: "10.0.0.0/28", localSubnet: true, wantTarget: nmaptarget.LocalSubnetTarget},
+		{name: "sentinel passes through", target: netscan.LocalSubnetTarget, wantTarget: netscan.LocalSubnetTarget},
+		{name: "true uses node local subnet", target: "10.0.0.0/28", localSubnet: true, wantTarget: netscan.LocalSubnetTarget},
 		{name: "false preserves target", target: "10.0.0.0/28", wantTarget: "10.0.0.0/28"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

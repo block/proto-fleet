@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,7 +125,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			request:       discoverIPList([]string{"10.0.0.1"}, tooManyPorts),
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "too many ports",
+			wantErrSubstr: "at most",
 		},
 		{
 			name:          "mdns rejected",
@@ -250,7 +251,7 @@ func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 			}
 
 			// Act
-			reports, truncated, err := r.discoverForCommand(context.Background(), discoverIPList([]string{tc.input}, []string{"4028"}), testLogger())
+			reports, truncated, err := r.discoverForCommand(context.Background(), discoverIPList([]string{tc.input}, []string{"4028"}), discardLogger(t))
 
 			// Assert
 			require.NoError(t, err)
@@ -272,7 +273,7 @@ func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) 
 			}
 
 			// Act
-			_, _, err := r.discoverForCommand(context.Background(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), testLogger())
+			_, _, err := r.discoverForCommand(context.Background(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), discardLogger(t))
 
 			// Assert: all-invalid input is still rejected after unsafe targets are skipped.
 			var commandErr *commandError
@@ -302,7 +303,7 @@ func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *te
 	reports, truncated, err := r.discoverForCommand(
 		context.Background(),
 		discoverIPList([]string{"public.example", "10.0.0.5"}, []string{"4028"}),
-		testLogger(),
+		discardLogger(t),
 	)
 
 	// Assert
@@ -400,12 +401,12 @@ func TestResolveAndValidatePorts(t *testing.T) {
 		name      string
 		supplied  []string
 		defaults  []string
-		want      []string
+		want      []uint16
 		wantErr   bool
 		errSubstr string
 	}{
-		{name: "valid single port", supplied: []string{"4028"}, want: []string{"4028"}},
-		{name: "uses defaults when empty", supplied: nil, defaults: []string{"80", "4028"}, want: []string{"80", "4028"}},
+		{name: "valid single port", supplied: []string{"4028"}, want: []uint16{4028}},
+		{name: "uses defaults when empty", supplied: nil, defaults: []string{"80", "4028"}, want: []uint16{80, 4028}},
 		{name: "rejects range bypass", supplied: []string{"1-65535"}, wantErr: true, errSubstr: "invalid port"},
 		{name: "rejects comma bypass", supplied: []string{"80,443,8080"}, wantErr: true, errSubstr: "invalid port"},
 		{name: "rejects protocol prefix", supplied: []string{"T:80"}, wantErr: true, errSubstr: "invalid port"},
@@ -414,12 +415,12 @@ func TestResolveAndValidatePorts(t *testing.T) {
 		{name: "rejects zero", supplied: []string{"0"}, wantErr: true, errSubstr: "invalid port"},
 		{name: "rejects 65536", supplied: []string{"65536"}, wantErr: true, errSubstr: "invalid port"},
 		{name: "rejects negative", supplied: []string{"-1"}, wantErr: true, errSubstr: "invalid port"},
-		{name: "rejects over-cap count", supplied: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, wantErr: true, errSubstr: "too many ports"},
-		{name: "dedupes", supplied: []string{"80", "80", "4028"}, want: []string{"80", "4028"}},
-		{name: "normalizes leading zeros to canonical form", supplied: []string{"080"}, want: []string{"80"}},
-		{name: "normalizes plus prefix to canonical form", supplied: []string{"+80"}, want: []string{"80"}},
-		{name: "dedupes equivalent non-canonical inputs", supplied: []string{"80", "080", "+80"}, want: []string{"80"}},
-		{name: "rejects all-empty when no defaults", supplied: nil, defaults: []string{}, wantErr: true, errSubstr: "non-empty"},
+		{name: "rejects over-cap count", supplied: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, wantErr: true, errSubstr: "at most"},
+		{name: "dedupes", supplied: []string{"80", "80", "4028"}, want: []uint16{80, 4028}},
+		{name: "normalizes leading zeros to canonical form", supplied: []string{"080"}, want: []uint16{80}},
+		{name: "normalizes plus prefix to canonical form", supplied: []string{"+80"}, want: []uint16{80}},
+		{name: "dedupes equivalent non-canonical inputs", supplied: []string{"80", "080", "+80"}, want: []uint16{80}},
+		{name: "rejects all-empty when no defaults", supplied: nil, defaults: []string{}, wantErr: true, errSubstr: "required"},
 		{name: "validates plugin defaults", supplied: nil, defaults: []string{"1-65535"}, wantErr: true, errSubstr: "invalid port"},
 	}
 	for _, tc := range cases {
@@ -436,45 +437,6 @@ func TestResolveAndValidatePorts(t *testing.T) {
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errSubstr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestExpandIPv4Range(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name    string
-		start   string
-		end     string
-		max     int
-		want    []string
-		wantErr string
-	}{
-		{name: "skip network and gateway", start: "192.168.1.0", end: "192.168.1.3", max: 100, want: []string{"192.168.1.2", "192.168.1.3"}},
-		{name: "keep loopback .0 and .1", start: "127.0.0.0", end: "127.0.0.2", max: 100, want: []string{"127.0.0.0", "127.0.0.1", "127.0.0.2"}},
-		{name: "single host", start: "10.0.0.5", end: "10.0.0.5", max: 100, want: []string{"10.0.0.5"}},
-		{name: "end before start", start: "10.0.0.5", end: "10.0.0.1", max: 100, wantErr: "must be >="},
-		{name: "range collapses to empty", start: "192.168.1.0", end: "192.168.1.1", max: 100, wantErr: "only covers network/gateway"},
-		{name: "exceeds cap", start: "10.0.0.0", end: "10.0.0.99", max: 16, wantErr: "exceeds the limit"},
-		{name: "invalid start", start: "not-an-ip", end: "10.0.0.5", max: 100, wantErr: "not a valid IP address"},
-		{name: "ipv6 rejected", start: "::1", end: "::2", max: 100, wantErr: "IPv4 required"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Act
-			got, err := expandIPv4Range(tc.start, tc.end, tc.max)
-
-			// Assert
-			if tc.wantErr != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
@@ -1866,7 +1828,7 @@ func TestFanOutProbes_SupervisorReturnsPartialOnStuckPlugin(t *testing.T) {
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}, {ip: "10.0.0.2", port: "4028"}}
 
 	start := time.Now()
-	result, truncated := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
+	result, truncated := fanOutProbes(ctx, slices.Values(endpoints), 2, probe, discardLogger(t))
 	elapsed := time.Since(start)
 
 	// Assert: capped wall-clock, fast probe still reports, truncated set.
@@ -1908,7 +1870,7 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}, {ip: "10.0.0.2", port: "4028"}}
-	result, _ := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, slices.Values(endpoints), 2, probe, discardLogger(t))
 
 	// Assert: only the gateway-valid report survives; the bad one is dropped.
 	require.Len(t, result, 1)
@@ -2001,7 +1963,7 @@ func TestFanOutProbes_AcceptsNonHTTPPluginScheme(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}}
-	result, _ := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, slices.Values(endpoints), 1, probe, discardLogger(t))
 
 	// Assert
 	require.Len(t, result, 1)
@@ -2027,7 +1989,7 @@ func TestFanOutProbes_OverridesPluginSuppliedEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}}
-	result, _ := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, slices.Values(endpoints), 1, probe, discardLogger(t))
 
 	// Assert: report uses the scanned (ip, port), not what the plugin claimed.
 	require.Len(t, result, 1)
