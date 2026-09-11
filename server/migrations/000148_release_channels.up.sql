@@ -36,8 +36,10 @@ CREATE TABLE release_channel (
     -- Update behavior, copied onto each rollout when it starts so editing the
     -- channel never changes a run in flight. max_concurrent_offline is the
     -- exception: it is channel-wide and read live.
-    method TEXT NOT NULL DEFAULT 'all_at_once',              -- all_at_once | batched | pilot_then_continue | delegated
-    order_by TEXT NOT NULL DEFAULT 'least_efficient_first',  -- least_efficient_first | random
+    method TEXT NOT NULL DEFAULT 'all_at_once'
+        CHECK (method IN ('all_at_once', 'batched', 'pilot_then_continue', 'delegated')),
+    order_by TEXT NOT NULL DEFAULT 'least_efficient_first'
+        CHECK (order_by IN ('least_efficient_first', 'random')),
     batch_size INT NOT NULL DEFAULT 0,                       -- batched
     pilot_size INT NOT NULL DEFAULT 0,                       -- pilot_then_continue
     wait_between_batches_seconds INT NOT NULL DEFAULT 0,     -- batched without review
@@ -112,25 +114,19 @@ CREATE TABLE firmware_rollout (
     previous_firmware_version TEXT NOT NULL DEFAULT '',
     -- Generation of the pair's assignment this rollout enforces.
     assignment_generation BIGINT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active',   -- active | completed | completed_with_failures | canceled
-    cancel_reason TEXT NOT NULL DEFAULT '',  -- superseded | canceled_remaining | rolled_back | cleared
-    stage TEXT NOT NULL DEFAULT 'rest',      -- batch | awaiting_review | waiting | rest
-    -- Behavior snapshot (see release_channel).
-    method TEXT NOT NULL DEFAULT 'all_at_once',
-    order_by TEXT NOT NULL DEFAULT 'least_efficient_first',
-    batch_size INT NOT NULL DEFAULT 0,
-    pilot_size INT NOT NULL DEFAULT 0,
-    wait_between_batches_seconds INT NOT NULL DEFAULT 0,
-    review_after_each_batch BOOLEAN NOT NULL DEFAULT false,
-    auto_continue BOOLEAN NOT NULL DEFAULT false,
-    stabilization_seconds INT NOT NULL DEFAULT 0,
-    max_hashrate_drop_percent DOUBLE PRECISION NULL,
-    max_efficiency_increase_percent DOUBLE PRECISION NULL,
-    max_temp_increase_c DOUBLE PRECISION NULL,
-    max_new_errors INT NULL,
-    min_sample_coverage_percent DOUBLE PRECISION NULL,
-    max_concurrent_offline INT NOT NULL DEFAULT 0,
-    controller_timeout_seconds INT NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'completed', 'completed_with_failures', 'canceled')),
+    cancel_reason TEXT NOT NULL DEFAULT ''
+        CHECK (cancel_reason IN ('', 'superseded', 'canceled_remaining', 'rolled_back', 'cleared')),
+    stage TEXT NOT NULL DEFAULT 'rest'
+        CHECK (stage IN ('batch', 'awaiting_review', 'waiting', 'rest')),
+    -- Immutable behavior copied at creation. The channel's typed columns
+    -- remain the editable configuration; its offline budget is read live.
+    -- The budget in this snapshot is retained only for historical display.
+    behavior_snapshot JSONB NOT NULL DEFAULT '{"method":"all_at_once","order_by":"least_efficient_first"}'::jsonb
+        CHECK (jsonb_typeof(behavior_snapshot) = 'object'
+            AND COALESCE(behavior_snapshot->>'method' IN ('all_at_once', 'batched', 'pilot_then_continue', 'delegated'), false)
+            AND COALESCE(behavior_snapshot->>'order_by' IN ('least_efficient_first', 'random'), false)),
     -- Snapshotted batches (0 for all-at-once and delegated) and the one in flight.
     batch_count INT NOT NULL DEFAULT 0,
     current_batch INT NOT NULL DEFAULT 0,
@@ -142,10 +138,10 @@ CREATE TABLE firmware_rollout (
     revision_txid BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Actors: user | api_key | system, with id (0 for system) and display name.
-    started_by_type TEXT NOT NULL DEFAULT 'system',
+    started_by_type TEXT NOT NULL DEFAULT 'system' CHECK (started_by_type IN ('user', 'api_key', 'system')),
     started_by_id BIGINT NOT NULL DEFAULT 0,
     started_by_name TEXT NOT NULL DEFAULT '',
-    last_action_by_type TEXT NOT NULL DEFAULT 'system',
+    last_action_by_type TEXT NOT NULL DEFAULT 'system' CHECK (last_action_by_type IN ('user', 'api_key', 'system')),
     last_action_by_id BIGINT NOT NULL DEFAULT 0,
     last_action_by_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -162,6 +158,13 @@ CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, create
 CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, updated_at);
 -- Incremental polling filters by transaction before sorting the changed rows.
 CREATE INDEX idx_firmware_rollout_org_revision_txid ON firmware_rollout(org_id, revision_txid);
+
+-- Historical suppression looks up the newest target for one assignment.
+-- Ordered history lets the planner stop at that target instead of scanning
+-- every past rollout; completed and canceled runs must remain eligible.
+CREATE INDEX idx_firmware_rollout_assignment_history
+    ON firmware_rollout(channel_id, release_channel_pair_key(manufacturer),
+        release_channel_pair_key(model), assignment_generation, created_at DESC, id DESC);
 
 -- The creating transaction owns revision 1, so the initial snapshot and any
 -- other statement in it do not bump. updated_at is the wall clock when the
@@ -202,17 +205,26 @@ CREATE TRIGGER firmware_rollout_revision
 -- finished, so history stays stable.
 CREATE TABLE firmware_rollout_device (
     rollout_id BIGINT NOT NULL REFERENCES firmware_rollout(id) ON DELETE CASCADE,
-    device_id BIGINT NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+    -- Normal removal soft-deletes devices. Keep completed target history until
+    -- its owning channel/organization is explicitly deleted. Deferring this
+    -- check lets organization cleanup remove devices before cascading rollout
+    -- deletion, while rejecting a device-only hard delete at commit.
+    device_id BIGINT NOT NULL REFERENCES device(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     -- 0-based batch; NULL for the unbatched rest and for late joiners.
     batch_index INT NULL,
     -- Order within the rollout (efficiency-ranked or shuffled at start);
     -- NULL for late joiners, which sort last.
     position INT NULL,
-    -- Update commands sent so far; a miner is halted as failed once
-    -- attempts are exhausted without it verifying.
+    -- Dispatch attempts so far, including preflight skips; a miner is halted
+    -- as failed once attempts are exhausted without it verifying.
     attempts INT NOT NULL DEFAULT 0,
     first_sent_at TIMESTAMPTZ NULL,
     last_sent_at TIMESTAMPTZ NULL,
+    -- Attempts include preflight skips. Only an actual queued update may
+    -- authorize managed-deployment provenance after the device reports back.
+    last_dispatched_at TIMESTAMPTZ NULL,
+    -- Exact durable command audit used to verify a firmware-induced rename.
+    last_dispatched_batch_uuid VARCHAR(36) NULL,
     -- Set when the miner first meets every convergence criterion (target
     -- version, provenance, online, hashing when required). DONE is this
     -- column, not a live derivation from health, so reaching it is a change to
@@ -220,13 +232,14 @@ CREATE TABLE firmware_rollout_device (
     -- not drift with later telemetry.
     verified_at TIMESTAMPTZ NULL,
     -- Set when the miner will not be retried for this version: attempts
-    -- exhausted ('failed'), the rollout was canceled ('canceled') or a caller
+    -- exhausted or its reported pair became incompatible ('failed'), the
+    -- rollout was canceled ('canceled') or a caller
     -- settled it without updating ('skipped'). A halted miner stays out of
     -- enforcement while this is the most recent rollout of the assignment
     -- generation that holds it (firmware_rollout_suppressed_device);
     -- RetryFailedRolloutDevices clears it.
     halted_at TIMESTAMPTZ NULL,
-    halt_reason TEXT NOT NULL DEFAULT '',  -- failed | canceled | skipped
+    halt_reason TEXT NOT NULL DEFAULT '' CHECK (halt_reason IN ('', 'failed', 'canceled', 'skipped')),
     last_error TEXT NOT NULL DEFAULT '',
     skip_note TEXT NOT NULL DEFAULT '',
     -- Set when the miner left the channel scope while the rollout ran.
@@ -259,21 +272,26 @@ CREATE TABLE device_firmware_deployment (
     deployed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Touches every rollout the rows of one statement reference after it and,
--- for updates, before it (provenance moving to a later rollout changes the
--- earlier one too); firmware_rollout_revision turns the touches into one bump
--- per transaction.
+-- Invalidates every rollout referenced by changed child rows, including the
+-- previous owner when provenance moves. Revision ownership stays in the
+-- database so background writers and explicit child deletion follow the same
+-- rule as operator writes. Only the first child statement in a transaction
+-- touches each header; subsequent changes are covered by its transaction
+-- watermark. The header trigger provides monotonic time and coalesces header
+-- writes with these invalidations. DELETE aliases its old rows as changed_rows.
 CREATE OR REPLACE FUNCTION firmware_rollout_touch_from_rows()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'UPDATE' THEN
         UPDATE firmware_rollout
-        SET updated_at = now()
-        WHERE id IN (SELECT rollout_id FROM changed_rows UNION SELECT rollout_id FROM previous_rows);
+        SET revision = revision + 1
+        WHERE id IN (SELECT rollout_id FROM changed_rows UNION SELECT rollout_id FROM previous_rows)
+          AND revision_txid <> pg_current_xact_id()::text::bigint;
     ELSE
         UPDATE firmware_rollout
-        SET updated_at = now()
-        WHERE id IN (SELECT rollout_id FROM changed_rows);
+        SET revision = revision + 1
+        WHERE id IN (SELECT rollout_id FROM changed_rows)
+          AND revision_txid <> pg_current_xact_id()::text::bigint;
     END IF;
     RETURN NULL;
 END;
@@ -291,6 +309,12 @@ CREATE TRIGGER firmware_rollout_device_updated
     FOR EACH STATEMENT
     EXECUTE FUNCTION firmware_rollout_touch_from_rows();
 
+CREATE TRIGGER firmware_rollout_device_deleted
+    AFTER DELETE ON firmware_rollout_device
+    REFERENCING OLD TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
 CREATE TRIGGER device_firmware_deployment_inserted
     AFTER INSERT ON device_firmware_deployment
     REFERENCING NEW TABLE AS changed_rows
@@ -300,6 +324,12 @@ CREATE TRIGGER device_firmware_deployment_inserted
 CREATE TRIGGER device_firmware_deployment_updated
     AFTER UPDATE ON device_firmware_deployment
     REFERENCING OLD TABLE AS previous_rows NEW TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
+CREATE TRIGGER device_firmware_deployment_deleted
+    AFTER DELETE ON device_firmware_deployment
+    REFERENCING OLD TABLE AS changed_rows
     FOR EACH STATEMENT
     EXECUTE FUNCTION firmware_rollout_touch_from_rows();
 

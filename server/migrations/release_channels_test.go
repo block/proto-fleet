@@ -38,6 +38,7 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	triggers := []string{
 		"firmware_rollout_revision", "firmware_rollout_device_inserted", "firmware_rollout_device_updated",
 		"device_firmware_deployment_inserted", "device_firmware_deployment_updated",
+		"firmware_rollout_device_deleted", "device_firmware_deployment_deleted",
 	}
 	count := func(query, name string) int {
 		var n int

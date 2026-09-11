@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -167,7 +168,8 @@ func TestReleaseChannelQueries_InitialStageTimeAfterLockWait(t *testing.T) {
 		row, err := q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
 			OrgID: f.org, ChannelID: channel, Manufacturer: "Bitmain", Model: stage,
 			FirmwareChecksum: "sum", FirmwareVersion: "v2", AssignmentGeneration: 1,
-			Stage: stage, Method: "all_at_once", OrderBy: "least_efficient_first", ActorType: "system",
+			Stage: stage, ActorType: "system",
+			BehaviorSnapshot: dbtypes.RolloutBehaviorSnapshot{Method: "all_at_once", OrderBy: "least_efficient_first"},
 		})
 		require.NoError(t, err)
 		require.Equal(t, stage, row.Stage)
