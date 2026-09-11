@@ -147,21 +147,28 @@ const MinersPage = ({
   }, []);
 
   const { refetch } = useOnboardedStatus();
-  // Process discovered miners, ensuring no duplicates
+  // Retain earlier discoveries while refreshing miners returned by later scans.
   const pairedMinerIdSet = useMemo(() => new Set(pairedMinerIds), [pairedMinerIds]);
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
-        const existingMinerIds = new Set(prevMiners.map((miner) => miner.deviceIdentifier));
-        const newMiners = devices.filter((device) => {
+        const unpairedDevices = devices.filter(
+          (device) => !device.deviceIdentifier || !pairedMinerIdSet.has(device.deviceIdentifier),
+        );
+        if (unpairedDevices.length === 0) return prevMiners;
+        const miners = [...prevMiners];
+        const indices = new Map(prevMiners.map((miner, index) => [miner.deviceIdentifier, index]));
+        for (const device of unpairedDevices) {
           const id = device.deviceIdentifier;
-          if (!id) return true;
-          if (existingMinerIds.has(id) || pairedMinerIdSet.has(id)) return false;
-          existingMinerIds.add(id);
-          return true;
-        });
-        if (newMiners.length === 0) return prevMiners;
-        return [...prevMiners, ...newMiners];
+          const index = id ? indices.get(id) : undefined;
+          if (index === undefined) {
+            if (id) indices.set(id, miners.length);
+            miners.push(device);
+          } else {
+            miners[index] = device;
+          }
+        }
+        return miners;
       });
     },
     [pairedMinerIdSet],
@@ -216,6 +223,7 @@ const MinersPage = ({
 
   const cancelNetworkScan = useCallback(() => {
     foremanCredsRef.current = null;
+    setFoundMiners([]);
     setScanDiscoveryPending(false);
     setManualDiscoveryPending(false);
     setLastDiscoveryMode(minerDiscoveryModes.scan);
