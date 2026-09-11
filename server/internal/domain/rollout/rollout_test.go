@@ -755,6 +755,62 @@ func TestListRolloutsFiltersAndPages(t *testing.T) {
 	assert.Equal(t, DeviceCounts{}, live.CurrentBatchCounts, "no batch in the rest stage")
 }
 
+type countingFirmwareFiles struct {
+	FirmwareFiles
+	lookups map[string]int
+}
+
+func (f *countingFirmwareFiles) FindFirmwareFileIDByChecksum(checksum string) (string, bool) {
+	f.lookups[checksum]++
+	return f.FirmwareFiles.FindFirmwareFileIDByChecksum(checksum)
+}
+
+func TestListRolloutsVerifiesEachArtifactOncePerResponse(t *testing.T) {
+	f := newFixture(t, 1)
+	f.channel(t, allAtOnce, f.allMiners()...)
+	// Both artifacts occur twice in history, so available and unavailable
+	// artifacts must each be checked once regardless of the number of rows.
+	for _, fileID := range []string{"fw-1", "fw-2", "fw-1", "fw-2"} {
+		f.apply(t, fileID)
+	}
+	counted := &countingFirmwareFiles{FirmwareFiles: f.files}
+	f.svc.files = counted
+
+	for _, tc := range []struct {
+		name    string
+		deleted map[string]bool
+		fileIDs map[string]string
+	}{
+		{
+			name:    "both available",
+			fileIDs: map[string]string{checksum1: "fw-1", checksum2: "fw-2"},
+		},
+		{
+			name:    "deletion is observed on the next response",
+			deleted: map[string]bool{"fw-1": true},
+			fileIDs: map[string]string{checksum1: "", checksum2: "fw-2"},
+		},
+		{
+			name:    "restoration replaces the previous negative result",
+			deleted: map[string]bool{"fw-2": true},
+			fileIDs: map[string]string{checksum1: "fw-1", checksum2: ""},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f.files.deleted = tc.deleted
+			counted.lookups = map[string]int{}
+			rollouts, next, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+			require.NoError(t, err)
+			require.Empty(t, next)
+			require.Len(t, rollouts, 4)
+			assert.Equal(t, map[string]int{checksum1: 1, checksum2: 1}, counted.lookups)
+			for _, r := range rollouts {
+				assert.Equal(t, tc.fileIDs[r.FirmwareChecksum], r.FirmwareFileID)
+			}
+		})
+	}
+}
+
 func TestDeviceCountsFollowPhases(t *testing.T) {
 	f := newFixture(t, 3)
 	ctx := t.Context()

@@ -558,7 +558,8 @@ func (s *Service) refreshView(ctx context.Context, orgID, rolloutID int64) (*Rol
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("reload rollout %d: %v", rolloutID, err)
 	}
-	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName)
+	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
+	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
 }
 
 // lockRollout loads a rollout FOR UPDATE with its channel name and enforces
@@ -730,7 +731,8 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 			return fleeterror.NewInternalErrorf("list suppressed members: %v", err)
 		}
 		if len(suppressed) == 0 {
-			view, err = s.rolloutView(ctx, row, channelName)
+			fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareChecksum)
+			view, err = s.rolloutView(ctx, row, channelName, fileID)
 			return err
 		}
 		members := make([]sqlc.ListReleaseChannelMismatchedMembersRow, len(suppressed))
@@ -763,7 +765,8 @@ func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Roll
 	if err != nil {
 		return nil, fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
 	}
-	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName)
+	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
+	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
 }
 
 // ListRolloutDevices returns one page of a rollout's miners in snapshot
@@ -899,8 +902,17 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 		next = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixNano(), 10), strconv.FormatInt(last.ID, 10), pollXminText)
 	}
 	rollouts := make([]Rollout, 0, len(rows))
+	// Finding a file verifies its full payload. Share the result, including
+	// absence, only within this response so later polls see file changes.
+	fileIDs := make(map[string]string)
 	for _, row := range rows {
-		view, err := s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName)
+		checksum := row.FirmwareRollout.FirmwareChecksum
+		fileID, checked := fileIDs[checksum]
+		if !checked {
+			fileID, _ = s.files.FindFirmwareFileIDByChecksum(checksum)
+			fileIDs[checksum] = fileID
+		}
+		view, err := s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
 		if err != nil {
 			return nil, "", "", err
 		}
@@ -1094,7 +1106,7 @@ func reviewScope(r sqlc.FirmwareRollout, targets []target) []target {
 
 // --- Views ---
 
-func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, channelName string) (*Rollout, error) {
+func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, channelName, firmwareFileID string) (*Rollout, error) {
 	targets, err := s.listTargets(ctx, r)
 	if err != nil {
 		return nil, err
@@ -1107,6 +1119,7 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 		Model:                    r.Model,
 		FirmwareChecksum:         r.FirmwareChecksum,
 		FirmwareVersion:          r.FirmwareVersion,
+		FirmwareFileID:           firmwareFileID,
 		PreviousFirmwareChecksum: r.PreviousFirmwareChecksum,
 		PreviousFirmwareVersion:  r.PreviousFirmwareVersion,
 		AssignmentGeneration:     r.AssignmentGeneration,
@@ -1123,7 +1136,6 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 		StartedBy:                Actor{Type: r.StartedByType, ID: r.StartedByID, Name: r.StartedByName},
 		LastActionBy:             Actor{Type: r.LastActionByType, ID: r.LastActionByID, Name: r.LastActionByName},
 	}
-	view.FirmwareFileID, _ = s.files.FindFirmwareFileIDByChecksum(r.FirmwareChecksum)
 	if r.FinishedAt.Valid {
 		t := r.FinishedAt.Time
 		view.FinishedAt = &t
