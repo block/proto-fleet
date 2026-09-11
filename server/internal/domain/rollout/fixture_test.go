@@ -124,7 +124,8 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 	for i := range minerCount {
 		f.addMiner(t, fmt.Sprintf("miner-%d", i), "Rig")
 	}
-	f.svc = NewService(sqlstores.NewSQLReleaseChannelStore(conn), sqlstores.NewSQLTransactor(conn), f.dispatcher, f.files, f.activity)
+	queries := sqlstores.NewSQLConnectionManager(conn)
+	f.svc = NewService(&queries, sqlstores.NewSQLTransactor(conn), f.dispatcher, f.files, f.activity)
 	f.svc.now = func() time.Time { return f.clock }
 	return f
 }
