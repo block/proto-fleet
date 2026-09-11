@@ -1,4 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { act, fireEvent, render as renderBare, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Firmware from "./Firmware";
 
@@ -32,6 +34,33 @@ vi.mock("@/protoFleet/features/settings/components/EditFirmwareMetadataDialog", 
 }));
 
 vi.mock("@/shared/features/toaster");
+
+// The release channels tab polls the rollout API; the Files tests only need
+// the hook to be quiet.
+vi.mock("@/protoFleet/api/useReleaseChannels", () => ({
+  useReleaseChannels: () => ({
+    channels: [],
+    rollouts: [],
+    minerNames: {},
+    isLoading: false,
+    refresh: vi.fn(),
+    createChannel: vi.fn(),
+    updateChannel: vi.fn(),
+    deleteChannel: vi.fn(),
+    previewScope: vi.fn(),
+    applyFirmware: vi.fn(),
+    rollbackFirmware: vi.fn(),
+    continueRollout: vi.fn(),
+    pauseRollout: vi.fn(),
+    resumeRollout: vi.fn(),
+    cancelRollout: vi.fn(),
+    retryFailedDevices: vi.fn(),
+  }),
+}));
+
+// The active tab lives in the URL, so the page needs a router.
+const render = (ui: ReactElement, initialEntry = "/settings/firmware") =>
+  renderBare(<MemoryRouter initialEntries={[initialEntry]}>{ui}</MemoryRouter>);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -332,5 +361,20 @@ describe("Firmware", () => {
         }),
       );
     });
+  });
+
+  it("shows the Files tab by default and switches to Release channels", async () => {
+    render(<Firmware />);
+    await waitFor(() => expect(screen.getByText("Loading firmware files...")).toBeInTheDocument());
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
+    await waitFor(() => expect(screen.getByText("No release channels")).toBeInTheDocument());
+    expect(screen.queryByText("Loading firmware files...")).not.toBeInTheDocument();
+  });
+
+  it("deep-links to the Release channels tab from the URL", async () => {
+    render(<Firmware />, "/settings/firmware?tab=release-channels");
+    await waitFor(() => expect(screen.getByText("No release channels")).toBeInTheDocument());
+    expect(screen.queryByText("Loading firmware files...")).not.toBeInTheDocument();
   });
 });

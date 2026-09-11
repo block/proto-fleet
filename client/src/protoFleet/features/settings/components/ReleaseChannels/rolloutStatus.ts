@@ -17,6 +17,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -427,6 +428,17 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
 
 // "current → target" while miners converge on the assignment, or just the
 // assigned version once every miner reports it.
+// A manufacturer/model pair as the UI names it: the observed identity with
+// unknown halves left out.
+export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
+  `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// Key joining a model group to the rollouts and assignments of its pair:
+// trimmed and ASCII-folded like the server, so the observed "proto Rig"
+// meets the canonical "Proto Rig". Unknown identities never match anything.
+export const pairKey = (pair: { manufacturer: string; model: string }): string =>
+  minerTargetKey(pair.manufacturer, pair.model) ?? `\u0000${pair.manufacturer}\u0000${pair.model}`;
+
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.firmwareVersion === "") return "—";
   const behind = group.reportedVersions.filter((version) => version !== group.firmwareVersion);
