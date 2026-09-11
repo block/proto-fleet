@@ -3,6 +3,7 @@ package pairing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net"
 	"net/netip"
@@ -284,4 +285,112 @@ func TestExplicitDiscoveryRetainsResultsWhenHostnameFails(t *testing.T) {
 		devices = append(devices, result.Devices...)
 	}
 	require.Len(t, devices, 1)
+}
+
+type scanResolverFunc func(context.Context, string) ([]net.IPAddr, error)
+
+func (f scanResolverFunc) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return f(ctx, host)
+}
+
+func TestExplicitDiscoverySlowHostnameDoesNotBlockOtherTargets(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		probed := make(chan string, 2)
+		s := newScanTestService(t, func(_ context.Context, ip, _ string) (*discoverymodels.DiscoveredDevice, error) {
+			probed <- ip
+			return nil, errors.New("not a miner")
+		})
+		var slowActive atomic.Bool
+		s.resolver = scanResolverFunc(func(ctx context.Context, hostname string) ([]net.IPAddr, error) {
+			if hostname == "slow.invalid" {
+				slowActive.Store(true)
+				defer slowActive.Store(false)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return []net.IPAddr{{IP: net.ParseIP("192.168.1.2")}}, nil
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		results, err := s.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+			IpAddresses: []string{"slow.invalid", "192.168.1.1", "healthy.invalid"}, Ports: []string{"4028"},
+		})
+		require.NoError(t, err)
+		synctest.Wait()
+		require.True(t, slowActive.Load())
+		require.Len(t, probed, 2, "literal and healthy hostname must progress while the first lookup is blocked")
+		require.ElementsMatch(t, []string{"192.168.1.1", "192.168.1.2"}, []string{<-probed, <-probed})
+		cancel()
+		for result := range results {
+			require.Empty(t, result.Error)
+		}
+		synctest.Wait()
+		require.False(t, slowActive.Load())
+	})
+}
+
+func TestResolveTargetsBoundsLookupsWithoutBlockingLiterals(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var active atomic.Int32
+		s := &Service{resolver: scanResolverFunc(func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+			active.Add(1)
+			defer active.Add(-1)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})}
+		var targets []netscan.Target
+		for i := range concurrentDiscoveryLimit + 10 {
+			target, err := netscan.ParseAddrTarget(fmt.Sprintf("miner-%d.invalid", i))
+			require.NoError(t, err)
+			targets = append(targets, target)
+		}
+		literal, err := netscan.ParseAddrTarget("192.168.1.1")
+		require.NoError(t, err)
+		targets = append(targets, literal)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		seen := make(chan netscan.Target, 1)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for target, err := range s.resolveTargets(ctx, targets, false) {
+				if err == nil {
+					seen <- target
+				}
+			}
+		}()
+		synctest.Wait()
+		require.EqualValues(t, concurrentDiscoveryLimit, active.Load())
+		require.Len(t, seen, 1, "saturated lookup workers must not hold back a literal")
+		require.Equal(t, literal, <-seen)
+		cancel()
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("resolution did not stop after cancellation")
+		}
+		require.Zero(t, active.Load(), "resolution must wait for its workers")
+	})
+}
+
+func TestExplicitDiscoveryDeduplicatesResolvedTargets(t *testing.T) {
+	var probes, lookups atomic.Int32
+	s := newScanTestService(t, func(context.Context, string, string) (*discoverymodels.DiscoveredDevice, error) {
+		probes.Add(1)
+		return nil, errors.New("not a miner")
+	})
+	s.resolver = scanResolverFunc(func(context.Context, string) ([]net.IPAddr, error) {
+		lookups.Add(1)
+		return []net.IPAddr{{IP: net.ParseIP("192.168.1.1")}}, nil
+	})
+	results, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{
+		IpAddresses: []string{"one.invalid", "one.invalid", "two.invalid", "192.168.1.1"}, Ports: []string{"4028"},
+	})
+	require.NoError(t, err)
+	for result := range results {
+		require.Empty(t, result.Error)
+	}
+	require.EqualValues(t, 2, lookups.Load(), "duplicate hostname inputs should be resolved only once")
+	require.EqualValues(t, 1, probes.Load(), "aliases and literals for one target should be probed only once")
 }

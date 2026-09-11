@@ -139,8 +139,7 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 			// Deduplicate resolved input targets, not every address in broad
 			// subnets, so enumeration stays bounded by the request size.
 			seenTargets := make(map[netscan.Target]struct{}, len(targets))
-			for _, target := range targets {
-				resolved, err := target.Resolve(scanCtx, s.resolver, scanOpenPorts)
+			for resolved, err := range s.resolveTargets(scanCtx, targets, scanOpenPorts) {
 				if err != nil {
 					if scanOpenPorts && resolutionErr == nil {
 						resolutionErr = err
@@ -203,4 +202,72 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 		}
 	}()
 	return results
+}
+
+// resolveTargets keeps slow DNS lookups independent of literal targets and of
+// other lookups. Only the caller invokes yield, including for resolved results.
+func (s *Service) resolveTargets(ctx context.Context, targets []netscan.Target, privateOnly bool) iter.Seq2[netscan.Target, error] {
+	return func(yield func(netscan.Target, error) bool) {
+		ctx, cancel := context.WithCancel(ctx)
+		lookups := make(chan netscan.Target, len(targets))
+		seen := make(map[netscan.Target]struct{}, len(targets))
+		var literals []netscan.Target
+		for _, target := range targets {
+			if _, ok := seen[target]; ok {
+				continue
+			}
+			seen[target] = struct{}{}
+			// Unresolved hostnames have no addresses yet.
+			if target.Count() == 0 {
+				lookups <- target
+			} else {
+				literals = append(literals, target)
+			}
+		}
+		lookupCount := len(lookups)
+		close(lookups)
+		type resolution struct {
+			target netscan.Target
+			err    error
+		}
+		resolved := make(chan resolution)
+		var workers sync.WaitGroup
+		for range min(lookupCount, concurrentDiscoveryLimit) {
+			workers.Go(func() {
+				for target := range lookups {
+					if ctx.Err() != nil {
+						return
+					}
+					target, err := target.Resolve(ctx, s.resolver, privateOnly)
+					select {
+					case resolved <- resolution{target, err}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			})
+		}
+		defer func() {
+			cancel()
+			workers.Wait()
+		}()
+		for _, target := range literals {
+			if ctx.Err() != nil {
+				return
+			}
+			if !yield(target.Resolve(ctx, s.resolver, privateOnly)) {
+				return
+			}
+		}
+		for range lookupCount {
+			select {
+			case result := <-resolved:
+				if !yield(result.target, result.err) {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }
