@@ -561,8 +561,8 @@ func start(config *Config) (result error) {
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 
-	rolloutStore := sqlstores.NewSQLReleaseChannelStore(conn)
-	rolloutSvc := rolloutDomain.NewService(rolloutStore, transactor, commandSvc, filesService, activitySvc)
+	rolloutQueries := sqlstores.NewSQLConnectionManager(conn)
+	rolloutSvc := rolloutDomain.NewService(&rolloutQueries, transactor, commandSvc, filesService, activitySvc)
 	rolloutEnforcement := newBackgroundLoop(func(ctx context.Context) {
 		const enforceInterval = 15 * time.Second
 		reportProgress := runtimejobs.TrackProgress(ctx, enforceInterval)
