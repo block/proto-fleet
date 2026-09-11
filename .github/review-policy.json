@@ -111,6 +111,7 @@
       "server/internal/domain/ipscanner/**",
       "server/internal/domain/minerdiscovery/**",
       "server/internal/domain/netscan/**",
+      "server/internal/domain/nmaptarget/**",
       "server/internal/domain/pairing/**",
       "server/internal/domain/pools/**",
       "server/internal/domain/session/**",
