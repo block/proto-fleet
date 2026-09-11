@@ -122,6 +122,35 @@ func TestNetworkScanTCPPrefilter(t *testing.T) {
 	require.Equal(t, int32(1), calls.Load())
 }
 
+func TestNetworkScanInterleavesSubnetsBeforeTimeout(t *testing.T) {
+	s := newScanTestService(t, nil)
+	first, err := netscan.ParseTarget("10.0.0.0/16")
+	require.NoError(t, err)
+	second, err := netscan.ParseTarget("192.168.0.0/16")
+	require.NoError(t, err)
+	var checked []netip.Addr
+	s.scanner = scanFunc(func(_ context.Context, addrs iter.Seq[netip.Addr], _ []uint16, _ func(netscan.HostResult) error) error {
+		for addr := range addrs {
+			checked = append(checked, addr)
+			if len(checked) == 4 {
+				break
+			}
+		}
+		return context.DeadlineExceeded
+	})
+	results := s.discoverTargets(t.Context(), []netscan.Target{first, first, second}, []uint16{4028}, true)
+	var messages []string
+	for result := range results {
+		messages = append(messages, result.Error)
+	}
+	require.Len(t, checked, 4)
+	for i, addr := range checked {
+		target := []netscan.Target{first, second}[i%2]
+		require.True(t, target.Contains(addr), "subnet did not get its turn: %s", addr)
+	}
+	require.Equal(t, []string{"Server scan timed out. Retry to check other addresses, or narrow the range."}, messages)
+}
+
 func TestNetworkScanStreamsBeforeTerminalFailure(t *testing.T) {
 	for _, terminal := range []error{errors.New("socket resource exhausted"), context.DeadlineExceeded} {
 		t.Run(terminal.Error(), func(t *testing.T) {

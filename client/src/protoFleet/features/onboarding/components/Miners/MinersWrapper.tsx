@@ -186,30 +186,33 @@ const MinersPage = ({
     [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
-  const handleNmapDiscovery = useCallback(() => {
-    if (!networkInfo?.subnet) return;
+  const handleNmapDiscovery = useCallback(
+    (keepResults = false) => {
+      if (!networkInfo?.subnet) return;
 
-    foremanCredsRef.current = null;
-    setFoundMiners([]);
-    setScanDiscoveryPending(true);
-    setLastDiscoveryMode(minerDiscoveryModes.scan);
-    setLastManualTargets(null);
-    const discoverRequest = create(DiscoverRequestSchema, {
-      mode: {
-        case: "nmap",
-        value: {
-          target: networkInfo.subnet,
-          useFleetNodeLocalSubnet: true,
+      foremanCredsRef.current = null;
+      if (!keepResults) setFoundMiners([]);
+      setScanDiscoveryPending(true);
+      setLastDiscoveryMode(minerDiscoveryModes.scan);
+      setLastManualTargets(null);
+      const discoverRequest = create(DiscoverRequestSchema, {
+        mode: {
+          case: "nmap",
+          value: {
+            target: networkInfo.subnet,
+            useFleetNodeLocalSubnet: true,
+          },
         },
-      },
-    });
-    const controller = discoveryAbortController.current;
-    handleDiscover(discoverRequest, controller).finally(() => {
-      if (!controller.signal.aborted) {
-        setScanDiscoveryPending(false);
-      }
-    });
-  }, [handleDiscover, networkInfo]);
+      });
+      const controller = discoveryAbortController.current;
+      handleDiscover(discoverRequest, controller).finally(() => {
+        if (!controller.signal.aborted) {
+          setScanDiscoveryPending(false);
+        }
+      });
+    },
+    [handleDiscover, networkInfo],
+  );
 
   const cancelNetworkScan = useCallback(() => {
     foremanCredsRef.current = null;
@@ -240,8 +243,8 @@ const MinersPage = ({
   void handleMdnsDiscovery;
 
   const handleManualDiscovery = useCallback(
-    async (targets: ManualDiscoveryTargets) => {
-      setFoundMiners([]);
+    async (targets: ManualDiscoveryTargets, keepResults = false) => {
+      if (!keepResults) setFoundMiners([]);
       setLastDiscoveryMode(minerDiscoveryModes.manual);
       setLastManualTargets(targets);
       const discoverRequests: DiscoverRequest[] = [];
@@ -310,13 +313,13 @@ const MinersPage = ({
     const wasForeman = lastDiscoveryMode === minerDiscoveryModes.foreman;
 
     if ((lastDiscoveryMode === minerDiscoveryModes.manual || wasForeman) && lastManualTargets) {
-      handleManualDiscovery(lastManualTargets);
+      handleManualDiscovery(lastManualTargets, true);
       // Preserve foreman mode so completeImport still fires after pairing
       if (wasForeman) {
         setLastDiscoveryMode(minerDiscoveryModes.foreman);
       }
     } else {
-      handleNmapDiscovery();
+      handleNmapDiscovery(true);
     }
   }, [
     scanDiscoveryPending,

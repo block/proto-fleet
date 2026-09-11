@@ -139,6 +139,7 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 			// Deduplicate resolved input targets, not every address in broad
 			// subnets, so enumeration stays bounded by the request size.
 			seenTargets := make(map[netscan.Target]struct{}, len(targets))
+			var networkTargets []netscan.Target
 			for resolved, err := range s.resolveTargets(scanCtx, targets, scanOpenPorts) {
 				if err != nil {
 					if scanOpenPorts && resolutionErr == nil {
@@ -153,10 +154,19 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 					continue
 				}
 				seenTargets[resolved] = struct{}{}
+				if scanOpenPorts {
+					networkTargets = append(networkTargets, resolved)
+					continue
+				}
 				for addr := range resolved.Addresses() {
 					if !yield(addr) {
 						return
 					}
+				}
+			}
+			for addr := range netscan.InterleavedAddresses(networkTargets) {
+				if !yield(addr) {
+					return
 				}
 			}
 		}
@@ -194,6 +204,9 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 		message := fmt.Sprintf("Server network discovery incomplete: %v", err)
 		if errors.Is(err, context.DeadlineExceeded) {
 			message = "Server network discovery timed out; some devices may not have been discovered"
+			if scanOpenPorts {
+				message = "Server scan timed out. Retry to check other addresses, or narrow the range."
+			}
 		}
 		// The scan budget may be exhausted, but the client stream is still live.
 		select {
