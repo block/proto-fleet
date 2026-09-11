@@ -19,7 +19,7 @@ func TestStaleProvenanceObservationPreservesInterveningDeployment(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newFixture(t, 1)
-			q := f.svc.store.Queries(ctx)
+			q := f.svc.store.GetQueries(ctx)
 			deviceID := f.deviceIDs["miner-0"]
 			if existing {
 				require.NoError(t, q.RecordFirmwareDeployment(ctx, sqlc.RecordFirmwareDeploymentParams{

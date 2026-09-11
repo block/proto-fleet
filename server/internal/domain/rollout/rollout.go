@@ -348,7 +348,7 @@ func (s *Service) mismatchedParams(spec rolloutSpec, rolloutID int64) sqlc.ListR
 // split into batches for staged methods. Returns nil when no member is
 // mismatched (or every mismatched member is suppressed in this generation).
 func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.FirmwareRollout, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	rows := spec.Members
 	if rows == nil {
 		var err error
@@ -384,35 +384,21 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 	}
 
 	r, err := q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
-		OrgID:                        spec.OrgID,
-		ChannelID:                    spec.ChannelID,
-		Manufacturer:                 spec.Pair.Manufacturer,
-		Model:                        spec.Pair.Model,
-		FirmwareChecksum:             spec.FirmwareChecksum,
-		FirmwareVersion:              spec.FirmwareVersion,
-		PreviousFirmwareChecksum:     spec.PreviousFirmwareChecksum,
-		PreviousFirmwareVersion:      spec.PreviousFirmwareVersion,
-		AssignmentGeneration:         spec.AssignmentGeneration,
-		Stage:                        stage,
-		ActorType:                    spec.Actor.Type,
-		ActorID:                      spec.Actor.ID,
-		ActorName:                    spec.Actor.Name,
-		Method:                       b.Method,
-		OrderBy:                      b.Order,
-		BatchSize:                    b.BatchSize,
-		PilotSize:                    b.PilotSize,
-		WaitBetweenBatchesSeconds:    b.WaitBetweenBatchesSeconds,
-		ReviewAfterEachBatch:         b.ReviewAfterEachBatch,
-		AutoContinue:                 b.AutoContinue,
-		StabilizationSeconds:         b.StabilizationSeconds,
-		MaxHashrateDropPercent:       toNullFloat(b.Thresholds.MaxHashrateDropPercent),
-		MaxEfficiencyIncreasePercent: toNullFloat(b.Thresholds.MaxEfficiencyIncreasePercent),
-		MaxTempIncreaseC:             toNullFloat(b.Thresholds.MaxTempIncreaseC),
-		MaxNewErrors:                 toNullInt(b.Thresholds.MaxNewErrors),
-		MinSampleCoveragePercent:     toNullFloat(b.Thresholds.MinSampleCoveragePercent),
-		MaxConcurrentOffline:         b.MaxConcurrentOffline,
-		ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
-		BatchCount:                   int32(len(batches)), // #nosec G115 -- bounded by the member count
+		OrgID:                    spec.OrgID,
+		ChannelID:                spec.ChannelID,
+		Manufacturer:             spec.Pair.Manufacturer,
+		Model:                    spec.Pair.Model,
+		FirmwareChecksum:         spec.FirmwareChecksum,
+		FirmwareVersion:          spec.FirmwareVersion,
+		PreviousFirmwareChecksum: spec.PreviousFirmwareChecksum,
+		PreviousFirmwareVersion:  spec.PreviousFirmwareVersion,
+		AssignmentGeneration:     spec.AssignmentGeneration,
+		Stage:                    stage,
+		ActorType:                spec.Actor.Type,
+		ActorID:                  spec.Actor.ID,
+		ActorName:                spec.Actor.Name,
+		BehaviorSnapshot:         b.snapshot(),
+		BatchCount:               int32(len(batches)), // #nosec G115 -- bounded by the member count
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("create rollout: %v", err)
@@ -440,7 +426,7 @@ func (s *Service) snapshot(ctx context.Context, rolloutID int64, deviceIDs []int
 		RolloutID: rolloutID, DeviceIds: deviceIDs, BatchIndex: batch,
 		PositionOffset: int32(offset), // #nosec G115 -- bounded by the member count
 	}
-	if err := s.store.Queries(ctx).SnapshotFirmwareRolloutDevices(ctx, params); err != nil {
+	if err := s.store.GetQueries(ctx).SnapshotFirmwareRolloutDevices(ctx, params); err != nil {
 		return fleeterror.NewInternalErrorf("snapshot rollout devices: %v", err)
 	}
 	return nil
@@ -507,7 +493,7 @@ func (s *Service) ContinueRollout(ctx context.Context, orgID, rolloutID int64, m
 // PauseRollout holds an active rollout: no new commands, no transitions.
 func (s *Service) PauseRollout(ctx context.Context, orgID, rolloutID int64, m Mutation) (*Rollout, error) {
 	return s.mutateActive(ctx, orgID, rolloutID, m, func(ctx context.Context, row *sqlc.FirmwareRollout, channelName string) error {
-		n, err := s.store.Queries(ctx).PauseFirmwareRollout(ctx, sqlc.PauseFirmwareRolloutParams{
+		n, err := s.store.GetQueries(ctx).PauseFirmwareRollout(ctx, sqlc.PauseFirmwareRolloutParams{
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
 		if err != nil {
@@ -525,7 +511,7 @@ func (s *Service) PauseRollout(ctx context.Context, orgID, rolloutID int64, m Mu
 // ResumeRollout lets a paused rollout continue where it left off.
 func (s *Service) ResumeRollout(ctx context.Context, orgID, rolloutID int64, m Mutation) (*Rollout, error) {
 	return s.mutateActive(ctx, orgID, rolloutID, m, func(ctx context.Context, row *sqlc.FirmwareRollout, channelName string) error {
-		n, err := s.store.Queries(ctx).ResumeFirmwareRollout(ctx, sqlc.ResumeFirmwareRolloutParams{
+		n, err := s.store.GetQueries(ctx).ResumeFirmwareRollout(ctx, sqlc.ResumeFirmwareRolloutParams{
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
 		if err != nil {
@@ -568,7 +554,7 @@ func (s *Service) mutateActive(ctx context.Context, orgID, rolloutID int64, m Mu
 // refreshView re-reads a rollout after a mutation so the view carries the
 // revision, timestamps and actor the change produced.
 func (s *Service) refreshView(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
-	row, err := s.store.Queries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
+	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("reload rollout %d: %v", rolloutID, err)
 	}
@@ -579,7 +565,7 @@ func (s *Service) refreshView(ctx context.Context, orgID, rolloutID int64) (*Rol
 // the revision rule when expectedRevision is nonzero. Must run in a
 // transaction.
 func (s *Service) lockRollout(ctx context.Context, orgID, rolloutID, expectedRevision int64) (sqlc.FirmwareRollout, string, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	row, err := q.GetFirmwareRolloutForUpdate(ctx, sqlc.GetFirmwareRolloutForUpdateParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
 		return sqlc.FirmwareRollout{}, "", fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
@@ -620,7 +606,7 @@ func (s *Service) advance(ctx context.Context, row *sqlc.FirmwareRollout, from s
 	if m != nil {
 		params.ActorType, params.ActorID, params.ActorName = m.actorParams()
 	}
-	n, err := s.store.Queries(ctx).AdvanceFirmwareRolloutStage(ctx, params)
+	n, err := s.store.GetQueries(ctx).AdvanceFirmwareRolloutStage(ctx, params)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("advance rollout: %v", err)
 	}
@@ -638,7 +624,7 @@ func (s *Service) advance(ctx context.Context, row *sqlc.FirmwareRollout, from s
 func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m Mutation) (*Rollout, *Channel, error) {
 	var channel *Channel
 	view, err := s.mutateActive(ctx, orgID, rolloutID, m, func(ctx context.Context, row *sqlc.FirmwareRollout, channelName string) error {
-		q := s.store.Queries(ctx)
+		q := s.store.GetQueries(ctx)
 		n, err := q.CancelFirmwareRollout(ctx, sqlc.CancelFirmwareRolloutParams{
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
@@ -690,7 +676,7 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64, m Mutation) (*Rollout, error) {
 	var view *Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		q := s.store.Queries(ctx)
+		q := s.store.GetQueries(ctx)
 		row, channelName, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
 		if err != nil {
 			return err
@@ -773,7 +759,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 
 // GetRollout returns one rollout of the org with live per-device progress.
 func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
-	row, err := s.store.Queries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
+	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
 		return nil, fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
 	}
@@ -783,7 +769,7 @@ func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Roll
 // ListRolloutDevices returns one page of a rollout's miners in snapshot
 // order with live progress. The returned cursor is empty on the last page.
 func (s *Service) ListRolloutDevices(ctx context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]RolloutDevice, string, error) {
-	row, err := s.store.Queries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
+	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
 		return nil, "", fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
 	}
@@ -890,7 +876,7 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 		// still invisible to that snapshot has a transaction ID at or above
 		// this boundary, even if it commits after a newer writer.
 		var err error
-		pollXmin, err = s.store.Queries(ctx).GetFirmwareRolloutPollWatermark(ctx)
+		pollXmin, err = s.store.GetQueries(ctx).GetFirmwareRolloutPollWatermark(ctx)
 		if err != nil {
 			return nil, "", "", fleeterror.NewInternalErrorf("get rollout poll watermark: %v", err)
 		}
@@ -899,7 +885,7 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 	// Fetch one extra row to learn whether another page exists.
 	params.PageLimit = limit + 1
 
-	rows, err := s.store.Queries(ctx).ListFirmwareRollouts(ctx, params)
+	rows, err := s.store.GetQueries(ctx).ListFirmwareRollouts(ctx, params)
 	if err != nil {
 		return nil, "", "", fleeterror.NewInternalErrorf("list rollouts: %v", err)
 	}
@@ -1052,7 +1038,7 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 }
 
 func (s *Service) listTargets(ctx context.Context, r sqlc.FirmwareRollout) ([]target, error) {
-	rows, err := s.store.Queries(ctx).ListFirmwareRolloutDevices(ctx, r.ID)
+	rows, err := s.store.GetQueries(ctx).ListFirmwareRolloutDevices(ctx, r.ID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list rollout devices: %v", err)
 	}
@@ -1183,10 +1169,10 @@ func deriveState(r sqlc.FirmwareRollout, ev *Evidence) string {
 		return StatePaused
 	}
 	if r.Stage == StageAwaitingReview {
-		if r.AutoContinue && ev != nil && ev.HoldReason == holdStabilizing {
+		if r.BehaviorSnapshot.AutoContinue && ev != nil && ev.HoldReason == holdStabilizing {
 			return StateStabilizingTelemetry
 		}
-		if r.Method == MethodPilotThenContinue && r.CurrentBatch == 0 {
+		if r.BehaviorSnapshot.Method == MethodPilotThenContinue && r.CurrentBatch == 0 {
 			return StatePausedAtPilotGate
 		}
 		return StatePausedAtBatchReview
@@ -1209,7 +1195,7 @@ func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, c
 		"manufacturer":     r.Manufacturer,
 		"model":            r.Model,
 		"firmware_version": r.FirmwareVersion,
-		"method":           r.Method,
+		"method":           r.BehaviorSnapshot.Method,
 		"stage":            r.Stage,
 	}
 	for k, v := range extra {
