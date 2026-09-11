@@ -486,7 +486,7 @@ func TestExplicitDiscoverySlowHostnameDoesNotBlockOtherTargets(t *testing.T) {
 		require.ElementsMatch(t, []string{"192.168.1.1", "192.168.1.2"}, []string{<-probed, <-probed})
 		cancel()
 		for result := range results {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 		}
 		synctest.Wait()
 		require.False(t, slowActive.Load())
@@ -553,7 +553,7 @@ func TestExplicitDiscoveryDeduplicatesResolvedTargets(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for result := range results {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 	}
 	require.EqualValues(t, 2, lookups.Load(), "duplicate hostname inputs should be resolved only once")
 	require.EqualValues(t, 1, probes.Load(), "aliases and literals for one target should be probed only once")
