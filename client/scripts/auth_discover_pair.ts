@@ -223,8 +223,8 @@ async function discoverDevices(sessionCookie: string, target: string): Promise<D
       Cookie: sessionCookie,
     },
   })) {
-    if (response.error) {
-      console.warn(`Discovery warning: ${response.error}`);
+    if (response.warning) {
+      console.warn(`Discovery warning: ${response.warning}`);
     }
 
     for (const device of response.devices) {

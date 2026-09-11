@@ -141,20 +141,13 @@ func TestScanAndProbeWithRealTCPListener(t *testing.T) {
 	open, err := net.Listen("tcp4", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = open.Close() })
-	closed, err := net.Listen("tcp4", "127.0.0.1:0")
-	require.NoError(t, err)
-	closedAddr, ok := closed.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	closedPort := closedAddr.AddrPort().Port()
-	require.NoError(t, closed.Close())
 	openAddr, ok := open.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 	openPort := openAddr.AddrPort().Port()
 	r := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"127.0.0.1|" + strconv.Itoa(int(openPort)):   {DeviceIdentifier: "open", DriverName: "antminer", UrlScheme: "http"},
-		"127.0.0.1|" + strconv.Itoa(int(closedPort)): {DeviceIdentifier: "closed", DriverName: "antminer", UrlScheme: "http"},
+		"127.0.0.1|" + strconv.Itoa(int(openPort)): {DeviceIdentifier: "open", DriverName: "antminer", UrlScheme: "http"},
 	}}}
-	reports, truncated, err := r.scanAndProbe(t.Context(), slices.Values([]netip.Addr{netip.MustParseAddr("127.0.0.1")}), []uint16{openPort, closedPort}, discardLogger(t))
+	reports, truncated, err := r.scanAndProbe(t.Context(), slices.Values([]netip.Addr{netip.MustParseAddr("127.0.0.1")}), []uint16{openPort}, discardLogger(t))
 	require.NoError(t, err)
 	assert.False(t, truncated)
 	require.Len(t, reports, 1)

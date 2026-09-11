@@ -22,10 +22,6 @@ type portScanner interface {
 // DiscoverWithNmap discovers miners on a network using TCP connect probes.
 // The wire mode is renamed with the coordinated contract update.
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	ports, err := s.scanPorts(ctx, r.Ports)
-	if err != nil {
-		return nil, err
-	}
 	rawTargets, err := s.resolveNmapTargets(ctx, r.Target)
 	if err != nil {
 		return nil, err
@@ -40,6 +36,10 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			return nil, fleeterror.NewInvalidArgumentError("scan target must contain only private addresses")
 		}
 		targets = append(targets, target)
+	}
+	ports, err := s.scanPorts(ctx, r.Ports)
+	if err != nil {
+		return nil, err
 	}
 	return s.discoverTargets(ctx, targets, ports, true), nil
 }
@@ -61,10 +61,6 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 // DiscoverWithIPList resolves each hostname once before plugin probing. Literal
 // addresses retain the server's existing public/private address policy.
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	ports, err := s.scanPorts(ctx, r.Ports)
-	if err != nil {
-		return nil, err
-	}
 	targets := make([]netscan.Target, 0, len(r.IpAddresses))
 	for _, raw := range r.IpAddresses {
 		target, err := netscan.ParseAddrTarget(raw)
@@ -72,6 +68,10 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 			return nil, fleeterror.NewInvalidArgumentError(err.Error())
 		}
 		targets = append(targets, target)
+	}
+	ports, err := s.scanPorts(ctx, r.Ports)
+	if err != nil {
+		return nil, err
 	}
 	return s.discoverTargets(ctx, targets, ports, false), nil
 }
@@ -83,6 +83,9 @@ func (s *Service) scanPorts(ctx context.Context, raw []string) ([]uint16, error)
 	}
 	parsed, err := netscan.Ports(ports, nil)
 	if err != nil {
+		if len(raw) == 0 {
+			return nil, fleeterror.NewInternalErrorf("invalid default discovery ports: %v", err)
+		}
 		return nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
 	return parsed, nil
@@ -114,6 +117,8 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 		}
 		hosts := make(chan hostTarget, concurrentDiscoveryLimit)
 		var workers sync.WaitGroup
+		var processingErr error
+		var recordProcessingErr sync.Once
 		for range workerCount {
 			workers.Go(func() {
 				for {
@@ -128,7 +133,9 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 						for i, port := range host.ports {
 							probePorts[i] = strconv.Itoa(int(port))
 						}
-						s.discoverAllPortsForIP(scanCtx, host.addr.String(), probePorts, raw)
+						if err := s.discoverAllPortsForIP(scanCtx, host.addr.String(), probePorts, raw); err != nil {
+							recordProcessingErr.Do(func() { processingErr = err })
+						}
 					}
 				}
 			})
@@ -142,7 +149,7 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 			var networkTargets []netscan.Target
 			for resolved, err := range s.resolveTargets(scanCtx, targets, scanOpenPorts) {
 				if err != nil {
-					if scanOpenPorts && resolutionErr == nil {
+					if resolutionErr == nil {
 						resolutionErr = err
 					}
 					if scanCtx.Err() != nil {
@@ -198,19 +205,22 @@ func (s *Service) discoverTargets(ctx context.Context, targets []netscan.Target,
 		if err == nil {
 			err = resolutionErr
 		}
+		if err == nil {
+			err = processingErr
+		}
 		if err == nil || ctx.Err() != nil {
 			return
 		}
-		message := fmt.Sprintf("Server network discovery incomplete: %v", err)
+		message := fmt.Sprintf("Fleet Server network discovery incomplete: %v", err)
 		if errors.Is(err, context.DeadlineExceeded) {
-			message = "Server network discovery timed out; some devices may not have been discovered"
+			message = "Fleet Server network discovery timed out; some devices may not have been discovered"
 			if scanOpenPorts {
-				message = "Server scan timed out. Retry to check other addresses, or narrow the range."
+				message = "Fleet Server scan timed out. Retry to check other addresses, or narrow the range."
 			}
 		}
 		// The scan budget may be exhausted, but the client stream is still live.
 		select {
-		case raw <- &pb.DiscoverResponse{Error: message}:
+		case raw <- &pb.DiscoverResponse{Warning: message}:
 		case <-ctx.Done():
 		}
 	}()

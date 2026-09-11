@@ -14,6 +14,7 @@ import (
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
@@ -77,7 +78,7 @@ func TestExplicitDiscoveryWithoutTCPListener(t *testing.T) {
 			require.NoError(t, err)
 			var devices []*pb.Device
 			for result := range results {
-				require.Empty(t, result.Error)
+				require.Empty(t, result.Warning)
 				devices = append(devices, result.Devices...)
 			}
 			require.Len(t, devices, 1)
@@ -115,7 +116,7 @@ func TestNetworkScanTCPPrefilter(t *testing.T) {
 	require.NoError(t, err)
 	var devices []*pb.Device
 	for result := range results {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 	require.Len(t, devices, 1)
@@ -141,14 +142,14 @@ func TestNetworkScanInterleavesSubnetsBeforeTimeout(t *testing.T) {
 	results := s.discoverTargets(t.Context(), []netscan.Target{first, first, second}, []uint16{4028}, true)
 	var messages []string
 	for result := range results {
-		messages = append(messages, result.Error)
+		messages = append(messages, result.Warning)
 	}
 	require.Len(t, checked, 4)
 	for i, addr := range checked {
 		target := []netscan.Target{first, second}[i%2]
 		require.True(t, target.Contains(addr), "subnet did not get its turn: %s", addr)
 	}
-	require.Equal(t, []string{"Server scan timed out. Retry to check other addresses, or narrow the range."}, messages)
+	require.Equal(t, []string{"Fleet Server scan timed out. Retry to check other addresses, or narrow the range."}, messages)
 }
 
 func TestNetworkScanStreamsBeforeTerminalFailure(t *testing.T) {
@@ -171,17 +172,104 @@ func TestNetworkScanStreamsBeforeTerminalFailure(t *testing.T) {
 			select {
 			case result := <-results:
 				require.Len(t, result.Devices, 1)
-				require.Empty(t, result.Error)
+				require.Empty(t, result.Warning)
 			case <-time.After(time.Second):
 				t.Fatal("device was held until the scan completed")
 			}
 			close(finishScan)
 			result := <-results
-			require.NotEmpty(t, result.Error)
+			require.NotEmpty(t, result.Warning)
 			_, open := <-results
 			require.False(t, open)
 		})
 	}
+}
+
+func TestNetworkScanWarnsOnPersistenceFailureAndRetainsHealthyHosts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		addresses []string
+		wantCount int
+	}{
+		{"failed save", []string{"192.168.1.1"}, 0},
+		{"healthy host retained", []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScanTestService(t, func(_ context.Context, ip, _ string) (*discoverymodels.DiscoveredDevice, error) {
+				d := testIdentifiedDevice()
+				d.DeviceIdentifier = ip
+				return d, nil
+			})
+			store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
+			store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					if d.IpAddress != "192.168.1.3" {
+						return nil, errors.New(`duplicate key value violates unique constraint "discovered_device_org_endpoint_key" (SQLSTATE 23505)`)
+					}
+					return d, nil
+				}).Times(len(tc.addresses))
+			s.discoveredDeviceStore = store
+			results, err := s.DiscoverWithIPList(mockSessionContext(t.Context(), 1, 1), &pb.IPListModeRequest{
+				IpAddresses: tc.addresses, Ports: []string{"80"},
+			})
+			require.NoError(t, err)
+			var devices []*pb.Device
+			var warnings []string
+			for result := range results {
+				if len(result.Devices) > 0 {
+					require.Empty(t, warnings, "the warning must follow all retained devices")
+					devices = append(devices, result.Devices...)
+				}
+				if result.Warning != "" {
+					warnings = append(warnings, result.Warning)
+				}
+			}
+			require.Len(t, devices, tc.wantCount)
+			if tc.wantCount > 0 {
+				require.Equal(t, "192.168.1.3", devices[0].IpAddress)
+			}
+			require.Len(t, warnings, 1, "multiple failed hosts produce one final source warning")
+			require.Contains(t, warnings[0], "Fleet Server network discovery incomplete")
+			require.Contains(t, warnings[0], "could not save discovered device at 192.168.1.")
+			require.NotContains(t, warnings[0], "discovered_device_org_endpoint_key")
+			require.NotContains(t, warnings[0], "SQLSTATE")
+		})
+	}
+}
+
+func TestNetworkScanSuccessfulSiblingRecoversPersistenceFailure(t *testing.T) {
+	firstSaveFailed := make(chan struct{})
+	s := newScanTestService(t, func(ctx context.Context, _, port string) (*discoverymodels.DiscoveredDevice, error) {
+		if port == "443" {
+			select {
+			case <-firstSaveFailed:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return testIdentifiedDevice(), nil
+	})
+	store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
+	store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+			if d.Port == "80" {
+				close(firstSaveFailed)
+				return nil, errors.New("first port save failed")
+			}
+			return d, nil
+		}).Times(2)
+	s.discoveredDeviceStore = store
+	results, err := s.DiscoverWithIPList(mockSessionContext(t.Context(), 1, 1), &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.1"}, Ports: []string{"80", "443"},
+	})
+	require.NoError(t, err)
+	var devices []*pb.Device
+	for result := range results {
+		require.Empty(t, result.Warning, "successful fallback completes discovery for the host")
+		devices = append(devices, result.Devices...)
+	}
+	require.Len(t, devices, 1)
+	require.Equal(t, "443", devices[0].Port)
 }
 
 func TestNetworkScanCancellationDoesNotWaitForNoncooperativePlugin(t *testing.T) {
@@ -219,7 +307,7 @@ func TestNetworkScanExplicitRangeIncludesZeroAndOne(t *testing.T) {
 	results, err := s.DiscoverWithIPRange(t.Context(), &pb.IPRangeModeRequest{StartIp: "192.168.1.0", EndIp: "192.168.1.1", Ports: []string{"80"}})
 	require.NoError(t, err)
 	for result := range results {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 	}
 	require.ElementsMatch(t, []string{"192.168.1.0", "192.168.1.1"}, addresses)
 }
@@ -233,7 +321,7 @@ func TestNetworkScanProbeDeadlineBoundsNoncooperativePlugin(t *testing.T) {
 		})
 		done := make(chan struct{})
 		go func() {
-			s.discoverAllPortsForIP(t.Context(), "192.168.1.1", []string{"80"}, make(chan *pb.DiscoverResponse))
+			_ = s.discoverAllPortsForIP(t.Context(), "192.168.1.1", []string{"80"}, make(chan *pb.DiscoverResponse))
 			close(done)
 		}()
 		synctest.Wait()
@@ -283,11 +371,53 @@ func TestNetworkScanRetainsFallbackAfterCollisionSkip(t *testing.T) {
 	require.NoError(t, err)
 	var found []*pb.Device
 	for result := range results {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		found = append(found, result.Devices...)
 	}
 	require.Len(t, found, 1)
 	require.Equal(t, "443", found[0].Port)
+}
+
+func TestNetworkScanInvalidInputsPrecedeDefaultPortLookup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{"network target", func(s *Service) error {
+			_, err := s.DiscoverWithNmap(t.Context(), &pb.NmapModeRequest{Target: "not/a/target"})
+			return err
+		}},
+		{"list target", func(s *Service) error {
+			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}})
+			return err
+		}},
+		{"list IPv4 range", func(s *Service) error {
+			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.1-2"}})
+			return err
+		}},
+		{"list multi-octet range", func(s *Service) error {
+			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1-2.1"}})
+			return err
+		}},
+		{"range target", func(s *Service) error {
+			_, err := s.DiscoverWithIPRange(t.Context(), &pb.IPRangeModeRequest{StartIp: "192.168.1.2", EndIp: "192.168.1.1"})
+			return err
+		}},
+		{"explicit ports", func(s *Service) error {
+			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.1"}, Ports: []string{"invalid"}})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
+			// No default metadata is consulted for malformed caller input.
+			s := NewService(nil, nil, nil, nil, nil, caps, nil, nil)
+			s.localNetworkInfo = func(context.Context) (*NetworkInfo, error) { return nil, errors.New("no local subnet") }
+			err := tc.run(s)
+			require.Error(t, err)
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+		})
+	}
 }
 
 type scanFunc func(context.Context, iter.Seq[netip.Addr], []uint16, func(netscan.HostResult) error) error
@@ -309,11 +439,16 @@ func TestExplicitDiscoveryRetainsResultsWhenHostnameFails(t *testing.T) {
 	})
 	require.NoError(t, err)
 	var devices []*pb.Device
+	var warnings []string
 	for result := range results {
-		require.Empty(t, result.Error)
+		if result.Warning != "" {
+			warnings = append(warnings, result.Warning)
+		}
 		devices = append(devices, result.Devices...)
 	}
 	require.Len(t, devices, 1)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], "miner.invalid")
 }
 
 type scanResolverFunc func(context.Context, string) ([]net.IPAddr, error)
@@ -351,7 +486,7 @@ func TestExplicitDiscoverySlowHostnameDoesNotBlockOtherTargets(t *testing.T) {
 		require.ElementsMatch(t, []string{"192.168.1.1", "192.168.1.2"}, []string{<-probed, <-probed})
 		cancel()
 		for result := range results {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 		}
 		synctest.Wait()
 		require.False(t, slowActive.Load())
@@ -418,7 +553,7 @@ func TestExplicitDiscoveryDeduplicatesResolvedTargets(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for result := range results {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 	}
 	require.EqualValues(t, 2, lookups.Load(), "duplicate hostname inputs should be resolved only once")
 	require.EqualValues(t, 1, probes.Load(), "aliases and literals for one target should be probed only once")
