@@ -48,7 +48,7 @@ When a server-issued `DiscoverRequest` arrives in `NmapModeRequest` form, the ag
 
 The target is validated against a strict grammar before invocation: bare IPv4/IPv6, CIDR, `A.B.C.D-N` range, or hostname. Leading dashes, whitespace, and shell metacharacters are rejected — this defends against a compromised server crafting a target like `-iL/etc/passwd` that nmap would otherwise interpret as a flag. See `validateNmapTarget` in [nmap.go](nmap.go).
 
-For automatic "local subnet" discovery commands, the server sends the reserved `fleetnode-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
+For automatic "local subnet" discovery commands, the server sends the reserved `fleet-node-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
 
 ```bash
 fleetnode run --local-discovery-subnet=10.90.0.0/24
