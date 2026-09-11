@@ -144,7 +144,9 @@ CREATE TABLE firmware_rollout (
     last_action_by_type TEXT NOT NULL DEFAULT 'system' CHECK (last_action_by_type IN ('user', 'api_key', 'system')),
     last_action_by_id BIGINT NOT NULL DEFAULT 0,
     last_action_by_name TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- History must follow insertion order even when a retry's transaction
+    -- began before the preceding rollout. now() would use transaction start.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     finished_at TIMESTAMPTZ NULL
 );
 
