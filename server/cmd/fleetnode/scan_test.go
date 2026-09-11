@@ -134,7 +134,7 @@ func TestNetworkScanOnlyIdentifiesOpenPorts(t *testing.T) {
 	assert.False(t, truncated)
 	require.Len(t, reports, 1)
 	assert.Equal(t, "open", reports[0].DeviceIdentifier)
-	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")}, scanned)
+	assert.ElementsMatch(t, []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")}, scanned)
 }
 
 func TestScanAndProbeWithRealTCPListener(t *testing.T) {
@@ -246,6 +246,7 @@ func TestControlLoopRetainsReportsAfterScannerDeadline(t *testing.T) {
 	require.Len(t, fake.reportsCopy(), 1)
 	require.Len(t, fake.reportsCopy()[0].Devices, 1)
 	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, fake.acksCopy()[0].Code)
+	assert.Contains(t, fake.acksCopy()[0].GetErrorMessage(), "Retry to check other addresses, or narrow the range.")
 }
 
 func TestControlLoopClosedPortsSendNoEmptyReports(t *testing.T) {
@@ -292,6 +293,37 @@ func TestConfiguredSubnetAvoidsPlatformDetection(t *testing.T) {
 	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
 	require.NoError(t, err)
 	assert.Len(t, slices.Collect(addrs), 2)
+}
+
+func TestNetworkTargetsInterleaveLocalSubnets(t *testing.T) {
+	r := &RunCmd{localSubnets: func() ([]string, error) {
+		return []string{"10.0.0.0/29", "192.168.1.0/29"}, nil
+	}}
+	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+	require.NoError(t, err)
+	first, err := netscan.ParseTarget("10.0.0.0/29")
+	require.NoError(t, err)
+	second, err := netscan.ParseTarget("192.168.1.0/29")
+	require.NoError(t, err)
+	got := slices.Collect(addrs)
+	require.Len(t, got, 12)
+	for i, addr := range got {
+		target := []netscan.Target{first, second}[i%2]
+		require.True(t, target.Contains(addr), "subnet did not get its turn: %s", addr)
+	}
+	want := append(slices.Collect(first.Addresses()), slices.Collect(second.Addresses())...)
+	assert.ElementsMatch(t, want, got)
+}
+
+func TestNetworkTargetsDeduplicateOverlappingLocalSubnets(t *testing.T) {
+	r := &RunCmd{localSubnets: func() ([]string, error) {
+		return []string{"10.0.0.0/29", "10.0.0.0/30", "10.0.0.0/29"}, nil
+	}}
+	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: netscan.LocalSubnetTarget})
+	require.NoError(t, err)
+	target, err := netscan.ParseTarget("10.0.0.0/29")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, slices.Collect(target.Addresses()), slices.Collect(addrs))
 }
 
 func TestIPListChoosesPrivateDNSBeforeIPv4Preference(t *testing.T) {
