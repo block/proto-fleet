@@ -3,12 +3,11 @@ package discovery
 import (
 	"net/netip"
 	"strconv"
-	"strings"
 
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
 // buildReportScope derives, from the validated request, a matcher that accepts
@@ -46,7 +45,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 		// the server can't predict the IPs. Degrade the IP scope to the
 		// private-only invariant (RFC1918/RFC4193) that validateReport
 		// independently enforces; port scoping is still applied.
-		if m.Nmap.GetTarget() == nmaptarget.LocalSubnetTarget {
+		if m.Nmap.GetTarget() == netscan.LocalSubnetTarget {
 			return func(ip, port string) bool {
 				if !inPort(port) {
 					return false
@@ -115,75 +114,13 @@ func portMatcher(ports []string) func(string) bool {
 	}
 }
 
-// nmapTargetMatcher accepts IPs covered by the nmap target: a CIDR's hosts, an
-// "A.B.C.D-N" range, or a literal address. A hostname target resolves agent-side
-// to IP(s) the server can't predict, so it is constrained by ports only.
-func nmapTargetMatcher(target string) func(string) bool {
-	if prefix, err := netip.ParsePrefix(target); err == nil {
-		return func(ip string) bool {
-			a, ok := parseScopeAddr(ip)
-			return ok && prefix.Contains(a)
-		}
+// nmapTargetMatcher scopes reports using the same target parser as execution.
+// Hostnames resolve on the node, so their reports remain constrained by ports
+// and the report validator's private-address policy.
+func nmapTargetMatcher(raw string) func(string) bool {
+	target, err := netscan.ParseTarget(raw)
+	return func(ip string) bool {
+		addr, ok := parseScopeAddr(ip)
+		return err == nil && ok && target.Contains(addr)
 	}
-	if nmaptarget.IsIPv4Range(target) {
-		if start, end, ok := parseIPv4Range(target); ok {
-			return func(ip string) bool {
-				a, ok := parseScopeAddr(ip)
-				return ok && a.Is4() && !a.Less(start) && !end.Less(a)
-			}
-		}
-	}
-	if want, ok := parseScopeAddr(target); ok {
-		return func(ip string) bool {
-			a, ok := parseScopeAddr(ip)
-			return ok && a == want
-		}
-	}
-	return func(string) bool { return true }
-}
-
-// nmapTargetIsPrivate reports whether every address the nmap target can cover is
-// private, mirroring validateReport's addr.IsPrivate() so a public target fails
-// fast at dispatch instead of as a late REPORT_FAILED ack. A hostname resolves
-// agent-side to an IP the server can't predict, so it returns true and the report
-// validator guards what comes back.
-func nmapTargetIsPrivate(target string) bool {
-	if prefix, err := netip.ParsePrefix(target); err == nil {
-		// The /22 IPv4 CIDR cap keeps a prefix inside one RFC1918 block, so the
-		// network address's range decides the whole block.
-		return prefix.Addr().Unmap().IsPrivate()
-	}
-	if nmaptarget.IsIPv4Range(target) {
-		start, end, ok := parseIPv4Range(target)
-		return ok && start.IsPrivate() && end.IsPrivate()
-	}
-	if a, ok := parseScopeAddr(target); ok {
-		return a.IsPrivate()
-	}
-	return true // hostname: resolved agent-side; report validator enforces private-only
-}
-
-// parseIPv4Range parses an "A.B.C.D-N" nmap range into the inclusive [start, end]
-// bounds (end shares A.B.C and uses N as its last octet).
-func parseIPv4Range(s string) (start, end netip.Addr, ok bool) {
-	head, tail, found := strings.Cut(s, "-")
-	if !found {
-		return netip.Addr{}, netip.Addr{}, false
-	}
-	start, err := netutil.ParseIPv4(head)
-	if err != nil {
-		return netip.Addr{}, netip.Addr{}, false
-	}
-	if n, atoiErr := strconv.Atoi(tail); atoiErr != nil || n < 0 || n > 255 {
-		return netip.Addr{}, netip.Addr{}, false
-	}
-	octets := strings.Split(head, ".")
-	if len(octets) != 4 {
-		return netip.Addr{}, netip.Addr{}, false
-	}
-	end, err = netutil.ParseIPv4(octets[0] + "." + octets[1] + "." + octets[2] + "." + tail)
-	if err != nil || end.Less(start) {
-		return netip.Addr{}, netip.Addr{}, false
-	}
-	return start, end, true
 }
