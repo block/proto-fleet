@@ -35,7 +35,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -58,9 +58,15 @@ type ActivityLogger interface {
 	Log(ctx context.Context, event activitymodels.Event)
 }
 
+// QueryProvider resolves prepared queries for each operation. Implementations
+// must honor transaction-bound queries in ctx as well as connection failover.
+type QueryProvider interface {
+	GetQueries(ctx context.Context) sqlc.Querier
+}
+
 // Service implements release channel management and firmware enforcement.
 type Service struct {
-	store    *sqlstores.SQLReleaseChannelStore
+	store    QueryProvider
 	tx       interfaces.Transactor
 	commands CommandDispatcher
 	files    FirmwareFiles
@@ -71,7 +77,7 @@ type Service struct {
 }
 
 // NewService builds the rollout service. activityLog may be nil.
-func NewService(store *sqlstores.SQLReleaseChannelStore, tx interfaces.Transactor, commands CommandDispatcher, firmwareFiles FirmwareFiles, activityLog ActivityLogger) *Service {
+func NewService(store QueryProvider, tx interfaces.Transactor, commands CommandDispatcher, firmwareFiles FirmwareFiles, activityLog ActivityLogger) *Service {
 	return &Service{
 		store:    store,
 		tx:       tx,
@@ -215,7 +221,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 	}
 	var channelID int64
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		q := s.store.Queries(ctx)
+		q := s.store.GetQueries(ctx)
 		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
 			return fleeterror.NewInternalErrorf("lock channel scopes: %v", err)
 		}
@@ -245,7 +251,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 			ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
 		})
 		if err != nil {
-			if sqlstores.IsUniqueViolation(err) {
+			if db.IsUniqueViolationError(err) {
 				return fleeterror.NewInvalidArgumentErrorf("a release channel named %q already exists", spec.Name)
 			}
 			return fleeterror.NewInternalErrorf("create channel: %v", err)
@@ -266,7 +272,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 		return nil, err
 	}
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		q := s.store.Queries(ctx)
+		q := s.store.GetQueries(ctx)
 		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
 			return fleeterror.NewInternalErrorf("lock channel scopes: %v", err)
 		}
@@ -298,7 +304,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 			MaxConcurrentOffline:         b.MaxConcurrentOffline,
 			ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
 		}); err != nil {
-			if sqlstores.IsUniqueViolation(err) {
+			if db.IsUniqueViolationError(err) {
 				return fleeterror.NewInvalidArgumentErrorf("a release channel named %q already exists", spec.Name)
 			}
 			return fleeterror.NewInternalErrorf("update channel: %v", err)
@@ -313,7 +319,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 
 // DeleteChannel removes a channel with its assignments and rollout history.
 func (s *Service) DeleteChannel(ctx context.Context, orgID, channelID int64) error {
-	n, err := s.store.Queries(ctx).DeleteReleaseChannel(ctx, sqlc.DeleteReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+	n, err := s.store.GetQueries(ctx).DeleteReleaseChannel(ctx, sqlc.DeleteReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("delete channel: %v", err)
 	}
@@ -334,7 +340,7 @@ func (spec *ChannelSpec) validate() error {
 }
 
 func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	if err := q.DeleteReleaseChannelTargets(ctx, channelID); err != nil {
 		return fleeterror.NewInternalErrorf("clear channel targets: %v", err)
 	}
@@ -401,7 +407,7 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 	if scope.IsEmpty() {
 		return preview, nil
 	}
-	rows, err := s.store.Queries(ctx).ResolveReleaseChannelScope(ctx, sqlc.ResolveReleaseChannelScopeParams{
+	rows, err := s.store.GetQueries(ctx).ResolveReleaseChannelScope(ctx, sqlc.ResolveReleaseChannelScopeParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: scope.DeviceIdentifiers,
 		GroupIds:          scope.GroupIDs,
@@ -466,7 +472,7 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 // ListChannels returns all channels of an org with their member and group
 // counts.
 func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, error) {
-	rows, err := s.store.Queries(ctx).ListReleaseChannels(ctx, orgID)
+	rows, err := s.store.GetQueries(ctx).ListReleaseChannels(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channels: %v", err)
 	}
@@ -475,7 +481,7 @@ func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, err
 
 // GetChannel returns one channel of an org.
 func (s *Service) GetChannel(ctx context.Context, orgID, channelID int64) (*Channel, error) {
-	row, err := s.store.Queries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+	row, err := s.store.GetQueries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 	if err != nil {
 		return nil, fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
 	}
@@ -490,7 +496,7 @@ func (s *Service) GetChannel(ctx context.Context, orgID, channelID int64) (*Chan
 // identifier, optionally restricted to an observed manufacturer and/or model
 // (matched verbatim). The returned cursor is empty on the last page.
 func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]ChannelMiner, string, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 		return nil, "", fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
 	}
@@ -546,7 +552,7 @@ func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64,
 // members plus every assigned pair with no current members. The returned
 // cursor is empty on the last page.
 func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]ModelGroup, string, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 		return nil, "", fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
 	}
@@ -622,7 +628,7 @@ func (s *Service) ListMembershipConflicts(ctx context.Context, orgID, channelID 
 	limit := min(clampPageSize(pageSize), ModelGroupPageSize)
 	params.PageLimit = limit + 1
 
-	rows, err := s.store.Queries(ctx).ListReleaseChannelMembershipConflictsPage(ctx, params)
+	rows, err := s.store.GetQueries(ctx).ListReleaseChannelMembershipConflictsPage(ctx, params)
 	if err != nil {
 		return nil, "", fleeterror.NewInternalErrorf("list membership conflicts: %v", err)
 	}
@@ -691,7 +697,7 @@ func decodeCursor(cursor string, n int) ([]string, error) {
 // members and assignments. Groups are paged separately; the channel carries
 // their count: observed pairs plus assigned pairs with no current members.
 func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.ReleaseChannel) ([]Channel, error) {
-	q := s.store.Queries(ctx)
+	q := s.store.GetQueries(ctx)
 	targets, err := q.ListReleaseChannelTargets(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel targets: %v", err)
