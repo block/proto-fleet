@@ -125,6 +125,51 @@ describe("useReleaseChannels", () => {
     expect(mockListMinerStateSnapshots).toHaveBeenCalledWith({ pageSize: 500 });
   });
 
+  it("loads every channel page with each channel's scope and model groups on refresh", async () => {
+    const stableSummary = create(ReleaseChannelSummarySchema, { id: 2n, name: "Stable" });
+    const stable = create(ReleaseChannelSchema, { id: 2n, name: "Stable", scope: { rackIds: [80n] } });
+    const stableGroup = create(ReleaseChannelModelGroupSchema, {
+      manufacturer: "Proto",
+      model: "Rig 2",
+      minerCount: 5,
+    });
+    mockListReleaseChannels.mockImplementation(({ cursor = "" }) =>
+      Promise.resolve(
+        create(ListReleaseChannelsResponseSchema, {
+          channels: cursor === "" ? [canarySummary] : [stableSummary],
+          cursor: cursor === "" ? "page-2" : "",
+        }),
+      ),
+    );
+    mockGetReleaseChannel.mockImplementation(({ channelId }) =>
+      Promise.resolve({ channel: channelId === 1n ? canary : stable }),
+    );
+    mockListReleaseChannelModelGroups.mockImplementation(({ channelId }) =>
+      Promise.resolve(
+        create(ListReleaseChannelModelGroupsResponseSchema, {
+          modelGroups: channelId === 1n ? [rigGroup] : [stableGroup],
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const expectedViews = [canaryView, { ...stable, modelGroups: [stableGroup] }];
+    expect(result.current.channels).toEqual(expectedViews);
+    expect(mockListReleaseChannels).toHaveBeenNthCalledWith(1, { pageSize: 1000, cursor: "" });
+    expect(mockListReleaseChannels).toHaveBeenNthCalledWith(2, { pageSize: 1000, cursor: "page-2" });
+    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n });
+    expect(mockListReleaseChannelModelGroups).toHaveBeenCalledWith({ channelId: 2n, pageSize: 100, cursor: "" });
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.channels).toEqual(expectedViews);
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(4);
+    expect(mockListReleaseChannels).toHaveBeenNthCalledWith(3, { pageSize: 1000, cursor: "" });
+    expect(mockListReleaseChannels).toHaveBeenNthCalledWith(4, { pageSize: 1000, cursor: "page-2" });
+  });
+
   it("creates a channel from a draft and refreshes", async () => {
     mockCreateReleaseChannel.mockResolvedValue({ channel: canary });
     const { result } = renderHook(() => useReleaseChannels());

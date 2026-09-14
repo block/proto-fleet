@@ -102,13 +102,17 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const [channelsResp, rolloutsResp, minersResp] = await Promise.all([
-        rolloutClient.listReleaseChannels({}),
+      const [channelSummaries, rolloutsResp, minersResp] = await Promise.all([
+        drainPages((cursor) =>
+          rolloutClient
+            .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor })
+            .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
+        ),
         rolloutClient.listRollouts({}),
         fleetManagementClient.listMinerStateSnapshots({ pageSize: 500 }),
       ]);
       // The list carries summaries; scope and groups come per channel.
-      const views = await Promise.all(channelsResp.channels.map((summary) => loadChannel(summary.id)));
+      const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
       setChannels(views.filter((view): view is ChannelView => view !== undefined));
       setRollouts(rolloutsResp.rollouts);
       setMinerNames(Object.fromEntries(minersResp.miners.map((miner) => [miner.deviceIdentifier, miner.name])));
