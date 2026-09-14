@@ -85,16 +85,12 @@ const MinersPage = ({
     void listFleetNodes()
       .then((nodes) => {
         if (requestId !== requestState.latestId) return;
-        const confirmed = nodes.filter((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED);
-        const eligible = confirmed.filter(
-          (node) => node.controlStreamConnected && !node.commandProtocolUpgradeRequired,
+        const hasIneligibleNode = nodes.some(
+          (node) =>
+            node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+            (!node.controlStreamConnected || node.commandProtocolUpgradeRequired),
         );
-
-        if (confirmed.length === 0 || eligible.length === confirmed.length) {
-          setRemoteDiscoveryWarning(undefined);
-        } else {
-          setRemoteDiscoveryWarning(PARTIAL_REMOTE_COVERAGE_WARNING);
-        }
+        setRemoteDiscoveryWarning(hasIneligibleNode ? PARTIAL_REMOTE_COVERAGE_WARNING : undefined);
       })
       .catch(() => {
         if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);

@@ -178,14 +178,15 @@ func (h *Handler) forwardDiscoverySources(
 					// Node target policy is narrower than the server's: public
 					// addresses and broad ranges can still be scanned locally.
 					// Direct-node requests retain their strict validation errors.
-					if runErr != nil && ctx.Err() == nil {
-						if fleeterror.IsInvalidArgumentError(runErr) && fwd.failure() == nil {
-							if sendErr := fwd.forward(discoverySourceWarning(fmt.Sprintf("Fleet Node %d", nodeID), runErr)); sendErr != nil {
-								fail(sendErr)
-							}
-						} else {
-							fail(runErr)
-						}
+					if runErr == nil || ctx.Err() != nil {
+						return
+					}
+					if !fleeterror.IsInvalidArgumentError(runErr) || fwd.failure() != nil {
+						fail(runErr)
+						return
+					}
+					if sendErr := fwd.forward(discoverySourceWarning(fmt.Sprintf("Fleet Node %d", nodeID), runErr)); sendErr != nil {
+						fail(sendErr)
 					}
 				}(nodeID)
 			}

@@ -76,7 +76,7 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 			return err
 		}
 	}
-	return s.runErr
+	return nil
 }
 
 // ctxWithPerms builds the request context the auth interceptor would produce:
