@@ -163,15 +163,24 @@ export const CollapsibleGlobalSearch: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole("button", { name: "Search miners" });
 
-    await expect(canvas.queryByRole("textbox", { name: "Search miners" })).not.toBeInTheDocument();
+    // The field autofocuses on expand, and Input hides its label on focus with
+    // `visibility: hidden`. Browsers keep a hidden `<label for>` as the
+    // accessible name, but Testing Library's name computation drops hidden
+    // labels, so a role-and-name query fails the moment the field opens.
+    // Querying through the label association does not consult visibility.
+    // The `input` selector keeps the collapsed toggle, which carries the same
+    // aria-label, from matching.
+    const searchField = () => canvas.queryByLabelText("Search miners", { selector: "input" });
+
+    await expect(searchField()).not.toBeInTheDocument();
     await userEvent.click(toggle);
 
-    const input = await canvas.findByRole("textbox", { name: "Search miners" });
+    const input = await canvas.findByLabelText("Search miners", { selector: "input" });
     await expect(input).toHaveFocus();
     await expect(toggle).not.toBeInTheDocument();
 
     await userEvent.click(await canvas.findByRole("button", { name: "Clear Search miners" }));
-    await expect(canvas.queryByRole("textbox", { name: "Search miners" })).not.toBeInTheDocument();
+    await expect(searchField()).not.toBeInTheDocument();
     await expect(canvas.getByRole("button", { name: "Search miners" })).toHaveAttribute("aria-expanded", "false");
   },
 };
