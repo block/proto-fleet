@@ -660,15 +660,6 @@ describe("MinersWrapper", () => {
       expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
     });
 
-    it("links coverage warnings to Fleet Node settings", async () => {
-      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
-      renderMinersPage("pairing");
-      expect(await screen.findByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute(
-        "href",
-        "/settings/nodes",
-      );
-    });
-
     it("hides the settings link without Fleet Node read permission", async () => {
       vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:read");
       mockListFleetNodes.mockRejectedValue(new Error("request failed"));
@@ -677,12 +668,13 @@ describe("MinersWrapper", () => {
       expect(screen.queryByRole("link", { name: "View Fleet Node settings" })).not.toBeInTheDocument();
     });
 
-    it("warns when remote coverage cannot be checked", async () => {
+    it("warns and links to settings when remote coverage cannot be checked", async () => {
       mockListFleetNodes.mockRejectedValue(new Error("request failed"));
 
       renderMinersPage("pairing");
 
       expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute("href", "/settings/nodes");
     });
 
     it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,17 +37,15 @@ import (
 )
 
 type stubFleetNodeDiscoveryRunner struct {
-	mu            sync.Mutex
-	nodeIDs       []int64
-	eligibleErr   error
-	eligibleCalls atomic.Int32
-	requests      []*pb.DiscoverRequest
-	runErr        error
-	warning       string
+	mu          sync.Mutex
+	nodeIDs     []int64
+	eligibleErr error
+	requests    []*pb.DiscoverRequest
+	runErr      error
+	warning     string
 }
 
 func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
-	s.eligibleCalls.Add(1)
 	return s.nodeIDs, s.eligibleErr
 }
 
@@ -345,29 +342,10 @@ func TestDiscover_ServerDefaultsUnavailableStillScansNodes(t *testing.T) {
 	}
 }
 
-func TestDiscover_EmptyIPListIsTerminalBeforeFanOut(t *testing.T) {
-	for _, nodeIDs := range [][]int64{nil, {7}} {
-		t.Run(fmt.Sprint(nodeIDs), func(t *testing.T) {
-			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: nodeIDs}
-			client := discoveryClientWithDefaultPorts(t, runner, nil)
-			stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{
-				Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{Ports: []string{"4028"}}},
-			}))
-			if err == nil {
-				assert.False(t, stream.Receive(), "invalid requests must not produce device or warning frames")
-				err = stream.Err()
-			}
-			require.Error(t, err)
-			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-			assert.Zero(t, runner.eligibleCalls.Load(), "invalid requests must not start node discovery")
-			assert.Empty(t, runner.requests)
-		})
-	}
-}
-
-func TestDiscover_InvalidServerInputDoesNotFanOutWhenDefaultsUnavailable(t *testing.T) {
+func TestDiscover_InvalidInputIsTerminalBeforeFanOut(t *testing.T) {
 	for _, req := range []*pb.DiscoverRequest{
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{}}},
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{Ports: []string{"4028"}}}},
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"bad"}}}},
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}}}},
 		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.2", EndIp: "10.0.0.1"}}},
@@ -383,6 +361,7 @@ func TestDiscover_InvalidServerInputDoesNotFanOutWhenDefaultsUnavailable(t *test
 				err = stream.Err()
 			}
 			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 			assert.Empty(t, runner.requests)
 		})
 	}

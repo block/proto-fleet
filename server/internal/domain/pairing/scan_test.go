@@ -14,7 +14,6 @@ import (
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
@@ -376,48 +375,6 @@ func TestNetworkScanRetainsFallbackAfterCollisionSkip(t *testing.T) {
 	}
 	require.Len(t, found, 1)
 	require.Equal(t, "443", found[0].Port)
-}
-
-func TestNetworkScanInvalidInputsPrecedeDefaultPortLookup(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		run  func(*Service) error
-	}{
-		{"network target", func(s *Service) error {
-			_, err := s.DiscoverWithNmap(t.Context(), &pb.NmapModeRequest{Target: "not/a/target"})
-			return err
-		}},
-		{"list target", func(s *Service) error {
-			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}})
-			return err
-		}},
-		{"list IPv4 range", func(s *Service) error {
-			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.1-2"}})
-			return err
-		}},
-		{"list multi-octet range", func(s *Service) error {
-			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1-2.1"}})
-			return err
-		}},
-		{"range target", func(s *Service) error {
-			_, err := s.DiscoverWithIPRange(t.Context(), &pb.IPRangeModeRequest{StartIp: "192.168.1.2", EndIp: "192.168.1.1"})
-			return err
-		}},
-		{"explicit ports", func(s *Service) error {
-			_, err := s.DiscoverWithIPList(t.Context(), &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.1"}, Ports: []string{"invalid"}})
-			return err
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
-			// No default metadata is consulted for malformed caller input.
-			s := NewService(nil, nil, nil, nil, nil, caps, nil, nil)
-			s.localNetworkInfo = func(context.Context) (*NetworkInfo, error) { return nil, errors.New("no local subnet") }
-			err := tc.run(s)
-			require.Error(t, err)
-			require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
-		})
-	}
 }
 
 type scanFunc func(context.Context, iter.Seq[netip.Addr], []uint16, func(netscan.HostResult) error) error

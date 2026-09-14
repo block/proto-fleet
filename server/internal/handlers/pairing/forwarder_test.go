@@ -51,13 +51,16 @@ func TestDedupForwarder_DropsAllDuplicateBatchButKeepsWarningResponse(t *testing
 	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
 	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
 
-	// Act: a fully-duplicate batch is dropped; an warning-only response is forwarded.
+	// Act: a fully-duplicate batch is dropped; a warning-only response is forwarded.
 	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
 	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Warning: "scan failed"}))
+	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}, Warning: "stopped early"}))
 
 	// Assert
-	require.Len(t, sent, 2)
+	require.Len(t, sent, 3)
 	assert.Equal(t, "scan failed", sent[1].GetWarning())
+	assert.Empty(t, sent[2].GetDevices())
+	assert.Equal(t, "stopped early", sent[2].GetWarning())
 }
 
 func TestDedupForwarder_SendErrorRecordedAndCancels(t *testing.T) {
@@ -101,15 +104,4 @@ func TestDedupForwarder_ConcurrentForwardIsSerialized(t *testing.T) {
 
 	// Assert: all 50 distinct devices forwarded exactly once.
 	assert.Equal(t, 50, count)
-}
-
-func TestDedupForwarderKeepsWarningWhenAllDevicesAreDuplicates(t *testing.T) {
-	var sent []*pb.DiscoverResponse
-	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
-	d := dev("miner", "10.0.0.1", "80")
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{d}}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{d}, Warning: "Fleet Node 7: stopped early"}))
-	require.Len(t, sent, 2)
-	assert.Empty(t, sent[1].GetDevices())
-	assert.Equal(t, "Fleet Node 7: stopped early", sent[1].GetWarning())
 }
