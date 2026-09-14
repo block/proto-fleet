@@ -29,6 +29,7 @@ interface ScopeEditorProps {
   // Resolves the scope live: miners per model and overlapping channels.
   previewScope: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
   onPreview?: (preview: PreviewReleaseChannelScopeResponse | null) => void;
+  editingExistingChannel?: boolean;
   disabled?: boolean;
 }
 
@@ -40,6 +41,7 @@ const ScopeEditor = ({
   onChange,
   previewScope,
   onPreview,
+  editingExistingChannel = false,
   disabled = false,
 }: ScopeEditorProps): ReactElement => {
   const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
@@ -118,7 +120,12 @@ const ScopeEditor = ({
         />
       </div>
 
-      <ScopePreview scope={scope} preview={preview} error={previewError} />
+      <ScopePreview
+        scope={scope}
+        preview={preview}
+        error={previewError}
+        editingExistingChannel={editingExistingChannel}
+      />
 
       <SiteSelectionModal
         open={openModal === "site"}
@@ -171,16 +178,17 @@ const ScopeEditor = ({
   );
 };
 
-// What the scope resolves to right now, and any channels it would overlap
-// (which blocks saving).
+// What the scope resolves to right now, and any channels it would overlap.
 const ScopePreview = ({
   scope,
   preview,
   error,
+  editingExistingChannel,
 }: {
   scope: ReleaseChannelScope;
   preview: PreviewReleaseChannelScopeResponse | null;
   error: string | null;
+  editingExistingChannel: boolean;
 }): ReactElement => {
   if (isScopeEmpty(scope)) {
     return (
@@ -219,7 +227,10 @@ const ScopePreview = ({
               (c) => `${c.channelName} (${c.minerCount.toLocaleString()} ${c.minerCount === 1 ? "miner" : "miners"})`,
             )
             .join(", ")}
-          . Remove those miners from one of the channels before saving.
+          .{" "}
+          {editingExistingChannel
+            ? "Existing overlaps can remain. Changes that add new overlaps cannot be saved."
+            : "Remove those miners from one of the channels before saving."}
         </span>
       ) : null}
     </div>
