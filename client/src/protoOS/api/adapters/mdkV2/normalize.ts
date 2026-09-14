@@ -11,9 +11,16 @@ import type {
   V2Hashboard,
   V2ListPoolsResponse,
   V2Module,
+  V2ModuleLayout,
   V2QueryTimeSeriesResponse,
 } from "./generated/generatedApi";
-import { V2MiningOperatingState, V2MiningState, V2PerformanceMode, V2PoolConnState } from "./generated/generatedApi";
+import {
+  V2MiningOperatingState,
+  V2MiningState,
+  V2ModuleNumberingOrder,
+  V2PerformanceMode,
+  V2PoolConnState,
+} from "./generated/generatedApi";
 import {
   asAsicId,
   asComponentId,
@@ -52,6 +59,7 @@ import {
   ROOT_MODULE_KEY,
   type SystemInfoData,
   type TankId,
+  type TankNode,
   type TelemetryState,
 } from "@/protoOS/store/contract";
 import type { HashboardHardwareData } from "@/protoOS/store/types";
@@ -123,12 +131,13 @@ const healthState = (board: V2Hashboard): HealthState => {
     return "fault";
   if (board.health?.warnings?.length) return "degraded";
   if (!board.miningState) return "unknown";
-  if (board.miningState === V2MiningState.MINING_STATE_MINING) return "ok";
   if (
+    board.miningState === V2MiningState.MINING_STATE_MINING ||
     board.miningState === V2MiningState.MINING_STATE_IDLE ||
-    board.miningState === V2MiningState.MINING_STATE_DISCONNECTED
+    board.miningState === V2MiningState.MINING_STATE_READY
   )
-    return "offline";
+    return "ok";
+  if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return "offline";
   return "degraded";
 };
 
@@ -273,9 +282,20 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
 };
 
 const boardRollup = (boards: BoardEntry[]): LevelRollup => {
-  const sum = (read: (entry: BoardEntry) => number | undefined) =>
-    boards.reduce((total, entry) => total + (read(entry) ?? 0), 0);
-  const temps = boards.flatMap(({ board }) => board.health?.temperatures ?? []);
+  const metric = (value: number | undefined, units: MetricUnit): MetricTelemetry => ({
+    latest: { value: value ?? null, units },
+  });
+  const sum = (read: (entry: BoardEntry) => number | undefined) => {
+    if (!boards.length) return undefined;
+    let total = 0;
+    for (const board of boards) {
+      const value = read(board);
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      total += value;
+    }
+    return total;
+  };
+  const temps = boards.flatMap(({ board }) => board.health?.temperatures ?? []).filter(Number.isFinite);
   const hashrate = sum(({ board }) => board.health?.hashrate);
   const power = sum(({ board }) => board.health?.power);
   const boardHealth = boards.map(({ board }) => healthState(board));
@@ -283,10 +303,15 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     ({ board }) => !board.isolated && board.miningState === V2MiningState.MINING_STATE_MINING,
   ).length;
   return {
-    hashrate: latest(hashrate, "TH/s"),
-    power: latest(power, "W"),
-    efficiency: latest(hashrate > 0 ? power / hashrate : undefined, "J/TH"),
-    temperature: latest(average(temps), "°C"),
+    hashrate: metric(hashrate, "TH/s"),
+    power: metric(power, "W"),
+    efficiency: metric(
+      hashrate !== undefined && hashrate > 0 && power !== undefined ? power / hashrate : undefined,
+      "J/TH",
+    ),
+    temperature: metric(average(temps), "°C"),
+    minimumTemperature: metric(temps.length ? Math.min(...temps) : undefined, "°C"),
+    maximumTemperature: metric(temps.length ? Math.max(...temps) : undefined, "°C"),
     miningStatus: onlineBoardCount === 0 ? "stopped" : onlineBoardCount === boards.length ? "mining" : "degradedMining",
     health:
       boards.length === 0
@@ -322,6 +347,11 @@ const groupBoards = <K>(boards: BoardEntry[], key: (entry: BoardEntry) => K) => 
 
 const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
   hashboardId: entry.hashboardId,
+  health: healthState(entry.board),
+  miningStatus: boardMiningStatus(entry.board),
+  reportedIssueCount: entry.board.health
+    ? (entry.board.health.errors?.length ?? 0) + (entry.board.health.warnings?.length ?? 0)
+    : null,
   hashrate: latest(entry.board.health?.hashrate, "TH/s"),
   power: latest(entry.board.health?.power, "W"),
   efficiency: latest(
@@ -333,6 +363,26 @@ const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
   temperature: latest(average(entry.board.health?.temperatures ?? []), "°C"),
   averageAsicTemperature: latest(entry.board.health?.averageAsicTemperatureC, "°C"),
 });
+
+const boardMiningStatus = (board: V2Hashboard): MiningStatus => {
+  if (board.isolated || board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return "unknown";
+  switch (board.miningState) {
+    case V2MiningState.MINING_STATE_MINING:
+      return "mining";
+    case V2MiningState.MINING_STATE_ERROR:
+      return "error";
+    case V2MiningState.MINING_STATE_IDLE:
+    case V2MiningState.MINING_STATE_READY:
+      return "stopped";
+    case V2MiningState.MINING_STATE_INIT:
+    case V2MiningState.MINING_STATE_STARTUP:
+    case V2MiningState.MINING_STATE_IDENTIFYING:
+    case V2MiningState.MINING_STATE_CONFIGURING:
+      return "poweringOn";
+    default:
+      return "unknown";
+  }
+};
 
 const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse) => {
   const owner = { kind: "container" as const, id: asContainerId(containerId) };
@@ -427,6 +477,20 @@ export const toCanonicalContainerFans = (wire: V2GetContainerHealthResponse, dev
   ...plantComponents(ct1ContainerId(deviceId), wire).fanTelemetry.values(),
 ];
 
+const canonicalModuleLayout = (layout: V2ModuleLayout | undefined): TankNode["moduleLayout"] => {
+  if (!layout) return undefined;
+  const { rows, columns, numbering } = layout;
+  if (!rows || !columns || !Number.isSafeInteger(rows) || !Number.isSafeInteger(columns)) return undefined;
+  if (rows <= 0 || columns <= 0) return undefined;
+  if (numbering === undefined || numbering === V2ModuleNumberingOrder.MODULE_NUMBERING_ORDER_UNSPECIFIED)
+    return undefined;
+  return {
+    rows,
+    columns,
+    numbering: numbering === V2ModuleNumberingOrder.MODULE_NUMBERING_ORDER_COLUMN_MAJOR ? "columnMajor" : "rowMajor",
+  };
+};
+
 export const toCanonicalContainer = (
   mapWire: V2GetContainerMapResponse | undefined,
   statusWire: V2GetMiningStatusResponse,
@@ -439,17 +503,7 @@ export const toCanonicalContainer = (
   const hashboards = new Map<HashboardId, HashboardHardware>();
   const hashboardNodes = new Map<HashboardId, HashboardNode>();
   const modules = new Map<ModuleId, ModuleNode>();
-  const tanks = new Map<
-    TankId,
-    {
-      id: TankId;
-      containerId: typeof containerId;
-      capabilities: CommandCapabilities;
-      moduleIds: ModuleId[];
-      label: string;
-      slot: number;
-    }
-  >();
+  const tanks = new Map<TankId, TankNode>();
 
   for (const wireTank of mapWire?.containerMap?.tanks ?? []) {
     if (wireTank.id === undefined) continue;
@@ -478,6 +532,7 @@ export const toCanonicalContainer = (
       moduleIds: tankModuleIds,
       label: `Tank ${wireTank.id}`,
       slot: wireTank.id,
+      moduleLayout: canonicalModuleLayout(wireTank.moduleLayout),
     });
   }
 

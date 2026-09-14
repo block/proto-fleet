@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 
+import ContainerInventoryPage from "@/protoOS/components/ContainerInventoryPage";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import ContainerInventoryPage from "@/protoOS/features/containers/components/ContainerInventoryPage";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import {
   decodeRouteParam,

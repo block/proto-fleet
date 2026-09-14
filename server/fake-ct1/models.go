@@ -54,18 +54,26 @@ const (
 	miningStateMining       = "MINING_STATE_MINING"
 	miningStateIdle         = "MINING_STATE_IDLE"
 	miningStateDisconnected = "MINING_STATE_DISCONNECTED"
+	miningStateError        = "MINING_STATE_ERROR"
+)
+
+const (
+	demoSleepingModule  = 3
+	demoOfflineModule   = 6
+	demoAttentionModule = 11
 )
 
 // ContainerConfig carries the topology parameters for a simulated container.
 type ContainerConfig struct {
-	InstanceID     string
-	ServerID       string
-	Hostname       string
-	Version        string
-	Tanks          int
-	ModulesPerTank int
-	SlotsPerModule int
-	AsicsPerBoard  int
+	InstanceID       string
+	ServerID         string
+	Hostname         string
+	Version          string
+	Tanks            int
+	ModulesPerTank   int
+	SlotsPerModule   int
+	AsicsPerBoard    int
+	DemoModuleStates bool
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.
@@ -204,7 +212,7 @@ func newHashboard(cfg ContainerConfig, tank, moduleNum int, moduleID string, slo
 		FirmwareVersion: cfg.Version,
 		FirmwareGitHash: "e87a5197",
 		ChipID:          asicModel,
-		State:           miningStateMining,
+		State:           initialMiningState(cfg, moduleNum),
 		TankID:          tank,
 		ModuleNum:       moduleNum,
 		ModuleID:        moduleID,
@@ -214,6 +222,21 @@ func newHashboard(cfg ContainerConfig, tank, moduleNum int, moduleID string, slo
 		PowerTargetMaxW: boardPowerTargetMaxW,
 		StartTime:       now,
 	}
+}
+
+func initialMiningState(cfg ContainerConfig, moduleNum int) string {
+	if !cfg.DemoModuleStates {
+		return miningStateMining
+	}
+	switch moduleNum {
+	case demoSleepingModule:
+		return miningStateIdle
+	case demoOfflineModule:
+		return miningStateDisconnected
+	case demoAttentionModule:
+		return miningStateError
+	}
+	return miningStateMining
 }
 
 // ModuleCount returns the total number of modules in the container.

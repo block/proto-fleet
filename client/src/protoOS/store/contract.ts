@@ -175,6 +175,7 @@ export interface TankNode {
   moduleIds: ModuleId[];
   label?: string;
   slot?: number;
+  moduleLayout?: { rows: number; columns: number; numbering: "rowMajor" | "columnMajor" };
 }
 
 export interface ModuleNode {
@@ -286,6 +287,8 @@ export interface LevelTelemetry {
   power?: MetricTelemetry;
   efficiency?: MetricTelemetry;
   temperature?: MetricTelemetry;
+  minimumTemperature?: MetricTelemetry;
+  maximumTemperature?: MetricTelemetry;
 }
 
 export type HealthState = "ok" | "degraded" | "fault" | "offline" | "unknown";
@@ -318,6 +321,10 @@ export interface LevelRollup extends LevelTelemetry {
 
 export interface HashboardTelemetry extends LevelTelemetry {
   hashboardId: HashboardId;
+  health?: HealthState;
+  miningStatus?: MiningStatus;
+  /** Active errors plus warnings reported for this hashboard; null means health data is unavailable. */
+  reportedIssueCount?: number | null;
   inletTemperature?: MetricTelemetry;
   outletTemperature?: MetricTelemetry;
   averageAsicTemperature?: MetricTelemetry;

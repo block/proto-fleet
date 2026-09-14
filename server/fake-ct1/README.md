@@ -75,8 +75,18 @@ docker run -p 8080:8080 fake-ct1
 | `CT1_MODULES_PER_TANK` | Modules per tank | `48` |
 | `CT1_SLOTS_PER_MODULE` | Hashboard slots per module | `3` |
 | `CT1_ASICS_PER_BOARD` | ASICs reported per board | `312` |
+| `CT1_DEMO_MODULE_STATES` | Set to `true` to start each tank with module 03 sleeping, 06 offline, and module 11's hashboards reporting 1, 2, and 3 errors | `false` |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.
+
+For tank-page UI checks, use `CT1_TANKS=6 CT1_MODULES_PER_TANK=16
+CT1_DEMO_MODULE_STATES=true`. Each tank starts with one sleeping module, one
+offline module, one needing attention, and 13 healthy modules. Module 11's
+left, middle, and right hashboards report one, two, and three errors respectively,
+showing light pink, medium pink, and red in the tank page. The examples
+only apply to module numbers present in the configured topology. These are
+initial states: start/stop commands can change them, and restarting with the
+flag enabled restores the examples.
 
 ## Contract fidelity
 

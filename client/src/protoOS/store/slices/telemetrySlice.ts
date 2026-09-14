@@ -22,6 +22,8 @@ const metricFields = [
   "power",
   "efficiency",
   "temperature",
+  "minimumTemperature",
+  "maximumTemperature",
   "inletTemperature",
   "outletTemperature",
   "averageAsicTemperature",

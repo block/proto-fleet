@@ -4,6 +4,7 @@ import {
   type V2Hashboard,
   V2MiningOperatingState,
   V2MiningState,
+  V2ModuleNumberingOrder,
   V2Phase,
   V2PoolConnState,
 } from "./generated/generatedApi";
@@ -58,6 +59,135 @@ const map = {
 };
 
 describe("MDK v2 CT1 normalization", () => {
+  test("counts each board's reported errors and warnings independently, excluding shutdown history", () => {
+    const health: V2Hashboard["health"][] = [
+      { errors: [{}], lastShutdownError: {} },
+      { warnings: [{}, {}] },
+      { errors: [{}, {}], warnings: [{}] },
+      { lastShutdownError: {} },
+      undefined,
+    ];
+    const result = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  slots: health.map((health, index) => ({
+                    hashboard: { macAddress: `board-${index}`, health },
+                  })),
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    expect([...result.telemetry.hashboards.values()].map((board) => board.reportedIssueCount)).toEqual([
+      1,
+      2,
+      3,
+      0,
+      null,
+    ]);
+
+    useMinerStore.getState().resetDeviceData();
+    useMinerStore.getState().telemetry.mergeTelemetry(result.telemetry);
+    const first = [...result.telemetry.hashboards.values()][0];
+    result.telemetry.hashboards.set(first.hashboardId, { ...first, reportedIssueCount: null });
+    useMinerStore.getState().telemetry.mergeTelemetry(result.telemetry);
+    expect(useMinerStore.getState().telemetry.hashboards.get(first.hashboardId)?.reportedIssueCount).toBeNull();
+  });
+
+  test("preserves tank layout and rolls up actual temperature extrema", () => {
+    const result = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              ...map.containerMap.tanks[0],
+              moduleLayout: {
+                rows: 2,
+                columns: 8,
+                numbering: V2ModuleNumberingOrder.MODULE_NUMBERING_ORDER_COLUMN_MAJOR,
+              },
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    if (result.hardware.topology?.kind !== "container") throw new Error("expected container");
+    expect([...result.hardware.topology.tanks.values()][0].moduleLayout).toEqual({
+      rows: 2,
+      columns: 8,
+      numbering: "columnMajor",
+    });
+    expect(result.telemetry.rollupsByEntity.get("container:ct1-a:tank:1" as never)).toMatchObject({
+      minimumTemperature: { latest: { value: 60, units: "°C" } },
+      maximumTemperature: { latest: { value: 64, units: "°C" } },
+    });
+  });
+
+  test("missing board measurements clear old rollups rather than becoming zero or retaining stale values", () => {
+    const populated = toCanonicalContainer(map, {}, {}, "ct1-a");
+    const empty = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [{ id: 1, modules: [{ id: 2, slots: [{ hashboard: { macAddress: "26:B0:3F:F0:D7:92" } }] }] }],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    useMinerStore.getState().resetDeviceData();
+    useMinerStore.getState().telemetry.mergeTelemetry(populated.telemetry);
+    useMinerStore.getState().telemetry.mergeTelemetry(empty.telemetry);
+    expect(useMinerStore.getState().telemetry.rollupsByEntity.get("container:ct1-a:tank:1" as never)).toMatchObject({
+      hashrate: { latest: { value: null } },
+      power: { latest: { value: null } },
+      minimumTemperature: { latest: { value: null } },
+      maximumTemperature: { latest: { value: null } },
+    });
+  });
+
+  test.each([
+    [V2MiningState.MINING_STATE_IDLE, "stopped", "ok"],
+    [V2MiningState.MINING_STATE_READY, "stopped", "ok"],
+    [V2MiningState.MINING_STATE_DISCONNECTED, "unknown", "offline"],
+    [V2MiningState.MINING_STATE_ERROR, "error", "fault"],
+  ])("retains board health and mining state for %s", (state, expectedStatus, expectedHealth) => {
+    const result = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [
+                { id: 1, slots: [{ hashboard: { macAddress: "board-1", miningState: state as V2MiningState } }] },
+              ],
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    expect([...result.telemetry.hashboards.values()][0]).toMatchObject({
+      health: expectedHealth,
+      miningStatus: expectedStatus,
+    });
+  });
   test.each([
     [V2MiningOperatingState.MINING_OPERATING_STATE_UNINITIALIZED, "uninitialized"],
     [V2MiningOperatingState.MINING_OPERATING_STATE_NO_POOLS, "noPools"],

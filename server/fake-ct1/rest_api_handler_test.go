@@ -88,6 +88,86 @@ func TestFullContainerTopology(t *testing.T) {
 	}
 }
 
+func TestDemoModuleStates(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		name := "disabled"
+		if enabled {
+			name = "enabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.ModulesPerTank = 16
+			cfg.DemoModuleStates = enabled
+			state := NewContainerState(cfg)
+			mux := http.NewServeMux()
+			NewRESTApiHandler(state).RegisterRoutes(mux)
+			srv := httptest.NewServer(jsonErrorMiddleware(mux))
+			defer srv.Close()
+
+			var response containerMapResponse
+			getJSON(t, srv, "/api/v2/container/map", &response)
+			if len(response.ContainerMap.Tanks) != cfg.Tanks {
+				t.Fatal("missing tanks")
+			}
+			for _, tank := range response.ContainerMap.Tanks {
+				counts := map[string]int{}
+				for _, module := range tank.Modules {
+					for index, slot := range module.Slots {
+						if slot.Hashboard == nil {
+							t.Fatal("missing hashboard")
+						}
+						board := slot.Hashboard
+						counts[board.MiningState]++
+						wantIssues := 0
+						if enabled && module.ID == demoAttentionModule {
+							wantIssues = index + 1
+							if board.MiningState != miningStateError {
+								t.Error("module 11 hashboards should be faulted")
+							}
+						}
+						if len(board.Health.Errors) != wantIssues {
+							t.Errorf("module %d slot %d issues = %d, want %d", module.ID, index+1, len(board.Health.Errors), wantIssues)
+						}
+						if board.MiningState != miningStateMining && (board.Health.Hashrate != 0 || board.Health.Power != 0) {
+							t.Error("non-mining board reports active hashrate or power")
+						}
+					}
+				}
+				if enabled {
+					if counts[miningStateMining] != 39 || counts[miningStateIdle] != 3 || counts[miningStateDisconnected] != 3 || counts[miningStateError] != 3 {
+						t.Errorf("tank %d states = %v", tank.ID, counts)
+					}
+				} else if counts[miningStateMining] != 48 {
+					t.Errorf("default states changed: %v", counts)
+				}
+			}
+			var status miningStatusResponse
+			getJSON(t, srv, "/api/v2/mining/status", &status)
+			wantActive := 96
+			if enabled {
+				wantActive = 78
+			}
+			if status.ActiveBoards != wantActive {
+				t.Errorf("active boards = %d, want %d", status.ActiveBoards, wantActive)
+			}
+			var startResponse startScopedResponse
+			postJSON(t, srv, "/api/v2/mining/scoped/start", scopeOnlyRequest{Scope: scope{Modules: []moduleCoord{{Tank: 1, Module: demoAttentionModule}}}}, &startResponse)
+			var restarted containerMapResponse
+			getJSON(t, srv, "/api/v2/container/map", &restarted)
+			for _, module := range restarted.ContainerMap.Tanks[0].Modules {
+				if module.ID != demoAttentionModule {
+					continue
+				}
+				for _, slot := range module.Slots {
+					if len(slot.Hashboard.Health.Errors) != 0 {
+						t.Error("restarted demo hashboard still reports errors")
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestSystemInfo(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var resp systemInfoResponse
@@ -308,7 +388,7 @@ func TestHashboardAsics(t *testing.T) {
 	if resp.Layout.TotalAsics != 312 {
 		t.Errorf("layout totalAsics = %d, want 312", resp.Layout.TotalAsics)
 	}
-	if int(resp.Layout.StackCount)*int(resp.Layout.AsicsPerStack) != 312 {
+	if resp.Layout.StackCount*resp.Layout.AsicsPerStack != 312 {
 		t.Errorf("stackCount*asicsPerStack = %d, want 312", resp.Layout.StackCount*resp.Layout.AsicsPerStack)
 	}
 }

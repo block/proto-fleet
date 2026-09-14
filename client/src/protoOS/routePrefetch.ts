@@ -18,8 +18,8 @@ export const importHashboardTemperature = () => import("@/protoOS/features/diagn
 export const importDiagnosticView = () =>
   import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView");
 export const importLogs = () => import("@/protoOS/pages/MinerLogs");
-export const importContainerTanks = () => import("@/protoOS/features/containers/pages/Tanks");
-export const importContainerModules = () => import("@/protoOS/features/containers/pages/Modules");
+export const importContainerTanks = () => import("@/protoOS/features/tanks");
+export const importContainerModules = () => import("@/protoOS/features/modules");
 export const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
 export const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
 export const importOnboardingVerify = () => import("@/protoOS/features/onboarding/components/Verify");

@@ -35,14 +35,15 @@ func main() {
 	instanceID := uuid.New().String()[:8]
 
 	cfg := ContainerConfig{
-		InstanceID:     instanceID,
-		ServerID:       getEnv("SERVER_ID", "ct1-sim-"+instanceID),
-		Hostname:       getEnv("HOSTNAME", "fake-ct1-"+instanceID),
-		Version:        getEnv("CT1_VERSION", defaultVersion),
-		Tanks:          getEnvInt("CT1_TANKS", defaultTanks),
-		ModulesPerTank: getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
-		SlotsPerModule: getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
-		AsicsPerBoard:  getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
+		InstanceID:       instanceID,
+		ServerID:         getEnv("SERVER_ID", "ct1-sim-"+instanceID),
+		Hostname:         getEnv("HOSTNAME", "fake-ct1-"+instanceID),
+		Version:          getEnv("CT1_VERSION", defaultVersion),
+		Tanks:            getEnvInt("CT1_TANKS", defaultTanks),
+		ModulesPerTank:   getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
+		SlotsPerModule:   getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
+		AsicsPerBoard:    getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
+		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "false") == "true",
 	}
 
 	state := NewContainerState(cfg)
@@ -54,10 +55,11 @@ func main() {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	port := getEnvInt("HTTP_PORT", defaultHTTPPort)
-	if err := startHTTPServer(ctx, state, port); err != nil {
+	err := startHTTPServer(ctx, state, port)
+	cancel()
+	if err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
@@ -154,6 +156,9 @@ func getOutboundIP() net.IP {
 	}
 	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return net.ParseIP("127.0.0.1")
+	}
 	return localAddr.IP
 }

@@ -222,17 +222,22 @@ type hashboardLoc struct {
 }
 
 type hashboardHealth struct {
-	Hashrate                float64   `json:"hashrate"`
-	HashrateIdeal           float64   `json:"hashrateIdeal"`
-	Temperatures            []float64 `json:"temperatures"`
-	Voltage                 float64   `json:"voltage"`
-	Current                 float64   `json:"current"`
-	Power                   float64   `json:"power"`
-	Uptime                  uint64str `json:"uptime"`
-	HashrailOK              bool      `json:"hashrailOk"`
-	RefclksOK               bool      `json:"refclksOk"`
-	Timestamp               time.Time `json:"timestamp"`
-	AverageAsicTemperatureC float64   `json:"averageAsicTemperatureC"`
+	Errors                  []hashboardHealthError `json:"errors,omitempty"`
+	Hashrate                float64                `json:"hashrate"`
+	HashrateIdeal           float64                `json:"hashrateIdeal"`
+	Temperatures            []float64              `json:"temperatures"`
+	Voltage                 float64                `json:"voltage"`
+	Current                 float64                `json:"current"`
+	Power                   float64                `json:"power"`
+	Uptime                  uint64str              `json:"uptime"`
+	HashrailOK              bool                   `json:"hashrailOk"`
+	RefclksOK               bool                   `json:"refclksOk"`
+	Timestamp               time.Time              `json:"timestamp"`
+	AverageAsicTemperatureC float64                `json:"averageAsicTemperatureC"`
+}
+
+type hashboardHealthError struct {
+	Cause string `json:"cause"`
 }
 
 type miningStatusResponse struct {
@@ -1111,6 +1116,15 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 		hr = vary(boardIdealHashrateTHS * 0.97)
 		power = vary(b.targetWatts())
 	}
+	var errors []hashboardHealthError
+	if s.Config.DemoModuleStates && b.ModuleNum == demoAttentionModule && b.State == miningStateError {
+		errors = []hashboardHealthError{
+			{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE"},
+			{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"},
+			{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY"},
+		}
+		errors = errors[:min(b.SlotIndex+1, len(errors))]
+	}
 	return &hashboardDTO{
 		MACAddress:  b.MAC,
 		Serial:      b.Serial,
@@ -1124,6 +1138,7 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 			HashboardPosition: int64str(b.SlotIndex + 1),
 		},
 		Health: hashboardHealth{
+			Errors:                  errors,
 			Hashrate:                hr,
 			HashrateIdeal:           boardIdealHashrateTHS,
 			Temperatures:            []float64{vary(boardTempC), vary(boardTempC)},

@@ -44,6 +44,7 @@ interface ModalProps {
   open?: boolean;
   showHeader?: boolean;
   title?: string;
+  dialogLabel?: string;
   description?: string;
   divider?: boolean;
   size?: keyof typeof sizes;
@@ -70,6 +71,7 @@ const Modal = ({
   open,
   showHeader = true,
   title,
+  dialogLabel,
   description,
   divider = true,
   size = sizes.standard,
@@ -145,6 +147,9 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
+        role={dialogLabel ? "dialog" : undefined}
+        aria-modal={dialogLabel ? true : undefined}
+        aria-label={dialogLabel}
         className={clsx(
           "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
           sizeClasses[size],

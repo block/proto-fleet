@@ -98,7 +98,7 @@ describe("ProtoOS router", () => {
 
     render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("modules")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
     expect(router.state.location.pathname).toBe("/tanks/1");
   });
 

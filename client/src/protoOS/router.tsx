@@ -182,7 +182,7 @@ export const routerConfig: CustomRouteObject[] = [
   createRoute(
     "tanks/:tankId",
     <ContainerRoute>
-      <ContainerModules />
+      <ContainerTanks />
     </ContainerRoute>,
     {
       title: "Tanks",
