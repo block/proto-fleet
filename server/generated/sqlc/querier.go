@@ -1157,6 +1157,9 @@ type Querier interface {
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
 	// with empty identity and is out of scope.
+	// Identifiers can be reused after deletion. Live telemetry belongs only to a
+	// non-deleted device and must be sampled at or after that device was created;
+	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned. Incremental polls
@@ -1264,6 +1267,7 @@ type Querier interface {
 	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 	// Carries the latest efficiency sample within 15 minutes of this statement
 	// for ordering; time spent earlier in the transaction does not extend freshness.
+	// Samples before the paired device's creation cannot determine its order.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
 	// One page of a channel's manufacturer/model groups: every observed pair among
 	// its members plus every assigned pair with no current members, each joined to
@@ -1728,6 +1732,8 @@ type Querier interface {
 	// see, so an error is in the baseline or opened after it, never both. Miners
 	// already in the rollout are left as they are. The telemetry cutoff uses the
 	// same statement clock as baseline_at, excluding samples stale at capture.
+	// Only samples from this non-deleted device's lifetime qualify, so re-pairing
+	// a reused identifier cannot inherit the previous device's health baseline.
 	SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error
 	// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
 	// no reason to retain its webhook URL / bearer.

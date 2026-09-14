@@ -21,6 +21,9 @@ func TestReleaseChannelQueries_TelemetryFreshnessWithinTransaction(t *testing.T)
 	}))
 	stale := f.device("stale", "Bitmain", "S19", "v1")
 	fresh := f.device("fresh", "Bitmain", "S19", "v1")
+	// Both samples belong to these pairings, so the statement's freshness
+	// cutoff alone determines whether their telemetry is still eligible.
+	f.exec(`UPDATE device SET created_at = statement_timestamp() - INTERVAL '1 hour' WHERE id IN ($1, $2)`, stale.id, fresh.id)
 	f.status(stale, "ACTIVE")
 	f.status(fresh, "ACTIVE")
 	rollout := f.rollout(channel, "Bitmain", "S19")

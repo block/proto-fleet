@@ -349,6 +349,7 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 -- new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 -- Carries the latest efficiency sample within 15 minutes of this statement
 -- for ordering; time spent earlier in the transaction does not extend freshness.
+-- Samples before the paired device's creation cannot determine its order.
 SELECT d.id AS device_id,
        d.device_identifier,
        hm.efficiency_jh
@@ -360,6 +361,8 @@ LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
@@ -718,6 +721,9 @@ WHERE id = sqlc.arg('rollout_id');
 -- next decision; the persisted columns (verified_at, halted_at, excluded_at)
 -- carry the miner's phase. A miner whose discovery row was soft-deleted reads
 -- with empty identity and is out of scope.
+-- Identifiers can be reused after deletion. Live telemetry belongs only to a
+-- non-deleted device and must be sampled at or after that device was created;
+-- retained targets keep their saved baselines without reading a replacement.
 SELECT rd.device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
@@ -797,6 +803,8 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
@@ -812,6 +820,8 @@ ORDER BY rd.position NULLS LAST, d.device_identifier;
 -- see, so an error is in the baseline or opened after it, never both. Miners
 -- already in the rollout are left as they are. The telemetry cutoff uses the
 -- same statement clock as baseline_at, excluding samples stale at capture.
+-- Only samples from this non-deleted device's lifetime qualify, so re-pairing
+-- a reused identifier cannot inherit the previous device's health baseline.
 INSERT INTO firmware_rollout_device (
     rollout_id, device_id, batch_index, position,
     baseline_status, baseline_hash_rate_hs, baseline_power_w, baseline_efficiency_jh, baseline_temp_c,
@@ -835,6 +845,8 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1

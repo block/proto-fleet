@@ -1122,6 +1122,8 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
@@ -1184,6 +1186,9 @@ type ListFirmwareRolloutDevicesRow struct {
 // next decision; the persisted columns (verified_at, halted_at, excluded_at)
 // carry the miner's phase. A miner whose discovery row was soft-deleted reads
 // with empty identity and is out of scope.
+// Identifiers can be reused after deletion. Live telemetry belongs only to a
+// non-deleted device and must be sampled at or after that device was created;
+// retained targets keep their saved baselines without reading a replacement.
 func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error) {
 	rows, err := q.query(ctx, q.listFirmwareRolloutDevicesStmt, listFirmwareRolloutDevices, rolloutID)
 	if err != nil {
@@ -1736,6 +1741,8 @@ LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
@@ -1799,6 +1806,7 @@ type ListReleaseChannelMismatchedMembersRow struct {
 // new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 // Carries the latest efficiency sample within 15 minutes of this statement
 // for ordering; time spent earlier in the transaction does not extend freshness.
+// Samples before the paired device's creation cannot determine its order.
 func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelMismatchedMembersStmt, listReleaseChannelMismatchedMembers,
 		arg.OrgID,
@@ -2605,6 +2613,8 @@ LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
+      AND d.deleted_at IS NULL
+      AND dm.time >= d.created_at
       AND dm.time >= statement_timestamp() - INTERVAL '15 minutes'
     ORDER BY dm.time DESC
     LIMIT 1
@@ -2627,6 +2637,8 @@ type SnapshotFirmwareRolloutDevicesParams struct {
 // see, so an error is in the baseline or opened after it, never both. Miners
 // already in the rollout are left as they are. The telemetry cutoff uses the
 // same statement clock as baseline_at, excluding samples stale at capture.
+// Only samples from this non-deleted device's lifetime qualify, so re-pairing
+// a reused identifier cannot inherit the previous device's health baseline.
 func (q *Queries) SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error {
 	_, err := q.exec(ctx, q.snapshotFirmwareRolloutDevicesStmt, snapshotFirmwareRolloutDevices,
 		arg.RolloutID,
