@@ -228,7 +228,7 @@ const github = {
         "REVIEW_HEAD_SHA": scenario.get("head_sha", "b" * 40),
         "REVIEW_PR_NUMBER": "965",
         "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
-        "CODEX_MODEL": "gpt-5.6-sol",
+        "CODEX_MODEL": "gpt-6-astra",
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
@@ -905,7 +905,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 else benchmark_codex["with"][key],
                 f"{key} drifted between the production and benchmark reviews",
             )
-        self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
+        self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-6-astra")
         self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "xhigh")
         self.assertEqual(
             production_poster["env"]["CODEX_MODEL"],
