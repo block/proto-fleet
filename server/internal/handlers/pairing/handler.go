@@ -67,11 +67,6 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return err
 	}
 	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
-	if h.discovery != nil && nodeReq != nil {
-		if err := discovery.ValidateRequest(nodeReq); err != nil {
-			return err
-		}
-	}
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
 	// A send failure (operator disconnected) cancels every source.

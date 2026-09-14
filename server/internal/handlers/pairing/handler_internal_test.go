@@ -25,9 +25,13 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
+	discoverymocks "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/mocks"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -50,6 +54,9 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	req *pb.DiscoverRequest,
 	onBatch func(*pb.DiscoverResponse) error,
 ) error {
+	if err := fleetnodediscovery.ValidateRequest(req); err != nil {
+		return err
+	}
 	cloned := proto.CloneOf(req)
 	s.mu.Lock()
 	s.requests = append(s.requests, cloned)
@@ -112,58 +119,6 @@ func TestFleetNodeDiscoveryRequest(t *testing.T) {
 	automatic := nmapRequest(true)
 	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual))
 	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic))
-}
-
-func TestDiscover_RejectsInvalidNodeRequestBeforeStartingSources(t *testing.T) {
-	tests := []struct {
-		name string
-		req  *pb.DiscoverRequest
-		want string
-	}{
-		{
-			name: "range exceeds 1024 targets",
-			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
-				StartIp: "10.0.0.2", EndIp: "10.0.4.2",
-			}}},
-			want: "ip range exceeds 1024 addresses",
-		},
-		{
-			name: "public IP list target",
-			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
-				IpAddresses: []string{"8.8.8.8"},
-			}}},
-			want: "not a private",
-		},
-		{
-			name: "manual subnet exceeds minimum prefix",
-			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
-				Target: "192.168.0.0/21",
-			}}},
-			want: "supported minimum /22",
-		},
-		{
-			name: "automatic subnet still validates ports",
-			req: &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
-				Target: "192.168.0.0/21", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"},
-			}}},
-			want: "invalid port",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Arrange: a nil local service and stream fail if discovery starts.
-			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
-			h := &Handler{discovery: runner}
-
-			// Act
-			err := h.Discover(ctxWithPerms(authz.PermMinerPair), connect.NewRequest(tt.req), nil)
-
-			// Assert
-			require.ErrorContains(t, err, tt.want)
-			assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			assert.Empty(t, runner.requests)
-		})
-	}
 }
 
 func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
@@ -287,46 +242,66 @@ func TestForwardDiscoverySources_AuthenticationAndLookupValidationErrorsAreTermi
 	}
 }
 
-func TestForwardDiscoverySources_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
+func TestDiscover_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		req  *pb.DiscoverRequest
+		name     string
+		req      *pb.DiscoverRequest
+		serverIP string
 	}{
-		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}}}}},
-		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255"}}}},
+		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}, Ports: []string{"4028"}}}}, "8.8.8.8"},
+		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255", Ports: []string{"4028"}}}}, "10.0.0.0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}, runErr: fleeterror.NewInvalidArgumentError("target is outside this node's scan policy")}
-			h := &Handler{discovery: runner}
-			serverResults := make(chan *pb.DiscoverResponse)
-			warningSent := make(chan struct{})
-			go func() {
-				defer close(serverResults)
-				select {
-				case <-warningSent:
-				case <-ctx.Done():
-					return
+			warningSeen := make(chan struct{})
+			ctrl := gomock.NewController(t)
+			discoverer := discoverymocks.NewMockDiscoverer(ctrl)
+			discoverer.EXPECT().Discover(gomock.Any(), gomock.Any(), "4028").DoAndReturn(
+				func(_ context.Context, ip, _ string) (*discoverymodels.DiscoveredDevice, error) {
+					if ip != tc.serverIP {
+						return nil, nil
+					}
+					// A real server result must survive after the node policy warning reaches the client.
+					select {
+					case <-warningSeen:
+						return &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "server", FirmwareVersion: "1"}}, nil
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}).AnyTimes()
+			store := storemocks.NewMockDiscoveredDeviceStore(ctrl)
+			store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					return device, nil
+				})
+			caps := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+			caps.EXPECT().GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).Return(nil)
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			client := discoveryClientForHandler(t, &Handler{
+				pairingSvc: domainpairing.NewService(store, nil, nil, nil, discoverer, caps, nil, nil),
+				discovery:  runner,
+			})
+			stream, err := client.Discover(ctx, connect.NewRequest(tc.req))
+			require.NoError(t, err)
+			var devices []*pb.Device
+			var warnings []string
+			for stream.Receive() {
+				response := stream.Msg()
+				if response.GetWarning() != "" {
+					warnings = append(warnings, response.GetWarning())
+					if len(warnings) == 1 {
+						close(warningSeen)
+					}
 				}
-				select {
-				case serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}:
-				case <-ctx.Done():
-				}
-			}()
-			var sent []*pb.DiscoverResponse
-			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
-				sent = append(sent, resp)
-				if resp.GetWarning() != "" {
-					close(warningSent)
-				}
-				return nil
-			}, cancel)
-			require.NoError(t, h.forwardDiscoverySources(ctx, 1, serverResults, tc.req, fwd))
-			require.Len(t, sent, 2)
-			assert.Equal(t, "Fleet Node 7: target is outside this node's scan policy", sent[0].GetWarning())
-			require.Len(t, sent[1].GetDevices(), 1)
-			assert.Equal(t, "server", sent[1].GetDevices()[0].GetDeviceIdentifier())
+				devices = append(devices, response.GetDevices()...)
+			}
+			require.NoError(t, stream.Err())
+			require.Len(t, warnings, 1)
+			assert.Contains(t, warnings[0], "Fleet Node 7:")
+			require.Len(t, devices, 1)
+			assert.Equal(t, "server", devices[0].GetDeviceIdentifier())
+			assert.Equal(t, tc.serverIP, devices[0].GetIpAddress())
 		})
 	}
 }
@@ -372,6 +347,7 @@ func TestDiscover_InvalidServerInputDoesNotFanOutWhenDefaultsUnavailable(t *test
 		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}}}},
 		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.2", EndIp: "10.0.0.1"}}},
 		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "not/a/target"}}},
+		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"}}}},
 	} {
 		t.Run(req.String(), func(t *testing.T) {
 			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
@@ -391,7 +367,11 @@ func discoveryClientWithDefaultPorts(t *testing.T, runner *stubFleetNodeDiscover
 	t.Helper()
 	caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
 	caps.EXPECT().GetDefaultDiscoveryPorts(gomock.Any()).Return(defaults).AnyTimes()
-	h := &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner}
+	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
+}
+
+func discoveryClientForHandler(t *testing.T, h *Handler) pairingv1connect.PairingServiceClient {
+	t.Helper()
 	_, handler := pairingv1connect.NewPairingServiceHandler(h)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r.WithContext(ctxWithPerms(authz.PermMinerPair)))
