@@ -256,7 +256,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 		})
 		if err != nil {
 			if db.IsUniqueViolationError(err) {
-				return fleeterror.NewInvalidArgumentErrorf("a release channel named %q already exists", spec.Name)
+				return fleeterror.NewAlreadyExistsErrorf("a release channel named %q already exists", spec.Name)
 			}
 			return fleeterror.NewInternalErrorf("create channel: %w", err)
 		}
@@ -312,7 +312,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 			ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
 		}); err != nil {
 			if db.IsUniqueViolationError(err) {
-				return fleeterror.NewInvalidArgumentErrorf("a release channel named %q already exists", spec.Name)
+				return fleeterror.NewAlreadyExistsErrorf("a release channel named %q already exists", spec.Name)
 			}
 			return fleeterror.NewInternalErrorf("update channel: %w", err)
 		}

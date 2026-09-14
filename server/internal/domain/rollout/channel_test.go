@@ -3,6 +3,7 @@ package rollout
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,6 +158,15 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 
 	_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Rack channel", Scope: Scope{}})
 	assert.ErrorContains(t, err, "already exists")
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "%v", err)
+	beforeRename, err := f.svc.GetChannel(ctx, f.orgID, siteChannel.ID)
+	require.NoError(t, err)
+	_, err = f.svc.UpdateChannel(ctx, f.orgID, siteChannel.ID, ChannelSpec{Name: "Rack channel"})
+	assert.ErrorContains(t, err, "already exists")
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "%v", err)
+	afterRename, err := f.svc.GetChannel(ctx, f.orgID, siteChannel.ID)
+	require.NoError(t, err)
+	assert.Equal(t, *beforeRename, *afterRename, "a duplicate rename must preserve the channel and its selectors")
 	require.NoError(t, f.svc.DeleteChannel(ctx, f.orgID, siteChannel.ID))
 	assert.ErrorContains(t, f.svc.DeleteChannel(ctx, f.orgID, siteChannel.ID), "not found")
 }
