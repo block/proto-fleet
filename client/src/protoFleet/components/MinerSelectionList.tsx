@@ -222,8 +222,7 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.buildingIds.length > 0 ||
   filter.ipCidrs.length > 0 ||
   filter.ipRanges.length > 0 ||
-  filter.includeUnassigned ||
-  filter.searchQuery.trim().length > 0;
+  filter.includeUnassigned;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   deviceIdentifier: miner.deviceIdentifier,
@@ -593,6 +592,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // assigned-elsewhere rows, so "select all" is ambiguous (and the assignable
     // resolver would silently drop the reassignment picks). Only offer it in the
     // assignable-only view.
+    //
+    // A search withdraws "select all" for every caller, not just the ones that
+    // opt into `disableFilteredSelectAll`: no backend selector can represent a
+    // substring match, so the offer would silently widen to the whole fleet.
+    // That is why the search gates sit here rather than in
+    // hasUnsupportedAllSelectionFilter.
     const canSelectAll =
       !singleSelect &&
       !(eligibilityEnabled && showAssigned) &&
