@@ -225,8 +225,9 @@ type RolloutServiceClient interface {
 	// transitions happen until it is resumed. Commands already sent finish.
 	// Honors the RolloutService revision rule.
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
-	// Resumes a paused rollout where it left off. Honors the RolloutService
-	// revision rule.
+	// Resumes a paused rollout where it left off. Stage wait and stabilization
+	// timers exclude time spent paused; stage_changed_at retains the original
+	// stage transition time. Honors the RolloutService revision rule.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation
@@ -671,8 +672,9 @@ type RolloutServiceHandler interface {
 	// transitions happen until it is resumed. Commands already sent finish.
 	// Honors the RolloutService revision rule.
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
-	// Resumes a paused rollout where it left off. Honors the RolloutService
-	// revision rule.
+	// Resumes a paused rollout where it left off. Stage wait and stabilization
+	// timers exclude time spent paused; stage_changed_at retains the original
+	// stage transition time. Honors the RolloutService revision rule.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation

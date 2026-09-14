@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1088,63 +1090,143 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 }
 
 func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	for _, tc := range []struct {
+		name             string
+		artifactSnapshot bool
+		metadataState    string
+		payloadState     string
+		checksumMismatch bool
+		wantError        string
+	}{
+		{name: "manual upload"},
+		{name: "artifact after metadata edit", artifactSnapshot: true, metadataState: "edited"},
+		{name: "artifact after metadata corruption", artifactSnapshot: true, metadataState: "corrupt"},
+		{name: "artifact after metadata removal", artifactSnapshot: true, metadataState: "missing"},
+		{name: "artifact checksum mismatch", artifactSnapshot: true, checksumMismatch: true, wantError: "firmware artifact not found"},
+		{name: "artifact reuploaded under a different ID", artifactSnapshot: true, payloadState: "reuploaded"},
+		{name: "artifact original corrupted with a healthy copy", artifactSnapshot: true, payloadState: "corrupt original"},
+		{name: "artifact different bytes do not replace deleted payload", artifactSnapshot: true, payloadState: "different bytes", wantError: "firmware artifact not found"},
+		{name: "manual command retains deleted original ID", payloadState: "reuploaded", wantError: "firmware file not found"},
+		{name: "manual command retains original ID with duplicate", payloadState: "duplicate"},
+		{name: "manual corrupt metadata remains rejected", metadataState: "corrupt", wantError: "metadata"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	filesService, err := files.NewService(files.Config{})
-	require.NoError(t, err)
-	content := "firmware image"
-	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content), files.FirmwareMetadata{
-		TargetManufacturer: "Proto",
-		TargetModel:        "Rig",
-		FirmwareVersion:    "1.2.3",
-	})
-	require.NoError(t, err)
-
-	mockQueue := mocks.NewMockMessageQueue(ctrl)
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
-
-	payloadBytes, err := json.Marshal(dto.FirmwareUpdatePayload{FirmwareFileID: fileID})
-	require.NoError(t, err)
-	message := queue.Message{
-		ID:          9,
-		CommandType: commandtype.FirmwareUpdate,
-		DeviceID:    42,
-		Payload:     payloadBytes,
-	}
-
-	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(42)).Return(mockMiner, nil)
-	mockMiner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
-			assert.Equal(t, fileID, firmware.ID)
-			assert.Equal(t, "update.swu", firmware.Filename)
-			assert.Equal(t, int64(len(content)), firmware.Size)
-			assert.NotEmpty(t, firmware.SHA256)
-			assert.NotEmpty(t, firmware.FilePath)
-			data, err := io.ReadAll(firmware.Reader)
+			filesService, err := files.NewService(files.Config{})
 			require.NoError(t, err)
-			assert.Equal(t, content, string(data))
-			return nil
+			content := "firmware image"
+			fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content), files.FirmwareMetadata{
+				TargetManufacturer: "Proto",
+				TargetModel:        "Rig",
+				FirmwareVersion:    "1.2.3",
+			})
+			require.NoError(t, err)
+			reader, info, err := filesService.OpenFirmwareFileWithInfo(fileID)
+			require.NoError(t, err)
+			require.NoError(t, reader.Close())
+
+			payload := dto.FirmwareUpdatePayload{FirmwareFileID: fileID}
+			if tc.artifactSnapshot {
+				payload.FirmwareChecksum = info.SHA256
+			}
+			if tc.checksumMismatch {
+				payload.FirmwareChecksum = strings.Repeat("0", 64)
+			}
+			payloadBytes, err := json.Marshal(payload)
+			require.NoError(t, err)
+			message := queue.Message{
+				ID:          9,
+				CommandType: commandtype.FirmwareUpdate,
+				DeviceID:    42,
+				Payload:     payloadBytes,
+			}
+
+			// The command has already captured its artifact identity before the
+			// mutable upload metadata changes while it waits for execution.
+			switch tc.metadataState {
+			case "edited":
+				_, err := filesService.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+					TargetManufacturer: "Other",
+					TargetModel:        "Different",
+					FirmwareVersion:    "9.9.9",
+				})
+				require.NoError(t, err)
+			case "corrupt":
+				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(info.FilePath), "metadata.json"), []byte("not JSON"), 0600))
+			case "missing":
+				require.NoError(t, os.Remove(filepath.Join(filepath.Dir(info.FilePath), "metadata.json")))
+			}
+			deliveryInfo := info
+			if tc.payloadState != "" {
+				if tc.payloadState == "reuploaded" || tc.payloadState == "different bytes" {
+					require.NoError(t, filesService.DeleteFirmwareFile(fileID))
+				}
+				replacementContent := content
+				if tc.payloadState == "different bytes" {
+					replacementContent = strings.Repeat("x", len(content))
+				}
+				// Different sidecar metadata prevents upload reuse when the
+				// original still exists; the saved assignment owns its metadata.
+				replacementID, err := filesService.SaveFirmwareFile("replacement.swu", strings.NewReader(replacementContent), files.FirmwareMetadata{
+					TargetManufacturer: "Other", TargetModel: "Other", FirmwareVersion: "9.9.9",
+				})
+				require.NoError(t, err)
+				require.NotEqual(t, fileID, replacementID)
+				replacementReader, replacementInfo, err := filesService.OpenFirmwareFileWithInfo(replacementID)
+				require.NoError(t, err)
+				require.NoError(t, replacementReader.Close())
+				if tc.artifactSnapshot {
+					deliveryInfo = replacementInfo
+				}
+				if tc.payloadState == "corrupt original" {
+					require.NoError(t, os.WriteFile(info.FilePath, []byte(strings.Repeat("x", len(content))), 0600))
+				}
+			}
+
+			mockQueue := mocks.NewMockMessageQueue(ctrl)
+			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+			mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(42)).Return(mockMiner, nil)
+			if tc.wantError == "" {
+				mockMiner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
+						assert.Equal(t, deliveryInfo.ID, firmware.ID)
+						assert.Equal(t, deliveryInfo.Filename, firmware.Filename)
+						assert.Equal(t, int64(len(content)), firmware.Size)
+						assert.Equal(t, info.SHA256, firmware.SHA256)
+						assert.Equal(t, deliveryInfo.FilePath, firmware.FilePath)
+						data, err := io.ReadAll(firmware.Reader)
+						require.NoError(t, err)
+						assert.Equal(t, content, string(data))
+						return nil
+					})
+				mockMiner.EXPECT().Reboot(gomock.Any()).Return(nil)
+				mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-123"))
+				mockDeviceStore.EXPECT().
+					GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{"device-123"}).
+					Return(map[tmodels.DeviceIdentifier]models.MinerStatus{}, nil)
+			}
+
+			svc := NewExecutionService(&Config{
+				MaxWorkers:             5,
+				MasterPollingInterval:  10 * time.Millisecond,
+				WorkerExecutionTimeout: 5 * time.Second,
+			}, nil, mockQueue, nil, nil, mockMinerGetter, mockDeviceStore, nil, filesService)
+
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.FirmwareUpdate, message)
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+			} else {
+				require.NoError(t, err)
+			}
 		})
-	mockMiner.EXPECT().Reboot(gomock.Any()).Return(nil)
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-123"))
-	mockDeviceStore.EXPECT().
-		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{"device-123"}).
-		Return(map[tmodels.DeviceIdentifier]models.MinerStatus{}, nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, mockQueue, nil, nil, mockMinerGetter, mockDeviceStore, nil, filesService)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.FirmwareUpdate, message)
-	require.NoError(t, err)
+	}
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testing.T) {

@@ -100,6 +100,7 @@ type Service struct {
 	checksumIndex           map[string][]string // SHA-256 hex -> reuse-eligible file IDs
 	firmwareChecksumByID    map[string]string   // fileID -> SHA-256 hex
 	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
+	firmwareExecutionPins   map[string]int // file ID -> active command deliveries; guarded by mu
 	syncFirmwareDir         func(string) error
 }
 
