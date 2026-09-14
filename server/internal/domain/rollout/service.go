@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -777,8 +778,12 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 // optionally restricted to one channel. The returned cursor is empty on the
 // last page.
 func (s *Service) ListMembershipConflicts(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]MembershipConflict, string, error) {
+	q := s.store.GetQueries(ctx)
 	params := sqlc.ListReleaseChannelMembershipConflictsPageParams{OrgID: orgID}
 	if channelID != 0 {
+		if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
+			return nil, "", channelLookupError(channelID, err)
+		}
 		params.ChannelID = sql.NullInt64{Int64: channelID, Valid: true}
 	}
 	if cursor != "" {
@@ -798,7 +803,7 @@ func (s *Service) ListMembershipConflicts(ctx context.Context, orgID, channelID 
 	limit := min(clampPageSize(pageSize), ModelGroupPageSize)
 	params.PageLimit = limit + 1
 
-	rows, err := s.store.GetQueries(ctx).ListReleaseChannelMembershipConflictsPage(ctx, params)
+	rows, err := q.ListReleaseChannelMembershipConflictsPage(ctx, params)
 	if err != nil {
 		return nil, "", fleeterror.NewInternalErrorf("list membership conflicts: %w", err)
 	}
@@ -853,7 +858,7 @@ func encodeCursor(parts ...string) string {
 
 func decodeCursor(cursor string, n int) ([]string, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
+	if err != nil || !utf8.Valid(raw) {
 		return nil, fleeterror.NewInvalidArgumentError("invalid cursor")
 	}
 	parts := strings.Split(string(raw), "\x00")

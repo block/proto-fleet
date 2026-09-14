@@ -10,7 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 
 	rolloutv1 "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
+
+func TestChannelPaginationRejectsInvalidUTF8Cursors(t *testing.T) {
+	f := newFixture(t, 0)
+	ctx := t.Context()
+	channel, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Cursor validation"})
+	require.NoError(t, err)
+	for _, raw := range []string{"\xff", "\xc3", "\xc0\xaf", "\xed\xa0\x80"} {
+		t.Run(encodeCursor(raw), func(t *testing.T) {
+			_, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", 1, encodeCursor(raw, "1"))
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "miner cursor: %v", err)
+			_, _, err = f.svc.ListChannelModelGroups(ctx, f.orgID, channel.ID, 1, encodeCursor(raw, "Rig"))
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "manufacturer cursor: %v", err)
+			_, _, err = f.svc.ListChannelModelGroups(ctx, f.orgID, channel.ID, 1, encodeCursor("Proto", raw))
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "model cursor: %v", err)
+			_, _, err = f.svc.ListMembershipConflicts(ctx, f.orgID, 0, 1, encodeCursor(raw, "1", "1"))
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "conflict cursor: %v", err)
+		})
+	}
+}
 
 func TestChannelPaginationAcceptsLongDeviceIdentifiers(t *testing.T) {
 	for _, test := range []struct {
