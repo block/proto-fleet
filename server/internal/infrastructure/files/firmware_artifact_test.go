@@ -63,6 +63,7 @@ func TestResolveFirmwareArtifact_VerifiesPayloadWithWarmChecksumCache(t *testing
 			artifact, err := svc.ResolveFirmwareArtifact(fileID)
 			requireFleetCode(t, err, wantCode)
 			assert.Empty(t, artifact)
+			assert.NotContains(t, svc.checksumIndex[checksum], fileID, "failed verification must disqualify upload reuse")
 			cachedChecksum, cached := svc.lookupFirmwareChecksum(fileID)
 			assert.True(t, cached)
 			assert.Equal(t, checksum, cachedChecksum, "a failed assignment must not redefine the upload")
@@ -241,6 +242,7 @@ func TestFindFirmwareFileIDByChecksum_VerifiesAvailabilityAndRecovery(t *testing
 				foundID, available = svc.FindFirmwareFileIDByChecksum(checksum)
 				assert.False(t, available, "a cached checksum must not advertise unusable bytes")
 				assert.Empty(t, foundID)
+				assert.NotContains(t, svc.checksumIndex[checksum], fileID, "unavailable payloads must not satisfy upload reuse")
 			}
 			require.NoError(t, os.Chmod(filePath, 0600))
 			require.NoError(t, os.WriteFile(filePath, []byte(content), 0600))
@@ -346,6 +348,7 @@ func TestLeaseFirmwareArtifact_RejectsCorruptionAndAllowsRestoredBytes(t *testin
 	requireFleetCode(t, err, connect.CodeFailedPrecondition)
 	assert.Empty(t, leasedID)
 	assert.Nil(t, release)
+	assert.NotContains(t, svc.checksumIndex[checksum], fileID)
 	locked := svc.firmwareMetadataReuseMu.TryLock()
 	if locked {
 		svc.firmwareMetadataReuseMu.Unlock()
@@ -367,6 +370,7 @@ func TestLeaseFirmwareArtifact_RejectsCorruptionAndAllowsRestoredBytes(t *testin
 	}
 	requireFleetCode(t, err, connect.CodeFailedPrecondition)
 	assert.Nil(t, reader)
+	assert.NotContains(t, svc.checksumIndex[checksum], fileID)
 }
 
 func TestOpenFirmwareArtifact_RejectsSameSizeCorruptionWithWarmChecksumCache(t *testing.T) {
@@ -401,6 +405,7 @@ func TestOpenFirmwareArtifact_RejectsSameSizeCorruptionWithWarmChecksumCache(t *
 	requireFleetCode(t, err, connect.CodeFailedPrecondition)
 	assert.Contains(t, err.Error(), "assigned checksum")
 	assert.Nil(t, reader)
+	assert.NotContains(t, svc.checksumIndex[artifact.Checksum], fileID)
 
 	// Restoring the exact assigned bytes permits another open. Hashing must
 	// rewind the returned descriptor so delivery starts with the first byte.
@@ -414,4 +419,19 @@ func TestOpenFirmwareArtifact_RejectsSameSizeCorruptionWithWarmChecksumCache(t *
 	assert.Equal(t, int64(len(content)), info.Size)
 	assert.Equal(t, artifact.Checksum, info.SHA256)
 	assert.Empty(t, info.TargetManufacturer, "artifact opens do not consult upload metadata")
+}
+
+func TestOpenFirmwareArtifact_WrongExpectedChecksumPreservesHealthyReuse(t *testing.T) {
+	svc := setupService(t)
+	const content = "healthy firmware with its original identity"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	reader, _, err := svc.OpenFirmwareArtifact(fileID, checksumOf("another assignment"))
+	requireFleetCode(t, err, connect.CodeFailedPrecondition)
+	assert.Nil(t, reader)
+	assert.Contains(t, svc.checksumIndex[checksumOf(content)], fileID)
+	foundID, reusable := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.True(t, reusable)
+	assert.Equal(t, fileID, foundID)
 }

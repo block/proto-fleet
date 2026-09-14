@@ -705,11 +705,21 @@ func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, Firmwa
 	return s.openFirmwareFileWithInfo(fileID, "")
 }
 
-func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (io.ReadCloser, FirmwareFileInfo, error) {
+func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (reader io.ReadCloser, fileInfo FirmwareFileInfo, err error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return nil, FirmwareFileInfo{}, err
 	}
+	defer func() {
+		if err != nil && expectedChecksum != "" {
+			// Failed verification disqualifies reuse, but keeps the original
+			// identity so restored bytes remain discoverable by assignments.
+			// A caller supplying the wrong checksum must not evict a healthy upload.
+			if checksum, cached := s.lookupFirmwareChecksum(canonical); cached && checksum == expectedChecksum {
+				s.removeFirmwareChecksumEligibility(checksum, canonical)
+			}
+		}
+	}()
 	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
 		return nil, FirmwareFileInfo{}, err
@@ -832,7 +842,9 @@ func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string
 
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.
 // Returns the file ID and true if found, or empty string and false otherwise.
-// Used by the pre-upload check endpoint to let clients skip redundant uploads.
+// Used by uploads and the pre-upload check endpoint to skip redundant uploads.
+// The index supplies candidates only: current metadata and bytes must both match
+// before a healthy staged upload can be discarded in favor of an existing file.
 func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata FirmwareMetadata) (string, bool) {
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
@@ -842,19 +854,37 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 	s.mu.Unlock()
 
 	metadata = metadata.normalized()
+	if ValidateFirmwareUploadMetadata(metadata) != nil {
+		return "", false
+	}
 	for _, fileID := range fileIDs {
 		storedMetadata, err := readFirmwareMetadata(getFirmwareDirPath(fileID))
 		if err != nil {
-			if errors.Is(err, errFirmwareMetadataNotFound) {
-				continue
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", fileID, "error", err)
 			}
-			slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", fileID, "error", err)
 			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
 			continue
 		}
-		if storedMetadata.matches(metadata) {
-			return fileID, true
+		if ValidateFirmwareUploadMetadata(storedMetadata) != nil {
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
+			continue
 		}
+		if !storedMetadata.matches(metadata) {
+			continue
+		}
+		// Use the private opener while holding the lifecycle read lock: calling
+		// the public artifact opener would take a recursive RLock and can block
+		// forever behind a waiting metadata update or deletion.
+		reader, _, err := s.openFirmwareFileWithInfo(fileID, sha256Hex)
+		if err != nil {
+			continue
+		}
+		if err := reader.Close(); err != nil {
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
+			continue
+		}
+		return fileID, true
 	}
 	return "", false
 }

@@ -35,13 +35,20 @@ type FirmwareArtifact struct {
 // firmware_version must be repaired first. A missing file is NotFound and a
 // missing or incomplete sidecar InvalidArgument. Current payload bytes are
 // rehashed; a change from the known upload checksum is FailedPrecondition.
-func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, error) {
+func (s *Service) ResolveFirmwareArtifact(fileID string) (artifact FirmwareArtifact, err error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return FirmwareArtifact{}, err
 	}
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
+	defer func() {
+		if err != nil {
+			if checksum, cached := s.lookupFirmwareChecksum(canonical); cached {
+				s.removeFirmwareChecksumEligibility(checksum, canonical)
+			}
+		}
+	}()
 
 	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
@@ -210,6 +217,8 @@ func (s *Service) firmwareFileIDsByChecksumLocked(sha256Hex string) []string {
 	for _, id := range ids {
 		if _, err := getFirmwareFilePathForCanonicalID(id); err == nil {
 			present = append(present, id)
+		} else {
+			s.removeFirmwareChecksumEligibility(sha256Hex, id)
 		}
 	}
 	return present
