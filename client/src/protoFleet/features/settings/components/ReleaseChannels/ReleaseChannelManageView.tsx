@@ -159,7 +159,9 @@ const ReleaseChannelManageView = ({
     !equals(ReleaseChannelScopeSchema, scope, channel.scope ?? create(ReleaseChannelScopeSchema)) ||
     !equals(RolloutBehaviorSchema, behavior, channel.behavior ?? create(RolloutBehaviorSchema));
   const hasConflicts = (preview?.conflicts.length ?? 0) > 0;
-  const canSave = dirty && name.trim() !== "" && !hasConflicts && !isSaving;
+  // Preview totals cannot distinguish retained overlaps from new ones. The
+  // server compares exact conflict relations when updating an existing channel.
+  const canSave = dirty && name.trim() !== "" && (channel !== undefined || !hasConflicts) && !isSaving;
 
   const handleSave = () => {
     setIsSaving(true);
@@ -295,7 +297,13 @@ const ReleaseChannelManageView = ({
         title="Applies to"
         subtext="Miners are grouped by hardware model. Firmware is assigned per model below once the channel is saved."
       >
-        <ScopeEditor scope={scope} onChange={setScope} previewScope={previewForChannel} onPreview={setPreview} />
+        <ScopeEditor
+          scope={scope}
+          onChange={setScope}
+          previewScope={previewForChannel}
+          onPreview={setPreview}
+          editingExistingChannel={channel !== undefined}
+        />
       </Section>
 
       <Section title="Update behavior" subtext="How firmware updates are paced across the selected miners.">
