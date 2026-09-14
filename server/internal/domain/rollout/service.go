@@ -226,6 +226,9 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
 			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
 		}
+		if err := s.validatePlacementTargets(ctx, orgID, 0, spec.Scope); err != nil {
+			return err
+		}
 		if err := s.rejectOverlap(ctx, orgID, spec.Scope, 0); err != nil {
 			return err
 		}
@@ -279,6 +282,9 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 		}
 		if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 			return channelLookupError(channelID, err)
+		}
+		if err := s.validatePlacementTargets(ctx, orgID, channelID, spec.Scope); err != nil {
+			return err
 		}
 		if err := s.rejectOverlap(ctx, orgID, spec.Scope, channelID); err != nil {
 			return err
@@ -338,6 +344,69 @@ func (spec *ChannelSpec) validate() error {
 	spec.Description = strings.TrimSpace(spec.Description)
 	spec.Scope.normalize()
 	return spec.Behavior.validate()
+}
+
+// validatePlacementTargets accepts live, org-owned placements even when they
+// contain no miners. An update can retain a saved selector after its placement
+// is deleted, but every addition must resolve by both ID and selector type.
+// Call under LockReleaseChannelScopes before replacing the stored targets.
+func (s *Service) validatePlacementTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
+	if len(scope.SiteIDs)+len(scope.BuildingIDs)+len(scope.RackIDs)+len(scope.GroupIDs) == 0 {
+		return nil
+	}
+	q := s.store.GetQueries(ctx)
+	type targetKey struct {
+		kind string
+		id   int64
+	}
+	retained := map[targetKey]bool{}
+	if channelID != 0 {
+		targets, err := q.ListReleaseChannelTargets(ctx, orgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("load saved channel targets: %w", err)
+		}
+		for _, target := range targets {
+			if target.ChannelID == channelID {
+				retained[targetKey{kind: target.TargetType, id: target.TargetID}] = true
+			}
+		}
+	}
+	for _, dimension := range []struct {
+		kind string
+		ids  []int64
+	}{
+		{TargetTypeSite, scope.SiteIDs},
+		{TargetTypeBuilding, scope.BuildingIDs},
+		{TargetTypeRack, scope.RackIDs},
+		{TargetTypeGroup, scope.GroupIDs},
+	} {
+		var additions []int64
+		for _, id := range dimension.ids {
+			if !retained[targetKey{kind: dimension.kind, id: id}] {
+				additions = append(additions, id)
+			}
+		}
+		if len(additions) == 0 {
+			continue
+		}
+		var found []int64
+		var err error
+		switch dimension.kind {
+		case TargetTypeSite:
+			found, err = q.SitesByIDs(ctx, sqlc.SitesByIDsParams{OrgID: orgID, Ids: additions})
+		case TargetTypeBuilding:
+			found, err = q.BuildingsByIDs(ctx, sqlc.BuildingsByIDsParams{OrgID: orgID, Ids: additions})
+		case TargetTypeRack, TargetTypeGroup:
+			found, err = q.DeviceSetsByIDs(ctx, sqlc.DeviceSetsByIDsParams{OrgID: orgID, SetType: sqlc.DeviceSetType(dimension.kind), Ids: additions})
+		}
+		if err != nil {
+			return fleeterror.NewInternalErrorf("resolve channel %s selectors: %w", dimension.kind, err)
+		}
+		if len(found) != len(additions) {
+			return fleeterror.NewInvalidArgumentErrorf("one or more %s selectors do not reference a current %s in this organization", dimension.kind, dimension.kind)
+		}
+	}
+	return nil
 }
 
 func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
