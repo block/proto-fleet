@@ -70,12 +70,14 @@ describe("useTimeSeries", () => {
   // the per-board hashboard series must NOT share a store-write key. levels is an
   // array of objects, so a naive join(",") stringified both to "[object Object]"
   // and the newest-requestId-wins guard silently dropped one series' writes.
-  test("keys the write guard on level identity, not the stringified array", async () => {
-    await runFetch([{ type: "miner", fields: ["hashrate", "power"] }]);
-    expect(beginStoreWrite).toHaveBeenLastCalledWith("telemetry:history:1h:miner");
+  test("keys the write guard on query contents, not the stringified array", async () => {
+    const miner: TimeSeriesLevel[] = [{ type: "miner", fields: ["hashrate", "power"] }];
+    await runFetch(miner);
+    expect(beginStoreWrite).toHaveBeenLastCalledWith(`telemetry:history:1h:${JSON.stringify(miner)}`);
 
-    await runFetch([{ type: "hashboard", fields: ["hashrate"], indexes: [0] }]);
-    expect(beginStoreWrite).toHaveBeenLastCalledWith("telemetry:history:1h:hashboard");
+    const hashboard: TimeSeriesLevel[] = [{ type: "hashboard", fields: ["hashrate"], indexes: [0] }];
+    await runFetch(hashboard);
+    expect(beginStoreWrite).toHaveBeenLastCalledWith(`telemetry:history:1h:${JSON.stringify(hashboard)}`);
   });
 
   test("aggregate and per-board calls at the same duration get distinct keys", async () => {

@@ -363,6 +363,58 @@ describe("MdkV2Adapter", () => {
     expect(queryTimeSeries).toHaveBeenCalledTimes(6);
   });
 
+  test.each([
+    ["hashrate", 289],
+    ["power", 289],
+    ["temperature", 289],
+    ["efficiency", 578],
+  ] as const)("limits a full container's %s history to %i cold requests", async (field, expectedRequests) => {
+    const boardCount = 288;
+    const queryTimeSeries = vi.fn().mockResolvedValue({ data: { buckets: [] } });
+    const adapter = new MdkV2Adapter(
+      client({
+        telemetryServiceQueryTimeSeries: queryTimeSeries,
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+          data: {
+            containerMap: {
+              tanks: [
+                {
+                  id: 1,
+                  modules: [
+                    {
+                      id: 1,
+                      slots: Array.from({ length: boardCount }, (_, index) => ({
+                        hashboard: { serial: `board-${index}` },
+                      })),
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      }),
+      { deviceId: "ct1-a" },
+    );
+
+    const query = {
+      startTime: "2026-09-02T11:00:00Z",
+      duration: "PT1H",
+      interval: "PT5M",
+    };
+    await Promise.all([
+      adapter.getTimeSeries({ ...query, levels: [{ type: "miner", fields: [field] }] }),
+      adapter.getTimeSeries({
+        ...query,
+        levels: [{ type: "hashboard", fields: [field], indexes: Array.from({ length: boardCount }, (_, i) => i) }],
+      }),
+    ]);
+
+    expect(queryTimeSeries).toHaveBeenCalledTimes(expectedRequests);
+    const queriedMetrics = new Set(queryTimeSeries.mock.calls.map(([query]) => query.metric));
+    expect(queriedMetrics.size).toBe(field === "efficiency" ? 2 : 1);
+  });
+
   test("returns CT1 plant fans from the cooling-status adapter method", async () => {
     const getContainerHealth = vi.fn().mockResolvedValue({
       data: { coolingFans: [{ componentId: "dry-cooler-1", powerW: 400, speedPercent: 75 }] },
