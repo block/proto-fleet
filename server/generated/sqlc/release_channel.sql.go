@@ -710,7 +710,7 @@ WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
   AND assignment_generation = $4
-ORDER BY created_at DESC, id DESC
+ORDER BY id DESC
 LIMIT 1
 `
 
@@ -722,7 +722,8 @@ type GetLatestFirmwareRolloutForPairParams struct {
 }
 
 // The most recent rollout of a pair within one assignment generation; a
-// reconciliation rollout inherits its lineage.
+// reconciliation rollout inherits its lineage. Sequence allocation orders
+// history independently of wall-clock corrections.
 func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLatestFirmwareRolloutForPairParams) (FirmwareRollout, error) {
 	row := q.queryRow(ctx, q.getLatestFirmwareRolloutForPairStmt, getLatestFirmwareRolloutForPair,
 		arg.ChannelID,

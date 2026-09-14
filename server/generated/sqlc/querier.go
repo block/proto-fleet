@@ -705,7 +705,8 @@ type Querier interface {
 	GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Time) ([]DeviceMetric, error)
 	GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDeviceMetricsParams) ([]DeviceMetric, error)
 	// The most recent rollout of a pair within one assignment generation; a
-	// reconciliation rollout inherits its lineage.
+	// reconciliation rollout inherits its lineage. Sequence allocation orders
+	// history independently of wall-clock corrections.
 	GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLatestFirmwareRolloutForPairParams) (FirmwareRollout, error)
 	GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error)
 	GetMQTTSourceConfigByOrg(ctx context.Context, arg GetMQTTSourceConfigByOrgParams) (CurtailmentMqttSourceConfig, error)

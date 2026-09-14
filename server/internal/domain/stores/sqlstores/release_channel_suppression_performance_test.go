@@ -136,7 +136,7 @@ func TestReleaseChannelSuppressionQueryPlans(t *testing.T) {
 	}
 	capture("before-generic")
 	f.exec(`CREATE INDEX idx_firmware_rollout_assignment_history ON firmware_rollout
-		(channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), assignment_generation, created_at DESC, id DESC)`)
+		(channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), assignment_generation, id DESC)`)
 	f.exec(`ANALYZE firmware_rollout`)
 	verifySuppression()
 	for i := range 3 {

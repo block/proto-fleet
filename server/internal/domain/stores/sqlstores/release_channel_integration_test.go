@@ -389,10 +389,9 @@ func (f *releaseChannelQueryFixture) rollout(channelID int64, manufacturer, mode
 }
 
 // rolloutAfterCancel cancels a rollout and starts the next one of the same
-// pair and generation, strictly later so the suppression view ranks it newest.
+// pair and generation, allocating a higher ID for the suppression view.
 func (f *releaseChannelQueryFixture) rolloutAfterCancel(rolloutID, channelID int64, manufacturer, model string) int64 {
 	f.exec(`UPDATE firmware_rollout SET status = 'canceled', finished_at = now() WHERE id = $1`, rolloutID)
-	f.exec(`UPDATE firmware_rollout SET created_at = created_at - INTERVAL '1 minute' WHERE id = $1`, rolloutID)
 	return f.rollout(channelID, manufacturer, model)
 }
 

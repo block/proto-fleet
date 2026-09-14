@@ -540,13 +540,14 @@ ORDER BY r.id;
 
 -- name: GetLatestFirmwareRolloutForPair :one
 -- The most recent rollout of a pair within one assignment generation; a
--- reconciliation rollout inherits its lineage.
+-- reconciliation rollout inherits its lineage. Sequence allocation orders
+-- history independently of wall-clock corrections.
 SELECT * FROM firmware_rollout
 WHERE channel_id = sqlc.arg('channel_id')
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
   AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND assignment_generation = sqlc.arg('assignment_generation')
-ORDER BY created_at DESC, id DESC
+ORDER BY id DESC
 LIMIT 1;
 
 -- name: GetActiveFirmwareRolloutForPair :one

@@ -144,8 +144,8 @@ CREATE TABLE firmware_rollout (
     last_action_by_type TEXT NOT NULL DEFAULT 'system' CHECK (last_action_by_type IN ('user', 'api_key', 'system')),
     last_action_by_id BIGINT NOT NULL DEFAULT 0,
     last_action_by_name TEXT NOT NULL DEFAULT '',
-    -- History must follow insertion order even when a retry's transaction
-    -- began before the preceding rollout. now() would use transaction start.
+    -- Record insertion time rather than transaction start for display.
+    -- Operational history uses the sequence ID because wall clocks can jump.
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     finished_at TIMESTAMPTZ NULL
 );
@@ -166,7 +166,7 @@ CREATE INDEX idx_firmware_rollout_org_revision_txid ON firmware_rollout(org_id, 
 -- every past rollout; completed and canceled runs must remain eligible.
 CREATE INDEX idx_firmware_rollout_assignment_history
     ON firmware_rollout(channel_id, release_channel_pair_key(manufacturer),
-        release_channel_pair_key(model), assignment_generation, created_at DESC, id DESC);
+        release_channel_pair_key(model), assignment_generation, id DESC);
 
 -- The creating transaction owns revision 1, so the initial snapshot and any
 -- other statement in it do not bump. updated_at is the wall clock when the
@@ -441,6 +441,7 @@ WHERE channels > 1;
 -- Miners the enforcement loop leaves alone for a pair: halted (failed,
 -- canceled or skipped) in the most recent rollout of the pair's assignment
 -- generation that holds them, until RetryFailedRolloutDevices re-queues them.
+-- Sequence allocation orders history independently of wall-clock corrections.
 CREATE VIEW firmware_rollout_suppressed_device AS
 SELECT channel_id, manufacturer_key, model_key, assignment_generation, device_id
 FROM (
@@ -453,7 +454,7 @@ FROM (
            row_number() OVER (
                PARTITION BY r.channel_id, release_channel_pair_key(r.manufacturer), release_channel_pair_key(r.model),
                             r.assignment_generation, rd.device_id
-               ORDER BY r.created_at DESC, r.id DESC
+               ORDER BY r.id DESC
            ) AS recency
     FROM firmware_rollout_device rd
     JOIN firmware_rollout r ON r.id = rd.rollout_id
