@@ -403,7 +403,7 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
-        leadingHeaderControls={
+        trailingFilterControls={
           <div
             className={clsx("min-w-0 shrink-0", {
               // The filter row is padded on its left edge only (the page's

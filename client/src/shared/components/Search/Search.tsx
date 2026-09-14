@@ -121,7 +121,11 @@ const Search = ({
     <div className="w-full tablet:w-80">
       <div
         className={clsx({
-          "relative rounded-lg border border-border-5 px-3 py-1 transition-colors focus-within:border-border-20":
+          // Fixed at control height (h-8, the same as a compact Button) rather
+          // than padding around the input: with padding the field came out
+          // 34px and a toolbar that swaps a button for it shifted its whole row
+          // by 2px.
+          "relative flex h-8 items-center rounded-lg border border-border-5 px-3 transition-colors focus-within:border-border-20":
             isToolbar,
         })}
       >
