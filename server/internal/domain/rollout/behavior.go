@@ -97,11 +97,12 @@ func scopeFromTargets(rows []sqlc.ListReleaseChannelTargetsRow) Scope {
 	return s
 }
 
+// uniqueNonEmpty preserves exact keys: whitespace is significant in device
+// identifiers, so only literal empty strings and exact duplicates are removed.
 func uniqueNonEmpty(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := map[string]bool{}
 	for _, v := range values {
-		v = strings.TrimSpace(v)
 		if v == "" || seen[v] {
 			continue
 		}
