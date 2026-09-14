@@ -76,7 +76,7 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 	// site, this is a runtime overlap: the more specific rack selector wins
 	// and the miner is flagged.
 	f.placeInSet(t, rack, "rack", "miner-3")
-	channels, err := f.svc.ListChannels(ctx, f.orgID)
+	channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 	require.NoError(t, err)
 	byName := map[string]Channel{}
 	for _, c := range channels {
@@ -206,7 +206,7 @@ func TestScopePreviewCountsMinersOnceAcrossConflictingChannels(t *testing.T) {
 	_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Candidate", Scope: scope})
 	require.ErrorContains(t, err, "Channel A (1 miners)")
 	require.ErrorContains(t, err, "Channel B (1 miners)")
-	channels, err := f.svc.ListChannels(ctx, f.orgID)
+	channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 	require.NoError(t, err)
 	assert.Len(t, channels, 2, "the rejected save must not create a channel")
 
@@ -218,12 +218,9 @@ func TestScopePreviewCountsMinersOnceAcrossConflictingChannels(t *testing.T) {
 	assert.Equal(t, []ModelCount{{Manufacturer: "proto", Model: "Rig", MinerCount: 2}}, preview.Models)
 	assert.Equal(t, int32(1), preview.ConflictCount)
 	assert.Equal(t, []ScopeConflict{{ChannelID: b.ID, ChannelName: b.Name, MinerCount: 1}}, preview.Conflicts)
-	_, err = f.svc.UpdateChannel(ctx, f.orgID, a.ID, ChannelSpec{Name: a.Name, Scope: scope})
-	require.ErrorContains(t, err, "Channel B (1 miners)")
-	assert.NotContains(t, err.Error(), "Channel A")
-	unchanged, err := f.svc.GetChannel(ctx, f.orgID, a.ID)
+	updated, err := f.svc.UpdateChannel(ctx, f.orgID, a.ID, ChannelSpec{Name: a.Name, Scope: scope})
 	require.NoError(t, err)
-	assert.Equal(t, a.Scope, unchanged.Scope, "the rejected edit must retain the existing scope")
+	assert.Equal(t, scope, updated.Scope, "the edit retains an existing conflict and adds only an unclaimed miner")
 }
 
 func TestBehaviorValidation(t *testing.T) {

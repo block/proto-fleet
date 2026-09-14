@@ -4956,6 +4956,42 @@ func (q *retryingQuerier) ListReleaseChannelModelGroupsPage(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListReleaseChannelPageFirmware(ctx context.Context, arg ListReleaseChannelPageFirmwareParams) ([]ReleaseChannelFirmware, error) {
+	var result []ReleaseChannelFirmware
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelPageFirmware", func() error {
+		callResult, callErr := q.next.ListReleaseChannelPageFirmware(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelPageMemberModels(ctx context.Context, arg ListReleaseChannelPageMemberModelsParams) ([]ListReleaseChannelPageMemberModelsRow, error) {
+	var result []ListReleaseChannelPageMemberModelsRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelPageMemberModels", func() error {
+		callResult, callErr := q.next.ListReleaseChannelPageMemberModels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelPageTargets(ctx context.Context, arg ListReleaseChannelPageTargetsParams) ([]ListReleaseChannelPageTargetsRow, error) {
+	var result []ListReleaseChannelPageTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelPageTargets", func() error {
+		callResult, callErr := q.next.ListReleaseChannelPageTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListReleaseChannelSuppressedMembers(ctx context.Context, arg ListReleaseChannelSuppressedMembersParams) ([]ListReleaseChannelSuppressedMembersRow, error) {
 	var result []ListReleaseChannelSuppressedMembersRow
 	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelSuppressedMembers", func() error {
@@ -4984,6 +5020,18 @@ func (q *retryingQuerier) ListReleaseChannels(ctx context.Context, orgID int64) 
 	var result []ReleaseChannel
 	err := q.retrier.RetryQuery(ctx, "ListReleaseChannels", func() error {
 		callResult, callErr := q.next.ListReleaseChannels(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelsPage(ctx context.Context, arg ListReleaseChannelsPageParams) ([]ReleaseChannel, error) {
+	var result []ReleaseChannel
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelsPage", func() error {
+		callResult, callErr := q.next.ListReleaseChannelsPage(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

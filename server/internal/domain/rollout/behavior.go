@@ -76,7 +76,7 @@ func (s *Scope) targets() (types []string, ids []int64) {
 	return types, ids
 }
 
-func scopeFromTargets(rows []sqlc.ListReleaseChannelTargetsRow) Scope {
+func scopeFromTargets(rows []sqlc.ListReleaseChannelPageTargetsRow) Scope {
 	var s Scope
 	for _, t := range rows {
 		switch t.TargetType {

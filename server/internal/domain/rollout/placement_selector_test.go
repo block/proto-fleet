@@ -82,7 +82,7 @@ func TestChannelPlacementSelectorsRejectUnresolvedAdditions(t *testing.T) {
 					require.Error(t, err)
 					assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
 					assert.Contains(t, err.Error(), selector.kind)
-					channels, err := f.svc.ListChannels(ctx, f.orgID)
+					channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 					require.NoError(t, err)
 					require.Len(t, channels, 1, "rejected creates must not persist a channel")
 					assert.Equal(t, *original, channels[0], "rejected updates must preserve channel fields and targets")

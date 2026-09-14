@@ -226,10 +226,10 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
 			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
 		}
-		if err := s.validateScopeTargets(ctx, orgID, 0, spec.Scope); err != nil {
+		if err := s.validateScopeTargets(ctx, orgID, spec.Scope, Scope{}); err != nil {
 			return err
 		}
-		if err := s.rejectOverlap(ctx, orgID, spec.Scope, 0); err != nil {
+		if err := s.rejectOverlap(ctx, orgID, spec.Scope, 0, Scope{}); err != nil {
 			return err
 		}
 		b := spec.Behavior
@@ -271,6 +271,8 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 
 // UpdateChannel replaces a channel's name, description, scope and behavior.
 // Rollouts in flight keep the behavior they started with.
+// Existing runtime overlaps can be retained or reduced, but edits cannot add
+// new (miner, other channel) conflict relations.
 func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spec ChannelSpec) (*Channel, error) {
 	if err := spec.validate(); err != nil {
 		return nil, err
@@ -283,10 +285,14 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 		if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 			return channelLookupError(channelID, err)
 		}
-		if err := s.validateScopeTargets(ctx, orgID, channelID, spec.Scope); err != nil {
+		savedScope, err := s.loadChannelScope(ctx, orgID, channelID)
+		if err != nil {
 			return err
 		}
-		if err := s.rejectOverlap(ctx, orgID, spec.Scope, channelID); err != nil {
+		if err := s.validateScopeTargets(ctx, orgID, spec.Scope, savedScope); err != nil {
+			return err
+		}
+		if err := s.rejectOverlap(ctx, orgID, spec.Scope, channelID, savedScope); err != nil {
 			return err
 		}
 		b := spec.Behavior
@@ -346,11 +352,21 @@ func (spec *ChannelSpec) validate() error {
 	return spec.Behavior.validate()
 }
 
+func (s *Service) loadChannelScope(ctx context.Context, orgID, channelID int64) (Scope, error) {
+	targets, err := s.store.GetQueries(ctx).ListReleaseChannelPageTargets(ctx, sqlc.ListReleaseChannelPageTargetsParams{
+		OrgID: orgID, ChannelIds: []int64{channelID},
+	})
+	if err != nil {
+		return Scope{}, fleeterror.NewInternalErrorf("load saved channel targets: %w", err)
+	}
+	return scopeFromTargets(targets), nil
+}
+
 // validateScopeTargets accepts live, org-owned placements and miners, including
 // placements that contain no miners. Updates can retain saved selectors after
 // deletion, but additions must resolve by placement type/ID or exact miner key.
 // Call under LockReleaseChannelScopes before replacing the stored targets.
-func (s *Service) validateScopeTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
+func (s *Service) validateScopeTargets(ctx context.Context, orgID int64, scope, savedScope Scope) error {
 	if scope.IsEmpty() {
 		return nil
 	}
@@ -361,20 +377,12 @@ func (s *Service) validateScopeTargets(ctx context.Context, orgID, channelID int
 	}
 	retained := map[targetKey]bool{}
 	retainedMiners := map[string]bool{}
-	if channelID != 0 {
-		targets, err := q.ListReleaseChannelTargets(ctx, orgID)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("load saved channel targets: %w", err)
-		}
-		for _, target := range targets {
-			if target.ChannelID == channelID {
-				if target.TargetType == TargetTypeMiner {
-					retainedMiners[target.DeviceIdentifier] = true
-				} else {
-					retained[targetKey{kind: target.TargetType, id: target.TargetID}] = true
-				}
-			}
-		}
+	retainedTypes, retainedIDs := savedScope.targets()
+	for i, id := range retainedIDs {
+		retained[targetKey{kind: retainedTypes[i], id: id}] = true
+	}
+	for _, identifier := range savedScope.DeviceIdentifiers {
+		retainedMiners[identifier] = true
 	}
 	for _, dimension := range []struct {
 		kind string
@@ -462,31 +470,69 @@ func (s *Service) replaceTargets(ctx context.Context, channelID int64, scope Sco
 	return nil
 }
 
-// rejectOverlap fails when any miner the scope covers is already claimed by
-// another channel. Must run under LockReleaseChannelScopes.
-func (s *Service) rejectOverlap(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64) error {
-	preview, err := s.PreviewScope(ctx, orgID, scope, excludeChannelID)
+// rejectOverlap rejects newly introduced conflict relations. For an update,
+// savedScope resolves existing runtime overlaps against current placement;
+// creations pass an empty saved scope. Must run under LockReleaseChannelScopes.
+func (s *Service) rejectOverlap(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64, savedScope Scope) error {
+	rows, err := s.resolveScope(ctx, orgID, scope, excludeChannelID)
 	if err != nil {
 		return err
 	}
-	if len(preview.Conflicts) == 0 {
+	hasConflict := false
+	for _, row := range rows {
+		if row.OwnerChannelID != 0 {
+			hasConflict = true
+			break
+		}
+	}
+	if !hasConflict {
 		return nil
 	}
-	parts := make([]string, 0, len(preview.Conflicts))
-	for _, c := range preview.Conflicts {
+	previous, err := s.resolveScope(ctx, orgID, savedScope, excludeChannelID)
+	if err != nil {
+		return err
+	}
+	type conflictKey struct {
+		deviceID  int64
+		channelID int64
+	}
+	retained := make(map[conflictKey]bool, len(previous))
+	for _, row := range previous {
+		if row.OwnerChannelID != 0 {
+			retained[conflictKey{deviceID: row.DeviceID, channelID: row.OwnerChannelID}] = true
+		}
+	}
+	byChannel := map[int64]*ScopeConflict{}
+	for _, row := range rows {
+		key := conflictKey{deviceID: row.DeviceID, channelID: row.OwnerChannelID}
+		if row.OwnerChannelID == 0 || retained[key] {
+			continue
+		}
+		if byChannel[row.OwnerChannelID] == nil {
+			byChannel[row.OwnerChannelID] = &ScopeConflict{ChannelID: row.OwnerChannelID, ChannelName: row.OwnerChannelName}
+		}
+		byChannel[row.OwnerChannelID].MinerCount++
+	}
+	if len(byChannel) == 0 {
+		return nil
+	}
+	conflicts := make([]ScopeConflict, 0, len(byChannel))
+	for _, conflict := range byChannel {
+		conflicts = append(conflicts, *conflict)
+	}
+	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].ChannelID < conflicts[j].ChannelID })
+	parts := make([]string, 0, min(len(conflicts), PreviewListLimit))
+	for _, c := range conflicts[:min(len(conflicts), PreviewListLimit)] {
 		parts = append(parts, fmt.Sprintf("%s (%d miners)", c.ChannelName, c.MinerCount))
 	}
 	return fleeterror.NewFailedPreconditionErrorf("scope overlaps release channel %s", strings.Join(parts, ", "))
 }
 
-// PreviewScope resolves a scope without saving it: miners per model, and
-// the channels it would overlap. excludeChannelID is the channel being
-// edited (0 when creating).
-func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64) (*ScopePreview, error) {
-	scope.normalize()
-	preview := &ScopePreview{}
+// resolveScope returns every matching conflict relation; preview limits apply
+// only when building the operator-facing summary, never during edit validation.
+func (s *Service) resolveScope(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64) ([]sqlc.ResolveReleaseChannelScopeRow, error) {
 	if scope.IsEmpty() {
-		return preview, nil
+		return nil, nil
 	}
 	rows, err := s.store.GetQueries(ctx).ResolveReleaseChannelScope(ctx, sqlc.ResolveReleaseChannelScopeParams{
 		OrgID:             orgID,
@@ -499,6 +545,19 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("resolve scope: %w", err)
+	}
+	return rows, nil
+}
+
+// PreviewScope resolves a scope without saving it: miners per model, and
+// the channels it would overlap. excludeChannelID is the channel being
+// edited (0 when creating).
+func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64) (*ScopePreview, error) {
+	scope.normalize()
+	preview := &ScopePreview{}
+	rows, err := s.resolveScope(ctx, orgID, scope, excludeChannelID)
+	if err != nil {
+		return nil, err
 	}
 	models := map[PairKey]*ModelCount{}
 	conflicts := map[int64]*ScopeConflict{}
@@ -550,14 +609,37 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 	return preview, nil
 }
 
-// ListChannels returns all channels of an org with their member and group
-// counts.
-func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, error) {
-	rows, err := s.store.GetQueries(ctx).ListReleaseChannels(ctx, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list channels: %w", err)
+// ListChannels returns a page of channels ordered by immutable ID, with member
+// and group counts. The cursor remains usable after its channel is removed.
+func (s *Service) ListChannels(ctx context.Context, orgID int64, pageSize int32, cursor string) ([]Channel, string, error) {
+	params := sqlc.ListReleaseChannelsPageParams{OrgID: orgID}
+	if cursor != "" {
+		parts, err := decodeCursor(cursor, 1)
+		if err != nil {
+			return nil, "", err
+		}
+		id, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || id <= 0 {
+			return nil, "", fleeterror.NewInvalidArgumentError("invalid cursor")
+		}
+		params.AfterChannelID = id
 	}
-	return s.buildChannels(ctx, orgID, rows)
+	limit := clampPageSize(pageSize)
+	params.PageLimit = limit + 1
+	rows, err := s.store.GetQueries(ctx).ListReleaseChannelsPage(ctx, params)
+	if err != nil {
+		return nil, "", fleeterror.NewInternalErrorf("list channels: %w", err)
+	}
+	next := ""
+	if len(rows) > int(limit) {
+		rows = rows[:limit]
+		next = encodeCursor(strconv.FormatInt(rows[len(rows)-1].ID, 10))
+	}
+	channels, err := s.buildChannels(ctx, orgID, rows)
+	if err != nil {
+		return nil, "", err
+	}
+	return channels, next, nil
 }
 
 // GetChannel returns one channel of an org.
@@ -781,29 +863,36 @@ func decodeCursor(cursor string, n int) ([]string, error) {
 	return parts, nil
 }
 
-// buildChannels assembles channel views from one load of the org's targets,
-// members and assignments. Groups are paged separately; the channel carries
-// their count: observed pairs plus assigned pairs with no current members.
+// buildChannels batches targets, observed model counts and assignments for the
+// requested channels. Membership resolution still considers competing channels.
+// The group count includes observed pairs and assigned pairs with no members.
 func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.ReleaseChannel) ([]Channel, error) {
+	if len(rows) == 0 {
+		return []Channel{}, nil
+	}
+	channelIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		channelIDs = append(channelIDs, row.ID)
+	}
 	q := s.store.GetQueries(ctx)
-	targets, err := q.ListReleaseChannelTargets(ctx, orgID)
+	targets, err := q.ListReleaseChannelPageTargets(ctx, sqlc.ListReleaseChannelPageTargetsParams{OrgID: orgID, ChannelIds: channelIDs})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel targets: %w", err)
 	}
-	members, err := q.ListReleaseChannelMembers(ctx, orgID)
+	members, err := q.ListReleaseChannelPageMemberModels(ctx, sqlc.ListReleaseChannelPageMemberModelsParams{OrgID: orgID, ChannelIds: channelIDs})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel members: %w", err)
 	}
-	firmware, err := q.ListReleaseChannelFirmware(ctx, orgID)
+	firmware, err := q.ListReleaseChannelPageFirmware(ctx, sqlc.ListReleaseChannelPageFirmwareParams{OrgID: orgID, ChannelIds: channelIDs})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel firmware: %w", err)
 	}
 
-	targetsByChannel := map[int64][]sqlc.ListReleaseChannelTargetsRow{}
+	targetsByChannel := map[int64][]sqlc.ListReleaseChannelPageTargetsRow{}
 	for _, t := range targets {
 		targetsByChannel[t.ChannelID] = append(targetsByChannel[t.ChannelID], t)
 	}
-	membersByChannel := map[int64][]sqlc.ListReleaseChannelMembersRow{}
+	membersByChannel := map[int64][]sqlc.ListReleaseChannelPageMemberModelsRow{}
 	for _, m := range members {
 		membersByChannel[m.ChannelID] = append(membersByChannel[m.ChannelID], m)
 	}
@@ -826,7 +915,7 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		observed := map[PairKey]bool{}
 		folded := map[PairKey]bool{}
 		for _, m := range membersByChannel[row.ID] {
-			ch.MinerCount++
+			ch.MinerCount += m.MinerCount
 			observed[PairKey{Manufacturer: m.Manufacturer, Model: m.Model}] = true
 			folded[PairKey{Manufacturer: strings.TrimSpace(m.Manufacturer), Model: strings.TrimSpace(m.Model)}.folded()] = true
 		}

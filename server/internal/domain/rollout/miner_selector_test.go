@@ -115,7 +115,7 @@ func TestChannelMinerSelectorRetentionRejectsForeignAndMissingAdditions(t *testi
 			assert.Equal(t, *channel, *unchanged)
 			_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Rejected", Scope: Scope{DeviceIdentifiers: []string{identifier}}})
 			require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
-			channels, err := f.svc.ListChannels(ctx, f.orgID)
+			channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 			require.NoError(t, err)
 			assert.Len(t, channels, 1, "rejected creates must not persist a channel")
 		})

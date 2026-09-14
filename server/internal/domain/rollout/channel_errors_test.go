@@ -78,7 +78,7 @@ func TestChannelWritesRetryPostgresFailures(t *testing.T) {
 					assert.Equal(t, code, pgErr.Code)
 					assert.Equal(t, spec.Name, channel.Name)
 					assert.Equal(t, spec.Scope.DeviceIdentifiers, channel.Scope.DeviceIdentifiers)
-					channels, err := f.svc.ListChannels(ctx, f.orgID)
+					channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 					require.NoError(t, err)
 					require.Len(t, channels, 1, "a failed attempt must not leave another channel behind")
 					assert.Equal(t, int32(1), channels[0].MinerCount)
