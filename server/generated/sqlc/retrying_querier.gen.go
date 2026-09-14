@@ -78,8 +78,8 @@ func (q *retryingQuerier) AdminTerminateCurtailmentEvent(ctx context.Context, ar
 	return result, err
 }
 
-func (q *retryingQuerier) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error) {
-	var result int64
+func (q *retryingQuerier) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (time.Time, error) {
+	var result time.Time
 	err := q.retrier.RetryQuery(ctx, "AdvanceFirmwareRolloutStage", func() error {
 		callResult, callErr := q.next.AdvanceFirmwareRolloutStage(ctx, arg)
 		if callErr == nil {

@@ -34,10 +34,12 @@ type Querier interface {
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
 	// Stage transitions of an active rollout, attributed to an actor when one
-	// drove them. Returns the affected row count so callers can detect a lost race.
+	// drove them. Reject paused rows and stale timer observations so an enforcement
+	// tick loaded before a pause/resume cannot advance on its old elapsed time.
+	// Return the persisted stage clock for subsequent decisions in the same tick.
 	// Acquire the row before sampling the stage clock: an UPDATE expression can
 	// otherwise be evaluated before a row-lock wait. Never move the stage time back.
-	AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error)
+	AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (time.Time, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
@@ -147,11 +149,12 @@ type Querier interface {
 	// Cancels the pair's active rollout because its assignment changed:
 	// 'superseded', 'rolled_back' or 'cleared'.
 	// Finish after acquiring the header lock, never before creation or the last
-	// stage transition even if the wall clock has moved back.
+	// stage transition or pause even if the wall clock has moved back. Terminal
+	// rollouts no longer carry an active pause.
 	CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error
 	CancelEnrollmentForFleetNode(ctx context.Context, arg CancelEnrollmentForFleetNodeParams) (int64, error)
 	// Record the first terminal time after the header lock, bounded by the
-	// rollout's preceding lifecycle events.
+	// rollout's preceding lifecycle events, and clear any active pause.
 	CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
@@ -492,7 +495,7 @@ type Querier interface {
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
 	// Ends an active rollout as 'completed' or 'completed_with_failures'.
 	// Record the first terminal time after the header lock, bounded by the
-	// rollout's preceding lifecycle events.
+	// rollout's preceding lifecycle events, and clear any active pause.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
@@ -1659,6 +1662,10 @@ type Querier interface {
 	// active reconciler has positively reopened airflow; clearing them here can
 	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
+	// Charge the pause exactly once, after acquiring the header lock. A backward
+	// clock correction contributes zero rather than subtracting an earlier pause.
+	// Keep lifecycle and device evidence timestamps unchanged: only stage timers
+	// exclude the pause; commands already sent continue while paused.
 	ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareRolloutParams) (int64, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error

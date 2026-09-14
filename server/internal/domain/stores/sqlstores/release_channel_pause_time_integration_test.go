@@ -37,8 +37,11 @@ func TestReleaseChannelQueries_PauseTimeAfterLockWait(t *testing.T) {
 			_, err = blocker.ExecContext(ctx, `SELECT id FROM firmware_rollout WHERE id = $1 FOR UPDATE`, rollout)
 			require.NoError(t, err)
 			if advanceStage {
+				before, err := sqlc.New(blocker).GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
+				require.NoError(t, err)
 				_, err = sqlc.New(blocker).AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
 					RolloutID: rollout, FromStage: "rest", Stage: "waiting", CurrentBatch: 1,
+					ExpectedStageChangedAt: before.StageChangedAt, ExpectedStagePausedMicroseconds: before.StagePausedMicroseconds,
 				})
 				require.NoError(t, err)
 				_, err = blocker.ExecContext(ctx, `UPDATE firmware_rollout SET stage_changed_at = clock_timestamp() + INTERVAL '1 hour' WHERE id = $1`, rollout)

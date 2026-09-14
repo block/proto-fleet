@@ -561,9 +561,10 @@ WHERE channel_id = sqlc.arg('channel_id')
 -- Cancels the pair's active rollout because its assignment changed:
 -- 'superseded', 'rolled_back' or 'cleared'.
 -- Finish after acquiring the header lock, never before creation or the last
--- stage transition even if the wall clock has moved back.
+-- stage transition or pause even if the wall clock has moved back. Terminal
+-- rollouts no longer carry an active pause.
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.channel_id = sqlc.arg('channel_id')
       AND release_channel_pair_key(candidate.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
@@ -573,7 +574,8 @@ WITH locked_rollout AS MATERIALIZED (
 )
 UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL,
     cancel_reason = sqlc.arg('cancel_reason'),
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
@@ -583,16 +585,17 @@ WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: CancelFirmwareRollout :execrows
 -- Record the first terminal time after the header lock, bounded by the
--- rollout's preceding lifecycle events.
+-- rollout's preceding lifecycle events, and clear any active pause.
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL,
     cancel_reason = 'canceled_remaining',
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
@@ -603,22 +606,25 @@ WHERE r.id = locked_rollout.id AND r.status = 'active';
 -- name: FinishFirmwareRollout :execrows
 -- Ends an active rollout as 'completed' or 'completed_with_failures'.
 -- Record the first terminal time after the header lock, bounded by the
--- rollout's preceding lifecycle events.
+-- rollout's preceding lifecycle events, and clear any active pause.
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET status = sqlc.arg('status'),
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp())
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL
 FROM locked_rollout
 WHERE r.id = locked_rollout.id AND r.status = 'active';
 
--- name: AdvanceFirmwareRolloutStage :execrows
+-- name: AdvanceFirmwareRolloutStage :one
 -- Stage transitions of an active rollout, attributed to an actor when one
--- drove them. Returns the affected row count so callers can detect a lost race.
+-- drove them. Reject paused rows and stale timer observations so an enforcement
+-- tick loaded before a pause/resume cannot advance on its old elapsed time.
+-- Return the persisted stage clock for subsequent decisions in the same tick.
 -- Acquire the row before sampling the stage clock: an UPDATE expression can
 -- otherwise be evaluated before a row-lock wait. Never move the stage time back.
 WITH locked_rollout AS MATERIALIZED (
@@ -627,19 +633,24 @@ WITH locked_rollout AS MATERIALIZED (
     WHERE candidate.id = sqlc.arg('rollout_id')
       AND candidate.status = 'active'
       AND candidate.stage = sqlc.arg('from_stage')
+      AND candidate.paused_at IS NULL
+      AND candidate.stage_changed_at = sqlc.arg('expected_stage_changed_at')
+      AND candidate.stage_paused_microseconds = sqlc.arg('expected_stage_paused_microseconds')
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET stage = sqlc.arg('stage'),
     current_batch = sqlc.arg('current_batch'),
     stage_changed_at = GREATEST(locked_rollout.stage_changed_at, clock_timestamp()),
+    stage_paused_microseconds = 0,
     last_action_by_type = COALESCE(sqlc.narg('actor_type')::text, r.last_action_by_type),
     last_action_by_id = COALESCE(sqlc.narg('actor_id')::bigint, r.last_action_by_id),
     last_action_by_name = COALESCE(sqlc.narg('actor_name')::text, r.last_action_by_name)
 FROM locked_rollout
 WHERE r.id = locked_rollout.id
   AND r.status = 'active'
-  AND r.stage = sqlc.arg('from_stage');
+  AND r.stage = sqlc.arg('from_stage')
+RETURNING r.stage_changed_at;
 
 -- name: PauseFirmwareRollout :execrows
 -- Timestamp the pause after the header lock, never before the creation or
@@ -661,12 +672,27 @@ FROM locked_rollout
 WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL;
 
 -- name: ResumeFirmwareRollout :execrows
-UPDATE firmware_rollout
+-- Charge the pause exactly once, after acquiring the header lock. A backward
+-- clock correction contributes zero rather than subtracting an earlier pause.
+-- Keep lifecycle and device evidence timestamps unchanged: only stage timers
+-- exclude the pause; commands already sent continue while paused.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.paused_at, candidate.stage_paused_microseconds
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = sqlc.arg('rollout_id')
+      AND candidate.status = 'active'
+      AND candidate.paused_at IS NOT NULL
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET paused_at = NULL,
+    stage_paused_microseconds = locked_rollout.stage_paused_microseconds
+        + (EXTRACT(EPOCH FROM GREATEST(clock_timestamp() - locked_rollout.paused_at, INTERVAL '0')) * 1000000)::bigint,
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
     last_action_by_name = sqlc.arg('actor_name')
-WHERE id = sqlc.arg('rollout_id') AND status = 'active' AND paused_at IS NOT NULL;
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NOT NULL;
 
 -- name: RecordFirmwareRolloutAction :exec
 -- Attributes an action that changes only the rollout's devices (retry) to

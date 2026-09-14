@@ -131,6 +131,10 @@ CREATE TABLE firmware_rollout (
     batch_count INT NOT NULL DEFAULT 0,
     current_batch INT NOT NULL DEFAULT 0,
     stage_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Completed pauses in the current stage. Timers subtract this duration;
+    -- stage_changed_at remains the historical transition time. A new stage
+    -- resets the counter, and resume adds only time spent in its current pause.
+    stage_paused_microseconds BIGINT NOT NULL DEFAULT 0 CHECK (stage_paused_microseconds >= 0),
     paused_at TIMESTAMPTZ NULL,
     -- Revision rule (header): maintained by the triggers below; revision_txid
     -- is the transaction that created the row or last advanced revision.

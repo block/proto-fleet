@@ -14,19 +14,23 @@ import (
 	"github.com/lib/pq"
 )
 
-const advanceFirmwareRolloutStage = `-- name: AdvanceFirmwareRolloutStage :execrows
+const advanceFirmwareRolloutStage = `-- name: AdvanceFirmwareRolloutStage :one
 WITH locked_rollout AS MATERIALIZED (
     SELECT candidate.id, candidate.stage_changed_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = $7
       AND candidate.status = 'active'
       AND candidate.stage = $6
+      AND candidate.paused_at IS NULL
+      AND candidate.stage_changed_at = $8
+      AND candidate.stage_paused_microseconds = $9
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET stage = $1,
     current_batch = $2,
     stage_changed_at = GREATEST(locked_rollout.stage_changed_at, clock_timestamp()),
+    stage_paused_microseconds = 0,
     last_action_by_type = COALESCE($3::text, r.last_action_by_type),
     last_action_by_id = COALESCE($4::bigint, r.last_action_by_id),
     last_action_by_name = COALESCE($5::text, r.last_action_by_name)
@@ -34,24 +38,29 @@ FROM locked_rollout
 WHERE r.id = locked_rollout.id
   AND r.status = 'active'
   AND r.stage = $6
+RETURNING r.stage_changed_at
 `
 
 type AdvanceFirmwareRolloutStageParams struct {
-	Stage        string
-	CurrentBatch int32
-	ActorType    sql.NullString
-	ActorID      sql.NullInt64
-	ActorName    sql.NullString
-	FromStage    string
-	RolloutID    int64
+	Stage                           string
+	CurrentBatch                    int32
+	ActorType                       sql.NullString
+	ActorID                         sql.NullInt64
+	ActorName                       sql.NullString
+	FromStage                       string
+	RolloutID                       int64
+	ExpectedStageChangedAt          time.Time
+	ExpectedStagePausedMicroseconds int64
 }
 
 // Stage transitions of an active rollout, attributed to an actor when one
-// drove them. Returns the affected row count so callers can detect a lost race.
+// drove them. Reject paused rows and stale timer observations so an enforcement
+// tick loaded before a pause/resume cannot advance on its old elapsed time.
+// Return the persisted stage clock for subsequent decisions in the same tick.
 // Acquire the row before sampling the stage clock: an UPDATE expression can
 // otherwise be evaluated before a row-lock wait. Never move the stage time back.
-func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error) {
-	result, err := q.exec(ctx, q.advanceFirmwareRolloutStageStmt, advanceFirmwareRolloutStage,
+func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (time.Time, error) {
+	row := q.queryRow(ctx, q.advanceFirmwareRolloutStageStmt, advanceFirmwareRolloutStage,
 		arg.Stage,
 		arg.CurrentBatch,
 		arg.ActorType,
@@ -59,11 +68,12 @@ func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFi
 		arg.ActorName,
 		arg.FromStage,
 		arg.RolloutID,
+		arg.ExpectedStageChangedAt,
+		arg.ExpectedStagePausedMicroseconds,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var stage_changed_at time.Time
+	err := row.Scan(&stage_changed_at)
+	return stage_changed_at, err
 }
 
 const appendFirmwareRolloutDevices = `-- name: AppendFirmwareRolloutDevices :exec
@@ -89,7 +99,7 @@ func (q *Queries) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFi
 
 const cancelActiveFirmwareRollout = `-- name: CancelActiveFirmwareRollout :exec
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.channel_id = $5
       AND release_channel_pair_key(candidate.manufacturer) = release_channel_pair_key($6::text)
@@ -99,7 +109,8 @@ WITH locked_rollout AS MATERIALIZED (
 )
 UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL,
     cancel_reason = $1,
     last_action_by_type = $2,
     last_action_by_id = $3,
@@ -121,7 +132,8 @@ type CancelActiveFirmwareRolloutParams struct {
 // Cancels the pair's active rollout because its assignment changed:
 // 'superseded', 'rolled_back' or 'cleared'.
 // Finish after acquiring the header lock, never before creation or the last
-// stage transition even if the wall clock has moved back.
+// stage transition or pause even if the wall clock has moved back. Terminal
+// rollouts no longer carry an active pause.
 func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error {
 	_, err := q.exec(ctx, q.cancelActiveFirmwareRolloutStmt, cancelActiveFirmwareRollout,
 		arg.CancelReason,
@@ -137,14 +149,15 @@ func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelAct
 
 const cancelFirmwareRollout = `-- name: CancelFirmwareRollout :execrows
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = $4 AND candidate.status = 'active'
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL,
     cancel_reason = 'canceled_remaining',
     last_action_by_type = $1,
     last_action_by_id = $2,
@@ -161,7 +174,7 @@ type CancelFirmwareRolloutParams struct {
 }
 
 // Record the first terminal time after the header lock, bounded by the
-// rollout's preceding lifecycle events.
+// rollout's preceding lifecycle events, and clear any active pause.
 func (q *Queries) CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.cancelFirmwareRolloutStmt, cancelFirmwareRollout,
 		arg.ActorType,
@@ -239,7 +252,7 @@ VALUES (
     $13, $14, $15,
     $13, $14, $15
 )
-RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at
+RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at
 `
 
 type CreateFirmwareRolloutParams struct {
@@ -300,6 +313,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
+		&i.StagePausedMicroseconds,
 		&i.PausedAt,
 		&i.Revision,
 		&i.RevisionTxid,
@@ -460,14 +474,15 @@ func (q *Queries) ExcludeFirmwareRolloutDevices(ctx context.Context, arg Exclude
 
 const finishFirmwareRollout = `-- name: FinishFirmwareRollout :execrows
 WITH locked_rollout AS MATERIALIZED (
-    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = $2 AND candidate.status = 'active'
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
 SET status = $1,
-    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp())
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
+    paused_at = NULL
 FROM locked_rollout
 WHERE r.id = locked_rollout.id AND r.status = 'active'
 `
@@ -479,7 +494,7 @@ type FinishFirmwareRolloutParams struct {
 
 // Ends an active rollout as 'completed' or 'completed_with_failures'.
 // Record the first terminal time after the header lock, bounded by the
-// rollout's preceding lifecycle events.
+// rollout's preceding lifecycle events, and clear any active pause.
 func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.finishFirmwareRolloutStmt, finishFirmwareRollout, arg.Status, arg.RolloutID)
 	if err != nil {
@@ -489,7 +504,7 @@ func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareR
 }
 
 const getActiveFirmwareRolloutForPair = `-- name: GetActiveFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -523,6 +538,7 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
+		&i.StagePausedMicroseconds,
 		&i.PausedAt,
 		&i.Revision,
 		&i.RevisionTxid,
@@ -540,7 +556,7 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 `
 
@@ -570,6 +586,7 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
+		&i.StagePausedMicroseconds,
 		&i.PausedAt,
 		&i.Revision,
 		&i.RevisionTxid,
@@ -587,7 +604,7 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 }
 
 const getFirmwareRolloutForUpdate = `-- name: GetFirmwareRolloutForUpdate :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
 `
@@ -620,6 +637,7 @@ func (q *Queries) GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwa
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
+		&i.StagePausedMicroseconds,
 		&i.PausedAt,
 		&i.Revision,
 		&i.RevisionTxid,
@@ -650,7 +668,7 @@ func (q *Queries) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, e
 }
 
 const getFirmwareRolloutWithChannel = `-- name: GetFirmwareRolloutWithChannel :one
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.id = $1 AND r.org_id = $2
@@ -687,6 +705,7 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 		&i.FirmwareRollout.BatchCount,
 		&i.FirmwareRollout.CurrentBatch,
 		&i.FirmwareRollout.StageChangedAt,
+		&i.FirmwareRollout.StagePausedMicroseconds,
 		&i.FirmwareRollout.PausedAt,
 		&i.FirmwareRollout.Revision,
 		&i.FirmwareRollout.RevisionTxid,
@@ -705,7 +724,7 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 }
 
 const getLatestFirmwareRolloutForPair = `-- name: GetLatestFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -750,6 +769,7 @@ func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLa
 		&i.BatchCount,
 		&i.CurrentBatch,
 		&i.StageChangedAt,
+		&i.StagePausedMicroseconds,
 		&i.PausedAt,
 		&i.Revision,
 		&i.RevisionTxid,
@@ -908,7 +928,7 @@ func (q *Queries) InsertReleaseChannelTargets(ctx context.Context, arg InsertRel
 }
 
 const listActiveFirmwareRollouts = `-- name: ListActiveFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.status = 'active'
@@ -950,6 +970,7 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 			&i.FirmwareRollout.BatchCount,
 			&i.FirmwareRollout.CurrentBatch,
 			&i.FirmwareRollout.StageChangedAt,
+			&i.FirmwareRollout.StagePausedMicroseconds,
 			&i.FirmwareRollout.PausedAt,
 			&i.FirmwareRollout.Revision,
 			&i.FirmwareRollout.RevisionTxid,
@@ -1226,7 +1247,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.org_id = $1
@@ -1298,6 +1319,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.FirmwareRollout.BatchCount,
 			&i.FirmwareRollout.CurrentBatch,
 			&i.FirmwareRollout.StageChangedAt,
+			&i.FirmwareRollout.StagePausedMicroseconds,
 			&i.FirmwareRollout.PausedAt,
 			&i.FirmwareRollout.Revision,
 			&i.FirmwareRollout.RevisionTxid,
@@ -2516,12 +2538,23 @@ func (q *Queries) ResolveReleaseChannelScope(ctx context.Context, arg ResolveRel
 }
 
 const resumeFirmwareRollout = `-- name: ResumeFirmwareRollout :execrows
-UPDATE firmware_rollout
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.paused_at, candidate.stage_paused_microseconds
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = $4
+      AND candidate.status = 'active'
+      AND candidate.paused_at IS NOT NULL
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET paused_at = NULL,
+    stage_paused_microseconds = locked_rollout.stage_paused_microseconds
+        + (EXTRACT(EPOCH FROM GREATEST(clock_timestamp() - locked_rollout.paused_at, INTERVAL '0')) * 1000000)::bigint,
     last_action_by_type = $1,
     last_action_by_id = $2,
     last_action_by_name = $3
-WHERE id = $4 AND status = 'active' AND paused_at IS NOT NULL
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NOT NULL
 `
 
 type ResumeFirmwareRolloutParams struct {
@@ -2531,6 +2564,10 @@ type ResumeFirmwareRolloutParams struct {
 	RolloutID int64
 }
 
+// Charge the pause exactly once, after acquiring the header lock. A backward
+// clock correction contributes zero rather than subtracting an earlier pause.
+// Keep lifecycle and device evidence timestamps unchanged: only stage timers
+// exclude the pause; commands already sent continue while paused.
 func (q *Queries) ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.resumeFirmwareRolloutStmt, resumeFirmwareRollout,
 		arg.ActorType,

@@ -23,6 +23,8 @@ func TestReleaseChannelQueries_StageTimeAfterLockWait(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newReleaseChannelQueryFixture(t)
 			rollout := f.rollout(f.channel("stage-time"), "Bitmain", "S19")
+			before, err := f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
+			require.NoError(t, err)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			waiter, err := f.db.BeginTx(ctx, nil)
@@ -43,16 +45,17 @@ func TestReleaseChannelQueries_StageTimeAfterLockWait(t *testing.T) {
 			}
 
 			type result struct {
-				rows int64
-				err  error
+				stageChangedAt time.Time
+				err            error
 			}
 			done := make(chan result, 1)
 			q := sqlc.New(waiter)
 			go func() {
-				rows, err := q.AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
+				stageChangedAt, err := q.AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
 					RolloutID: rollout, FromStage: "rest", Stage: "waiting", CurrentBatch: 1,
+					ExpectedStageChangedAt: before.StageChangedAt, ExpectedStagePausedMicroseconds: before.StagePausedMicroseconds,
 				})
-				done <- result{rows, err}
+				done <- result{stageChangedAt, err}
 			}()
 			require.Eventually(t, func() bool {
 				var blocked bool
@@ -67,9 +70,9 @@ func TestReleaseChannelQueries_StageTimeAfterLockWait(t *testing.T) {
 			require.NoError(t, blocker.Commit())
 			outcome := <-done
 			require.NoError(t, outcome.err)
-			require.Equal(t, int64(1), outcome.rows)
 			row, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 			require.NoError(t, err)
+			require.Equal(t, row.StageChangedAt, outcome.stageChangedAt, "return the persisted timestamp")
 			require.False(t, row.StageChangedAt.Before(beforeUnlock), "stage time must exclude transaction age and lock wait")
 			require.True(t, row.StageChangedAt.After(txStart))
 			require.Equal(t, "waiting", row.Stage)
@@ -94,23 +97,23 @@ func TestReleaseChannelQueries_StageTimeMonotonicAndGuarded(t *testing.T) {
 	require.NoError(t, err)
 	params := sqlc.AdvanceFirmwareRolloutStageParams{
 		RolloutID: rollout, FromStage: "rest", Stage: "batch", CurrentBatch: 2,
+		ExpectedStageChangedAt: before.StageChangedAt, ExpectedStagePausedMicroseconds: before.StagePausedMicroseconds,
 		ActorType: sql.NullString{String: "user", Valid: true},
 		ActorID:   sql.NullInt64{Int64: 42, Valid: true},
 		ActorName: sql.NullString{String: "operator", Valid: true},
 	}
-	rows, err := f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
+	stageChangedAt, err := f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), rows)
 	after, err := f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 	require.NoError(t, err)
+	require.Equal(t, after.StageChangedAt, stageChangedAt, "return the persisted timestamp")
 	require.True(t, after.StageChangedAt.Equal(before.StageChangedAt))
 	require.Equal(t, before.Revision+1, after.Revision)
 	require.Equal(t, "operator", after.LastActionByName)
 
 	// Losing a stage race must leave the timestamp and revision unchanged.
-	rows, err = f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
-	require.NoError(t, err)
-	require.Zero(t, rows)
+	_, err = f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
+	require.ErrorIs(t, err, sql.ErrNoRows)
 	unchanged, err := f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 	require.NoError(t, err)
 	require.Equal(t, after, unchanged)
@@ -120,9 +123,8 @@ func TestReleaseChannelQueries_StageTimeMonotonicAndGuarded(t *testing.T) {
 	require.NoError(t, err)
 	params.FromStage = "batch"
 	params.Stage = "waiting"
-	rows, err = f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
-	require.NoError(t, err)
-	require.Zero(t, rows)
+	_, err = f.q.AdvanceFirmwareRolloutStage(t.Context(), params)
+	require.ErrorIs(t, err, sql.ErrNoRows)
 	unchanged, err = f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 	require.NoError(t, err)
 	require.Equal(t, before, unchanged, "inactive rollouts cannot transition")

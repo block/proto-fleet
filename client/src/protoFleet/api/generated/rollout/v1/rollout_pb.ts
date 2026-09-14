@@ -4158,8 +4158,9 @@ export const RolloutService: GenService<{
     output: typeof PauseRolloutResponseSchema;
   };
   /**
-   * Resumes a paused rollout where it left off. Honors the RolloutService
-   * revision rule.
+   * Resumes a paused rollout where it left off. Stage wait and stabilization
+   * timers exclude time spent paused; stage_changed_at retains the original
+   * stage transition time. Honors the RolloutService revision rule.
    *
    * @generated from rpc rollout.v1.RolloutService.ResumeRollout
    */

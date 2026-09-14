@@ -295,8 +295,9 @@ service RolloutService {
     // Honors the RolloutService revision rule.
     rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
 
-    // Resumes a paused rollout where it left off. Honors the RolloutService
-    // revision rule.
+    // Resumes a paused rollout where it left off. Stage wait and stabilization
+    // timers exclude time spent paused; stage_changed_at retains the original
+    // stage transition time. Honors the RolloutService revision rule.
     rpc ResumeRollout(ResumeRolloutRequest) returns (ResumeRolloutResponse);
 
     // Cancels the remaining work of an active rollout. No new update commands

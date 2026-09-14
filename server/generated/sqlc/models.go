@@ -955,6 +955,7 @@ type FirmwareRollout struct {
 	BatchCount               int32
 	CurrentBatch             int32
 	StageChangedAt           time.Time
+	StagePausedMicroseconds  int64
 	PausedAt                 sql.NullTime
 	Revision                 int64
 	RevisionTxid             int64
