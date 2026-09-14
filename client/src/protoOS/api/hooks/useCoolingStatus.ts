@@ -7,6 +7,7 @@ import type { CoolingMode } from "@/protoOS/store/contract";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { getComponentSlot } from "@/protoOS/store/utils/entityIds";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 interface UseCoolingStatusProps {
   poll?: boolean;
@@ -44,26 +45,33 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
     [fans, loaded, mode],
   );
 
-  const fetchData = useCallback(() => {
-    if (!adapter || activeCommandIdRef.current !== undefined) return;
-    const commandIdAtStart = nextCommandIdRef.current;
-    const accept = beginStoreWrite("cooling:read:module:root");
-    setPending(true);
-    return adapter
-      .getCoolingStatus()
-      .then((status) => {
-        if (commandIdAtStart !== nextCommandIdRef.current || activeCommandIdRef.current !== undefined || !accept())
-          return;
-        const telemetry = useMinerStore.getState().telemetry;
-        telemetry.updateCoolingMode(status.mode);
-        telemetry.replaceFanLiveTelemetry(status.fans);
-      })
-      .catch((err) => setError(err?.error?.message ?? "An error occurred"))
-      .finally(() => {
-        setLoaded(true);
-        if (activeCommandIdRef.current === undefined) setPending(false);
-      });
-  }, [adapter]);
+  const fetchData = useCallback(
+    (signal?: AbortSignal) => {
+      if (!adapter || activeCommandIdRef.current !== undefined) return;
+      const commandIdAtStart = nextCommandIdRef.current;
+      const accept = beginStoreWrite("cooling:read:module:root");
+      setPending(true);
+      return adapter
+        .getCoolingStatus({ signal })
+        .then((status) => {
+          if (commandIdAtStart !== nextCommandIdRef.current || activeCommandIdRef.current !== undefined || !accept())
+            return;
+          const telemetry = useMinerStore.getState().telemetry;
+          telemetry.updateCoolingMode(status.mode);
+          telemetry.replaceFanLiveTelemetry(status.fans);
+        })
+        .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not a fetch failure.
+          if (isAbortError(err)) return;
+          setError(err?.error?.message ?? "An error occurred");
+        })
+        .finally(() => {
+          setLoaded(true);
+          if (activeCommandIdRef.current === undefined) setPending(false);
+        });
+    },
+    [adapter],
+  );
 
   usePoll({ fetchData, enabled, poll });
 

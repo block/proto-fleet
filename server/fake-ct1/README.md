@@ -13,7 +13,7 @@ hardware** and **without** Frigate's heavy `task dev:full` stack (TimescaleDB +
 
 A full container is a **Tank → Module → Slot → Hashboard** tree:
 
-- **96 modules × 3 hashboards = 288 boards** (default: 2 tanks × 48 modules × 3 slots)
+- **288 modules × 3 hashboards = 864 boards** (default: 6 tanks × 48 modules × 3 slots, matching a real CT1)
 - Per-board hydro telemetry (hashrate, temperatures, voltage, power)
 - **312 ASICs per board** with layout coordinates
 - Plant/PUE, fan, power-distribution, and power-feed telemetry
@@ -71,7 +71,7 @@ docker run -p 8080:8080 fake-ct1
 | `SERVER_ID` | Container server id | `ct1-sim-<uuid>` |
 | `HOSTNAME` | Reported hostname | `fake-ct1-<uuid>` |
 | `CT1_VERSION` | Reported firmware/OS version | `2.0.0` |
-| `CT1_TANKS` | Number of tanks | `2` |
+| `CT1_TANKS` | Number of tanks | `6` |
 | `CT1_MODULES_PER_TANK` | Modules per tank | `48` |
 | `CT1_SLOTS_PER_MODULE` | Hashboard slots per module | `3` |
 | `CT1_ASICS_PER_BOARD` | ASICs reported per board | `312` |

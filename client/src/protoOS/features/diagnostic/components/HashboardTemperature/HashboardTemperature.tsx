@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
-import { useTelemetry } from "@/protoOS/api";
+import { useHashboardStatus, useTelemetry } from "@/protoOS/api";
 import {
   type Rail,
   type RailEnd,
@@ -110,6 +110,13 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const [selectedMetric, setSelectedMetric] = useState<SelectedMetric>("temperature");
 
   const navigate = useNavigate();
+
+  // ASIC identities and grid positions (row/column) come only from hashboard
+  // status, and only this board's ASIC grid is on screen — so fetch status for
+  // this one serial rather than the whole container. Memoized so the single
+  // element array stays referentially stable across renders.
+  const serials = useMemo(() => [serial], [serial]);
+  useHashboardStatus({ hashboardSerialNumbers: serials, poll: false });
 
   // Fetch latest telemetry data with polling
   // TODO: [STORE_REFACTOR] Telemetry API will give include miner and hashboard level data when we specify level=asic

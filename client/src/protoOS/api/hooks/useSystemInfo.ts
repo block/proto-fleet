@@ -13,6 +13,7 @@ import {
 } from "@/protoOS/store";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 interface UseSystemInfoProps {
   poll?: boolean;
@@ -39,34 +40,42 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   const error = useSystemInfoError();
   const isFetchingRef = useRef<boolean>(false);
 
-  const fetchData = useCallback(() => {
-    if (!adapter || isFetchingRef.current) {
-      return;
-    }
+  const fetchData = useCallback(
+    (signal?: AbortSignal) => {
+      if (!adapter || isFetchingRef.current) {
+        return;
+      }
 
-    isFetchingRef.current = true;
-    const accept = beginStoreWrite("systemInfo");
-    setSystemInfoPending(true);
+      isFetchingRef.current = true;
+      const accept = beginStoreWrite("systemInfo");
+      setSystemInfoPending(true);
 
-    adapter
-      .getSystemInfo()
-      .then((systemInfo) => {
-        if (!accept()) return;
-        setSystemInfo(systemInfo);
-        setSystemInfoPending(false);
-      })
-      .catch((err) => {
-        setSystemInfoError(err?.error?.message ?? "An error occurred");
-      })
-      .finally(() => {
-        isFetchingRef.current = false;
-      });
-  }, [adapter, setSystemInfo, setSystemInfoError, setSystemInfoPending]);
+      adapter
+        .getSystemInfo({ signal })
+        .then((systemInfo) => {
+          if (!accept()) return;
+          setSystemInfo(systemInfo);
+          setSystemInfoPending(false);
+        })
+        .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not a fetch failure.
+          if (isAbortError(err)) return;
+          setSystemInfoError(err?.error?.message ?? "An error occurred");
+        })
+        .finally(() => {
+          isFetchingRef.current = false;
+        });
+    },
+    [adapter, setSystemInfo, setSystemInfoError, setSystemInfoPending],
+  );
 
-  const reload = useCallback(() => {
-    if (isFetchingRef.current) return;
-    fetchData();
-  }, [fetchData]);
+  const reload = useCallback(
+    (signal?: AbortSignal) => {
+      if (isFetchingRef.current) return;
+      fetchData(signal);
+    },
+    [fetchData],
+  );
 
   usePoll({
     fetchData: reload,

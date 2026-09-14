@@ -194,6 +194,38 @@ describe("useAuthRetry", () => {
     });
   });
 
+  test("treats an AbortError as teardown: no retry, no onError", async () => {
+    const abort = new DOMException("The operation was aborted.", "AbortError");
+    const request = vi.fn().mockRejectedValue(abort);
+    const onError = vi.fn();
+    const controller = new AbortController();
+    controller.abort();
+
+    const { result } = renderHook(() => useAuthRetry());
+
+    await result.current({ request, onError, signal: controller.signal });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  test("treats a non-abort error as teardown when the signal is aborted", async () => {
+    // Simulates the parse-window case: an abort lands mid body-parse, the adapter
+    // normalizer rethrows a non-abort error, but our own signal has fired.
+    const error = new TypeError("Cannot read properties of null");
+    const request = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+    const controller = new AbortController();
+    controller.abort();
+
+    const { result } = renderHook(() => useAuthRetry());
+
+    await result.current({ request, onError, signal: controller.signal });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
   test("does not retry more than once after a successful refresh", async () => {
     const error = { status: 401, error: { message: "Unauthorized" } };
     const request = vi.fn().mockRejectedValue(error);

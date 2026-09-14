@@ -63,8 +63,10 @@ describe("useSystemStatus", () => {
     (useSetPasswordSet as Mock).mockReturnValue(mockSetPasswordSet);
     (useSetDefaultPasswordActive as Mock).mockReturnValue(mockSetDefaultPasswordActive);
     (usePoll as Mock).mockImplementation(({ fetchData, enabled }) => {
+      // Mirror real usePoll: hand fetchData an AbortSignal so the request can
+      // cancel on unmount/navigation.
       if (enabled) {
-        void fetchData();
+        void fetchData(new AbortController().signal);
       }
     });
 
@@ -81,7 +83,9 @@ describe("useSystemStatus", () => {
     renderHook(() => useSystemStatus());
 
     await waitFor(() => {
-      expect(mockGetSystemStatus).toHaveBeenCalledWith();
+      // usePoll threads its AbortController's signal into the request so the
+      // in-flight fetch cancels on unmount/navigation.
+      expect(mockGetSystemStatus).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) });
     });
 
     expect(mockSetOnboarded).toHaveBeenCalledWith(true);

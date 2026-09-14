@@ -288,11 +288,15 @@ export class MdkV2Adapter implements MinerAdapter {
 
   async getHashboardStatus(identifiers: string[], params: AdapterRequestOptions = {}): Promise<HashboardStatus[]> {
     const decorated = this.decorate(params);
-    return mapWithConcurrency(identifiers, HASHBOARD_CONCURRENCY, async (identifier) =>
-      toCanonicalHashboardStatus(
-        identifier,
-        (await this.client.hashboardServiceGetHashboardAsiCs({ identifier }, decorated)).data,
-      ),
+    return mapWithConcurrency(
+      identifiers,
+      HASHBOARD_CONCURRENCY,
+      async (identifier) =>
+        toCanonicalHashboardStatus(
+          identifier,
+          (await this.client.hashboardServiceGetHashboardAsiCs({ identifier }, decorated)).data,
+        ),
+      params.signal ?? undefined,
     );
   }
 
@@ -422,10 +426,15 @@ export class MdkV2Adapter implements MinerAdapter {
         }
         return fields.size ? [{ identifier: board.serial, hashboardId: getHashboardId(board.serial), fields }] : [];
       });
-      hashboardResponses = await mapWithConcurrency(selected, HASHBOARD_CONCURRENCY, async (board) => ({
-        hashboardId: board.hashboardId,
-        responses: await queryFields(board.fields, board.identifier),
-      }));
+      hashboardResponses = await mapWithConcurrency(
+        selected,
+        HASHBOARD_CONCURRENCY,
+        async (board) => ({
+          hashboardId: board.hashboardId,
+          responses: await queryFields(board.fields, board.identifier),
+        }),
+        params.signal ?? undefined,
+      );
     }
     return toCanonicalContainerTimeSeries(
       containerResponses,

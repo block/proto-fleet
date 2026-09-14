@@ -38,30 +38,37 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const error = useNetworkInfoError();
   const isFetchingRef = useRef<boolean>(false);
 
-  const fetchData = useCallback(() => {
-    if (!adapter || isFetchingRef.current) return;
+  const fetchData = useCallback(
+    (signal?: AbortSignal) => {
+      if (!adapter || isFetchingRef.current) return;
 
-    isFetchingRef.current = true;
-    const accept = beginStoreWrite("networkInfo");
-    setNetworkInfoPending(true);
+      isFetchingRef.current = true;
+      const accept = beginStoreWrite("networkInfo");
+      setNetworkInfoPending(true);
 
-    authRetry({
-      request: (params) => adapter.getNetworkInfo(params),
-      onSuccess: (networkInfo) => {
-        if (!accept()) return;
-        setNetworkInfo(networkInfo.interfaces);
-      },
-      onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
-    }).finally(() => {
-      isFetchingRef.current = false;
-      setNetworkInfoPending(false);
-    });
-  }, [adapter, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
+      authRetry({
+        request: (params) => adapter.getNetworkInfo(params),
+        signal,
+        onSuccess: (networkInfo) => {
+          if (!accept()) return;
+          setNetworkInfo(networkInfo.interfaces);
+        },
+        onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
+      }).finally(() => {
+        isFetchingRef.current = false;
+        setNetworkInfoPending(false);
+      });
+    },
+    [adapter, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending],
+  );
 
-  const reload = useCallback(() => {
-    if (isFetchingRef.current) return;
-    fetchData();
-  }, [fetchData]);
+  const reload = useCallback(
+    (signal?: AbortSignal) => {
+      if (isFetchingRef.current) return;
+      fetchData(signal);
+    },
+    [fetchData],
+  );
 
   usePoll({
     fetchData: reload,

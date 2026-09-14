@@ -1,7 +1,15 @@
 import { useEffect, useRef } from "react";
 
+import { isAbortError } from "@/shared/utils/abort";
+
 interface UsePollProps {
-  fetchData: () => Promise<void> | void;
+  /**
+   * Fetches one tick. Receives the effect run's `AbortSignal` — thread it into
+   * the request (`request({ signal })` / adapter `{ signal }`) so navigation or
+   * unmount cancels in-flight work instead of leaving it to saturate the
+   * connection pool. The signal may be ignored by callers that make no request.
+   */
+  fetchData: (signal: AbortSignal) => Promise<void> | void;
   params?: any;
   /** When true, schedule recurring fetches after each response. When false, only the initial fetch runs. */
   poll?: boolean;
@@ -34,15 +42,21 @@ const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled 
     // concurrent poll loop to the same card.
     let alive = true;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    // One controller for this effect run. Cleanup aborts it, cancelling the
+    // in-flight request so it stops running (and frees its HTTP connection)
+    // the moment the user navigates away or toggles `enabled` — rather than
+    // running to completion and saturating the pool behind the next view.
+    const controller = new AbortController();
 
     const pollWithDelay = async () => {
       if (!alive) return;
 
       try {
-        await fetchDataRef.current();
+        await fetchDataRef.current(controller.signal);
       } catch (error) {
-        // Error handling is done in the fetchData function
-        console.error("Poll request failed:", error);
+        // An abort from our own cleanup is the expected teardown path, not a
+        // failure. Everything else is handled inside fetchData; log the rest.
+        if (!isAbortError(error)) console.error("Poll request failed:", error);
       }
 
       // Schedule next poll only if this effect run is still alive and
@@ -57,6 +71,7 @@ const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled 
 
     return () => {
       alive = false;
+      controller.abort();
       if (timeoutId !== null) {
         clearTimeout(timeoutId);
         timeoutId = null;

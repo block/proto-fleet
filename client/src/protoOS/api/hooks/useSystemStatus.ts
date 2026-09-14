@@ -12,6 +12,7 @@ import {
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 /**
  * API hook for fetching system status.
@@ -37,35 +38,40 @@ const useSystemStatus = () => {
     [onboarded, passwordSet, defaultPasswordActive],
   );
 
-  const fetchData = useCallback(() => {
-    if (!adapter || isFetchingRef.current) return;
+  const fetchData = useCallback(
+    (signal?: AbortSignal) => {
+      if (!adapter || isFetchingRef.current) return;
 
-    isFetchingRef.current = true;
-    const accept = beginStoreWrite("deviceLifecycle");
-    return adapter
-      .getSystemStatus()
-      .then((status) => {
-        if (!accept()) return;
-        setOnboarded(status.onboarded);
-        setPasswordSet(status.passwordSet);
+      isFetchingRef.current = true;
+      const accept = beginStoreWrite("deviceLifecycle");
+      return adapter
+        .getSystemStatus({ signal })
+        .then((status) => {
+          if (!accept()) return;
+          setOnboarded(status.onboarded);
+          setPasswordSet(status.passwordSet);
 
-        // MDK-API 1.8.2 removed default_password_active from system status, so
-        // polling can no longer confirm or clear the flag. It is raised by the
-        // 403 default-password contract (useAuthErrors) and cleared by the
-        // password-change flow. Resolve only the initial undefined state so
-        // App.tsx's protected-API gating can proceed. Read the store at
-        // response time — the 403 path may have raised the flag mid-flight.
-        if (useMinerStore.getState().minerStatus.lifecycle.defaultPasswordActive === undefined) {
-          setDefaultPasswordActive(false);
-        }
-      })
-      .catch((err) => {
-        console.error("[useSystemStatus API hook] Error:", err);
-      })
-      .finally(() => {
-        isFetchingRef.current = false;
-      });
-  }, [adapter, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
+          // MDK-API 1.8.2 removed default_password_active from system status, so
+          // polling can no longer confirm or clear the flag. It is raised by the
+          // 403 default-password contract (useAuthErrors) and cleared by the
+          // password-change flow. Resolve only the initial undefined state so
+          // App.tsx's protected-API gating can proceed. Read the store at
+          // response time — the 403 path may have raised the flag mid-flight.
+          if (useMinerStore.getState().minerStatus.lifecycle.defaultPasswordActive === undefined) {
+            setDefaultPasswordActive(false);
+          }
+        })
+        .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not a fetch failure.
+          if (isAbortError(err)) return;
+          console.error("[useSystemStatus API hook] Error:", err);
+        })
+        .finally(() => {
+          isFetchingRef.current = false;
+        });
+    },
+    [adapter, setOnboarded, setPasswordSet, setDefaultPasswordActive],
+  );
 
   // Poll until initial status is loaded.
   usePoll({

@@ -6,9 +6,11 @@ import type { OperationalStatus } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 interface GetMiningStatusProps {
   onSuccess?: (status?: OperationalStatus) => void;
+  signal?: AbortSignal;
 }
 
 type UseMiningStatusProps = {
@@ -26,20 +28,22 @@ const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMi
   const setMiningStatus = useSetMiningStatus();
 
   const fetchData = useCallback(
-    ({ onSuccess }: GetMiningStatusProps = {}) => {
+    ({ onSuccess, signal }: GetMiningStatusProps = {}) => {
       if (!enabled || !adapter) return;
 
       setPending(true);
       const accept = beginStoreWrite("operationalStatus:module:root");
       setError(undefined);
       return adapter
-        .getMiningStatus()
+        .getMiningStatus({ signal })
         .then((status) => {
           if (!accept()) return;
           setMiningStatus(status);
           onSuccess?.(status);
         })
         .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not an auth failure.
+          if (isAbortError(err)) return;
           handleAuthErrors({
             error: err,
             onError: (response) => setError(response?.error?.message ?? "An error occurred"),
@@ -50,7 +54,7 @@ const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMi
     [adapter, enabled, handleAuthErrors, setMiningStatus],
   );
 
-  usePoll({ fetchData, enabled, poll, pollIntervalMs });
+  usePoll({ fetchData: (signal) => fetchData({ signal }), enabled, poll, pollIntervalMs });
 
   return useMemo(() => ({ fetchData, data, pending, error }), [fetchData, data, pending, error]);
 };

@@ -11,6 +11,7 @@ export interface FetchPoolsInfoProps {
   onError?: (response?: string) => void;
   onSuccess?: (response?: PoolInfo[]) => void;
   retryOnMinerDown?: boolean;
+  signal?: AbortSignal;
 }
 
 type UsePoolsInfoProps = {
@@ -27,7 +28,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
   const setPoolsInfo = useSetPoolsInfo();
 
   const fetchData = useCallback(
-    ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
+    ({ onSuccess, onError, retryOnMinerDown, signal }: FetchPoolsInfoProps = {}) => {
       if (!adapter) return;
 
       const performFetch = () => {
@@ -36,6 +37,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
         setError(undefined);
         authRetry({
           request: (params) => adapter.getPools(params),
+          signal,
           onSuccess: (sortedPools) => {
             if (!accept()) return;
             setPoolsInfo(sortedPools);
@@ -68,7 +70,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
   );
 
   usePoll({
-    fetchData,
+    fetchData: (signal) => fetchData({ signal }),
     poll,
     pollIntervalMs,
   });

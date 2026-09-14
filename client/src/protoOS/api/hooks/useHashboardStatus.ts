@@ -24,24 +24,28 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
   // Staleness guard: if hashboardSerialNumbers changes mid-fetch, an older
   // Promise.all resolving after a newer one must not overwrite fresher data.
   const fetchIdRef = useRef(0);
-  const fetchData = useCallback(() => {
-    if (!adapter || hashboardSerialNumbers.length === 0) return;
+  const fetchData = useCallback(
+    (signal: AbortSignal) => {
+      if (!adapter || hashboardSerialNumbers.length === 0) return;
 
-    setPending(true);
-    setError(undefined);
-    const fetchId = ++fetchIdRef.current;
+      setPending(true);
+      setError(undefined);
+      const fetchId = ++fetchIdRef.current;
 
-    return authRetry({
-      request: (params) => adapter.getHashboardStatus(hashboardSerialNumbers, params),
-      onSuccess: (results) => {
-        if (fetchId !== fetchIdRef.current) return;
-        setData(results);
-      },
-      onError: (err) => setError(err?.error?.message ?? "Unknown error occurred"),
-    }).finally(() => {
-      setPending(false);
-    });
-  }, [hashboardSerialNumbers, adapter, authRetry]);
+      return authRetry({
+        request: (params) => adapter.getHashboardStatus(hashboardSerialNumbers, params),
+        signal,
+        onSuccess: (results) => {
+          if (fetchId !== fetchIdRef.current) return;
+          setData(results);
+        },
+        onError: (err) => setError(err?.error?.message ?? "Unknown error occurred"),
+      }).finally(() => {
+        setPending(false);
+      });
+    },
+    [hashboardSerialNumbers, adapter, authRetry],
+  );
 
   usePoll({
     fetchData,

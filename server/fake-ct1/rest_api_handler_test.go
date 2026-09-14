@@ -80,11 +80,11 @@ func TestTopology(t *testing.T) {
 func TestFullContainerTopology(t *testing.T) {
 	cfg := ContainerConfig{InstanceID: "full", Tanks: defaultTanks, ModulesPerTank: defaultModulesPerTank, SlotsPerModule: defaultSlotsPerModule, AsicsPerBoard: defaultAsicsPerBoard}
 	state := NewContainerState(cfg)
-	if got, want := state.ModuleCount(), 96; got != want {
-		t.Errorf("full module count = %d, want 96", got)
+	if got, want := state.ModuleCount(), 288; got != want {
+		t.Errorf("full module count = %d, want 288", got)
 	}
-	if got, want := state.BoardCount(), 288; got != want {
-		t.Errorf("full board count = %d, want 288", got)
+	if got, want := state.BoardCount(), 864; got != want {
+		t.Errorf("full board count = %d, want 864", got)
 	}
 }
 

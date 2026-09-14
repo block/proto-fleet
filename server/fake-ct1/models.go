@@ -9,12 +9,12 @@ import (
 
 // Topology and telemetry defaults for a simulated CT1 container.
 //
-// A full container is 96 modules x 3 hashboards = 288 boards. The tree is
-// Tank -> Module -> Slot -> Hashboard. Counts are env-parametrizable (see
-// ContainerConfig) so tests can shrink the 288-board tree.
+// A full container is 288 modules x 3 hashboards = 864 boards, matching a real
+// CT1 (6 tanks). The tree is Tank -> Module -> Slot -> Hashboard. Counts are
+// env-parametrizable (see ContainerConfig) so tests can shrink the 864-board tree.
 const (
 	defaultVersion        = "2.0.0"
-	defaultTanks          = 2 // 2 tanks x 48 modules x 3 slots = 288 boards
+	defaultTanks          = 6 // 6 tanks x 48 modules x 3 slots = 864 boards
 	defaultModulesPerTank = 48
 	defaultSlotsPerModule = 3
 	defaultAsicsPerBoard  = 312

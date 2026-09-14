@@ -32,11 +32,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
       units: "TH/s",
       size: "small",
     },
-    {
-      label: "Lowest Performer",
-      value: lowestPerformer,
-      size: "small",
-    },
+    { label: "Lowest Performer", value: lowestPerformer, size: "small" },
   ];
 };
 

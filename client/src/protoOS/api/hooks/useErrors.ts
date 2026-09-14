@@ -7,6 +7,7 @@ import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 type UseErrorsProps = {
   poll?: boolean;
@@ -21,25 +22,30 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
   const [pending, setPending] = useState(false);
   const setErrors = useSetErrors();
 
-  const fetchData = useCallback(() => {
-    if (!adapter) return;
+  const fetchData = useCallback(
+    (signal: AbortSignal) => {
+      if (!adapter) return;
 
-    setPending(true);
-    const accept = beginStoreWrite("errors:module:root");
-    setError(undefined);
-    return adapter
-      .getErrors()
-      .then((errors) => {
-        if (accept()) setErrors(errors);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: (response) => setError(response?.error?.message ?? "An error occurred"),
-        });
-      })
-      .finally(() => setPending(false));
-  }, [adapter, handleAuthErrors, setErrors]);
+      setPending(true);
+      const accept = beginStoreWrite("errors:module:root");
+      setError(undefined);
+      return adapter
+        .getErrors({ signal })
+        .then((errors) => {
+          if (accept()) setErrors(errors);
+        })
+        .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not an auth failure.
+          if (isAbortError(err)) return;
+          handleAuthErrors({
+            error: err,
+            onError: (response) => setError(response?.error?.message ?? "An error occurred"),
+          });
+        })
+        .finally(() => setPending(false));
+    },
+    [adapter, handleAuthErrors, setErrors],
+  );
 
   usePoll({ fetchData, poll, pollIntervalMs });
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ComponentSection from "../ComponentSection";
 import ComponentSelector from "../ComponentSelector";
 import type { ComponentFilterType } from "../ComponentSelector/types";
@@ -7,7 +7,7 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
-import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useTelemetry } from "@/protoOS/api";
+import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useHashboardStatus, useTelemetry } from "@/protoOS/api";
 import {
   useBayCount,
   useControlBoard,
@@ -72,6 +72,21 @@ const HashboardsSection = () => {
   const hashboardsByBay = useHashboardSerialsByBay();
   const bayCount = useBayCount();
   const slotsPerBay = useSlotsPerBay();
+
+  // Each card renders an ASIC preview, so fetch per-ASIC status only for the
+  // boards this grid actually renders — the non-null serials in the bay layout
+  // — not every board in the container. A CT1 container is up to 864 boards x
+  // ~312 ASICs; fetching all of them fires hundreds of /asics requests and writes
+  // tens of thousands of ASIC samples to the store in one synchronous pass, which
+  // stalls the main thread and makes navigating away from Diagnostics lag.
+  const renderedSerials = useMemo(
+    () =>
+      Object.values(hashboardsByBay)
+        .flat()
+        .filter((serial): serial is string => serial !== null),
+    [hashboardsByBay],
+  );
+  useHashboardStatus({ hashboardSerialNumbers: renderedSerials, poll: false });
 
   const totalBays = bayCount || 3;
   const bayIndices = Array.from({ length: totalBays }, (_, i) => i + 1);

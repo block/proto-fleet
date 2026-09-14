@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation, useMatch } from "react-router-dom";
+import { kpiFields, metricFromRouteParam, perBoardFieldsForMetric } from "./kpiMetricScoping";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import type { TelemetryLevel, TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
@@ -13,10 +14,6 @@ import { moduleHashboardIds } from "@/protoOS/store/hooks/kpiChartData";
 import { tankRouteValue } from "@/protoOS/topologyRouteParams";
 import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
-
-type KpiTimeSeriesField = Extract<TimeSeriesLevel, { type: "miner" }>["fields"][number];
-
-const kpiFields = (): KpiTimeSeriesField[] => ["hashrate", "power", "efficiency", "temperature"];
 
 const tankHashboardIds = (topology: ContainerTopology, tankId: TankId) =>
   topology.tanks.get(tankId)?.moduleIds.flatMap((moduleId) => topology.modules.get(moduleId)?.hashboardIds ?? []) ?? [];
@@ -51,6 +48,13 @@ const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined 
   const { minerRoot } = useMinerHosting();
   const { pathname } = useLocation();
 
+  // The charted metric is the active tab's `:metric` route segment. Match the
+  // route directly (Home tabs and embedded module tabs) rather than scanning the
+  // pathname, so a metric word elsewhere in the path can't shadow the real tab.
+  const homeTab = useMatch(`${minerRoot}/:metric`);
+  const moduleTab = useMatch(`${minerRoot}/tanks/:tankId/modules/:moduleId/:metric`);
+  const activeMetric = metricFromRouteParam((moduleTab ?? homeTab)?.params.metric);
+
   const heading = useMemo(() => {
     if (selection?.level !== "module") return "Home";
     const module = hardware.topology?.modules.get(selection.moduleId);
@@ -80,30 +84,48 @@ const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined 
   // Get latest telemetry for the tabnav summary.
   useTelemetry({ level: telemetryLevels });
 
-  // Memoize levels to prevent recreating on every render
-  const levels = useMemo<TimeSeriesLevel[]>(() => {
-    const miner: TimeSeriesLevel = {
-      type: "miner",
-      fields: kpiFields(),
-    };
+  // Container Home is the only view whose per-board series spans every board.
+  // Split telemetry into two requests: an all-metrics container-aggregate (miner)
+  // series for the tabnav summary and aggregate chart line, and a per-board
+  // (hashboard) series scoped to the active metric for the per-tank lines and
+  // Lowest Performer. Module/tank views read per-board only; rigs read both.
+  const isContainerHome = isContainer && selection?.level !== "module" && selection?.level !== "tank";
+
+  // Aggregate (miner-level) series. Container module/tank views have no
+  // aggregate line (they read per-board only), matching prior behavior.
+  const aggregateLevels = useMemo<TimeSeriesLevel[]>(() => {
+    if (isContainer && !isContainerHome) return [];
+    return [{ type: "miner", fields: kpiFields() }];
+  }, [isContainer, isContainerHome]);
+
+  // Per-board (hashboard-level) series. On container Home this is every board;
+  // on module/tank it is the selected subset; on a rig it is every board. Feeds
+  // per-tank chart lines and the Lowest Performer readout. Scoped to the active
+  // tab's metric (not all four) since only one chart is on screen.
+  // TODO(frigate): replace this per-board fan-out (one request per board) with a
+  // container-wide / tank-level aggregated timeseries endpoint (see the
+  // "Proposed API improvements" issue #88).
+  const perBoardLevels = useMemo<TimeSeriesLevel[]>(() => {
+    const fields = perBoardFieldsForMetric(activeMetric);
     if (isContainer) {
       const indexes = selectedContainerHashboardIndexes(hardware, selection);
-      const hashboard: TimeSeriesLevel = { type: "hashboard", fields: kpiFields(), indexes };
-      return selection?.level === "module" || selection?.level === "tank" ? [hashboard] : [miner, hashboard];
+      return [{ type: "hashboard", fields, indexes }];
     }
+    return [{ type: "hashboard", fields }];
+  }, [hardware, isContainer, selection, activeMetric]);
 
-    const hashboards: TimeSeriesLevel = {
-      type: "hashboard",
-      fields: kpiFields(),
-    };
-    return [miner, hashboards];
-  }, [hardware, isContainer, selection]);
-
-  // Fetch all time series data here for hashrate/eff/power/temperature in one request
-  // Used by multiple KPI tabs
+  // Fetch time series for hashrate/eff/power/temperature. Split so the per-board
+  // fan-out stays scoped to the active metric independently of the all-metrics
+  // aggregate series.
   useTimeSeries({
     duration,
-    levels,
+    levels: aggregateLevels,
+    poll: true,
+    enabled: aggregateLevels.length > 0,
+  });
+  useTimeSeries({
+    duration,
+    levels: perBoardLevels,
     poll: true,
   });
 
