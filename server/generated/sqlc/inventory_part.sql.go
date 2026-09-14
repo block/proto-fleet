@@ -42,6 +42,10 @@ func (q *Queries) ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeR
 const countInventoryParts = `-- name: CountInventoryParts :one
 SELECT COUNT(*)::int
 FROM inventory_part ip
+LEFT JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
 WHERE ip.org_id = $1
   AND ip.deleted_at IS NULL
   AND ($2::bigint[] IS NULL
@@ -53,6 +57,13 @@ WHERE ip.org_id = $1
        OR ip.type = ANY($4::text[]))
   AND (NOT $5::boolean
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
+  AND ($6::text IS NULL
+       OR ip.name ILIKE $6 ESCAPE '\'
+       OR ip.type ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.manufacturer, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.part_number, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.bin_location, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(s.name, '') ILIKE $6 ESCAPE '\')
 `
 
 type CountInventoryPartsParams struct {
@@ -61,6 +72,7 @@ type CountInventoryPartsParams struct {
 	ExcludedSiteIds []int64
 	FilterTypes     []string
 	FilterLowStock  bool
+	SearchPattern   sql.NullString
 }
 
 func (q *Queries) CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error) {
@@ -70,6 +82,7 @@ func (q *Queries) CountInventoryParts(ctx context.Context, arg CountInventoryPar
 		pq.Array(arg.ExcludedSiteIds),
 		pq.Array(arg.FilterTypes),
 		arg.FilterLowStock,
+		arg.SearchPattern,
 	)
 	var column_1 int32
 	err := row.Scan(&column_1)
@@ -327,10 +340,17 @@ WHERE ip.org_id = $1
        OR ip.type = ANY($4::text[]))
   AND (NOT $5::boolean
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
-  AND ($6::bigint IS NULL
-       OR ip.id < $6::bigint)
+  AND ($6::text IS NULL
+       OR ip.name ILIKE $6 ESCAPE '\'
+       OR ip.type ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.manufacturer, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.part_number, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(ip.bin_location, '') ILIKE $6 ESCAPE '\'
+       OR COALESCE(s.name, '') ILIKE $6 ESCAPE '\')
+  AND ($7::bigint IS NULL
+       OR ip.id < $7::bigint)
 ORDER BY ip.id DESC
-LIMIT $7::int
+LIMIT $8::int
 `
 
 type ListInventoryPartsParams struct {
@@ -339,6 +359,7 @@ type ListInventoryPartsParams struct {
 	ExcludedSiteIds []int64
 	FilterTypes     []string
 	FilterLowStock  bool
+	SearchPattern   sql.NullString
 	CursorID        sql.NullInt64
 	LimitN          int32
 }
@@ -368,6 +389,7 @@ func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryParts
 		pq.Array(arg.ExcludedSiteIds),
 		pq.Array(arg.FilterTypes),
 		arg.FilterLowStock,
+		arg.SearchPattern,
 		arg.CursorID,
 		arg.LimitN,
 	)

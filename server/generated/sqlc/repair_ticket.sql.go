@@ -145,13 +145,13 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
   AND (NOT $10::boolean OR rt.urgent)
   AND (NOT $11::boolean OR rt.status <> 5)
   AND (NOT $12::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-  AND ($13::text = '' OR
-       rt.ticket_number ILIKE '%' || $13 || '%' OR
-       rt.component ILIKE '%' || $13 || '%' OR
-       COALESCE(rt.miner_identifier, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(rt.diagnosis, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(s.name, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(b.name, '') ILIKE '%' || $13 || '%')
+  AND ($13::text IS NULL OR
+       rt.ticket_number ILIKE $13 ESCAPE '\' OR
+       rt.component ILIKE $13 ESCAPE '\' OR
+       COALESCE(rt.miner_identifier, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(rt.diagnosis, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(s.name, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(b.name, '') ILIKE $13 ESCAPE '\')
 `
 
 type CountRepairTicketsParams struct {
@@ -167,7 +167,7 @@ type CountRepairTicketsParams struct {
 	FilterUrgentOnly       bool
 	FilterExcludeCompleted bool
 	FilterOverdueOnly      bool
-	SearchQuery            string
+	SearchPattern          sql.NullString
 }
 
 func (q *Queries) CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error) {
@@ -184,7 +184,7 @@ func (q *Queries) CountRepairTickets(ctx context.Context, arg CountRepairTickets
 		arg.FilterUrgentOnly,
 		arg.FilterExcludeCompleted,
 		arg.FilterOverdueOnly,
-		arg.SearchQuery,
+		arg.SearchPattern,
 	)
 	var column_1 int32
 	err := row.Scan(&column_1)
@@ -286,13 +286,13 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
   AND (NOT $10::boolean OR rt.urgent)
   AND (NOT $11::boolean OR rt.status <> 5)
   AND (NOT $12::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-  AND ($13::text = '' OR
-       rt.ticket_number ILIKE '%' || $13 || '%' OR
-       rt.component ILIKE '%' || $13 || '%' OR
-       COALESCE(rt.miner_identifier, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(rt.diagnosis, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(s.name, '') ILIKE '%' || $13 || '%' OR
-       COALESCE(b.name, '') ILIKE '%' || $13 || '%')
+  AND ($13::text IS NULL OR
+       rt.ticket_number ILIKE $13 ESCAPE '\' OR
+       rt.component ILIKE $13 ESCAPE '\' OR
+       COALESCE(rt.miner_identifier, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(rt.diagnosis, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(s.name, '') ILIKE $13 ESCAPE '\' OR
+       COALESCE(b.name, '') ILIKE $13 ESCAPE '\')
 `
 
 type GetFilteredTicketStatsParams struct {
@@ -308,7 +308,7 @@ type GetFilteredTicketStatsParams struct {
 	FilterUrgentOnly       bool
 	FilterExcludeCompleted bool
 	FilterOverdueOnly      bool
-	SearchQuery            string
+	SearchPattern          sql.NullString
 }
 
 type GetFilteredTicketStatsRow struct {
@@ -337,7 +337,7 @@ func (q *Queries) GetFilteredTicketStats(ctx context.Context, arg GetFilteredTic
 		arg.FilterUrgentOnly,
 		arg.FilterExcludeCompleted,
 		arg.FilterOverdueOnly,
-		arg.SearchQuery,
+		arg.SearchPattern,
 	)
 	var i GetFilteredTicketStatsRow
 	err := row.Scan(
@@ -832,13 +832,13 @@ WITH filtered AS (
       AND (NOT $15::boolean OR rt.urgent)
       AND (NOT $16::boolean OR rt.status <> 5)
       AND (NOT $17::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-      AND ($18::text = '' OR
-           rt.ticket_number ILIKE '%' || $18 || '%' OR
-           rt.component ILIKE '%' || $18 || '%' OR
-           COALESCE(rt.miner_identifier, '') ILIKE '%' || $18 || '%' OR
-           COALESCE(rt.diagnosis, '') ILIKE '%' || $18 || '%' OR
-           COALESCE(s.name, '') ILIKE '%' || $18 || '%' OR
-           COALESCE(b.name, '') ILIKE '%' || $18 || '%')
+      AND ($18::text IS NULL OR
+           rt.ticket_number ILIKE $18 ESCAPE '\' OR
+           rt.component ILIKE $18 ESCAPE '\' OR
+           COALESCE(rt.miner_identifier, '') ILIKE $18 ESCAPE '\' OR
+           COALESCE(rt.diagnosis, '') ILIKE $18 ESCAPE '\' OR
+           COALESCE(s.name, '') ILIKE $18 ESCAPE '\' OR
+           COALESCE(b.name, '') ILIKE $18 ESCAPE '\')
 )
 SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM filtered
 WHERE $1::text IS NULL
@@ -874,7 +874,7 @@ type ListRepairTicketsParams struct {
 	FilterUrgentOnly       bool
 	FilterExcludeCompleted bool
 	FilterOverdueOnly      bool
-	SearchQuery            string
+	SearchPattern          sql.NullString
 }
 
 type ListRepairTicketsRow struct {
@@ -934,7 +934,7 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 		arg.FilterUrgentOnly,
 		arg.FilterExcludeCompleted,
 		arg.FilterOverdueOnly,
-		arg.SearchQuery,
+		arg.SearchPattern,
 	)
 	if err != nil {
 		return nil, err

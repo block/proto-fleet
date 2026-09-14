@@ -13,6 +13,7 @@ import {
   TicketStatus,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketVersion } from "@/protoFleet/api/maintenance";
+import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
@@ -112,18 +113,20 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
   const [myTicketsActive, setMyTicketsActive] = useState(false);
   const [filters, setFilters] = useState<Record<string, string[]>>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
   const applyFilters = useCallback(
-    (next: Record<string, string[]>, mine = myTicketsActive) => {
+    (next: Record<string, string[]>, mine = myTicketsActive, search = searchQuery) => {
       queue.setFilter({
         excludeCompleted: true,
         statuses: (next.status ?? []).map((v) => statusEnums[v]).filter(Boolean),
         categories: (next.category ?? []).map((v) => categoryEnums[v]).filter(Boolean),
         siteIds: (next.site ?? []).map(BigInt),
         assigneeUserId: mine && options.currentAssignee ? BigInt(options.currentAssignee.id) : undefined,
+        searchQuery: search,
       });
     },
-    [myTicketsActive, options.currentAssignee, queue],
+    [myTicketsActive, options.currentAssignee, queue, searchQuery],
   );
   const openTicketDetail = useCallback(
     (ticket: TicketItem) => {
@@ -147,6 +150,14 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     setMyTicketsActive(next);
     applyFilters(filters, next);
   }, [applyFilters, filters, myTicketsActive, options.currentAssignee]);
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      applyFilters(filters, myTicketsActive, query);
+      setSelectedTicketIds([]);
+    },
+    [applyFilters, filters, myTicketsActive],
+  );
   const chipFilters = useMemo<FilterChipsBarFilter[]>(
     () => [
       {
@@ -355,6 +366,13 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         >
           My tickets
         </Button>
+        <ListSearchInput
+          id="ticket-queue-search"
+          label="Search tickets"
+          initialValue={searchQuery}
+          onQueryChange={handleSearch}
+          collapsible
+        />
         <FilterChipsBar filters={chipFilters} onChange={handleFilter} />
         <Button
           text="Refresh"

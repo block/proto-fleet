@@ -5,6 +5,7 @@ import AdjustPartModal from "./AdjustPartModal";
 import CreatePartModal from "./CreatePartModal";
 import DeletePartModal from "./DeletePartModal";
 import ImportCsvModal from "./ImportCsvModal";
+import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { useInventory } from "@/protoFleet/features/maintenance/hooks/useInventory";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useHasPermission } from "@/protoFleet/store";
@@ -45,12 +46,14 @@ const InventoryTab = () => {
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const applyFilters = (sites = siteIds, partTypes = types, lowStock = lowStockOnly) => {
+  const applyFilters = (sites = siteIds, partTypes = types, lowStock = lowStockOnly, search = searchQuery) => {
     inventory.setFilter({
       siteIds: sites.map(BigInt),
       types: partTypes,
       lowStockOnly: lowStock,
+      searchQuery: search,
     });
   };
 
@@ -135,6 +138,16 @@ const InventoryTab = () => {
             void inventory.refresh();
             void options.refresh();
           }}
+        />
+        <ListSearchInput
+          id="inventory-search"
+          label="Search parts"
+          initialValue={searchQuery}
+          onQueryChange={(query) => {
+            setSearchQuery(query);
+            applyFilters(siteIds, types, lowStockOnly, query);
+          }}
+          collapsible
         />
         <Button
           variant={lowStockOnly ? variants.accent : variants.ghost}

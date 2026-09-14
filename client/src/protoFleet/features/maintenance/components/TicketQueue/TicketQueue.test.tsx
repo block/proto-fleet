@@ -208,6 +208,23 @@ describe("TicketQueue", () => {
     expect(queue.setFilter).toHaveBeenLastCalledWith(expect.objectContaining({ assigneeUserId: 42n }));
   });
 
+  it("applies the debounced search to the queue filter without dropping the open-tickets scope", async () => {
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Search tickets" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search tickets" }), { target: { value: "TK-1" } });
+
+    await waitFor(() =>
+      expect(queue.setFilter).toHaveBeenLastCalledWith(
+        expect.objectContaining({ searchQuery: "TK-1", excludeCompleted: true }),
+      ),
+    );
+  });
+
   it("uses a single-ticket update to remove urgent status", () => {
     queue.data[0].urgent = true;
     render(
