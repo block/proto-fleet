@@ -111,13 +111,19 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [bulkCloseVersions, setBulkCloseVersions] = useState<TicketVersion[] | null>(null);
   const [bulkCloseIncludesMiner, setBulkCloseIncludesMiner] = useState(false);
+  const [bulkCloseTicketIds, setBulkCloseTicketIds] = useState<string[]>([]);
+  // The List's selection is owned here so that changing the view (filters,
+  // search, page) can drop it: the action bar's bulk actions must only ever
+  // target tickets the operator can see.
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const clearSelection = useCallback(() => setSelectedTicketIds((prev) => (prev.length === 0 ? prev : [])), []);
   const [myTicketsActive, setMyTicketsActive] = useState(false);
   const [filters, setFilters] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
   const applyFilters = useCallback(
     (next: Record<string, string[]>, mine = myTicketsActive, search = searchQuery) => {
+      clearSelection();
       queue.setFilter({
         excludeCompleted: true,
         statuses: (next.status ?? []).map((v) => statusEnums[v]).filter(Boolean),
@@ -127,7 +133,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         searchQuery: search,
       });
     },
-    [myTicketsActive, options.currentAssignee, queue, searchQuery],
+    [clearSelection, myTicketsActive, options.currentAssignee, queue, searchQuery],
   );
   const openTicketDetail = useCallback(
     (ticket: TicketItem) => {
@@ -141,7 +147,6 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       const next = { ...filters, [key]: values };
       setFilters(next);
       applyFilters(next);
-      setSelectedTicketIds([]);
     },
     [applyFilters, filters],
   );
@@ -155,7 +160,6 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     (query: string) => {
       setSearchQuery(query);
       applyFilters(filters, myTicketsActive, query);
-      setSelectedTicketIds([]);
     },
     [applyFilters, filters, myTicketsActive],
   );
@@ -240,7 +244,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const openBulkClose = useCallback(
     (ticketIds: string[]) => {
       const selected = new Set(ticketIds);
-      setSelectedTicketIds(ticketIds);
+      setBulkCloseTicketIds(ticketIds);
       setBulkCloseIncludesMiner(queue.data.some((ticket) => selected.has(ticket.id) && ticket.category === "miner"));
       setBulkCloseVersions(
         queue.data.flatMap((ticket) =>
@@ -294,10 +298,10 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       const next = key as TicketQueueViewMode;
       if (next === viewMode) return;
       setViewMode(next);
-      setSelectedTicketIds([]);
+      clearSelection();
       void queue.resetPagination();
     },
-    [queue, viewMode],
+    [clearSelection, queue, viewMode],
   );
   const renderActionBar = useCallback(
     (selected: string[], clear: () => void, mode: SelectionMode) => (
@@ -375,6 +379,10 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           label="Search tickets"
           initialValue={searchQuery}
           onQueryChange={handleSearch}
+          // Drops the selection on the keystroke rather than when the debounced
+          // query lands, so the action bar never targets tickets the typed
+          // query is about to hide.
+          onQueryInput={clearSelection}
           collapsible
         />
         <div className={clsx("flex gap-2", { "ml-auto": !isCompact })}>
@@ -410,6 +418,8 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           actions={rowActions}
           itemSelectable={canManage}
           isRowSelectable={canManageTicket}
+          customSelectedItems={selectedTicketIds}
+          customSetSelectedItems={setSelectedTicketIds}
           pageScopedSelection
           stickyFirstColumn={false}
           overflowContainer={false}
@@ -436,11 +446,11 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           hasNextPage={!!queue.nextPageToken}
           loading={queue.loading}
           onPrevious={() => {
-            setSelectedTicketIds([]);
+            clearSelection();
             void queue.previousPage();
           }}
           onNext={() => {
-            setSelectedTicketIds([]);
+            clearSelection();
             void queue.nextPage();
           }}
         />
@@ -474,17 +484,17 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       ) : null}
       {bulkCloseVersions ? (
         <BulkCloseModal
-          ticketIds={selectedTicketIds}
+          ticketIds={bulkCloseTicketIds}
           includesMiner={bulkCloseIncludesMiner}
           onDismiss={() => {
             setBulkCloseVersions(null);
             setBulkCloseIncludesMiner(false);
           }}
-          onSubmit={(mutation) => queue.bulkUpdate(selectedTicketIds, mutation, false, bulkCloseVersions)}
+          onSubmit={(mutation) => queue.bulkUpdate(bulkCloseTicketIds, mutation, false, bulkCloseVersions)}
           onSuccess={() => {
             setBulkCloseVersions(null);
             setBulkCloseIncludesMiner(false);
-            setSelectedTicketIds([]);
+            clearSelection();
           }}
         />
       ) : null}

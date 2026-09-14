@@ -225,6 +225,28 @@ describe("TicketQueue", () => {
     );
   });
 
+  it("clears the list selection as soon as a search is typed", async () => {
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[checkboxes.length - 1]);
+    expect(screen.getByText(/^1 .* selected$/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search tickets" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search tickets" }), { target: { value: "T" } });
+
+    // Synchronous: the debounce has not fired and the filter is still unapplied.
+    expect(screen.queryByText(/^1 .* selected$/)).not.toBeInTheDocument();
+    expect(queue.setFilter).not.toHaveBeenCalledWith(expect.objectContaining({ searchQuery: "T" }));
+    await waitFor(() =>
+      expect(queue.setFilter).toHaveBeenLastCalledWith(expect.objectContaining({ searchQuery: "T" })),
+    );
+  });
+
   it("uses a single-ticket update to remove urgent status", () => {
     queue.data[0].urgent = true;
     render(
