@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import clsx from "clsx";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import type { TicketItem } from "../../types";
@@ -366,6 +367,9 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         >
           My tickets
         </Button>
+        <FilterChipsBar filters={chipFilters} onChange={handleFilter} />
+        {/* Last in the filter group so expanding grows into the gap before
+            the actions instead of pushing the filters aside. */}
         <ListSearchInput
           id="ticket-queue-search"
           label="Search tickets"
@@ -373,26 +377,26 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           onQueryChange={handleSearch}
           collapsible
         />
-        <FilterChipsBar filters={chipFilters} onChange={handleFilter} />
-        <Button
-          text="Refresh"
-          variant={variants.secondary}
-          size={buttonSizes.compact}
-          disabled={queue.loading}
-          onClick={() => {
-            void queue.refresh();
-            void options.refresh();
-          }}
-        />
-        {canManage ? (
+        <div className={clsx("flex gap-2", { "ml-auto": !isCompact })}>
           <Button
-            className="ml-auto"
-            text="Create ticket"
+            text="Refresh"
             variant={variants.secondary}
             size={buttonSizes.compact}
-            onClick={() => setShowCreateModal(true)}
+            disabled={queue.loading}
+            onClick={() => {
+              void queue.refresh();
+              void options.refresh();
+            }}
           />
-        ) : null}
+          {canManage ? (
+            <Button
+              text="Create ticket"
+              variant={variants.secondary}
+              size={buttonSizes.compact}
+              onClick={() => setShowCreateModal(true)}
+            />
+          ) : null}
+        </div>
       </div>
       {queue.data.length === 0 ? (
         <div>No tickets</div>

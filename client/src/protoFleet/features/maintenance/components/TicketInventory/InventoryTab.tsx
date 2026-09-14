@@ -131,25 +131,6 @@ const InventoryTab = () => {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          text="Refresh"
-          variant={variants.secondary}
-          disabled={inventory.loading}
-          onClick={() => {
-            void inventory.refresh();
-            void options.refresh();
-          }}
-        />
-        <ListSearchInput
-          id="inventory-search"
-          label="Search parts"
-          initialValue={searchQuery}
-          onQueryChange={(query) => {
-            setSearchQuery(query);
-            applyFilters(siteIds, types, lowStockOnly, query);
-          }}
-          collapsible
-        />
-        <Button
           variant={lowStockOnly ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
           onClick={() => {
@@ -183,22 +164,46 @@ const InventoryTab = () => {
             }}
           />
         ) : null}
-        {canManage ? (
-          <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
-            <Button
-              text="Add part"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-              onClick={() => setCreate(true)}
-            />
-            <Button
-              text="Import CSV"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-              onClick={() => setImporting(true)}
-            />
-          </div>
-        ) : null}
+        {/* Last in the filter group so expanding grows into the gap before
+            the actions instead of pushing the filters aside. */}
+        <ListSearchInput
+          id="inventory-search"
+          label="Search parts"
+          initialValue={searchQuery}
+          onQueryChange={(query) => {
+            setSearchQuery(query);
+            applyFilters(siteIds, types, lowStockOnly, query);
+          }}
+          collapsible
+        />
+        <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
+          <Button
+            text="Refresh"
+            variant={variants.secondary}
+            size={buttonSizes.compact}
+            disabled={inventory.loading}
+            onClick={() => {
+              void inventory.refresh();
+              void options.refresh();
+            }}
+          />
+          {canManage ? (
+            <>
+              <Button
+                text="Add part"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                onClick={() => setCreate(true)}
+              />
+              <Button
+                text="Import CSV"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                onClick={() => setImporting(true)}
+              />
+            </>
+          ) : null}
+        </div>
       </div>
 
       {inventory.data.length ? (
