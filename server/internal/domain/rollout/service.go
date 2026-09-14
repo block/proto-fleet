@@ -226,7 +226,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
 			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
 		}
-		if err := s.validatePlacementTargets(ctx, orgID, 0, spec.Scope); err != nil {
+		if err := s.validateScopeTargets(ctx, orgID, 0, spec.Scope); err != nil {
 			return err
 		}
 		if err := s.rejectOverlap(ctx, orgID, spec.Scope, 0); err != nil {
@@ -261,7 +261,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 			return fleeterror.NewInternalErrorf("create channel: %w", err)
 		}
 		channelID = row.ID
-		return s.replaceTargets(ctx, orgID, row.ID, spec.Scope)
+		return s.replaceTargets(ctx, row.ID, spec.Scope)
 	})
 	if err != nil {
 		return nil, err
@@ -283,7 +283,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 		if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 			return channelLookupError(channelID, err)
 		}
-		if err := s.validatePlacementTargets(ctx, orgID, channelID, spec.Scope); err != nil {
+		if err := s.validateScopeTargets(ctx, orgID, channelID, spec.Scope); err != nil {
 			return err
 		}
 		if err := s.rejectOverlap(ctx, orgID, spec.Scope, channelID); err != nil {
@@ -316,7 +316,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 			}
 			return fleeterror.NewInternalErrorf("update channel: %w", err)
 		}
-		return s.replaceTargets(ctx, orgID, channelID, spec.Scope)
+		return s.replaceTargets(ctx, channelID, spec.Scope)
 	})
 	if err != nil {
 		return nil, err
@@ -346,12 +346,12 @@ func (spec *ChannelSpec) validate() error {
 	return spec.Behavior.validate()
 }
 
-// validatePlacementTargets accepts live, org-owned placements even when they
-// contain no miners. An update can retain a saved selector after its placement
-// is deleted, but every addition must resolve by both ID and selector type.
+// validateScopeTargets accepts live, org-owned placements and miners, including
+// placements that contain no miners. Updates can retain saved selectors after
+// deletion, but additions must resolve by placement type/ID or exact miner key.
 // Call under LockReleaseChannelScopes before replacing the stored targets.
-func (s *Service) validatePlacementTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
-	if len(scope.SiteIDs)+len(scope.BuildingIDs)+len(scope.RackIDs)+len(scope.GroupIDs) == 0 {
+func (s *Service) validateScopeTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
+	if scope.IsEmpty() {
 		return nil
 	}
 	q := s.store.GetQueries(ctx)
@@ -360,6 +360,7 @@ func (s *Service) validatePlacementTargets(ctx context.Context, orgID, channelID
 		id   int64
 	}
 	retained := map[targetKey]bool{}
+	retainedMiners := map[string]bool{}
 	if channelID != 0 {
 		targets, err := q.ListReleaseChannelTargets(ctx, orgID)
 		if err != nil {
@@ -367,7 +368,11 @@ func (s *Service) validatePlacementTargets(ctx context.Context, orgID, channelID
 		}
 		for _, target := range targets {
 			if target.ChannelID == channelID {
-				retained[targetKey{kind: target.TargetType, id: target.TargetID}] = true
+				if target.TargetType == TargetTypeMiner {
+					retainedMiners[target.DeviceIdentifier] = true
+				} else {
+					retained[targetKey{kind: target.TargetType, id: target.TargetID}] = true
+				}
 			}
 		}
 	}
@@ -406,32 +411,38 @@ func (s *Service) validatePlacementTargets(ctx context.Context, orgID, channelID
 			return fleeterror.NewInvalidArgumentErrorf("one or more %s selectors do not reference a current %s in this organization", dimension.kind, dimension.kind)
 		}
 	}
-	return nil
-}
-
-func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
-	q := s.store.GetQueries(ctx)
-	if err := q.DeleteReleaseChannelTargets(ctx, channelID); err != nil {
-		return fleeterror.NewInternalErrorf("clear channel targets: %w", err)
+	var addedMiners []string
+	for _, identifier := range scope.DeviceIdentifiers {
+		if !retainedMiners[identifier] {
+			addedMiners = append(addedMiners, identifier)
+		}
 	}
-	if len(scope.DeviceIdentifiers) > 0 {
+	if len(addedMiners) > 0 {
 		devices, err := q.ListDeviceIDsByIdentifiers(ctx, sqlc.ListDeviceIDsByIdentifiersParams{
-			OrgID: orgID, DeviceIdentifiers: scope.DeviceIdentifiers,
+			OrgID: orgID, DeviceIdentifiers: addedMiners,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("resolve miner identifiers: %w", err)
 		}
-		if len(devices) != len(scope.DeviceIdentifiers) {
+		if len(devices) != len(addedMiners) {
 			known := map[string]bool{}
 			for _, d := range devices {
 				known[d.DeviceIdentifier] = true
 			}
-			for _, id := range scope.DeviceIdentifiers {
+			for _, id := range addedMiners {
 				if !known[id] {
 					return fleeterror.NewInvalidArgumentErrorf("unknown miner %q", id)
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func (s *Service) replaceTargets(ctx context.Context, channelID int64, scope Scope) error {
+	q := s.store.GetQueries(ctx)
+	if err := q.DeleteReleaseChannelTargets(ctx, channelID); err != nil {
+		return fleeterror.NewInternalErrorf("clear channel targets: %w", err)
 	}
 	types, ids := scope.targets()
 	if len(ids) > 0 {
