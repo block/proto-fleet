@@ -61,6 +61,9 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 // DiscoverWithIPList resolves each hostname once before plugin probing. Literal
 // addresses retain the server's existing public/private address policy.
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	if len(r.GetIpAddresses()) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("ip_list.ip_addresses must not be empty")
+	}
 	targets := make([]netscan.Target, 0, len(r.IpAddresses))
 	for _, raw := range r.IpAddresses {
 		target, err := netscan.ParseAddrTarget(raw)
