@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -143,6 +144,66 @@ func (s *Service) OpenFirmwareArtifactByChecksum(sha256Hex string) (io.ReadClose
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
 	return s.openFirmwareArtifactByChecksumLocked(sha256Hex)
+}
+
+// OpenFirmwareFileForExecution keeps the selected payload's path present until
+// the returned reader is closed. Plugins reopen that path, and Fleet Nodes
+// download the exact selected ID after receiving the command. A checksum selects
+// a healthy copy of the assigned artifact; otherwise the queued file ID is exact.
+// Close the reader when FirmwareUpdate returns, including on failure or cancellation.
+func (s *Service) OpenFirmwareFileForExecution(fileID, sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
+	if sha256Hex != "" {
+		if err := validateFirmwareChecksum(sha256Hex); err != nil {
+			return nil, FirmwareFileInfo{}, err
+		}
+	}
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
+	var reader io.ReadCloser
+	var info FirmwareFileInfo
+	var err error
+	if sha256Hex != "" {
+		reader, info, err = s.openFirmwareArtifactByChecksumLocked(sha256Hex)
+	} else {
+		reader, info, err = s.openFirmwareFileWithInfo(fileID, "")
+	}
+	if err != nil {
+		return nil, FirmwareFileInfo{}, err
+	}
+
+	// Register under the lifecycle lock so deletion cannot slip between open
+	// and pin. The pin holds no lock across delivery: a queued lifecycle writer
+	// must not block the Fleet Node's subsequent exact-ID download opener.
+	s.mu.Lock()
+	if s.firmwareExecutionPins == nil {
+		s.firmwareExecutionPins = make(map[string]int)
+	}
+	s.firmwareExecutionPins[info.ID]++
+	s.mu.Unlock()
+	return &firmwareExecutionReader{ReadCloser: reader, release: func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.firmwareExecutionPins[info.ID]--
+		if s.firmwareExecutionPins[info.ID] == 0 {
+			delete(s.firmwareExecutionPins, info.ID)
+		}
+	}}, info, nil
+}
+
+type firmwareExecutionReader struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+	err     error
+}
+
+func (r *firmwareExecutionReader) Close() error {
+	r.once.Do(func() {
+		r.err = r.ReadCloser.Close()
+		r.release()
+	})
+	return r.err
 }
 
 // openFirmwareArtifactByChecksumLocked shares byte verification between

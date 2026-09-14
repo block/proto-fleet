@@ -578,6 +578,10 @@ func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.filesService.DeleteFirmwareFile(fileID); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if fleeterror.IsNotFoundError(err) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -630,12 +634,17 @@ func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 	deleted, err := h.filesService.DeleteAllFirmwareFiles()
 	if err != nil {
-		slog.Error("failed to delete all firmware files", "error", err, "deleted_before_error", deleted)
+		status, message := http.StatusInternalServerError, "failed to delete all firmware files"
+		if fleeterror.IsFailedPreconditionError(err) {
+			status, message = http.StatusConflict, err.Error()
+		} else {
+			slog.Error("failed to delete all firmware files", "error", err, "deleted_before_error", deleted)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(status)
 		if encErr := json.NewEncoder(w).Encode(deleteAllFilesResponse{
 			DeletedCount: deleted,
-			Error:        "failed to delete all firmware files",
+			Error:        message,
 		}); encErr != nil {
 			slog.Error("failed to encode delete-all error response", "error", encErr)
 		}

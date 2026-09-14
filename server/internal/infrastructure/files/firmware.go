@@ -890,7 +890,8 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 }
 
 // DeleteFirmwareFile removes a firmware file from disk and the checksum index.
-// Returns a NotFoundError if no file with the given ID exists.
+// Returns NotFound if the ID does not exist, or FailedPrecondition while command
+// delivery needs its path. The caller can retry after the command finishes.
 func (s *Service) DeleteFirmwareFile(fileID string) error {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
@@ -901,6 +902,12 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 	// an existing artifact or observes its completed removal.
 	s.firmwareMetadataReuseMu.Lock()
 	defer s.firmwareMetadataReuseMu.Unlock()
+	s.mu.Lock()
+	inUse := s.firmwareExecutionPins[canonical] > 0
+	s.mu.Unlock()
+	if inUse {
+		return fleeterror.NewFailedPreconditionErrorf("firmware file %s is in use by an executing command; retry deletion after it finishes", canonical)
+	}
 
 	dir := getFirmwareDirPath(canonical)
 	if _, err := os.Stat(dir); err != nil {
