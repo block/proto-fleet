@@ -554,6 +554,11 @@ func (s *Service) resolveScope(ctx context.Context, orgID int64, scope Scope, ex
 // the channels it would overlap. excludeChannelID is the channel being
 // edited (0 when creating).
 func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, excludeChannelID int64) (*ScopePreview, error) {
+	if excludeChannelID != 0 {
+		if _, err := s.store.GetQueries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: excludeChannelID, OrgID: orgID}); err != nil {
+			return nil, channelLookupError(excludeChannelID, err)
+		}
+	}
 	scope.normalize()
 	preview := &ScopePreview{}
 	rows, err := s.resolveScope(ctx, orgID, scope, excludeChannelID)
