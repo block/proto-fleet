@@ -558,7 +558,7 @@ func (s *Service) refreshView(ctx context.Context, orgID, rolloutID int64) (*Rol
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("reload rollout %d: %w", rolloutID, err)
 	}
-	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
+	fileID, _ := s.files.FindCachedFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
 	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
 }
 
@@ -749,7 +749,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 			return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
 		}
 		if len(suppressed) == 0 {
-			fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareChecksum)
+			fileID, _ := s.files.FindCachedFirmwareFileIDByChecksum(row.FirmwareChecksum)
 			view, err = s.rolloutView(ctx, row, channelName, fileID)
 			return err
 		}
@@ -783,7 +783,7 @@ func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Roll
 	if err != nil {
 		return nil, rolloutLookupError(rolloutID, err)
 	}
-	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
+	fileID, _ := s.files.FindCachedFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
 	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
 }
 
@@ -920,14 +920,14 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 		next = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixNano(), 10), strconv.FormatInt(last.ID, 10), pollXminText)
 	}
 	rollouts := make([]Rollout, 0, len(rows))
-	// Finding a file verifies its full payload. Share the result, including
-	// absence, only within this response so later polls see file changes.
+	// Availability comes from the cached file inventory. Share presence checks,
+	// including absence, within this response so later polls see file changes.
 	fileIDs := make(map[string]string)
 	for _, row := range rows {
 		checksum := row.FirmwareRollout.FirmwareChecksum
 		fileID, checked := fileIDs[checksum]
 		if !checked {
-			fileID, _ = s.files.FindFirmwareFileIDByChecksum(checksum)
+			fileID, _ = s.files.FindCachedFirmwareFileIDByChecksum(checksum)
 			fileIDs[checksum] = fileID
 		}
 		view, err := s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)

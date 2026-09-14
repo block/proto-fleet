@@ -757,19 +757,26 @@ func TestListRolloutsFiltersAndPages(t *testing.T) {
 
 type countingFirmwareFiles struct {
 	FirmwareFiles
-	lookups map[string]int
+	cachedLookups map[string]int
+	strictLookups map[string]int
 }
 
 func (f *countingFirmwareFiles) FindFirmwareFileIDByChecksum(checksum string) (string, bool) {
-	f.lookups[checksum]++
+	f.strictLookups[checksum]++
 	return f.FirmwareFiles.FindFirmwareFileIDByChecksum(checksum)
 }
 
-func TestListRolloutsVerifiesEachArtifactOncePerResponse(t *testing.T) {
+func (f *countingFirmwareFiles) FindCachedFirmwareFileIDByChecksum(checksum string) (string, bool) {
+	f.cachedLookups[checksum]++
+	return f.FirmwareFiles.FindCachedFirmwareFileIDByChecksum(checksum)
+}
+
+func TestRolloutReadsUseCachedArtifactAvailability(t *testing.T) {
 	f := newFixture(t, 1)
 	f.channel(t, allAtOnce, f.allMiners()...)
 	// Both artifacts occur twice in history, so available and unavailable
-	// artifacts must each be checked once regardless of the number of rows.
+	// artifacts must each use one cached lookup per list response, without
+	// invoking strict payload verification regardless of the number of rows.
 	for _, fileID := range []string{"fw-1", "fw-2", "fw-1", "fw-2"} {
 		f.apply(t, fileID)
 	}
@@ -798,17 +805,34 @@ func TestListRolloutsVerifiesEachArtifactOncePerResponse(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f.files.deleted = tc.deleted
-			counted.lookups = map[string]int{}
+			counted.cachedLookups = map[string]int{}
+			counted.strictLookups = map[string]int{}
 			rollouts, next, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
 			require.NoError(t, err)
 			require.Empty(t, next)
 			require.Len(t, rollouts, 4)
-			assert.Equal(t, map[string]int{checksum1: 1, checksum2: 1}, counted.lookups)
+			assert.Equal(t, map[string]int{checksum1: 1, checksum2: 1}, counted.cachedLookups)
+			assert.Empty(t, counted.strictLookups, "listing must not hash firmware payloads")
 			for _, r := range rollouts {
 				assert.Equal(t, tc.fileIDs[r.FirmwareChecksum], r.FirmwareFileID)
+				counted.cachedLookups = map[string]int{}
+				view, err := f.svc.GetRollout(t.Context(), f.orgID, r.ID)
+				require.NoError(t, err)
+				assert.Equal(t, tc.fileIDs[r.FirmwareChecksum], view.FirmwareFileID)
+				assert.Equal(t, map[string]int{r.FirmwareChecksum: 1}, counted.cachedLookups)
+				assert.Empty(t, counted.strictLookups, "detail reads must not hash firmware payloads")
 			}
 		})
 	}
+
+	// The latest rollout still needs fw-2, which the final case removed.
+	// Enforcement must retain its strict availability check and refuse dispatch.
+	counted.cachedLookups = map[string]int{}
+	counted.strictLookups = map[string]int{}
+	f.svc.EnforceTick(t.Context())
+	assert.Positive(t, counted.strictLookups[checksum2])
+	assert.Empty(t, counted.cachedLookups, "dispatch availability must use strict verification")
+	assert.Empty(t, f.dispatcher.sentIdentifiers())
 }
 
 func TestDeviceCountsFollowPhases(t *testing.T) {
