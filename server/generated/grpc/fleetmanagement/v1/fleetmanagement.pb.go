@@ -1063,6 +1063,10 @@ type MinerListFilter struct {
 	// identifier, serial number, MAC address, IP address, and worker name.
 	// When combined with other filters, the search predicate is AND-ed with
 	// those filters.
+	//
+	// Display name is matched as the list renders it, so a miner with no custom
+	// name is matched on its "<manufacturer> <model>" fallback — searching "S21"
+	// finds unnamed S21s, not just miners named after one.
 	SearchQuery   string `protobuf:"bytes,20,opt,name=search_query,json=searchQuery,proto3" json:"search_query,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

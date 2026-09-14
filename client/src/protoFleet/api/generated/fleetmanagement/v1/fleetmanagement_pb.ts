@@ -485,6 +485,10 @@ export type MinerListFilter = Message<"fleetmanagement.v1.MinerListFilter"> & {
    * When combined with other filters, the search predicate is AND-ed with
    * those filters.
    *
+   * Display name is matched as the list renders it, so a miner with no custom
+   * name is matched on its "<manufacturer> <model>" fallback — searching "S21"
+   * finds unnamed S21s, not just miners named after one.
+   *
    * @generated from field: string search_query = 20;
    */
   searchQuery: string;
