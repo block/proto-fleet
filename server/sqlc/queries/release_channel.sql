@@ -559,33 +559,61 @@ WHERE channel_id = sqlc.arg('channel_id')
 -- name: CancelActiveFirmwareRollout :exec
 -- Cancels the pair's active rollout because its assignment changed:
 -- 'superseded', 'rolled_back' or 'cleared'.
-UPDATE firmware_rollout
+-- Finish after acquiring the header lock, never before creation or the last
+-- stage transition even if the wall clock has moved back.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.channel_id = sqlc.arg('channel_id')
+      AND release_channel_pair_key(candidate.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+      AND release_channel_pair_key(candidate.model) = release_channel_pair_key(sqlc.arg('model')::text)
+      AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = now(),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     cancel_reason = sqlc.arg('cancel_reason'),
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
     last_action_by_name = sqlc.arg('actor_name')
-WHERE channel_id = sqlc.arg('channel_id')
-  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
-  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
-  AND status = 'active';
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: CancelFirmwareRollout :execrows
-UPDATE firmware_rollout
+-- Record the first terminal time after the header lock, bounded by the
+-- rollout's preceding lifecycle events.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = now(),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     cancel_reason = 'canceled_remaining',
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
     last_action_by_name = sqlc.arg('actor_name')
-WHERE id = sqlc.arg('rollout_id') AND status = 'active';
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: FinishFirmwareRollout :execrows
 -- Ends an active rollout as 'completed' or 'completed_with_failures'.
-UPDATE firmware_rollout
-SET status = sqlc.arg('status'), finished_at = now()
-WHERE id = sqlc.arg('rollout_id') AND status = 'active';
+-- Record the first terminal time after the header lock, bounded by the
+-- rollout's preceding lifecycle events.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
+SET status = sqlc.arg('status'),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp())
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: AdvanceFirmwareRolloutStage :execrows
 -- Stage transitions of an active rollout, attributed to an actor when one
@@ -800,20 +828,35 @@ WHERE rollout_id = sqlc.arg('rollout_id')
 -- name: MarkFirmwareRolloutDevicesSent :exec
 -- Every attempted target advances retry pacing, including preflight skips.
 -- Only targets actually dispatched to may authorize a later provenance write.
-UPDATE firmware_rollout_device
-SET attempts = attempts + 1,
-    first_sent_at = COALESCE(first_sent_at, now()),
-    last_sent_at = now(),
+-- Lock targets before sampling one monotonic clock per attempt. A timestamp
+-- evaluated before a target-lock wait would shorten the next retry interval.
+WITH locked_targets AS MATERIALIZED (
+    SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
+    FROM firmware_rollout_device AS target
+    WHERE target.rollout_id = sqlc.arg('rollout_id')
+      AND target.device_id = ANY(sqlc.arg('device_ids')::bigint[])
+    ORDER BY target.device_id
+    FOR UPDATE
+), attempt_times AS MATERIALIZED (
+    SELECT rollout_id, device_id,
+           GREATEST(last_sent_at, last_dispatched_at, clock_timestamp()) AS sent_at
+    FROM locked_targets
+)
+UPDATE firmware_rollout_device AS target
+SET attempts = target.attempts + 1,
+    first_sent_at = COALESCE(target.first_sent_at, attempt_times.sent_at),
+    last_sent_at = attempt_times.sent_at,
     last_dispatched_at = CASE
-        WHEN device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN now()
-        ELSE last_dispatched_at
+        WHEN target.device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN attempt_times.sent_at
+        ELSE target.last_dispatched_at
     END,
     last_dispatched_batch_uuid = CASE
-        WHEN device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN NULLIF(sqlc.arg('batch_uuid')::text, '')
-        ELSE last_dispatched_batch_uuid
+        WHEN target.device_id = ANY(sqlc.arg('dispatched_device_ids')::bigint[]) THEN NULLIF(sqlc.arg('batch_uuid')::text, '')
+        ELSE target.last_dispatched_batch_uuid
     END
-WHERE rollout_id = sqlc.arg('rollout_id')
-  AND device_id = ANY(sqlc.arg('device_ids')::bigint[]);
+FROM attempt_times
+WHERE target.rollout_id = attempt_times.rollout_id
+  AND target.device_id = attempt_times.device_id;
 
 -- name: MarkFirmwareRolloutDevicesVerified :exec
 -- Latches convergence for miners that meet every criterion this tick, so the

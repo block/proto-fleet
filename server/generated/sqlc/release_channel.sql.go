@@ -88,17 +88,24 @@ func (q *Queries) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFi
 }
 
 const cancelActiveFirmwareRollout = `-- name: CancelActiveFirmwareRollout :exec
-UPDATE firmware_rollout
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.channel_id = $5
+      AND release_channel_pair_key(candidate.manufacturer) = release_channel_pair_key($6::text)
+      AND release_channel_pair_key(candidate.model) = release_channel_pair_key($7::text)
+      AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = now(),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     cancel_reason = $1,
     last_action_by_type = $2,
     last_action_by_id = $3,
     last_action_by_name = $4
-WHERE channel_id = $5
-  AND release_channel_pair_key(manufacturer) = release_channel_pair_key($6::text)
-  AND release_channel_pair_key(model) = release_channel_pair_key($7::text)
-  AND status = 'active'
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active'
 `
 
 type CancelActiveFirmwareRolloutParams struct {
@@ -113,6 +120,8 @@ type CancelActiveFirmwareRolloutParams struct {
 
 // Cancels the pair's active rollout because its assignment changed:
 // 'superseded', 'rolled_back' or 'cleared'.
+// Finish after acquiring the header lock, never before creation or the last
+// stage transition even if the wall clock has moved back.
 func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error {
 	_, err := q.exec(ctx, q.cancelActiveFirmwareRolloutStmt, cancelActiveFirmwareRollout,
 		arg.CancelReason,
@@ -127,14 +136,21 @@ func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelAct
 }
 
 const cancelFirmwareRollout = `-- name: CancelFirmwareRollout :execrows
-UPDATE firmware_rollout
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = $4 AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
 SET status = 'canceled',
-    finished_at = now(),
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     cancel_reason = 'canceled_remaining',
     last_action_by_type = $1,
     last_action_by_id = $2,
     last_action_by_name = $3
-WHERE id = $4 AND status = 'active'
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active'
 `
 
 type CancelFirmwareRolloutParams struct {
@@ -144,6 +160,8 @@ type CancelFirmwareRolloutParams struct {
 	RolloutID int64
 }
 
+// Record the first terminal time after the header lock, bounded by the
+// rollout's preceding lifecycle events.
 func (q *Queries) CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.cancelFirmwareRolloutStmt, cancelFirmwareRollout,
 		arg.ActorType,
@@ -441,9 +459,17 @@ func (q *Queries) ExcludeFirmwareRolloutDevices(ctx context.Context, arg Exclude
 }
 
 const finishFirmwareRollout = `-- name: FinishFirmwareRollout :execrows
-UPDATE firmware_rollout
-SET status = $1, finished_at = now()
-WHERE id = $2 AND status = 'active'
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = $2 AND candidate.status = 'active'
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
+SET status = $1,
+    finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp())
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active'
 `
 
 type FinishFirmwareRolloutParams struct {
@@ -452,6 +478,8 @@ type FinishFirmwareRolloutParams struct {
 }
 
 // Ends an active rollout as 'completed' or 'completed_with_failures'.
+// Record the first terminal time after the header lock, bounded by the
+// rollout's preceding lifecycle events.
 func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.finishFirmwareRolloutStmt, finishFirmwareRollout, arg.Status, arg.RolloutID)
 	if err != nil {
@@ -2092,20 +2120,33 @@ func (q *Queries) LockReleaseChannelScopes(ctx context.Context, orgID int64) err
 }
 
 const markFirmwareRolloutDevicesSent = `-- name: MarkFirmwareRolloutDevicesSent :exec
-UPDATE firmware_rollout_device
-SET attempts = attempts + 1,
-    first_sent_at = COALESCE(first_sent_at, now()),
-    last_sent_at = now(),
+WITH locked_targets AS MATERIALIZED (
+    SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
+    FROM firmware_rollout_device AS target
+    WHERE target.rollout_id = $3
+      AND target.device_id = ANY($4::bigint[])
+    ORDER BY target.device_id
+    FOR UPDATE
+), attempt_times AS MATERIALIZED (
+    SELECT rollout_id, device_id,
+           GREATEST(last_sent_at, last_dispatched_at, clock_timestamp()) AS sent_at
+    FROM locked_targets
+)
+UPDATE firmware_rollout_device AS target
+SET attempts = target.attempts + 1,
+    first_sent_at = COALESCE(target.first_sent_at, attempt_times.sent_at),
+    last_sent_at = attempt_times.sent_at,
     last_dispatched_at = CASE
-        WHEN device_id = ANY($1::bigint[]) THEN now()
-        ELSE last_dispatched_at
+        WHEN target.device_id = ANY($1::bigint[]) THEN attempt_times.sent_at
+        ELSE target.last_dispatched_at
     END,
     last_dispatched_batch_uuid = CASE
-        WHEN device_id = ANY($1::bigint[]) THEN NULLIF($2::text, '')
-        ELSE last_dispatched_batch_uuid
+        WHEN target.device_id = ANY($1::bigint[]) THEN NULLIF($2::text, '')
+        ELSE target.last_dispatched_batch_uuid
     END
-WHERE rollout_id = $3
-  AND device_id = ANY($4::bigint[])
+FROM attempt_times
+WHERE target.rollout_id = attempt_times.rollout_id
+  AND target.device_id = attempt_times.device_id
 `
 
 type MarkFirmwareRolloutDevicesSentParams struct {
@@ -2117,6 +2158,8 @@ type MarkFirmwareRolloutDevicesSentParams struct {
 
 // Every attempted target advances retry pacing, including preflight skips.
 // Only targets actually dispatched to may authorize a later provenance write.
+// Lock targets before sampling one monotonic clock per attempt. A timestamp
+// evaluated before a target-lock wait would shorten the next retry interval.
 func (q *Queries) MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFirmwareRolloutDevicesSentParams) error {
 	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesSentStmt, markFirmwareRolloutDevicesSent,
 		pq.Array(arg.DispatchedDeviceIds),

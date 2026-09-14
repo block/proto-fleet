@@ -146,8 +146,12 @@ type Querier interface {
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
 	// Cancels the pair's active rollout because its assignment changed:
 	// 'superseded', 'rolled_back' or 'cleared'.
+	// Finish after acquiring the header lock, never before creation or the last
+	// stage transition even if the wall clock has moved back.
 	CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error
 	CancelEnrollmentForFleetNode(ctx context.Context, arg CancelEnrollmentForFleetNodeParams) (int64, error)
+	// Record the first terminal time after the header lock, bounded by the
+	// rollout's preceding lifecycle events.
 	CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
@@ -487,6 +491,8 @@ type Querier interface {
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
 	// Ends an active rollout as 'completed' or 'completed_with_failures'.
+	// Record the first terminal time after the header lock, bounded by the
+	// rollout's preceding lifecycle events.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
@@ -1473,6 +1479,8 @@ type Querier interface {
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
 	// Every attempted target advances retry pacing, including preflight skips.
 	// Only targets actually dispatched to may authorize a later provenance write.
+	// Lock targets before sampling one monotonic clock per attempt. A timestamp
+	// evaluated before a target-lock wait would shorten the next retry interval.
 	MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFirmwareRolloutDevicesSentParams) error
 	// Latches convergence for miners that meet every criterion this tick, so the
 	// phase change is a rollout change under the revision rule.
