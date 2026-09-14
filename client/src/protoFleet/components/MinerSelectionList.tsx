@@ -908,15 +908,10 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       [showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
     );
 
+    // The spinner replaces the rows, not the whole list: the header holds the
+    // search field, and unmounting it while a refined query loads after an
+    // empty result would drop focus and swallow the keystrokes typed meanwhile.
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;
-
-    if (showSpinner) {
-      return (
-        <div className="flex justify-center py-20">
-          <ProgressCircular indeterminate />
-        </div>
-      );
-    }
 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -973,7 +968,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
             emptyStateRow={
-              <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+              showSpinner ? (
+                <div className="flex justify-center py-20">
+                  <ProgressCircular indeterminate />
+                </div>
+              ) : (
+                <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+              )
             }
             footerContent={
               !placementFacetConflict && !isLoading && totalMiners !== undefined && totalMiners > 0 ? (

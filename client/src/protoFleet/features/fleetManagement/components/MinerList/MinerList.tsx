@@ -246,6 +246,13 @@ type ScopedMinerListBodyProps = {
   initialActiveFilters: ActiveFilters;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
+  /**
+   * Identity of the saved view the list is showing. The search input remounts
+   * when it changes, which discards a query still waiting on the debounce:
+   * saved views do not carry the search key, so an applied search is cleared on
+   * a view switch, and a pending one must not land on the new view instead.
+   */
+  searchScopeKey: string;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -320,6 +327,7 @@ const ScopedMinerListBody = ({
   minerIds: minerIdsProp,
   onRefetchMiners,
   onWorkerNameUpdated,
+  searchScopeKey,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -428,6 +436,7 @@ const ScopedMinerListBody = ({
             })}
           >
             <MinerSearchInput
+              key={searchScopeKey}
               id="miner-list-search"
               initialValue={searchQuery}
               onQueryChange={onSearchQueryChange}
@@ -1287,6 +1296,7 @@ const MinerList = ({
           initialActiveFilters={initialActiveFilters}
           searchQuery={searchParams.get(MINER_SEARCH_URL_PARAM) ?? currentFilter?.searchQuery ?? ""}
           onSearchQueryChange={handleSearchQueryChange}
+          searchScopeKey={searchParams.get(VIEW_URL_PARAM) ?? ""}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
           overflowContainer={overflowContainer}

@@ -10,8 +10,9 @@ import {
   FLEET_VISIBLE_PAIRING_STATUSES,
 } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
-const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
+const { fleetArgsSpy, fleetState, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
   fleetArgsSpy: vi.fn(),
+  fleetState: { minerIds: ["miner-1"], isLoading: false },
   listPropsSpy: vi.fn(),
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   default: (args: unknown) => {
     fleetArgsSpy(args);
     return {
-      minerIds: ["miner-1"],
+      minerIds: fleetState.minerIds,
       miners: {
         "miner-1": {
           deviceIdentifier: "miner-1",
@@ -33,7 +34,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
         },
       },
       totalMiners: 2,
-      isLoading: false,
+      isLoading: fleetState.isLoading,
       hasMore: false,
       currentPage: 0,
       hasPreviousPage: false,
@@ -75,6 +76,8 @@ vi.mock("@/shared/components/List", () => ({
 describe("MinerSelectionList site scope", () => {
   beforeEach(() => {
     fleetArgsSpy.mockReset();
+    fleetState.minerIds = ["miner-1"];
+    fleetState.isLoading = false;
     listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
@@ -248,6 +251,8 @@ describe("MinerSelectionList site scope", () => {
 describe("MinerSelectionList eligibility", () => {
   beforeEach(() => {
     fleetArgsSpy.mockReset();
+    fleetState.minerIds = ["miner-1"];
+    fleetState.isLoading = false;
     listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
@@ -384,6 +389,23 @@ describe("MinerSelectionList eligibility", () => {
     rerender(<MinerSelectionList eligibility={{ rackId: 1n }} />);
     expect(lastListProps()?.headerControls).toBeTruthy();
     expect(screen.getByLabelText("Show assigned miners")).toBeInTheDocument();
+  });
+
+  it("keeps the focused search field mounted while an empty result set reloads", () => {
+    const { rerender } = render(<MinerSelectionList />);
+    const input = screen.getByLabelText("Search miners");
+    input.focus();
+    expect(input).toHaveFocus();
+
+    // A refined query after a zero-result search: loading, nothing to show yet.
+    fleetState.minerIds = [];
+    fleetState.isLoading = true;
+    rerender(<MinerSelectionList />);
+
+    expect(screen.getByLabelText("Search miners")).toBe(input);
+    expect(input).toHaveFocus();
+    expect(lastListProps()?.items).toEqual([]);
+    expect(lastListProps()?.emptyStateRow).toBeTruthy();
   });
 
   it("debounces the search query before fetching", async () => {
