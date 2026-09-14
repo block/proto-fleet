@@ -3,8 +3,7 @@ import type { KpiMetricName } from "@/protoOS/store";
 
 export type KpiTimeSeriesField = Extract<TimeSeriesLevel, { type: "miner" }>["fields"][number];
 
-// The all-metrics set the miner-level aggregate series fetches for the tabnav
-// summary. Every KPI tab reads from it, so it carries all four fields.
+// Rigs can batch all KPI histories in a single request.
 export const kpiFields = (): KpiTimeSeriesField[] => ["hashrate", "power", "efficiency", "temperature"];
 
 // Only the active tab's metric is charted, so the per-board fan-out fetches

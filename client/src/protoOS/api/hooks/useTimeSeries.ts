@@ -79,18 +79,9 @@ const useTimeSeries = ({
       }
 
       setPending(true);
-      // Key on level identity (type), not the raw array: a JSON of the whole
-      // levels array would still keep the aggregate (miner) and per-board
-      // (hashboard) calls independent, but it would also split one series across
-      // keys whenever its indexes change. Since acceptStoreWrite is
-      // newest-requestId-wins per key, keying by type lets a newer request for
-      // the same resource supersede the older one while the two disjoint series
-      // stay independent of each other.
-      const levelKey = [...requestLevels]
-        .map((level) => level.type)
-        .sort()
-        .join(",");
-      const accept = beginStoreWrite(`telemetry:history:${duration}:${levelKey}`);
+      // Independent fields and board selections must not invalidate each other.
+      // The telemetry store still preserves newer values for overlapping entities.
+      const accept = beginStoreWrite(`telemetry:history:${duration}:${levelScope}`);
       setError(undefined);
 
       // Capture the current duration at the start of the request
@@ -113,6 +104,7 @@ const useTimeSeries = ({
         request: (params) => adapter.getTimeSeries(request, params),
         signal,
         onSuccess: (normalized) => {
+          if (signal.aborted) return;
           // Only update if the duration hasn't changed since we started the request
           const currentDuration = useMinerStore.getState().ui.duration;
           if (requestDuration !== currentDuration) {
@@ -132,7 +124,7 @@ const useTimeSeries = ({
         if (!signal.aborted) setPending(false);
       });
     },
-    [duration, requestLevels, adapter, authRetry],
+    [duration, levelScope, requestLevels, adapter, authRetry],
   );
 
   // usePoll owns the single fetch path: it fires once on mount, refetches
@@ -144,14 +136,17 @@ const useTimeSeries = ({
   // on hydration churn — removed in favor of this one path. Keyed on `levelScope`
   // (not the `levels` array) so a hardware-slice replacement that yields
   // content-identical levels doesn't restart the whole per-board fan-out.
-  const pollParams = useMemo(() => ({ duration, levelScope, hashboardCount }), [duration, levelScope, hashboardCount]);
+  const pollParams = useMemo(
+    () => ({ duration, levelScope, adapter, hashboardCount }),
+    [duration, levelScope, adapter, hashboardCount],
+  );
 
   usePoll({
     fetchData,
     params: pollParams,
     poll,
     pollIntervalMs,
-    enabled: enabled && hashboardCount > 0,
+    enabled: enabled && Boolean(adapter) && hashboardCount > 0,
   });
 
   return useMemo(

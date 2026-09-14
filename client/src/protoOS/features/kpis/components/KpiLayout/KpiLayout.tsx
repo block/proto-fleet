@@ -84,39 +84,37 @@ const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined 
   // Get latest telemetry for the tabnav summary.
   useTelemetry({ level: telemetryLevels });
 
-  // Container Home is the only view whose per-board series spans every board.
-  // Split telemetry into two requests: an all-metrics container-aggregate (miner)
-  // series for the tabnav summary and aggregate chart line, and a per-board
-  // (hashboard) series scoped to the active metric for the per-tank lines and
-  // Lowest Performer. Module/tank views read per-board only; rigs read both.
+  // CT1 loads only the visible chart's aggregate and per-board histories.
+  // Tab summaries use live telemetry; rigs can fetch all fields in one batch.
   const isContainerHome = isContainer && selection?.level !== "module" && selection?.level !== "tank";
 
   // Aggregate (miner-level) series. Container module/tank views have no
   // aggregate line (they read per-board only), matching prior behavior.
   const aggregateLevels = useMemo<TimeSeriesLevel[]>(() => {
+    if (!isContainer) {
+      return [
+        { type: "miner", fields: kpiFields() },
+        { type: "hashboard", fields: kpiFields() },
+      ];
+    }
     if (isContainer && !isContainerHome) return [];
-    return [{ type: "miner", fields: kpiFields() }];
-  }, [isContainer, isContainerHome]);
+    return [{ type: "miner", fields: perBoardFieldsForMetric(activeMetric) }];
+  }, [isContainer, isContainerHome, activeMetric]);
 
   // Per-board (hashboard-level) series. On container Home this is every board;
-  // on module/tank it is the selected subset; on a rig it is every board. Feeds
+  // on module/tank it is the selected subset. Feeds
   // per-tank chart lines and the Lowest Performer readout. Scoped to the active
   // tab's metric (not all four) since only one chart is on screen.
   // TODO(frigate): replace this per-board fan-out (one request per board) with a
   // container-wide / tank-level aggregated timeseries endpoint (see the
   // "Proposed API improvements" issue #88).
   const perBoardLevels = useMemo<TimeSeriesLevel[]>(() => {
+    if (!isContainer) return [];
     const fields = perBoardFieldsForMetric(activeMetric);
-    if (isContainer) {
-      const indexes = selectedContainerHashboardIndexes(hardware, selection);
-      return [{ type: "hashboard", fields, indexes }];
-    }
-    return [{ type: "hashboard", fields }];
+    const indexes = selectedContainerHashboardIndexes(hardware, selection);
+    return [{ type: "hashboard", fields, indexes }];
   }, [hardware, isContainer, selection, activeMetric]);
 
-  // Fetch time series for hashrate/eff/power/temperature. Split so the per-board
-  // fan-out stays scoped to the active metric independently of the all-metrics
-  // aggregate series.
   useTimeSeries({
     duration,
     levels: aggregateLevels,
@@ -127,6 +125,7 @@ const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined 
     duration,
     levels: perBoardLevels,
     poll: true,
+    enabled: perBoardLevels.length > 0,
   });
 
   const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
