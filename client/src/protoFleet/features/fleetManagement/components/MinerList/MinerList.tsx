@@ -406,7 +406,14 @@ const ScopedMinerListBody = ({
         leadingHeaderControls={
           <div
             className={clsx("min-w-0 shrink-0", {
-              "phone:w-full": searchExpanded || Boolean(searchQuery),
+              // The filter row is padded on its left edge only (the page's
+              // `paddingLeft`), because until now nothing in it was full-width
+              // — content-sized pills simply never reached the right edge. A
+              // `w-full` child does, so the expanded field would sit flush
+              // against the viewport while every sibling stayed inset. Mirror
+              // the page's own inset with the same variable List publishes for
+              // its left padding, so the two edges cannot drift apart.
+              "phone:w-full phone:pr-(--list-padding-phone)": searchExpanded || Boolean(searchQuery),
             })}
           >
             <MinerSearchInput

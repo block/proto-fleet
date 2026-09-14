@@ -120,6 +120,11 @@ const MinerListWrapper = ({
         totalMiners={totalMiners}
         totalUnfilteredMiners={totalUnfilteredMiners}
         onAddMiners={action("onAddMiners")}
+        // Mirror the Fleet page's own layout props. Without them the story
+        // renders edge-to-edge with no page inset, which hides any overflow
+        // that only appears once the filter row is padded.
+        paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
+        overflowContainer={false}
       />
     </div>
   );
