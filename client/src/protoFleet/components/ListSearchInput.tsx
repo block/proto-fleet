@@ -145,7 +145,10 @@ const ListSearchInput = ({
   }
 
   return (
-    <div role="search" aria-label={label} data-testid={`${id}-expanded`}>
+    // The landmark is left unnamed on purpose: its only control already carries
+    // `label`, and naming the region the same way makes "Search miners" resolve
+    // to two elements for assistive tech and for getByLabelText alike.
+    <div role="search" data-testid={`${id}-expanded`}>
       <Search
         id={id}
         label={label}
