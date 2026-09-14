@@ -990,7 +990,7 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, c
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
 		channel, err := s.store.GetQueries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 		if err != nil {
-			return fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
+			return channelLookupError(channelID, err)
 		}
 		behavior, err := s.behaviorFor(channel, override)
 		if err != nil {
@@ -1010,7 +1010,7 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 	q := s.store.GetQueries(ctx)
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
 	if err != nil {
-		return nil, fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
+		return nil, channelLookupError(channelID, err)
 	}
 	behavior, err := s.behaviorFor(channel, override)
 	if err != nil {
@@ -1044,12 +1044,12 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 			AssignmentGeneration: generation,
 		}, 0))
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("list mismatched members: %v", err)
+			return nil, fleeterror.NewInternalErrorf("list mismatched members: %w", err)
 		}
 		plan.TargetCount = int32(len(mismatched)) //nolint:gosec // bounded by the member count
 		members, err := q.ListReleaseChannelMembers(ctx, orgID)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("list channel members: %v", err)
+			return nil, fleeterror.NewInternalErrorf("list channel members: %w", err)
 		}
 		for _, m := range members {
 			if m.ChannelID == channel.ID && a.pair.matchesObserved(m.Manufacturer, m.Model) &&
@@ -1107,13 +1107,16 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 		}
 		channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: row.ChannelID, OrgID: orgID})
 		if err != nil {
-			return fleeterror.NewNotFoundErrorf("release channel not found: %d", row.ChannelID)
+			return channelLookupError(row.ChannelID, err)
 		}
 		channelID = channel.ID
 		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
 		assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
 			ChannelID: channel.ID, Manufacturer: pair.Manufacturer, Model: pair.Model,
 		})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
+		}
 		if err != nil || assignment.AssignmentGeneration != row.AssignmentGeneration {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonStaleGeneration},
 				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channel.Name)
@@ -1151,7 +1154,7 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 	q := s.store.GetQueries(ctx)
 	existing, err := q.ListReleaseChannelFirmware(ctx, channel.OrgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list channel firmware: %v", err)
+		return nil, fleeterror.NewInternalErrorf("list channel firmware: %w", err)
 	}
 	current := map[PairKey]*sqlc.ReleaseChannelFirmware{}
 	for i := range existing {
@@ -1225,14 +1228,14 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 			if _, err := q.ClearReleaseChannelFirmware(ctx, sqlc.ClearReleaseChannelFirmwareParams{
 				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, AssignedBy: actor.ID,
 			}); err != nil {
-				return nil, fleeterror.NewInternalErrorf("clear assignment: %v", err)
+				return nil, fleeterror.NewInternalErrorf("clear assignment: %w", err)
 			}
 			why := CancelReasonCleared
 			if cancelReason == CancelReasonRolledBack {
 				why = CancelReasonRolledBack
 			}
 			if err := cancel(why); err != nil {
-				return nil, fleeterror.NewInternalErrorf("cancel rollout: %v", err)
+				return nil, fleeterror.NewInternalErrorf("cancel rollout: %w", err)
 			}
 			continue
 		}
@@ -1251,10 +1254,10 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 			AssignedBy:                 actor.ID,
 		})
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("assign firmware: %v", err)
+			return nil, fleeterror.NewInternalErrorf("assign firmware: %w", err)
 		}
 		if err := cancel(cancelReason); err != nil {
-			return nil, fleeterror.NewInternalErrorf("cancel replaced rollout: %v", err)
+			return nil, fleeterror.NewInternalErrorf("cancel replaced rollout: %w", err)
 		}
 
 		// Start the rollout here rather than leaving it to the enforcement

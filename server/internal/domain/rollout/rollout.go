@@ -354,7 +354,7 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 		var err error
 		rows, err = q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(spec, 0))
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("list mismatched members: %v", err)
+			return nil, fleeterror.NewInternalErrorf("list mismatched members: %w", err)
 		}
 	}
 	if len(rows) == 0 {
@@ -401,7 +401,7 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 		BatchCount:               int32(len(batches)), // #nosec G115 -- bounded by the member count
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("create rollout: %v", err)
+		return nil, fleeterror.NewInternalErrorf("create rollout: %w", err)
 	}
 
 	offset := 0
@@ -427,7 +427,7 @@ func (s *Service) snapshot(ctx context.Context, rolloutID int64, deviceIDs []int
 		PositionOffset: int32(offset), // #nosec G115 -- bounded by the member count
 	}
 	if err := s.store.GetQueries(ctx).SnapshotFirmwareRolloutDevices(ctx, params); err != nil {
-		return fleeterror.NewInternalErrorf("snapshot rollout devices: %v", err)
+		return fleeterror.NewInternalErrorf("snapshot rollout devices: %w", err)
 	}
 	return nil
 }
@@ -497,7 +497,7 @@ func (s *Service) PauseRollout(ctx context.Context, orgID, rolloutID int64, m Mu
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("pause rollout: %v", err)
+			return fleeterror.NewInternalErrorf("pause rollout: %w", err)
 		}
 		if n == 0 {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonPaused}, "rollout %d is already paused", rolloutID)
@@ -515,7 +515,7 @@ func (s *Service) ResumeRollout(ctx context.Context, orgID, rolloutID int64, m M
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("resume rollout: %v", err)
+			return fleeterror.NewInternalErrorf("resume rollout: %w", err)
 		}
 		if n == 0 {
 			return fleeterror.NewFailedPreconditionErrorf("rollout %d is not paused", rolloutID)
@@ -556,7 +556,7 @@ func (s *Service) mutateActive(ctx context.Context, orgID, rolloutID int64, m Mu
 func (s *Service) refreshView(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
 	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("reload rollout %d: %v", rolloutID, err)
+		return nil, fleeterror.NewInternalErrorf("reload rollout %d: %w", rolloutID, err)
 	}
 	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
 	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
@@ -569,7 +569,7 @@ func (s *Service) lockRollout(ctx context.Context, orgID, rolloutID, expectedRev
 	q := s.store.GetQueries(ctx)
 	row, err := q.GetFirmwareRolloutForUpdate(ctx, sqlc.GetFirmwareRolloutForUpdateParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
-		return sqlc.FirmwareRollout{}, "", fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+		return sqlc.FirmwareRollout{}, "", rolloutLookupError(rolloutID, err)
 	}
 	if expectedRevision != 0 && row.Revision != expectedRevision {
 		return sqlc.FirmwareRollout{}, "", reason(fleeterror.NewFailedPreconditionErrorf,
@@ -578,9 +578,16 @@ func (s *Service) lockRollout(ctx context.Context, orgID, rolloutID, expectedRev
 	}
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: row.ChannelID, OrgID: orgID})
 	if err != nil {
-		return sqlc.FirmwareRollout{}, "", fleeterror.NewNotFoundErrorf("release channel not found: %d", row.ChannelID)
+		return sqlc.FirmwareRollout{}, "", channelLookupError(row.ChannelID, err)
 	}
 	return row, channel.Name, nil
+}
+
+func rolloutLookupError(rolloutID int64, err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+	}
+	return fleeterror.NewInternalErrorf("get rollout %d: %w", rolloutID, err)
 }
 
 // extra merges the mutation's note into event metadata.
@@ -618,7 +625,7 @@ func (s *Service) advance(ctx context.Context, row *sqlc.FirmwareRollout, from s
 		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d changed or was paused before its stage could advance", row.ID)
 	}
 	if err != nil {
-		return fleeterror.NewInternalErrorf("advance rollout: %v", err)
+		return fleeterror.NewInternalErrorf("advance rollout: %w", err)
 	}
 	row.Stage, row.CurrentBatch, row.StageChangedAt, row.StagePausedMicroseconds = stage, batch, changedAt, 0
 	return nil
@@ -636,7 +643,7 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 			RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("cancel rollout: %v", err)
+			return fleeterror.NewInternalErrorf("cancel rollout: %w", err)
 		}
 		if n == 0 {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotActive}, "rollout %d is not active", rolloutID)
@@ -658,7 +665,7 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 			if err := q.HaltFirmwareRolloutDevices(ctx, sqlc.HaltFirmwareRolloutDevicesParams{
 				RolloutID: rolloutID, DeviceIds: remaining, HaltReason: HaltReasonCanceled, LastError: "Update canceled by operator",
 			}); err != nil {
-				return fleeterror.NewInternalErrorf("halt remaining devices: %v", err)
+				return fleeterror.NewInternalErrorf("halt remaining devices: %w", err)
 			}
 		}
 		s.logRolloutEvent(ctx, *row, channelName, EventRolloutCanceled, false, m.extra(map[string]any{"remaining": len(remaining)}))
@@ -695,7 +702,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 				OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
 			})
 			if err != nil {
-				return fleeterror.NewInternalErrorf("list suppressed members: %v", err)
+				return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
 			}
 			ids := make([]int64, len(suppressed))
 			for i, d := range suppressed {
@@ -703,13 +710,13 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 			}
 			requeued, err := q.RequeueFirmwareRolloutDevices(ctx, sqlc.RequeueFirmwareRolloutDevicesParams{RolloutID: rolloutID, DeviceIds: ids})
 			if err != nil {
-				return fleeterror.NewInternalErrorf("requeue devices: %v", err)
+				return fleeterror.NewInternalErrorf("requeue devices: %w", err)
 			}
 			if len(requeued) > 0 {
 				if err := q.RecordFirmwareRolloutAction(ctx, sqlc.RecordFirmwareRolloutActionParams{
 					RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 				}); err != nil {
-					return fleeterror.NewInternalErrorf("record retry: %v", err)
+					return fleeterror.NewInternalErrorf("record retry: %w", err)
 				}
 				s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(requeued)}))
 			}
@@ -720,6 +727,9 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
 			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model,
 		})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
+		}
 		if err != nil || assignment.AssignmentGeneration != row.AssignmentGeneration || assignment.FirmwareChecksum != row.FirmwareChecksum {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonStaleGeneration},
 				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channelName)
@@ -729,12 +739,14 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		}); err == nil {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonRolloutActive},
 				"%s %s in %s already has an active rollout", pair.Manufacturer, pair.Model, channelName)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInternalErrorf("get active firmware rollout: %w", err)
 		}
 		suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
 			OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("list suppressed members: %v", err)
+			return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
 		}
 		if len(suppressed) == 0 {
 			fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareChecksum)
@@ -769,7 +781,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
 	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
-		return nil, fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+		return nil, rolloutLookupError(rolloutID, err)
 	}
 	fileID, _ := s.files.FindFirmwareFileIDByChecksum(row.FirmwareRollout.FirmwareChecksum)
 	return s.rolloutView(ctx, row.FirmwareRollout, row.ChannelName, fileID)
@@ -780,7 +792,7 @@ func (s *Service) GetRollout(ctx context.Context, orgID, rolloutID int64) (*Roll
 func (s *Service) ListRolloutDevices(ctx context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]RolloutDevice, string, error) {
 	row, err := s.store.GetQueries(ctx).GetFirmwareRolloutWithChannel(ctx, sqlc.GetFirmwareRolloutWithChannelParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
-		return nil, "", fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+		return nil, "", rolloutLookupError(rolloutID, err)
 	}
 	offset := 0
 	if cursor != "" {
@@ -887,7 +899,7 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 		var err error
 		pollXmin, err = s.store.GetQueries(ctx).GetFirmwareRolloutPollWatermark(ctx)
 		if err != nil {
-			return nil, "", "", fleeterror.NewInternalErrorf("get rollout poll watermark: %v", err)
+			return nil, "", "", fleeterror.NewInternalErrorf("get rollout poll watermark: %w", err)
 		}
 	}
 	limit := clampPageSize(filter.PageSize)
@@ -896,7 +908,7 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 
 	rows, err := s.store.GetQueries(ctx).ListFirmwareRollouts(ctx, params)
 	if err != nil {
-		return nil, "", "", fleeterror.NewInternalErrorf("list rollouts: %v", err)
+		return nil, "", "", fleeterror.NewInternalErrorf("list rollouts: %w", err)
 	}
 	pollXminText := strconv.FormatInt(pollXmin, 10)
 	next := ""
@@ -1058,7 +1070,7 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 func (s *Service) listTargets(ctx context.Context, r sqlc.FirmwareRollout) ([]target, error) {
 	rows, err := s.store.GetQueries(ctx).ListFirmwareRolloutDevices(ctx, r.ID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list rollout devices: %v", err)
+		return nil, fleeterror.NewInternalErrorf("list rollout devices: %w", err)
 	}
 	own := map[string]bool{}
 	for _, id := range s.files.FirmwareFileIDsByChecksum(r.FirmwareChecksum) {

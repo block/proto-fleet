@@ -267,7 +267,7 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 		}
 		n, err := s.store.GetQueries(ctx).FinishFirmwareRollout(ctx, sqlc.FinishFirmwareRolloutParams{RolloutID: r.ID, Status: status})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("finish rollout: %v", err)
+			return fleeterror.NewInternalErrorf("finish rollout: %w", err)
 		}
 		if n > 0 {
 			r.Status = status
@@ -288,7 +288,7 @@ func (s *Service) transition(ctx context.Context, r *sqlc.FirmwareRollout, from,
 		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d changed or was paused before its stage could advance", r.ID)
 	}
 	if err != nil {
-		return fleeterror.NewInternalErrorf("transition rollout: %v", err)
+		return fleeterror.NewInternalErrorf("transition rollout: %w", err)
 	}
 	r.Stage, r.StageChangedAt, r.StagePausedMicroseconds = to, changedAt, 0
 	if onDone != nil {
@@ -338,13 +338,13 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 	changed := false
 	if len(leavers) > 0 {
 		if err := q.ExcludeFirmwareRolloutDevices(ctx, sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: leavers}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("exclude rollout devices: %v", err)
+			return nil, fleeterror.NewInternalErrorf("exclude rollout devices: %w", err)
 		}
 		changed = true
 	}
 	if len(returners) > 0 {
 		if err := q.ReincludeFirmwareRolloutDevices(ctx, sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: returners}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("reinclude rollout devices: %v", err)
+			return nil, fleeterror.NewInternalErrorf("reinclude rollout devices: %w", err)
 		}
 		changed = true
 	}
@@ -354,7 +354,7 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		AssignmentGeneration: r.AssignmentGeneration,
 	}, r.ID))
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list late joiners: %v", err)
+		return nil, fleeterror.NewInternalErrorf("list late joiners: %w", err)
 	}
 	if len(joiners) > 0 {
 		ids := make([]int64, len(joiners))
@@ -362,7 +362,7 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 			ids[i] = j.DeviceID
 		}
 		if err := q.AppendFirmwareRolloutDevices(ctx, sqlc.AppendFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: ids}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("append rollout devices: %v", err)
+			return nil, fleeterror.NewInternalErrorf("append rollout devices: %w", err)
 		}
 		changed = true
 	}
@@ -407,7 +407,7 @@ func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, 
 		ExpectedDeployedAts:       expectedDeployedAt,
 		ExpectedFirmwareChecksums: expectedChecksums,
 	}); err != nil {
-		return nil, fleeterror.NewInternalErrorf("record firmware deployment: %v", err)
+		return nil, fleeterror.NewInternalErrorf("record firmware deployment: %w", err)
 	}
 	return s.listTargets(ctx, r)
 }
@@ -431,12 +431,12 @@ func (s *Service) recordConvergence(ctx context.Context, r sqlc.FirmwareRollout,
 	q := s.store.GetQueries(ctx)
 	if len(drifted) > 0 {
 		if err := q.UnverifyFirmwareRolloutDevices(ctx, sqlc.UnverifyFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: drifted}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("reopen rollout convergence: %v", err)
+			return nil, fleeterror.NewInternalErrorf("reopen rollout convergence: %w", err)
 		}
 	}
 	if len(verified) > 0 {
 		if err := q.MarkFirmwareRolloutDevicesVerified(ctx, sqlc.MarkFirmwareRolloutDevicesVerifiedParams{RolloutID: r.ID, DeviceIds: verified}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("verify rollout devices: %v", err)
+			return nil, fleeterror.NewInternalErrorf("verify rollout devices: %w", err)
 		}
 	}
 	if len(drifted)+len(verified) == 0 {
@@ -497,7 +497,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 			RolloutID: r.ID, DeviceIds: incompatible, HaltReason: HaltReasonFailed,
 			LastError: "Reported manufacturer or model changed before the update verified; no further update was sent. Review this miner's identity and firmware compatibility before retrying.",
 		}); err != nil {
-			return 0, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %v", err)
+			return 0, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %w", err)
 		}
 	}
 	halted := len(toHalt) + len(incompatible)
@@ -506,7 +506,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 			RolloutID: r.ID, DeviceIds: toHalt, HaltReason: HaltReasonFailed,
 			LastError: fmt.Sprintf("Did not report %s after %d update attempts", r.FirmwareVersion, MaxAttempts),
 		}); err != nil {
-			return 0, fleeterror.NewInternalErrorf("fail rollout devices: %v", err)
+			return 0, fleeterror.NewInternalErrorf("fail rollout devices: %w", err)
 		}
 		slog.Warn("rollout enforcement failed devices", "rollout_id", r.ID, "devices", len(toHalt))
 	}
@@ -529,7 +529,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
 	})
 	if err != nil {
-		return halted, fleeterror.NewInternalErrorf("load firmware assignment: %v", err)
+		return halted, fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
 	}
 	if assignment.AssignmentGeneration != r.AssignmentGeneration || assignment.FirmwareChecksum != r.FirmwareChecksum || assignment.FirmwareVersion != r.FirmwareVersion {
 		return halted, nil // a concurrent assignment change superseded this rollout
@@ -554,7 +554,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 		FirmwareVersion:    assignment.FirmwareVersion,
 	})
 	if err != nil {
-		return halted, fleeterror.NewInternalErrorf("dispatch firmware update: %v", err)
+		return halted, fleeterror.NewInternalErrorf("dispatch firmware update: %w", err)
 	}
 	for _, id := range due {
 		budget.reserve(id)
@@ -579,7 +579,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 	if err := q.MarkFirmwareRolloutDevicesSent(ctx, sqlc.MarkFirmwareRolloutDevicesSentParams{
 		RolloutID: r.ID, DeviceIds: due, DispatchedDeviceIds: dispatched, BatchUuid: result.BatchIdentifier,
 	}); err != nil {
-		return halted, fleeterror.NewInternalErrorf("mark rollout devices sent: %v", err)
+		return halted, fleeterror.NewInternalErrorf("mark rollout devices sent: %w", err)
 	}
 	return halted, nil
 }
