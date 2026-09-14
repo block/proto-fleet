@@ -30,6 +30,12 @@ describe("filterUrlParams", () => {
       expect(params.getAll("status")).toEqual(["needs-attention"]);
     });
 
+    it("should encode the miner search query", () => {
+      const filter = create(MinerListFilterSchema, { searchQuery: "  worker-42  " });
+
+      expect(encodeFilterToURL(filter).get("search")).toBe("worker-42");
+    });
+
     it("should handle multiple different status values correctly", () => {
       const filter = create(MinerListFilterSchema, {
         deviceStatus: [DeviceStatus.ONLINE, DeviceStatus.ERROR, DeviceStatus.OFFLINE],
@@ -38,6 +44,12 @@ describe("filterUrlParams", () => {
       const params = encodeFilterToURL(filter);
 
       expect(params.getAll("status").sort()).toEqual(["hashing", "needs-attention", "offline"]);
+    });
+  });
+
+  describe("parseFilterFromURL", () => {
+    it("should parse the miner search query", () => {
+      expect(parseFilterFromURL(new URLSearchParams("search=  worker-42  "))?.searchQuery).toBe("worker-42");
     });
   });
 

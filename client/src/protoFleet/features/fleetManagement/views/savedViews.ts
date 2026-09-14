@@ -30,6 +30,7 @@ const MINER_FILTER_KEYS: readonly string[] = [
   "firmware",
   "zone",
   "subnet",
+  "search",
   ...Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [`${key}_min`, `${key}_max`]),
 ];
 

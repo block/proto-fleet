@@ -427,6 +427,27 @@ describe("List", () => {
     expect(screen.queryByText("All Items")).not.toBeInTheDocument();
   });
 
+  it("renders trailing filter controls after the filter pills and before the actions", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        filters={testFilters}
+        trailingFilterControls={<button type="button">Search miners</button>}
+        headerControls={<button type="button">Add miner</button>}
+        items={testItems}
+        itemKey="id"
+      />,
+    );
+
+    const search = screen.getByRole("button", { name: "Search miners" });
+    const filter = screen.getByText("All Items");
+    const action = screen.getByRole("button", { name: "Add miner" });
+    expect(filter.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(search.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps filter controls visible for a filtered no-data state", () => {
     render(
       <List<TestItem, TestItemKey>

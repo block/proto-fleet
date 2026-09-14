@@ -26,6 +26,7 @@ const applyAllowedPairingStatuses = (
   const hasExplicitPairingStatuses = requestedPairingStatuses.length > 0;
 
   return create(MinerListFilterSchema, {
+    searchQuery: filter?.searchQuery ?? "",
     deviceStatus: filter?.deviceStatus ?? [],
     errorComponentTypes: filter?.errorComponentTypes ?? [],
     models: filter?.models ?? [],

@@ -30,6 +30,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
@@ -44,6 +45,7 @@ import {
   encodeActiveFiltersToURL,
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
+  MINER_SEARCH_URL_PARAM,
   parseUrlToActiveFilters,
   UNASSIGNED_FILTER_OPTION,
   UNASSIGNED_URL_VALUE,
@@ -242,6 +244,15 @@ type ScopedMinerListBodyProps = {
   filters: FilterItem[];
   handleServerFilter: (filters: ActiveFilters) => Promise<void>;
   initialActiveFilters: ActiveFilters;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  /**
+   * Identity of the saved view the list is showing. The search input remounts
+   * when it changes, which discards a query still waiting on the debounce:
+   * saved views do not carry the search key, so an applied search is cleared on
+   * a view switch, and a pending one must not land on the new view instead.
+   */
+  searchScopeKey: string;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -283,6 +294,8 @@ const ScopedMinerListBody = ({
   filters,
   handleServerFilter,
   initialActiveFilters,
+  searchQuery,
+  onSearchQueryChange,
   listClassName,
   paddingLeft,
   overflowContainer,
@@ -314,9 +327,11 @@ const ScopedMinerListBody = ({
   minerIds: minerIdsProp,
   onRefetchMiners,
   onWorkerNameUpdated,
+  searchScopeKey,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.
   const [prevSelectionScopeKey, setPrevSelectionScopeKey] = useState(selectionScopeKey);
@@ -364,6 +379,17 @@ const ScopedMinerListBody = ({
     setSelectedMinerIds([]);
     setSelectionMode("none");
   }, []);
+  // The typed query only reaches the URL, and with it selectionScopeKey, after
+  // the debounce. Until then the key still describes the previous scope, so an
+  // all-mode selection made before typing would let a bulk action target the
+  // whole prior result set while the field visibly shows a narrower query.
+  // Disarm on the keystroke instead of waiting for the applied filter.
+  const handleSearchQueryInput = useCallback(
+    (query: string) => {
+      if (query.trim() !== searchQuery.trim()) handleSelectNoneMiners();
+    },
+    [handleSelectNoneMiners, searchQuery],
+  );
 
   // All-mode fails safe: when the auth-needed count hasn't settled yet, treat
   // the selection as if it includes one (off-page auth-needed miners are
@@ -396,8 +422,32 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
+        trailingFilterControls={
+          <div
+            className={clsx("min-w-0 shrink-0", {
+              // The filter row is padded on its left edge only (the page's
+              // `paddingLeft`), because until now nothing in it was full-width
+              // — content-sized pills simply never reached the right edge. A
+              // `w-full` child does, so the expanded field would sit flush
+              // against the viewport while every sibling stayed inset. Mirror
+              // the page's own inset with the same variable List publishes for
+              // its left padding, so the two edges cannot drift apart.
+              "phone:w-full phone:pr-(--list-padding-phone)": searchExpanded || Boolean(searchQuery),
+            })}
+          >
+            <MinerSearchInput
+              key={searchScopeKey}
+              id="miner-list-search"
+              initialValue={searchQuery}
+              onQueryChange={onSearchQueryChange}
+              onQueryInput={handleSearchQueryInput}
+              onExpandedChange={setSearchExpanded}
+              collapsible
+            />
+          </div>
+        }
         headerControls={
-          <div className="flex min-w-0 items-center justify-end">
+          <div className="flex min-w-0 items-center justify-end gap-2">
             <div className="hidden items-center gap-2 tablet:flex">
               <Button
                 ariaLabel="Manage columns"
@@ -753,9 +803,22 @@ const MinerList = ({
     navigate({ search: params.toString() ? `?${params.toString()}` : "" }, { replace: true });
   }, [activeCols, navigate, searchParams, sortColumnFromUrl]);
 
+  const handleSearchQueryChange = useCallback(
+    (query: string) => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      if (query) nextSearchParams.set(MINER_SEARCH_URL_PARAM, query);
+      else nextSearchParams.delete(MINER_SEARCH_URL_PARAM);
+      navigate({ search: nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : "" }, { replace: true });
+    },
+    [navigate, searchParams],
+  );
+
   const selectionFilterKey = useMemo(() => {
-    return encodeActiveFiltersToURL(initialActiveFilters).toString();
-  }, [initialActiveFilters]);
+    const encodedFilters = encodeActiveFiltersToURL(initialActiveFilters);
+    const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
+    if (searchQuery) encodedFilters.set(MINER_SEARCH_URL_PARAM, searchQuery);
+    return encodedFilters.toString();
+  }, [initialActiveFilters, searchParams]);
   // The SitePicker scope lives in the store, not the URL, so it isn't in
   // selectionFilterKey. Fold the effective filter's site scope in too, so
   // switching the active site resets the selection — otherwise the bulk
@@ -1126,6 +1189,8 @@ const MinerList = ({
       // Start fresh with filter params, then preserve existing sort + active
       // view so dirtying a view doesn't lose its identity.
       const params = encodeFilterToURL(minerFilter);
+      const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
+      if (searchQuery) params.set(MINER_SEARCH_URL_PARAM, searchQuery);
       const sortParam = searchParams.get("sort");
       const dirParam = searchParams.get("dir");
       const viewParam = searchParams.get(VIEW_URL_PARAM);
@@ -1229,6 +1294,9 @@ const MinerList = ({
           filters={filters}
           handleServerFilter={handleServerFilter}
           initialActiveFilters={initialActiveFilters}
+          searchQuery={searchParams.get(MINER_SEARCH_URL_PARAM) ?? currentFilter?.searchQuery ?? ""}
+          onSearchQueryChange={handleSearchQueryChange}
+          searchScopeKey={searchParams.get(VIEW_URL_PARAM) ?? ""}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
           overflowContainer={overflowContainer}
