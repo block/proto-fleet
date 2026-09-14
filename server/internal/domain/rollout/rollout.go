@@ -599,22 +599,28 @@ func (m Mutation) extra(extra map[string]any) map[string]any {
 // the last batch, to the rest stage, attributing it to m when an actor drove
 // it. row is updated in place.
 func (s *Service) advance(ctx context.Context, row *sqlc.FirmwareRollout, from string, m *Mutation) error {
+	if row.PausedAt.Valid {
+		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonPaused}, "rollout %d is paused", row.ID)
+	}
 	stage, batch := StageRest, row.CurrentBatch
 	if next := row.CurrentBatch + 1; next < row.BatchCount {
 		stage, batch = StageBatch, next
 	}
-	params := sqlc.AdvanceFirmwareRolloutStageParams{RolloutID: row.ID, FromStage: from, Stage: stage, CurrentBatch: batch}
+	params := sqlc.AdvanceFirmwareRolloutStageParams{
+		RolloutID: row.ID, FromStage: from, Stage: stage, CurrentBatch: batch,
+		ExpectedStageChangedAt: row.StageChangedAt, ExpectedStagePausedMicroseconds: row.StagePausedMicroseconds,
+	}
 	if m != nil {
 		params.ActorType, params.ActorID, params.ActorName = m.actorParams()
 	}
-	n, err := s.store.GetQueries(ctx).AdvanceFirmwareRolloutStage(ctx, params)
+	changedAt, err := s.store.GetQueries(ctx).AdvanceFirmwareRolloutStage(ctx, params)
+	if errors.Is(err, sql.ErrNoRows) {
+		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d changed or was paused before its stage could advance", row.ID)
+	}
 	if err != nil {
 		return fleeterror.NewInternalErrorf("advance rollout: %v", err)
 	}
-	if n == 0 {
-		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d is no longer in the %s stage", row.ID, from)
-	}
-	row.Stage, row.CurrentBatch, row.StageChangedAt = stage, batch, s.now()
+	row.Stage, row.CurrentBatch, row.StageChangedAt, row.StagePausedMicroseconds = stage, batch, changedAt, 0
 	return nil
 }
 

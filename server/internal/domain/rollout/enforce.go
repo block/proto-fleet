@@ -3,6 +3,7 @@ package rollout
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -254,7 +255,7 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 
 	case StageWaiting:
 		wait := time.Duration(behavior.WaitBetweenBatchesSeconds) * time.Second
-		if s.now().Sub(r.StageChangedAt) < wait {
+		if s.stageElapsed(r) < wait {
 			return nil
 		}
 		return s.advance(ctx, &r, StageWaiting, nil)
@@ -279,19 +280,36 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 // transition moves a rollout between stages of the same batch (batch ->
 // awaiting_review / waiting); onDone runs only when this tick won the race.
 func (s *Service) transition(ctx context.Context, r *sqlc.FirmwareRollout, from, to string, onDone func()) error {
-	n, err := s.store.GetQueries(ctx).AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
+	changedAt, err := s.store.GetQueries(ctx).AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
 		RolloutID: r.ID, FromStage: from, Stage: to, CurrentBatch: r.CurrentBatch,
+		ExpectedStageChangedAt: r.StageChangedAt, ExpectedStagePausedMicroseconds: r.StagePausedMicroseconds,
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d changed or was paused before its stage could advance", r.ID)
+	}
 	if err != nil {
 		return fleeterror.NewInternalErrorf("transition rollout: %v", err)
 	}
-	if n > 0 {
-		r.Stage, r.StageChangedAt = to, s.now()
-		if onDone != nil {
-			onDone()
-		}
+	r.Stage, r.StageChangedAt, r.StagePausedMicroseconds = to, changedAt, 0
+	if onDone != nil {
+		onDone()
 	}
 	return nil
+}
+
+// stageElapsed counts active time in the current stage while preserving its
+// historical start timestamp. An ongoing pause freezes the clock immediately;
+// completed pauses are accumulated by ResumeFirmwareRollout.
+func (s *Service) stageElapsed(r sqlc.FirmwareRollout) time.Duration {
+	until := s.now()
+	if r.PausedAt.Valid {
+		until = r.PausedAt.Time
+	}
+	elapsed := until.Sub(r.StageChangedAt)
+	if elapsed <= 0 || r.StagePausedMicroseconds > elapsed.Microseconds() {
+		return 0
+	}
+	return elapsed - time.Duration(r.StagePausedMicroseconds)*time.Microsecond
 }
 
 // syncMembership reconciles the rollout's target set with the channel's
@@ -667,7 +685,7 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	case th.MaxNewErrors != nil && ev.NewErrors > *th.MaxNewErrors:
 		ev.HoldReason = fmt.Sprintf("%d new errors since the update (limit %d)", ev.NewErrors, *th.MaxNewErrors)
 	default:
-		remaining := time.Duration(r.BehaviorSnapshot.StabilizationSeconds)*time.Second - s.now().Sub(r.StageChangedAt)
+		remaining := time.Duration(r.BehaviorSnapshot.StabilizationSeconds)*time.Second - s.stageElapsed(r)
 		if r.BehaviorSnapshot.StabilizationSeconds > 0 && remaining > 0 {
 			ev.StabilizationRemainingSeconds = int32(math.Ceil(remaining.Seconds())) // #nosec G115 -- bounded by StabilizationSeconds, an int32
 			ev.HoldReason = holdStabilizing
