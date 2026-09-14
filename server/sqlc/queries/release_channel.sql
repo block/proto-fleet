@@ -641,12 +641,23 @@ WHERE r.id = locked_rollout.id
   AND r.stage = sqlc.arg('from_stage');
 
 -- name: PauseFirmwareRollout :execrows
-UPDATE firmware_rollout
-SET paused_at = now(),
+-- Timestamp the pause after the header lock, never before the creation or
+-- stage transition the caller observed. Repeated pauses keep the first event.
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = sqlc.arg('rollout_id')
+      AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
+SET paused_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
     last_action_by_name = sqlc.arg('actor_name')
-WHERE id = sqlc.arg('rollout_id') AND status = 'active' AND paused_at IS NULL;
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL;
 
 -- name: ResumeFirmwareRollout :execrows
 UPDATE firmware_rollout

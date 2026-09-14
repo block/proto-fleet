@@ -2191,12 +2191,21 @@ func (q *Queries) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg Ma
 }
 
 const pauseFirmwareRollout = `-- name: PauseFirmwareRollout :execrows
-UPDATE firmware_rollout
-SET paused_at = now(),
+WITH locked_rollout AS MATERIALIZED (
+    SELECT candidate.id, candidate.created_at, candidate.stage_changed_at
+    FROM firmware_rollout AS candidate
+    WHERE candidate.id = $4
+      AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
+    FOR UPDATE
+)
+UPDATE firmware_rollout AS r
+SET paused_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, clock_timestamp()),
     last_action_by_type = $1,
     last_action_by_id = $2,
     last_action_by_name = $3
-WHERE id = $4 AND status = 'active' AND paused_at IS NULL
+FROM locked_rollout
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL
 `
 
 type PauseFirmwareRolloutParams struct {
@@ -2206,6 +2215,8 @@ type PauseFirmwareRolloutParams struct {
 	RolloutID int64
 }
 
+// Timestamp the pause after the header lock, never before the creation or
+// stage transition the caller observed. Repeated pauses keep the first event.
 func (q *Queries) PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.pauseFirmwareRolloutStmt, pauseFirmwareRollout,
 		arg.ActorType,
