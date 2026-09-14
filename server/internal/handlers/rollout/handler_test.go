@@ -27,6 +27,8 @@ type fakeService struct {
 	rollout *rollout.Rollout
 	preview *rollout.ScopePreview
 
+	nextChannelCursor string
+
 	lastOrgID        int64
 	lastUserID       int64
 	lastActor        rollout.Actor
@@ -45,9 +47,9 @@ type fakeService struct {
 	err error
 }
 
-func (f *fakeService) ListChannels(_ context.Context, orgID int64) ([]rollout.Channel, error) {
-	f.lastOrgID = orgID
-	return []rollout.Channel{*f.channel}, nil
+func (f *fakeService) ListChannels(_ context.Context, orgID int64, pageSize int32, cursor string) ([]rollout.Channel, string, error) {
+	f.lastOrgID, f.lastPage, f.lastCursor = orgID, pageSize, cursor
+	return []rollout.Channel{*f.channel}, f.nextChannelCursor, nil
 }
 
 func (f *fakeService) GetChannel(_ context.Context, orgID, channelID int64) (*rollout.Channel, error) {
@@ -389,6 +391,40 @@ func TestCreateReleaseChannelTranslatesSpecAndView(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
+}
+
+func TestListReleaseChannelsForwardsPagination(t *testing.T) {
+	t.Parallel()
+	svc := newFakeService()
+	svc.nextChannelCursor = "page-2"
+	h := NewHandler(svc)
+	ctx := ctxWithPermissions(t, authz.PermMinerFirmwareUpdate)
+
+	first, err := h.ListReleaseChannels(ctx, connect.NewRequest(&pb.ListReleaseChannelsRequest{PageSize: 1}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, int32(1), svc.lastPage)
+	assert.Empty(t, svc.lastCursor)
+	require.Len(t, first.Msg.Channels, 1)
+	assert.Equal(t, int64(3), first.Msg.Channels[0].Id)
+	assert.Equal(t, "page-2", first.Msg.Cursor)
+
+	nextChannel := *svc.channel
+	nextChannel.ID = 4
+	nextChannel.Name = "Stable"
+	svc.channel = &nextChannel
+	svc.nextChannelCursor = ""
+	second, err := h.ListReleaseChannels(ctx, connect.NewRequest(&pb.ListReleaseChannelsRequest{
+		PageSize: 1, Cursor: first.Msg.Cursor,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, int32(1), svc.lastPage)
+	assert.Equal(t, "page-2", svc.lastCursor)
+	require.Len(t, second.Msg.Channels, 1)
+	assert.Equal(t, int64(4), second.Msg.Channels[0].Id)
+	assert.Equal(t, "Stable", second.Msg.Channels[0].Name)
+	assert.Empty(t, second.Msg.Cursor)
 }
 
 func TestUnknownBehaviorEnumsAreNotSilentlyDefaulted(t *testing.T) {

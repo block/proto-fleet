@@ -19,7 +19,7 @@ import (
 
 // ChannelService is the release channel half of the rollout domain.
 type ChannelService interface {
-	ListChannels(ctx context.Context, orgID int64) ([]rollout.Channel, error)
+	ListChannels(ctx context.Context, orgID int64, pageSize int32, cursor string) ([]rollout.Channel, string, error)
 	GetChannel(ctx context.Context, orgID, channelID int64) (*rollout.Channel, error)
 	ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error)
 	ListChannelModelGroups(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]rollout.ModelGroup, string, error)
@@ -123,18 +123,16 @@ func refuseDelegated(b *pb.RolloutBehavior) error {
 	return nil
 }
 
-func (h *Handler) ListReleaseChannels(ctx context.Context, _ *connect.Request[pb.ListReleaseChannelsRequest]) (*connect.Response[pb.ListReleaseChannelsResponse], error) {
+func (h *Handler) ListReleaseChannels(ctx context.Context, r *connect.Request[pb.ListReleaseChannelsRequest]) (*connect.Response[pb.ListReleaseChannelsResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
 		return nil, err
 	}
-	channels, err := h.svc.ListChannels(ctx, info.OrganizationID)
+	channels, cursor, err := h.svc.ListChannels(ctx, info.OrganizationID, r.Msg.PageSize, r.Msg.Cursor)
 	if err != nil {
 		return nil, err
 	}
-	// Channels are few per org; the list is not paged server-side yet, so
-	// the response cursor stays empty.
-	resp := &pb.ListReleaseChannelsResponse{}
+	resp := &pb.ListReleaseChannelsResponse{Cursor: cursor}
 	for i := range channels {
 		resp.Channels = append(resp.Channels, channelSummaryToProto(&channels[i]))
 	}
