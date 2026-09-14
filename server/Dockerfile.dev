@@ -3,7 +3,7 @@ FROM golang:1.26.6-alpine
 ARG GO_GCFLAGS=""
 ENV GO_GCFLAGS=${GO_GCFLAGS}
 
-RUN apk add --no-cache git nmap \
+RUN apk add --no-cache git \
  && go install github.com/go-delve/delve/cmd/dlv@v1.27.0
 
 WORKDIR /app

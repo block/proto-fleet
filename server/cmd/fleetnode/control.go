@@ -500,7 +500,11 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	// Two PARTIAL sources: cmdCtx deadline (commandTimeout) or fanOutProbes
 	// supervisor (a probe ignored ctx). Either way reports already uploaded.
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) || errors.Is(scanErr, context.DeadlineExceeded) {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports)), logger)
+		message := fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports))
+		if req.GetNmap() != nil {
+			message += ". Retry to check other addresses, or narrow the range."
+		}
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, message, logger)
 		return
 	}
 	if truncated {

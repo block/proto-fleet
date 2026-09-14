@@ -42,11 +42,11 @@ type Target struct {
 	hostname string
 }
 
-// IsHostname reports whether raw matches the supported DNS hostname grammar.
-func IsHostname(raw string) bool { return hostnameRE.MatchString(raw) }
+// isHostname reports whether raw matches the supported DNS hostname grammar.
+func isHostname(raw string) bool { return hostnameRE.MatchString(raw) }
 
-// IsIPv4Range reports whether raw has the supported A.B.C.D-N range shape.
-func IsIPv4Range(raw string) bool { return ipv4RangeRE.MatchString(raw) }
+// isIPv4Range reports whether raw has the supported A.B.C.D-N range shape.
+func isIPv4Range(raw string) bool { return ipv4RangeRE.MatchString(raw) }
 
 // ParseBoundedTarget parses a target with the Fleet Node CIDR breadth limit.
 func ParseBoundedTarget(raw string) (Target, error) {
@@ -87,7 +87,7 @@ func ParseTarget(raw string) (Target, error) {
 		addr = addr.Unmap()
 		return Target{first: addr, last: addr}, nil
 	}
-	if IsIPv4Range(raw) {
+	if isIPv4Range(raw) {
 		head, tail, _ := strings.Cut(raw, "-")
 		start, err := netip.ParseAddr(head)
 		lastOctet, parseErr := strconv.ParseUint(tail, 10, 8)
@@ -103,7 +103,7 @@ func ParseTarget(raw string) (Target, error) {
 	if multiOctetRangeRE.MatchString(raw) {
 		return Target{}, fmt.Errorf("scan target %q: multi-octet IPv4 ranges are not supported; use IP range mode", raw)
 	}
-	if IsHostname(raw) {
+	if isHostname(raw) {
 		return Target{hostname: raw}, nil
 	}
 	return Target{}, fmt.Errorf("scan target %q is not a valid IP, CIDR, range, or hostname", raw)
@@ -232,7 +232,7 @@ func (t Target) Resolve(ctx context.Context, resolver Resolver, privateOnly bool
 // It shares the supported address grammar with ParseTarget without accepting
 // CIDRs or ranges, resolving DNS, or applying a private-address policy.
 func ParseAddrTarget(raw string) (Target, error) {
-	if _, err := netip.ParseAddr(raw); err != nil && (!IsHostname(raw) || IsIPv4Range(raw) || multiOctetRangeRE.MatchString(raw)) {
+	if _, err := netip.ParseAddr(raw); err != nil && (!isHostname(raw) || isIPv4Range(raw) || multiOctetRangeRE.MatchString(raw)) {
 		return Target{}, fmt.Errorf("invalid IP address or hostname: %q", raw)
 	}
 	return ParseTarget(raw)

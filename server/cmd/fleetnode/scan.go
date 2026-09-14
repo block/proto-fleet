@@ -120,7 +120,7 @@ func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NmapMode
 			}
 			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 		}
-		return target.Addresses(), nil
+		return netscan.InterleavedAddresses([]netscan.Target{target}), nil
 	}
 
 	subnets, err := r.detectLocalSubnets()
@@ -152,15 +152,13 @@ func (r *RunCmd) networkScanTargets(ctx context.Context, req *pairingpb.NmapMode
 	}
 	return func(yield func(netip.Addr) bool) {
 		seen := make(map[netip.Addr]struct{})
-		for _, target := range targets {
-			for addr := range target.Addresses() {
-				if _, duplicate := seen[addr]; duplicate {
-					continue
-				}
-				seen[addr] = struct{}{}
-				if !yield(addr) {
-					return
-				}
+		for addr := range netscan.InterleavedAddresses(targets) {
+			if _, duplicate := seen[addr]; duplicate {
+				continue
+			}
+			seen[addr] = struct{}{}
+			if !yield(addr) {
+				return
 			}
 		}
 	}, nil

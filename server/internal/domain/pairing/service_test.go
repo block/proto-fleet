@@ -12,6 +12,7 @@ import (
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -506,7 +507,7 @@ func TestDiscoverWithIPList_TooManyPortsReturnsError(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-	ports := make([]string, pairing.MaxPortsPerIP+1)
+	ports := make([]string, discoverylimits.MaxPortsPerIP+1)
 	for i := range ports {
 		ports[i] = fmt.Sprintf("%d", 4000+i)
 	}
@@ -529,7 +530,7 @@ func TestDiscoverWithIPRange_TooManyPortsReturnsError(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-	ports := make([]string, pairing.MaxPortsPerIP+1)
+	ports := make([]string, discoverylimits.MaxPortsPerIP+1)
 	for i := range ports {
 		ports[i] = fmt.Sprintf("%d", 4000+i)
 	}

@@ -111,6 +111,74 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
 
 describe("MinersWrapper", () => {
   describe("network scan discovery", () => {
+    it.each(["network", "manual"])("retains and refreshes found miners on a %s rescan", async (mode) => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      const firstMiner = createDiscoveredMiner("miner-1", "192.168.1.100");
+      mockDiscover
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([firstMiner, createDiscoveredMiner("miner-2", "192.168.1.101")]);
+        })
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([
+            createDiscoveredMiner("miner-1", "192.168.1.200"),
+            createDiscoveredMiner("miner-3", "192.168.1.201"),
+          ]);
+        });
+      renderMinersPage(mode === "network" ? "onboarding" : "pairing");
+      if (mode === "network") {
+        fireEvent.click(screen.getByText("Get started"));
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      } else {
+        fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.0/24" } });
+        fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      }
+      expect(await screen.findByText("2 miners found on your network")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
+
+      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+
+      expect(await screen.findByText("3 miners found on your network")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("add-miners-choose-miners"));
+      expect(await screen.findByText("192.168.1.200")).toBeInTheDocument();
+      expect(screen.queryByText("192.168.1.100")).not.toBeInTheDocument();
+      expect(screen.getByText("192.168.1.101")).toBeInTheDocument();
+      expect(screen.getByText("192.168.1.201")).toBeInTheDocument();
+    });
+
+    it("starts fresh after closing and reopening onboarding discovery", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+        })
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([createDiscoveredMiner("miner-2", "192.168.1.200")]);
+        });
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Close add miners"));
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+    });
+
     it("shows loading skeleton when network info is available and Find miners is clicked", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
