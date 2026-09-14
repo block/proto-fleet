@@ -184,6 +184,32 @@ describe("MinerSearchInput", () => {
     expect(onQueryInput).toHaveBeenLastCalledWith("saved-view");
   });
 
+  it("reports the collapse when an externally applied query is cleared again", () => {
+    const onExpandedChange = vi.fn();
+    const { rerender } = render(
+      <MinerSearchInput collapsible initialValue="" onQueryChange={vi.fn()} onExpandedChange={onExpandedChange} />,
+    );
+    expect(onExpandedChange).not.toHaveBeenCalled();
+
+    rerender(
+      <MinerSearchInput
+        collapsible
+        initialValue="saved-view"
+        onQueryChange={vi.fn()}
+        onExpandedChange={onExpandedChange}
+      />,
+    );
+    expect(searchBox()).toHaveValue("saved-view");
+    expect(onExpandedChange).toHaveBeenCalledExactlyOnceWith(true);
+
+    rerender(
+      <MinerSearchInput collapsible initialValue="" onQueryChange={vi.fn()} onExpandedChange={onExpandedChange} />,
+    );
+    expect(screen.getByRole("button", { name: "Search miners" })).toBeInTheDocument();
+    expect(onExpandedChange).toHaveBeenLastCalledWith(false);
+    expect(onExpandedChange).toHaveBeenCalledTimes(2);
+  });
+
   it("caps search text at the API's 255 Unicode code-point limit", () => {
     vi.useFakeTimers();
     const onQueryChange = vi.fn();

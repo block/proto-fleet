@@ -371,6 +371,17 @@ const ScopedMinerListBody = ({
     setSelectedMinerIds([]);
     setSelectionMode("none");
   }, []);
+  // The typed query only reaches the URL, and with it selectionScopeKey, after
+  // the debounce. Until then the key still describes the previous scope, so an
+  // all-mode selection made before typing would let a bulk action target the
+  // whole prior result set while the field visibly shows a narrower query.
+  // Disarm on the keystroke instead of waiting for the applied filter.
+  const handleSearchQueryInput = useCallback(
+    (query: string) => {
+      if (query.trim() !== searchQuery.trim()) handleSelectNoneMiners();
+    },
+    [handleSelectNoneMiners, searchQuery],
+  );
 
   // All-mode fails safe: when the auth-needed count hasn't settled yet, treat
   // the selection as if it includes one (off-page auth-needed miners are
@@ -420,6 +431,7 @@ const ScopedMinerListBody = ({
               id="miner-list-search"
               initialValue={searchQuery}
               onQueryChange={onSearchQueryChange}
+              onQueryInput={handleSearchQueryInput}
               onExpandedChange={setSearchExpanded}
               collapsible
             />

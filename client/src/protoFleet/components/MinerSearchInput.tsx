@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Search as SearchIcon } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -93,17 +93,32 @@ const MinerSearchInput = ({
     [],
   );
 
-  const setSearchExpanded = useCallback(
+  // `expanded` is only the operator's toggle; a non-empty value expands the
+  // field too. The parent has to hear about transitions of the combined state,
+  // otherwise a query that arrives from navigation reports "expanded" and its
+  // later removal collapses the field without ever reporting the collapse.
+  const shouldExpand = expanded || Boolean(initialValue);
+  const reportedExpandedRef = useRef(shouldExpand);
+  const reportExpanded = useCallback(
     (nextExpanded: boolean) => {
-      setExpanded(nextExpanded);
+      if (reportedExpandedRef.current === nextExpanded) return;
+      reportedExpandedRef.current = nextExpanded;
       onExpandedChange?.(nextExpanded);
     },
     [onExpandedChange],
   );
-  const shouldExpand = expanded || Boolean(initialValue);
-  useEffect(() => {
-    if (collapsible && initialValue && !expanded) onExpandedChange?.(true);
-  }, [collapsible, expanded, initialValue, onExpandedChange]);
+  const setSearchExpanded = useCallback(
+    (nextExpanded: boolean) => {
+      setExpanded(nextExpanded);
+      reportExpanded(nextExpanded);
+    },
+    [reportExpanded],
+  );
+  // Layout effect so the parent's wrapper resizes in the same paint as the
+  // field appears or disappears.
+  useLayoutEffect(() => {
+    if (collapsible) reportExpanded(shouldExpand);
+  }, [collapsible, reportExpanded, shouldExpand]);
   const collapseIfEmpty = useCallback(
     (currentValue = initialValue) => {
       if (collapsible && !currentValue) setSearchExpanded(false);
