@@ -223,12 +223,26 @@ SET requested_by = EXCLUDED.requested_by,
 
 -- name: ClaimRigConfigReconciliation :one
 WITH candidate AS (
-    SELECT organization_id
-    FROM curtailment_rig_config_reconciliation
-    WHERE desired_generation > enqueued_generation
-      AND retry_at <= CURRENT_TIMESTAMP
-      AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
-    ORDER BY retry_at, organization_id
+    SELECT reconciliation.organization_id
+    FROM curtailment_rig_config_reconciliation AS reconciliation
+    WHERE reconciliation.desired_generation > reconciliation.enqueued_generation
+      AND reconciliation.retry_at <= CURRENT_TIMESTAMP
+      AND (reconciliation.lease_expires_at IS NULL OR reconciliation.lease_expires_at <= CURRENT_TIMESTAMP)
+      AND NOT EXISTS (
+          -- A second active row means the current and retry batch slots are full.
+          SELECT 1
+          FROM command_batch_log AS active_batch
+          WHERE active_batch.organization_id = reconciliation.organization_id
+            AND active_batch.type = 'ApplyCurtailmentConfig'
+            AND active_batch.status IN ('PENDING', 'PROCESSING')
+            AND EXISTS (
+                SELECT 1
+                FROM queue_message AS message
+                WHERE message.command_batch_log_uuid = active_batch.uuid
+            )
+          OFFSET 1
+      )
+    ORDER BY reconciliation.retry_at, reconciliation.organization_id
     FOR UPDATE SKIP LOCKED
     LIMIT 1
 )

@@ -284,6 +284,110 @@ func TestReaperIntegration(t *testing.T) {
 	})
 }
 
+func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn, dbService, user := setupReaperTest(t)
+	queries := sqlc.New(conn)
+	ctx := t.Context()
+	device := dbService.CreateDevice(user.OrganizationID, "proto")
+	require.NoError(t, queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
+		OrganizationID: user.OrganizationID,
+		RequestedBy:    user.DatabaseID,
+	}))
+	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
+		OrganizationID:     user.OrganizationID,
+		EnqueuedGeneration: 1,
+	}))
+
+	commandType := commandtype.ApplyCurtailmentConfig
+	createBatch := func(batchUUID string) {
+		_, err := queries.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+			Uuid:           batchUUID,
+			Type:           commandType.String(),
+			CreatedBy:      user.DatabaseID,
+			CreatedAt:      time.Now(),
+			Status:         sqlc.BatchStatusEnumPENDING,
+			DevicesCount:   1,
+			Payload:        pqtype.NullRawMessage{},
+			OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true},
+		})
+		require.NoError(t, err)
+	}
+	createActiveBatch := func(batchUUID string) {
+		createBatch(batchUUID)
+		require.NoError(t, queries.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+			CommandBatchLogUuid: batchUUID,
+			CommandType:         commandType.String(),
+			DeviceID:            device.DatabaseID,
+			Status:              sqlc.QueueStatusEnumPENDING,
+			Payload:             pqtype.NullRawMessage{},
+		}))
+	}
+	desiredGeneration := func() int64 {
+		var generation int64
+		err := conn.QueryRowContext(ctx,
+			"SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id = $1",
+			user.OrganizationID,
+		).Scan(&generation)
+		require.NoError(t, err)
+		return generation
+	}
+	makeRetryDue := func() {
+		_, err := conn.ExecContext(ctx,
+			"UPDATE curtailment_rig_config_reconciliation SET retry_at = CURRENT_TIMESTAMP WHERE organization_id = $1",
+			user.OrganizationID,
+		)
+		require.NoError(t, err)
+	}
+
+	createActiveBatch("rig-config-current")
+	createActiveBatch("rig-config-retry")
+	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, user.OrganizationID))
+	require.Equal(t, int64(2), desiredGeneration(), "terminal failure should persist while both batch slots are occupied")
+	makeRetryDue()
+	_, err := queries.ClaimRigConfigReconciliation(ctx)
+	require.ErrorIs(t, err, sql.ErrNoRows, "reconciliation should wait while two config batches are active")
+
+	_, err = queries.MarkCommandBatchFinished(ctx, "rig-config-current")
+	require.NoError(t, err)
+	claimed, err := queries.ClaimRigConfigReconciliation(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), claimed.DesiredGeneration, "persisted retry should be claimed when a batch slot opens")
+
+	createActiveBatch("rig-config-next-retry")
+	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, user.OrganizationID))
+	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
+		OrganizationID:     user.OrganizationID,
+		EnqueuedGeneration: 2,
+	}))
+	require.Equal(t, int64(3), desiredGeneration(), "failure before enqueue completion should remain pending")
+	_, err = queries.ClaimRigConfigReconciliation(ctx)
+	require.ErrorIs(t, err, sql.ErrNoRows, "pending retry should wait while both batch slots are occupied")
+
+	_, err = queries.MarkCommandBatchFinished(ctx, "rig-config-retry")
+	require.NoError(t, err)
+	claimed, err = queries.ClaimRigConfigReconciliation(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), claimed.DesiredGeneration, "one-shot failure should be claimed after a batch slot opens")
+
+	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
+		OrganizationID:     user.OrganizationID,
+		EnqueuedGeneration: 3,
+	}))
+	createBatch("rig-config-orphan-1")
+	createBatch("rig-config-orphan-2")
+	require.NoError(t, queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
+		OrganizationID: user.OrganizationID,
+		RequestedBy:    user.DatabaseID,
+	}))
+	claimed, err = queries.ClaimRigConfigReconciliation(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), claimed.DesiredGeneration, "empty orphaned batches should not consume retry slots")
+}
+
 func TestExecutionServiceStartupPreservesPendingAndFailsProcessing(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
