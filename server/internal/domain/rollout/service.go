@@ -51,7 +51,10 @@ type CommandDispatcher interface {
 // and finding which uploaded files still carry an assigned checksum.
 type FirmwareFiles interface {
 	ResolveFirmwareArtifact(fileID string) (files.FirmwareArtifact, error)
+	// Strict verification is required before enforcement uses the artifact.
 	FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool)
+	// Read views report cached identity and presence without hashing payloads.
+	FindCachedFirmwareFileIDByChecksum(sha256Hex string) (string, bool)
 	FirmwareFileIDsByChecksum(sha256Hex string) []string
 }
 
@@ -615,8 +618,9 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 	return preview, nil
 }
 
-// ListChannels returns a page of channels ordered by immutable ID, with member
-// and group counts. The cursor remains usable after its channel is removed.
+// ListChannels returns channel summaries ordered by immutable ID, with member
+// and group counts but no scope selectors. The cursor remains usable after its
+// channel is removed.
 func (s *Service) ListChannels(ctx context.Context, orgID int64, pageSize int32, cursor string) ([]Channel, string, error) {
 	params := sqlc.ListReleaseChannelsPageParams{OrgID: orgID}
 	if cursor != "" {
@@ -641,7 +645,7 @@ func (s *Service) ListChannels(ctx context.Context, orgID int64, pageSize int32,
 		rows = rows[:limit]
 		next = encodeCursor(strconv.FormatInt(rows[len(rows)-1].ID, 10))
 	}
-	channels, err := s.buildChannels(ctx, orgID, rows)
+	channels, err := s.buildChannelSummaries(ctx, orgID, rows)
 	if err != nil {
 		return nil, "", err
 	}
@@ -654,7 +658,11 @@ func (s *Service) GetChannel(ctx context.Context, orgID, channelID int64) (*Chan
 	if err != nil {
 		return nil, channelLookupError(channelID, err)
 	}
-	channels, err := s.buildChannels(ctx, orgID, []sqlc.ReleaseChannel{row})
+	channels, err := s.buildChannelSummaries(ctx, orgID, []sqlc.ReleaseChannel{row})
+	if err != nil {
+		return nil, err
+	}
+	channels[0].Scope, err = s.loadChannelScope(ctx, orgID, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -755,6 +763,11 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 		next = encodeCursor(last.Manufacturer, last.Model)
 	}
 	groups := make([]ModelGroup, 0, len(rows))
+	type availability struct {
+		fileID string
+		found  bool
+	}
+	artifacts := make(map[string]availability)
 	for _, r := range rows {
 		g := ModelGroup{
 			Manufacturer:               r.Manufacturer,
@@ -771,7 +784,12 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 			ActiveRolloutID:            r.ActiveRolloutID,
 		}
 		if g.FirmwareChecksum != "" {
-			g.FirmwareFileID, g.FirmwareAvailable = s.files.FindFirmwareFileIDByChecksum(g.FirmwareChecksum)
+			cached, seen := artifacts[g.FirmwareChecksum]
+			if !seen {
+				cached.fileID, cached.found = s.files.FindCachedFirmwareFileIDByChecksum(g.FirmwareChecksum)
+				artifacts[g.FirmwareChecksum] = cached
+			}
+			g.FirmwareFileID, g.FirmwareAvailable = cached.fileID, cached.found
 		}
 		groups = append(groups, g)
 	}
@@ -873,10 +891,10 @@ func decodeCursor(cursor string, n int) ([]string, error) {
 	return parts, nil
 }
 
-// buildChannels batches targets, observed model counts and assignments for the
-// requested channels. Membership resolution still considers competing channels.
-// The group count includes observed pairs and assigned pairs with no members.
-func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.ReleaseChannel) ([]Channel, error) {
+// buildChannelSummaries batches observed model counts and assignments without
+// loading scope selectors. Membership resolution still considers competing
+// channels. The group count includes observed pairs and assigned pairs with no members.
+func (s *Service) buildChannelSummaries(ctx context.Context, orgID int64, rows []sqlc.ReleaseChannel) ([]Channel, error) {
 	if len(rows) == 0 {
 		return []Channel{}, nil
 	}
@@ -885,10 +903,6 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		channelIDs = append(channelIDs, row.ID)
 	}
 	q := s.store.GetQueries(ctx)
-	targets, err := q.ListReleaseChannelPageTargets(ctx, sqlc.ListReleaseChannelPageTargetsParams{OrgID: orgID, ChannelIds: channelIDs})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list channel targets: %w", err)
-	}
 	members, err := q.ListReleaseChannelPageMemberModels(ctx, sqlc.ListReleaseChannelPageMemberModelsParams{OrgID: orgID, ChannelIds: channelIDs})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list channel members: %w", err)
@@ -898,10 +912,6 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		return nil, fleeterror.NewInternalErrorf("list channel firmware: %w", err)
 	}
 
-	targetsByChannel := map[int64][]sqlc.ListReleaseChannelPageTargetsRow{}
-	for _, t := range targets {
-		targetsByChannel[t.ChannelID] = append(targetsByChannel[t.ChannelID], t)
-	}
 	membersByChannel := map[int64][]sqlc.ListReleaseChannelPageMemberModelsRow{}
 	for _, m := range members {
 		membersByChannel[m.ChannelID] = append(membersByChannel[m.ChannelID], m)
@@ -917,7 +927,6 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 			ID:          row.ID,
 			Name:        row.Name,
 			Description: row.Description,
-			Scope:       scopeFromTargets(targetsByChannel[row.ID]),
 			Behavior:    behaviorFromChannel(row),
 			CreatedAt:   row.CreatedAt,
 			UpdatedAt:   row.UpdatedAt,

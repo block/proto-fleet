@@ -85,7 +85,9 @@ func TestChannelPlacementSelectorsRejectUnresolvedAdditions(t *testing.T) {
 					channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 					require.NoError(t, err)
 					require.Len(t, channels, 1, "rejected creates must not persist a channel")
-					assert.Equal(t, *original, channels[0], "rejected updates must preserve channel fields and targets")
+					unchanged, err := f.svc.GetChannel(ctx, f.orgID, original.ID)
+					require.NoError(t, err)
+					assert.Equal(t, original, unchanged, "rejected updates must preserve channel fields and targets")
 				})
 			}
 		}

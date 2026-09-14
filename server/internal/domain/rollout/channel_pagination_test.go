@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,10 +125,72 @@ func TestListChannelsPageCountsIncludeOffPageResolution(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, page, 1)
 			assert.Equal(t, first.ID, page[0].ID)
-			assert.Equal(t, first.Scope, page[0].Scope)
+			assert.True(t, page[0].Scope.IsEmpty(), "listing returns summaries without scope selectors")
 			assert.Equal(t, int32(3), page[0].MinerCount, "off-page winners and ties remove miner-0")
 			assert.Equal(t, int32(3), page[0].ModelGroupCount, "two raw observed pairs plus one active orphan; folded matches and cleared assignments add nothing")
 			require.NotEmpty(t, cursor)
 		})
 	}
+}
+
+func TestListChannelsDoesNotHydrateRetainedScopeSelectors(t *testing.T) {
+	f := newFixture(t, 2)
+	ctx := t.Context()
+	site := f.addSite(t, "Empty site")
+	channel, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{
+		Name: "Large scope", Scope: Scope{SiteIDs: []int64{site}, DeviceIdentifiers: []string{"miner-0", "miner-1"}},
+	})
+	require.NoError(t, err)
+	softDeleteSelectedMiner(t, f, f.deviceIDs["miner-1"])
+	// Seed the durable identifiers left behind after miners are removed.
+	// A full scope may retain 10,000 miner selectors even with one live member.
+	_, err = f.conn.ExecContext(ctx, `INSERT INTO release_channel_target (channel_id, target_type, device_identifier)
+		SELECT $1, 'miner', 'retained-' || lpad(n::text, 4, '0') FROM generate_series(1, 9998) n`, channel.ID)
+	require.NoError(t, err)
+	_, err = f.conn.ExecContext(ctx, `INSERT INTO release_channel_firmware
+		(channel_id, manufacturer, model, firmware_checksum, assigned_by) VALUES ($1, 'proto', 'orphan', 'assigned', 1)`, channel.ID)
+	require.NoError(t, err)
+	second, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Second"})
+	require.NoError(t, err)
+	full, err := f.svc.GetChannel(ctx, f.orgID, channel.ID)
+	require.NoError(t, err)
+	require.Len(t, full.Scope.DeviceIdentifiers, 10000)
+	assert.Contains(t, full.Scope.DeviceIdentifiers, "miner-1", "deleted miner selectors remain durable")
+	assert.Equal(t, []int64{site}, full.Scope.SiteIDs)
+	assert.Equal(t, int32(1), full.MinerCount)
+	assert.Equal(t, int32(2), full.ModelGroupCount)
+
+	// PostgreSQL keeps the membership views bound to the renamed column, but
+	// the sqlc target-hydration query still references its old name. Summary
+	// listing must only read the grouped membership results, not target rows.
+	_, err = f.conn.ExecContext(ctx, `ALTER TABLE release_channel_target RENAME COLUMN device_identifier TO hidden_identifier`)
+	require.NoError(t, err)
+	_, err = f.svc.store.GetQueries(ctx).ListReleaseChannelPageTargets(ctx, sqlc.ListReleaseChannelPageTargetsParams{
+		OrgID: f.orgID, ChannelIds: []int64{channel.ID},
+	})
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "42703", pgErr.Code, "the full-scope hydration query is unavailable")
+
+	page, cursor, err := f.svc.ListChannels(ctx, f.orgID, 1, "")
+	require.NoError(t, err, "summaries must not depend on target hydration")
+	require.Len(t, page, 1)
+	expectedSummary := *full
+	expectedSummary.Scope = Scope{}
+	assert.Equal(t, expectedSummary, page[0])
+	assert.Equal(t, encodeCursor(strconv.FormatInt(channel.ID, 10)), cursor)
+	page, next, err := f.svc.ListChannels(ctx, f.orgID, 1, cursor)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.Equal(t, second.ID, page[0].ID)
+	assert.Empty(t, next)
+
+	_, err = f.svc.GetChannel(ctx, f.orgID, channel.ID)
+	require.ErrorAs(t, err, &pgErr, "full channel reads must still hydrate their scope")
+	assert.Equal(t, "42703", pgErr.Code)
+	_, err = f.conn.ExecContext(ctx, `ALTER TABLE release_channel_target RENAME COLUMN hidden_identifier TO device_identifier`)
+	require.NoError(t, err)
+	restored, err := f.svc.GetChannel(ctx, f.orgID, channel.ID)
+	require.NoError(t, err)
+	assert.Equal(t, full, restored, "full channel scope round-trips after the query is restored")
 }

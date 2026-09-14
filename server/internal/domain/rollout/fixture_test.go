@@ -74,6 +74,10 @@ func (f *fakeFirmwareFiles) FindFirmwareFileIDByChecksum(sha256Hex string) (stri
 	return ids[0], true
 }
 
+func (f *fakeFirmwareFiles) FindCachedFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
+	return f.FindFirmwareFileIDByChecksum(sha256Hex)
+}
+
 // fakeActivity captures rollout lifecycle events.
 type fakeActivity struct {
 	events []activitymodels.Event

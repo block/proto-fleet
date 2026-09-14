@@ -1479,8 +1479,9 @@ type ReleaseChannelModelGroup struct {
 	// firmware is assigned. The assignment's identity under the RolloutService
 	// artifact identity rule.
 	FirmwareChecksum string `protobuf:"bytes,13,opt,name=firmware_checksum,json=firmwareChecksum,proto3" json:"firmware_checksum,omitempty"`
-	// Whether an uploaded file with firmware_checksum currently exists. False
-	// while the artifact must be re-uploaded before enforcement can dispatch.
+	// Cached availability of an uploaded file with firmware_checksum, including
+	// current presence/readability and known verification failures. Status reads
+	// do not rehash payload bytes; dispatch independently verifies the artifact.
 	FirmwareAvailable bool `protobuf:"varint,14,opt,name=firmware_available,json=firmwareAvailable,proto3" json:"firmware_available,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

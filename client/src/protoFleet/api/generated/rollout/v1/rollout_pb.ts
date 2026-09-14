@@ -485,8 +485,9 @@ export type ReleaseChannelModelGroup = Message<"rollout.v1.ReleaseChannelModelGr
   firmwareChecksum: string;
 
   /**
-   * Whether an uploaded file with firmware_checksum currently exists. False
-   * while the artifact must be re-uploaded before enforcement can dispatch.
+   * Cached availability of an uploaded file with firmware_checksum, including
+   * current presence/readability and known verification failures. Status reads
+   * do not rehash payload bytes; dispatch independently verifies the artifact.
    *
    * @generated from field: bool firmware_available = 14;
    */
@@ -3864,6 +3865,10 @@ export const RolloutErrorReasonSchema: GenEnum<RolloutErrorReason> =
  * resumes. Fleet has no durable artifact store, so this is what survives a
  * redeploy. Two files with the same version but different payloads are
  * different artifacts; assigning one after the other starts a rollout.
+ * Read responses use cached upload/startup checksum identity and current file
+ * presence/readability for availability, without rehashing payloads. Known
+ * verification failures exclude unchanged copies. This is an availability hint:
+ * assignment admission, dispatch and delivery independently verify payload bytes.
  *
  * Managed-deployment provenance is the checksum from the last successful
  * Fleet-managed deployment to a miner, recorded after it reports the target
