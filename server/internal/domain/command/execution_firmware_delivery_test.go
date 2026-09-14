@@ -110,7 +110,8 @@ func TestExecuteCommandOnDevice_FirmwareDeliveryLease(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotEqual(t, fileID, otherID)
-				otherRef := proto.Clone(ref).(*pb.CommandArtifactRef)
+				otherRef, ok := proto.Clone(ref).(*pb.CommandArtifactRef)
+				require.True(t, ok)
 				otherRef.ArtifactId = otherID
 				denied, err := client.DownloadCommandArtifact(ctx, connect.NewRequest(&pb.DownloadCommandArtifactRequest{
 					CommandId: command.GetCommandId(), Artifact: otherRef, DeviceIdentifier: "miner-a",
