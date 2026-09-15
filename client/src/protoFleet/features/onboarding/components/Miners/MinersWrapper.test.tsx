@@ -169,14 +169,14 @@ describe("MinersWrapper", () => {
       renderMinersPage("onboarding");
       fireEvent.click(screen.getByText("Get started"));
       fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
-      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+      expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
 
       fireEvent.click(screen.getByLabelText("Close add miners"));
       fireEvent.click(screen.getByText("Get started"));
       fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
 
       await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
-      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+      expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
     });
 
     it("shows loading skeleton when network info is available and Find miners is clicked", async () => {
@@ -666,7 +666,7 @@ describe("MinersWrapper", () => {
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
 
       // Assert: the refreshed disconnected state is visible alongside results.
-      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+      expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
       expect(
         await screen.findByText(
           "Remote network discovery is currently unavailable. Some networks may not be searched.",
@@ -711,7 +711,7 @@ describe("MinersWrapper", () => {
       expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
       await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
       await act(async () => finishScan());
-      expect(screen.getByText("1 miners found on your network")).toBeInTheDocument();
+      expect(screen.getByText("1 miner found on your network")).toBeInTheDocument();
       expect(screen.getByText(warning)).toBeVisible();
       expect(screen.queryByTestId("section-search-by-ip")).not.toBeInTheDocument();
     });
