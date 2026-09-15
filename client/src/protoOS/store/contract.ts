@@ -373,6 +373,10 @@ export interface PlantTelemetry {
   activeFeedCount?: number;
   inletTemperature?: MetricTelemetry;
   outletTemperature?: MetricTelemetry;
+  outletATemperature?: MetricTelemetry;
+  outletBTemperature?: MetricTelemetry;
+  tankALiquidLevel?: MetricTelemetry;
+  tankBLiquidLevel?: MetricTelemetry;
   ambientTemperature?: MetricTelemetry;
   totalPower?: MetricTelemetry;
   heatRejectionPower?: MetricTelemetry;

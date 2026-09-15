@@ -325,7 +325,17 @@ describe("MDK v2 CT1 normalization", () => {
       },
       {
         timestamp: "2026-09-02T12:00:00Z",
-        plant: { totalPowerW: 45, facilityPowerW: 48, pue: 1.1, flowRateLpm: 12 },
+        plant: {
+          totalPowerW: 45,
+          facilityPowerW: 48,
+          pue: 1.1,
+          flowRateLpm: 12,
+          inletTemperatureC: 35,
+          outletATemperatureC: 48,
+          outletBTemperatureC: 42,
+          tankALiquidLevelMm: 480,
+          tankBLiquidLevelMm: 460,
+        },
         phases: [{ phase: V2Phase.PHASE_A, powerW: 15, currentA: 1.25, voltageV: 12 }],
         coolingFans: [{ componentId: "dry-cooler-1", powerW: 400, speedPercent: 75 }],
         powerDistributions: [{ componentId: "pdu-1", activeFeedCount: 2, activePowerW: 42 }],
@@ -369,6 +379,11 @@ describe("MDK v2 CT1 normalization", () => {
       totalPower: { latest: { value: 45, units: "W" } },
       pue: { latest: { value: 1.1, units: "ratio" } },
       flowRate: { latest: { value: 12, units: "L/min" } },
+      inletTemperature: { latest: { value: 35, units: "°C" } },
+      outletATemperature: { latest: { value: 48, units: "°C" } },
+      outletBTemperature: { latest: { value: 42, units: "°C" } },
+      tankALiquidLevel: { latest: { value: 480, units: "mm" } },
+      tankBLiquidLevel: { latest: { value: 460, units: "mm" } },
     });
     expect(result.hardware.topology.container.fanIds).toEqual(["container:ct1-a:fan:dry-cooler-1"]);
     expect(result.telemetry.fans.get("container:ct1-a:fan:dry-cooler-1" as never)).toMatchObject({
@@ -384,6 +399,38 @@ describe("MDK v2 CT1 normalization", () => {
       totalPower: { latest: { value: 21, units: "W" } },
     });
   });
+
+  test.each([undefined, Number.NaN, Infinity, 0])(
+    "normalizes optional plant sensors without inventing readings: %s",
+    (value) => {
+      const { telemetry } = toCanonicalContainer(
+        map,
+        {},
+        {
+          plant: {
+            flowRateLpm: value,
+            inletTemperatureC: value,
+            outletATemperatureC: value,
+            outletBTemperatureC: value,
+            tankALiquidLevelMm: value,
+            tankBLiquidLevelMm: value,
+          },
+        },
+        "ct1-a",
+      );
+      const plant = telemetry.plant.get("container:ct1-a:plant" as never)!;
+      for (const metric of [
+        plant.flowRate,
+        plant.inletTemperature,
+        plant.outletATemperature,
+        plant.outletBTemperature,
+        plant.tankALiquidLevel,
+        plant.tankBLiquidLevel,
+      ]) {
+        expect(metric?.latest?.value).toBe(value === 0 ? 0 : null);
+      }
+    },
+  );
 
   test("converts deci-Celsius, tenths of GH/s, millivolts, and basis points", () => {
     const status = toCanonicalHashboardStatus("26:B0:3F:F0:D7:92", {

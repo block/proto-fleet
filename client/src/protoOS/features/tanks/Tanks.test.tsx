@@ -58,6 +58,7 @@ describe("Container tanks page", () => {
     mocks.stopScopedMining.mockReset().mockResolvedValue(undefined);
     Element.prototype.scrollIntoView = scrollIntoView;
     useMinerStore.getState().resetDeviceData();
+    useMinerStore.getState().ui.setTemperatureUnit("C");
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
   });
@@ -75,6 +76,75 @@ describe("Container tanks page", () => {
     expect(tank.getByText("Needs attention").parentElement).toHaveTextContent("1 module");
     expect(tank.getByText("Offline").parentElement).toHaveTextContent("1 module");
     expect(tank.getAllByRole("button", { name: /^Module/ })).toHaveLength(16);
+  });
+
+  test("shares A readings across tanks 1–3 and B readings across tanks 4–6, with a common flow and inlet", () => {
+    fixture = tanksFixture(6, 1, true);
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+    showPage();
+    for (let slot = 1; slot <= 6; slot++) {
+      const tank = within(screen.getByRole("region", { name: `Tank ${slot}` }));
+      const side = slot <= 3 ? "Left" : "Right";
+      expect(tank.getByText("Flow").parentElement).toHaveTextContent("1200.0 L/min");
+      expect(tank.getByText(`${side} tank inlet temperature`).parentElement).toHaveTextContent("35.0 °C");
+      expect(tank.getByText(`${side} tank outlet temperature`).parentElement).toHaveTextContent(
+        slot <= 3 ? "48.0 °C" : "42.0 °C",
+      );
+      expect(tank.getByText("Fluid level").parentElement).toHaveTextContent(slot <= 3 ? "480.0 mm" : "460.0 mm");
+    }
+
+    act(() => useMinerStore.getState().ui.setTemperatureUnit("F"));
+    expect(screen.getAllByText("95.0 °F")).toHaveLength(6);
+    expect(screen.getAllByText("118.4 °F")).toHaveLength(3);
+    expect(screen.getAllByText("107.6 °F")).toHaveLength(3);
+
+    // The store must clear these readings along with the existing live metrics.
+    act(() => useMinerStore.getState().telemetry.clearLatestData());
+    for (let slot = 1; slot <= 6; slot++) {
+      const tank = within(screen.getByRole("region", { name: `Tank ${slot}` }));
+      expect(tank.getByText("Fluid level").parentElement).toHaveTextContent("—");
+      expect(tank.getByText(`${slot <= 3 ? "Left" : "Right"} tank outlet temperature`).parentElement).toHaveTextContent(
+        "—",
+      );
+    }
+  });
+
+  test("updates live plant readings, preserves zero depth, and clears unavailable sensors without borrowing the other side", () => {
+    fixture = tanksFixture(6, 1, true);
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+    showPage();
+    const [id, plant] = [...fixture.telemetry.plant.entries()][0];
+    fixture.telemetry.plant.set(id, {
+      ...plant,
+      flowRate: { latest: { value: 0, units: "L/min" } },
+      inletTemperature: { latest: { value: Number.NaN, units: "°C" } },
+      outletATemperature: { latest: { value: null, units: "°C" } },
+      tankALiquidLevel: { latest: { value: 0, units: "mm" } },
+      tankBLiquidLevel: { latest: { value: Infinity, units: "mm" } },
+    });
+    act(() => useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry));
+    const left = within(screen.getByRole("region", { name: "Tank 1" }));
+    const right = within(screen.getByRole("region", { name: "Tank 4" }));
+    expect(left.getByText("Flow").parentElement).toHaveTextContent("0.0 L/min");
+    expect(left.getByText("Fluid level").parentElement).toHaveTextContent("0.0 mm");
+    expect(left.getByText("Left tank inlet temperature").parentElement).toHaveTextContent("—");
+    expect(left.getByText("Left tank outlet temperature").parentElement).toHaveTextContent("—");
+    expect(right.getByText("Right tank outlet temperature").parentElement).toHaveTextContent("42.0 °C");
+    expect(right.getByText("Fluid level").parentElement).toHaveTextContent("—");
+  });
+
+  test.each([undefined, 0, 7, 1.5])("does not infer a side for an unknown tank slot %s", (slot) => {
+    fixture = tanksFixture(1, 1, true);
+    const tank = [...fixture.topology.tanks.values()][0];
+    fixture.topology.tanks.set(tank.id, { ...tank, slot });
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+    showPage();
+    expect(screen.getByText("Tank outlet temperature").parentElement).toHaveTextContent("—");
+    expect(screen.getByText("Fluid level").parentElement).toHaveTextContent("—");
+    expect(screen.getByText("Flow").parentElement).toHaveTextContent("1200.0 L/min");
   });
 
   test("shades individual hashboards by their issue counts and keeps unquantified faults red", () => {
