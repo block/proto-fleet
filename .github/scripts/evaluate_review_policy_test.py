@@ -231,7 +231,7 @@ const github = {
         "CODEX_MODEL": "gpt-6-astra",
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
-        "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
+        "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "30"),
         "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
         "SHARD_JOB_ID": str(scenario.get("shard_job_id", 456)),
@@ -271,7 +271,7 @@ class ReviewPolicyTest(unittest.TestCase):
         codex = find_step(workflow, "review-agent", "run_codex")
         writer = find_step(workflow, "security-review", "write_review_result")
 
-        self.assertEqual(agent["timeout-minutes"], 9)
+        self.assertEqual(agent["timeout-minutes"], 30)
         self.assertEqual(finalizer["timeout-minutes"], 5)
         self.assertEqual(finalizer["needs"], "review-agent")
         self.assertIn("always()", finalizer["if"])
@@ -284,7 +284,7 @@ class ReviewPolicyTest(unittest.TestCase):
             post_review["concurrency"]["group"],
             "codex-security-review-post-${{ github.event.pull_request.number }}",
         )
-        self.assertEqual(codex["timeout-minutes"], 9)
+        self.assertEqual(codex["timeout-minutes"], 30)
         self.assertTrue(codex["continue-on-error"])
         self.assertIn('"additionalProperties": false', codex["with"]["output-schema"])
         self.assertIn("needs.review-agent.result == 'cancelled'", writer["if"])
@@ -449,7 +449,7 @@ class ReviewPolicyTest(unittest.TestCase):
             "name": "Run bounded Codex reviewer",
             "conclusion": "cancelled",
             "started_at": "2026-08-26T00:00:00Z",
-            "completed_at": "2026-08-26T00:14:00Z",
+            "completed_at": "2026-08-26T00:35:00Z",
             "steps": [
                 *successful_steps,
                 {
@@ -906,7 +906,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 f"{key} drifted between the production and benchmark reviews",
             )
         self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-6-astra")
-        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "xhigh")
+        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "medium")
         self.assertEqual(
             production_poster["env"]["CODEX_MODEL"],
             production_job["env"]["CODEX_MODEL"],
@@ -1372,8 +1372,8 @@ class ReviewPolicyTest(unittest.TestCase):
                     "head_sha": head_sha,
                     "commit_range": f"{base_sha}...{head_sha}",
                     "run_id": "12345",
-                    "elapsed_seconds": 545 if incomplete_reason else 30,
-                    "timeout_budget_seconds": 540,
+                    "elapsed_seconds": 1805 if incomplete_reason else 30,
+                    "timeout_budget_seconds": 1800,
                     "incomplete_reason": incomplete_reason,
                     "review_packet": {
                         "context_variant": "unified-40",
@@ -1392,7 +1392,7 @@ class ReviewPolicyTest(unittest.TestCase):
                     review_output, encoding="utf-8"
                 )
             environment = {
-                "CODEX_TIMEOUT_MINUTES": "9",
+                "CODEX_TIMEOUT_MINUTES": "30",
                 "REVIEW_BASE_SHA": base_sha,
                 "REVIEW_HEAD_SHA": head_sha,
                 "REVIEW_COMMIT_RANGE": f"{base_sha}...{head_sha}",
@@ -1493,7 +1493,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 self.assertEqual(result["overall_risk"], "HIGH")
                 self.assertFalse(result["automation_completed"])
                 self.assertEqual(result["incomplete_reason"], expected_reason)
-                self.assertEqual(result["timeout_budget_seconds"], 540)
+                self.assertEqual(result["timeout_budget_seconds"], 1800)
                 if expected_reason == "codex-job-timeout":
                     self.assertIsNone(result["elapsed_seconds"])
                     self.assertIn("elapsed: unknown", markdown)
@@ -1610,7 +1610,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 {
                     "CODEX_OUTCOME": "failure",
                     "REVIEW_OUTPUT": "",
-                    "CODEX_TIMEOUT_MINUTES": "9",
+                    "CODEX_TIMEOUT_MINUTES": "30",
                     "REVIEW_BASE_SHA": "a" * 40,
                     "REVIEW_HEAD_SHA": "b" * 40,
                     "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
