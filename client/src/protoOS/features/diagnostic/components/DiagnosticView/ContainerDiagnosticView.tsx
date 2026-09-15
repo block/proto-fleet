@@ -132,7 +132,8 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
   const pumpOutlet = latest(plant?.pumpOutletPressure);
   const totalPower = latest(plant?.totalPower);
   const state = rollup?.miningStatus;
-  const stateLabel = state === "mining" || state === "degradedMining" ? "Mining" : state ? "Not mining" : "—";
+  const stateLabel =
+    state === "mining" || state === "degradedMining" ? "Mining" : state && state !== "unknown" ? "Not mining" : "—";
 
   return (
     <div className="grid gap-1 tablet:grid-cols-2">
@@ -209,6 +210,11 @@ const healthLabels: Record<HealthState, string> = {
 
 type TankPower = ReturnType<typeof useTankPower>;
 
+const tankPowerState = (status: MiningStatus | undefined) => ({
+  on: status === "mining" || status === "degradedMining" || status === "poweringOn",
+  actionable: status !== undefined && status !== "unknown" && status !== "poweringOn" && status !== "poweringOff",
+});
+
 const InfoButton = ({ label, onClick }: { label: string; onClick: () => void }) => (
   <button
     type="button"
@@ -239,7 +245,7 @@ const TankDiagnosticCard = ({
   const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
   const statuses = modules.map((module) => moduleStatus(module.hashboardIds.map((id) => telemetry.get(id))));
   const hasIssue = statuses.includes("attention");
-  const on = rollup?.miningStatus === "mining" || rollup?.miningStatus === "degradedMining";
+  const { on, actionable } = tankPowerState(rollup?.miningStatus);
   const boardCount = rollup?.boardCount;
   const onlineBoardCount = rollup?.onlineBoardCount;
   const temperature = latest(rollup?.temperature);
@@ -256,7 +262,13 @@ const TankDiagnosticCard = ({
           <Switch
             ariaLabel={`${tank.label ?? "Tank"} power`}
             checked={on}
-            disabled={!scope || !rollup?.miningStatus || !powerControl.supported || powerControl.pending}
+            disabled={
+              !scope ||
+              !actionable ||
+              tank.capabilities.startStop !== "supported" ||
+              !powerControl.supported ||
+              powerControl.pending
+            }
             setChecked={() => void powerControl.setPower(scope, !on)}
           />
           <InfoButton label={`${tank.label ?? "Tank"} info`} onClick={() => setShowInfo(true)} />
@@ -366,8 +378,8 @@ const TankBank = ({
     scopes.length && scopes.every((item) => item !== undefined)
       ? { modules: scopes.flatMap((item) => item!.modules ?? []) }
       : undefined;
-  const statuses = tanks.map((tank) => data.rollups.get(asEntityKey(tank.id))?.miningStatus);
-  const allOn = statuses.length > 0 && statuses.every((status) => status === "mining" || status === "degradedMining");
+  const statuses = tanks.map((tank) => tankPowerState(data.rollups.get(asEntityKey(tank.id))?.miningStatus));
+  const allOn = statuses.length > 0 && statuses.every((status) => status.on);
   return (
     <section aria-labelledby={`${side.toLowerCase()}-tanks-title`}>
       <dl className="mb-6 grid grid-cols-2 gap-6 tablet:grid-cols-4">
@@ -390,7 +402,13 @@ const TankBank = ({
           label="All on"
           ariaLabel={`${side} tanks power`}
           checked={allOn}
-          disabled={!scope || statuses.some((status) => !status) || !powerControl.supported || powerControl.pending}
+          disabled={
+            !scope ||
+            statuses.some((status) => !status.actionable) ||
+            tanks.some((tank) => tank.capabilities.startStop !== "supported") ||
+            !powerControl.supported ||
+            powerControl.pending
+          }
           setChecked={() => void powerControl.setPower(scope, !allOn)}
         />
       </Panel>

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,6 +66,27 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, out any
 		}
 	}
 	return resp.StatusCode
+}
+
+func TestContainerSetpointFloat32Bounds(t *testing.T) {
+	for _, value := range []float64{1e39, -1e39, math.MaxFloat32, -math.MaxFloat32} {
+		srv, state := newTestServer(t)
+		initial := state.ContainerSetpoints["dry_cooler_auto_temp_c"]
+		status := postJSON(t, srv, "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", setContainerSetpointRequest{Value: value}, nil)
+		wantStatus, wantValue := http.StatusOK, value
+		if math.Abs(value) > math.MaxFloat32 {
+			wantStatus, wantValue = http.StatusBadRequest, initial
+		}
+		if status != wantStatus {
+			t.Errorf("setpoint %g: status %d, want %d", value, status, wantStatus)
+		}
+		state.mu.RLock()
+		got := state.ContainerSetpoints["dry_cooler_auto_temp_c"]
+		state.mu.RUnlock()
+		if got != wantValue {
+			t.Errorf("setpoint %g: persisted %g, want %g", value, got, wantValue)
+		}
+	}
 }
 
 func TestTopology(t *testing.T) {

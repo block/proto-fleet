@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
+import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -29,27 +31,48 @@ const DryCoolerSettingsModal = ({
   const [mode, setMode] = useState<DryCoolerMode>(initialMode);
   const [target, setTarget] = useState(initialTargetC?.toString() ?? "");
   const [pending, setPending] = useState(false);
+  const authRetry = useAuthRetry();
   const targetValue = Number(target);
   const validTarget = target.trim() !== "" && Number.isFinite(targetValue);
   const canSave = mode === "auto" && validTarget && !pending;
 
   const save = async () => {
     if (!canSave || !adapter.setContainerControl || !adapter.setContainerSetpoint) return;
+    const setTarget = adapter.setContainerSetpoint.bind(adapter);
+    const setControl = adapter.setContainerControl.bind(adapter);
+    const generation = useMinerStore.getState().connectionGeneration;
+    const isCurrent = () => useMinerStore.getState().connectionGeneration === generation;
     setPending(true);
     const toast = pushToast({ message: "Updating dry cooler settings…", status: "loading", ttl: false });
     let targetSaved = false;
     let saveError: string | undefined;
-    try {
-      // Write the target before enabling automatic mode so the controller never
-      // observes auto mode with an out-of-date target.
-      await adapter.setContainerSetpoint("dry_cooler_auto_temp_c", targetValue);
-      targetSaved = true;
-      await adapter.setContainerControl("dry_cooler_auto", true);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The request did not complete";
-      saveError = targetSaved
-        ? `Target temperature saved, but automatic mode could not be confirmed: ${message}`
-        : `Could not confirm the target temperature was saved: ${message}`;
+    await authRetry({
+      shouldRetry: isCurrent,
+      request: async (params) => {
+        if (!isCurrent()) return;
+        // Preserve completed writes when authentication retries the sequence.
+        if (!targetSaved) {
+          await setTarget("dry_cooler_auto_temp_c", targetValue, params);
+          targetSaved = true;
+        }
+        if (!isCurrent()) return;
+        await setControl("dry_cooler_auto", true, params);
+      },
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : "The request did not complete";
+        saveError = targetSaved
+          ? `Target temperature saved, but automatic mode could not be confirmed: ${message}`
+          : `Could not confirm the target temperature was saved: ${message}`;
+      },
+    });
+    if (!isCurrent()) {
+      updateToast(toast, {
+        message: "Device changed. Check the previous device’s dry cooler settings before trying again.",
+        status: "error",
+        ttl: 6000,
+      });
+      setPending(false);
+      return;
     }
 
     let refreshFailed = false;

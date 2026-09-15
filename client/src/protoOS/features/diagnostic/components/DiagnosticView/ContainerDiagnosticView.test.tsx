@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
@@ -338,6 +339,27 @@ describe("Container diagnostics", () => {
     expect(screen.queryByRole("checkbox", { name: "Tank A light" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "AC 1" })).toBeDisabled();
   });
+
+  test.each(["unknown", "poweringOn", "poweringOff"] as const)(
+    "disables tank and bank power when state is %s",
+    async (miningStatus) => {
+      hosting.adapter = { startScopedMining: vi.fn(), stopScopedMining: vi.fn() } as unknown as MinerAdapter;
+      const fixture = tanksFixture(6);
+      fixture.telemetry.rollupsByEntity.forEach((rollup) => {
+        rollup.miningStatus = miningStatus;
+      });
+      useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      render(<ContainerDiagnosticView />);
+      const tank = screen.getByRole("checkbox", { name: "Tank 1 power" });
+      expect(tank).toBeDisabled();
+      expect(screen.getByRole("checkbox", { name: "Left tanks power" })).toBeDisabled();
+      if (miningStatus === "poweringOn") expect(tank).toBeChecked();
+      await userEvent.click(tank);
+      expect(hosting.adapter.startScopedMining).not.toHaveBeenCalled();
+      expect(hosting.adapter.stopScopedMining).not.toHaveBeenCalled();
+      if (miningStatus === "unknown") expect(screen.queryByText("Not mining")).not.toBeInTheDocument();
+    },
+  );
 
   test("sends only the selected tank or bank's modules and serializes power commands", async () => {
     const command = deferred<void>();

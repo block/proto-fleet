@@ -950,8 +950,8 @@ func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) {
-		writeError(w, http.StatusBadRequest, "setpoint value must be finite")
+	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) || math.Abs(request.Value) > math.MaxFloat32 {
+		writeError(w, http.StatusBadRequest, "setpoint value must be a finite float32")
 		return
 	}
 	h.state.mu.Lock()
