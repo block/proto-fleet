@@ -65,8 +65,8 @@ message MDNSModeRequest {
   int32 timeout_seconds = 3;
 }
 
-// Configuration for Nmap-based network scanning discovery
-message NmapModeRequest {
+// Configuration for TCP network scanning discovery
+message NetworkScanModeRequest {
   // Target specification for scan
   // Can be: single IP (192.168.1.1), hostname (device.local),
   // IPv4 subnet (192.168.1.0/24), or IP range (192.168.1.1-10).
@@ -76,7 +76,7 @@ message NmapModeRequest {
   // Optional ports to scan. When omitted, the server derives canonical scan ports
   // from loaded plugin metadata. If provided, these ports fully override the
   // server-derived defaults.
-  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 256];
+  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 10];
 
   // True asks each Fleet Node to scan its own local subnet. False preserves
   // the supplied target.
@@ -94,28 +94,28 @@ message IPRangeModeRequest {
   // Optional ports to check on each IP address. When omitted, the server derives
   // canonical scan ports from loaded plugin metadata. If provided, these ports
   // fully override the server-derived defaults.
-  repeated string ports = 3 [(buf.validate.field).repeated.max_items = 256];
+  repeated string ports = 3 [(buf.validate.field).repeated.max_items = 10];
 }
 
 // Configuration for discovering devices from a specific list of IP addresses
 message IPListModeRequest {
   // List of IP addresses (IPv4, IPv6, or hostnames) to check
-  repeated string ip_addresses = 1 [(buf.validate.field).repeated.max_items = 1024];
+  repeated string ip_addresses = 1 [(buf.validate.field).repeated.max_items = 4096];
 
   // Optional ports to check on each IP address. When omitted, the server derives
   // canonical scan ports from loaded plugin metadata. If provided, these ports
   // fully override the server-derived defaults.
-  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 256];
+  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 10];
 }
 
 // Request message for device discovery, supporting multiple discovery modes
 message DiscoverRequest {
   // Only one discovery mode can be active at a time
   oneof mode {
-    IPListModeRequest ip_list = 1;    // Discover from list of IPs
-    IPRangeModeRequest ip_range = 2;  // Discover in IP range
-    MDNSModeRequest mdns = 3;         // Discover using mDNS
-    NmapModeRequest nmap = 4;         // Discover using Nmap
+    IPListModeRequest ip_list = 1; // Discover from list of IPs
+    IPRangeModeRequest ip_range = 2; // Discover in IP range
+    MDNSModeRequest mdns = 3; // Discover using mDNS
+    NetworkScanModeRequest network_scan = 4; // Discover using TCP network scanning
   }
 }
 
@@ -147,7 +147,10 @@ message PairResponse {
 // devices it previously discovered. The node has no database, so the server
 // supplies each target's endpoint and driver.
 message FleetNodePairRequest {
-  repeated FleetNodePairTarget targets = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 1024}];
+  repeated FleetNodePairTarget targets = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 1024
+  }];
 
   // Applied to targets in the batch. When omitted, drivers may use their
   // default credentials.
@@ -155,22 +158,35 @@ message FleetNodePairRequest {
 }
 
 message FleetNodePairTarget {
-  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-  string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45, ip: true}];
-  string port              = 3 [
-    (buf.validate.field).string = {min_len: 1, max_len: 5},
+  string device_identifier = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 255
+  }];
+  string ip_address = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 45
+    ip: true
+  }];
+  string port = 3 [
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 5
+    },
     (buf.validate.field).cel = {
-      id: "port.range",
-      message: "port must be a decimal number in 1..65535",
+      id: "port.range"
+      message: "port must be a decimal number in 1..65535"
       expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
     }
   ];
-  string url_scheme  = 4 [(buf.validate.field).string.max_len = 32];
-  string driver_name = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
+  string url_scheme = 4 [(buf.validate.field).string.max_len = 32];
+  string driver_name = 5 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 50
+  }];
 
   // Carried so the node can look up plugin default credentials (keyed on
   // manufacturer + firmware) without a database.
-  string manufacturer     = 6 [(buf.validate.field).string.max_len = 255];
+  string manufacturer = 6 [(buf.validate.field).string.max_len = 255];
   string firmware_version = 7 [(buf.validate.field).string.max_len = 255];
 }
 

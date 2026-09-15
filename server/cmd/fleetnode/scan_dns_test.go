@@ -31,8 +31,8 @@ func TestControlLoopDNSFailuresRetainReports(t *testing.T) {
 	}{
 		{
 			name: "network resolver timeout",
-			request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
-				Nmap: &pairingpb.NmapModeRequest{Target: "first.lan", Ports: []string{"4028"}},
+			request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{
+				NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "first.lan", Ports: []string{"4028"}},
 			}},
 		},
 		{
@@ -108,7 +108,7 @@ func TestNetworkDNSFailureClassificationPreservesTargetPolicy(t *testing.T) {
 	for _, target := range []string{"bad/target", "8.8.8.8", "public.lan"} {
 		t.Run(target, func(t *testing.T) {
 			r := &RunCmd{resolver: stubResolver{"public.lan": {{IP: net.ParseIP("8.8.8.8")}}}}
-			_, err := r.networkScanTargets(t.Context(), &pairingpb.NmapModeRequest{Target: target})
+			_, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: target})
 			var ce *commandError
 			require.ErrorAs(t, err, &ce)
 			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ce.code)
@@ -119,7 +119,7 @@ func TestNetworkDNSFailureClassificationPreservesTargetPolicy(t *testing.T) {
 func TestDNSFailureDoesNotReplaceCallerCancellation(t *testing.T) {
 	requests := []*pairingpb.DiscoverRequest{
 		discoverIPList([]string{"miner.lan"}, []string{"4028"}),
-		{Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: "miner.lan", Ports: []string{"4028"}}}},
+		{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "miner.lan", Ports: []string{"4028"}}}},
 	}
 	for _, req := range requests {
 		r := &RunCmd{

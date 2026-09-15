@@ -24,7 +24,7 @@ func TestDiscover_RejectsNonPrivateServerTargetRegardlessOfNodeLocalSubnet(t *te
 					if fanOut {
 						h.discovery = runner
 					}
-					req := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+					req := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 						Target: target, Ports: []string{"4028"}, UseFleetNodeLocalSubnet: localSubnet,
 					}}}
 

@@ -142,7 +142,7 @@ jobs:
             - **Rust ASIC plugin** (`plugin/asicrs/`): Rust-based multi-manufacturer ASIC miner
               control via gRPC
             - **Example Python plugin** (`plugin/example-python/`): minimal example plugin for reference
-            - **Network discovery**: Nmap scanning and mDNS/Zeroconf for automatic device
+            - **Network discovery**: TCP scanning and mDNS/Zeroconf for automatic device
               discovery on the local network
             - **Infrastructure**: Docker multi-stage builds, Docker Compose orchestration,
               Nginx reverse proxy, multi-arch (amd64/arm64) deployment
@@ -171,7 +171,7 @@ jobs:
             - **Authentication & authorization**: JWT token handling, session management, missing auth checks on endpoints, privilege escalation
             - **SQL injection & database security**: Raw SQL in migrations or queries bypassing sqlc, unsafe interpolation, credential exposure, migration ordering issues
             - **gRPC/Connect-RPC security**: Missing request validation, sensitive data in error responses, unbounded streaming, missing protobuf field validation
-            - **Command injection**: Especially in Nmap invocations, miner API calls, plugin command execution, and any shell-out patterns (exec.Command)
+            - **Command injection**: Especially in miner API calls, plugin command execution, and any shell-out patterns (exec.Command)
             - **Network discovery trust boundaries**: Spoofed mDNS responses, SSRF via crafted device addresses, trusting unvalidated data from discovered devices
             - **Plugin system safety**: HashiCorp go-plugin trust boundaries, malicious plugin responses, unvalidated data crossing the plugin gRPC boundary
             - **Concurrency hazards**: Goroutine leaks, race conditions on shared state, channel misuse, mutex deadlocks, unsafe map access

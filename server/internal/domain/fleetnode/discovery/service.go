@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -99,6 +100,9 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
+	if err := protovalidate.Validate(cmd); err != nil {
+		return fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
+	}
 	var callbackErr error
 	forward := func(batch *pairingpb.DiscoverResponse) error {
 		callbackErr = onBatch(batch)
@@ -142,11 +146,11 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 // requestForNode translates the shared request flag into the sentinel understood
 // by the Fleet Node command runner. False preserves the target.
 func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
-	if req == nil || req.GetNmap() == nil || !req.GetNmap().GetUseFleetNodeLocalSubnet() {
+	if req == nil || req.GetNetworkScan() == nil || !req.GetNetworkScan().GetUseFleetNodeLocalSubnet() {
 		return req
 	}
 	out := proto.CloneOf(req)
-	out.GetNmap().Target = netscan.LocalSubnetTarget
+	out.GetNetworkScan().Target = netscan.LocalSubnetTarget
 	return out
 }
 
@@ -186,14 +190,14 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 			return err
 		}
 		return nil
-	case *pairingpb.DiscoverRequest_Nmap:
-		target := m.Nmap.GetTarget()
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		target := m.NetworkScan.GetTarget()
 		// The local-subnet flag or sentinel defers the target to the agent (it scans
 		// its own private subnet(s)), so there is nothing to validate here; the
 		// report scope (buildReportScope) and validateReport still confine reports
 		// to private addresses.
-		if m.Nmap.GetUseFleetNodeLocalSubnet() || target == netscan.LocalSubnetTarget {
-			if err := checkScanLimits(nil, m.Nmap.GetPorts()); err != nil {
+		if m.NetworkScan.GetUseFleetNodeLocalSubnet() || target == netscan.LocalSubnetTarget {
+			if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
 				return err
 			}
 			return nil
@@ -207,9 +211,9 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 		// is rejected by validateReport, so fail fast. Hostnames resolve agent-side
 		// and pass through (the report validator still guards what they return).
 		if !parsed.IsPrivate() {
-			return fleeterror.NewInvalidArgumentError("nmap target must be within a private (RFC1918/RFC4193) range")
+			return fleeterror.NewInvalidArgumentError("network scan target must be within a private (RFC1918/RFC4193) range")
 		}
-		if err := checkScanLimits(nil, m.Nmap.GetPorts()); err != nil {
+		if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
 			return err
 		}
 		return nil
@@ -223,7 +227,7 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 // checkScanLimits enforces the agent's per-command caps (via discoverylimits)
 // and rejects malformed ports before dispatch, so an over-cap or invalid request
 // fails fast with a validation error instead of a late agent BAD_REQUEST ack.
-// The proto caps are the wire ceiling; these are the real limits.
+// These checks match the proto caps and also protect internal dispatch callers.
 func checkScanLimits(ipAddresses, ports []string) error {
 	if len(ipAddresses) > discoverylimits.MaxScanTargets {
 		return fleeterror.NewInvalidArgumentErrorf("too many targets: %d exceeds the limit of %d", len(ipAddresses), discoverylimits.MaxScanTargets)

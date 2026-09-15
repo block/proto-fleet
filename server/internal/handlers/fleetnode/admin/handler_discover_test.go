@@ -276,7 +276,7 @@ func TestDiscoverOnFleetNode_RejectsScanExceedingAgentCaps(t *testing.T) {
 		{
 			name: "too many ip addresses",
 			request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{IpAddresses: repeatString("10.0.0.5", 1025), Ports: []string{"4028"}},
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: repeatString("10.0.0.5", 4097), Ports: []string{"4028"}},
 			}},
 		},
 		{
@@ -286,9 +286,9 @@ func TestDiscoverOnFleetNode_RejectsScanExceedingAgentCaps(t *testing.T) {
 			}},
 		},
 		{
-			name: "too many nmap ports",
-			request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
-				Nmap: &pairingpb.NmapModeRequest{Target: "10.0.0.0/28", Ports: repeatString("4028", 11)},
+			name: "too many network scan ports",
+			request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{
+				NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/28", Ports: repeatString("4028", 11)},
 			}},
 		},
 	}
@@ -317,28 +317,28 @@ func TestDiscoverOnFleetNode_RejectsScanExceedingAgentCaps(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnFleetNode_RejectsUnsupportedNmapTarget(t *testing.T) {
+func TestDiscoverOnFleetNode_RejectsUnsupportedNetworkScanTarget(t *testing.T) {
 	tests := []struct {
 		name   string
 		target string
 	}{
 		{name: "ipv6 cidr", target: "2001:db8::/32"},
-		{name: "ipv4 cidr broader than /22", target: "10.0.0.0/16"},
+		{name: "ipv4 cidr broader than /20", target: "10.0.0.0/16"},
 		{name: "leading dash flag", target: "-iL/etc/passwd"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			h := newPairingHarness(t)
-			fleetNodeID := h.createFleetNode(t, "admin-discover-nmap")
+			fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan")
 			client := startAdminServer(t, h)
 
-			// Act: an unsupported nmap target is rejected before dispatch.
+			// Act: an unsupported network scan target is rejected before dispatch.
 			resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
 				FleetNodeId: fleetNodeID,
 				Request: &pairingpb.DiscoverRequest{
-					Mode: &pairingpb.DiscoverRequest_Nmap{
-						Nmap: &pairingpb.NmapModeRequest{Target: tc.target, Ports: []string{"4028"}},
+					Mode: &pairingpb.DiscoverRequest_NetworkScan{
+						NetworkScan: &pairingpb.NetworkScanModeRequest{Target: tc.target, Ports: []string{"4028"}},
 					},
 				},
 			}))
@@ -387,10 +387,10 @@ func TestDiscoverOnFleetNode_RejectsMDNSMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
-func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
+func TestDiscoverOnFleetNode_NetworkScanModePassesThrough(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
-	fleetNodeID := h.createFleetNode(t, "admin-discover-nmap")
+	fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan")
 	stream := h.registry.Register(fleetNodeID)
 	defer stream.Unregister()
 
@@ -406,7 +406,7 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 			var env gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
 			req := env.GetDiscover()
-			gotTarget <- req.GetNmap().GetTarget()
+			gotTarget <- req.GetNetworkScan().GetTarget()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):
 			t.Errorf("timed out waiting for command")
@@ -417,7 +417,7 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
 		FleetNodeId: fleetNodeID,
 		Request: &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: "10.0.0.0/28", Ports: []string{"4028"}}},
+			Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/28", Ports: []string{"4028"}}},
 		},
 	}))
 	require.NoError(t, err)
@@ -430,21 +430,21 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 	case target := <-gotTarget:
 		assert.Equal(t, "10.0.0.0/28", target)
 	case <-time.After(2 * time.Second):
-		t.Fatal("agent never received Nmap command")
+		t.Fatal("agent never received network scan command")
 	}
 }
 
-func TestDiscoverOnFleetNode_NmapModeRejectsEmptyTarget(t *testing.T) {
+func TestDiscoverOnFleetNode_NetworkScanModeRejectsEmptyTarget(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
-	fleetNodeID := h.createFleetNode(t, "admin-discover-nmap-empty")
+	fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan-empty")
 	client := startAdminServer(t, h)
 
 	// Act
 	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
 		FleetNodeId: fleetNodeID,
 		Request: &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{}},
+			Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{}},
 		},
 	}))
 	require.NoError(t, err)
