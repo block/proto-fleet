@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -202,7 +203,7 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
 
-	return h.discovery.RunOnNode(ctx, fleetNodeID, discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+	return h.discovery.RunOnNode(ctx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
 		if sendErr := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: batch}); sendErr != nil {
 			return fleeterror.NewInternalErrorf("send batch to operator: %v", sendErr)
 		}

@@ -36,7 +36,7 @@ type Handler struct {
 
 type fleetNodeDiscoveryRunner interface {
 	EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
-	RunOnNode(ctx context.Context, fleetNodeID int64, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
+	RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
 }
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
@@ -66,11 +66,6 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return err
 	}
 	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
-	if h.discovery != nil && nodeReq != nil {
-		if err := discovery.ValidateRequest(nodeReq); err != nil {
-			return err
-		}
-	}
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
 	// A send failure (operator disconnected) cancels every source.
@@ -95,22 +90,29 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return fleeterror.NewInternalError("unsupported mode")
 	}
 	if err != nil {
-		return err
+		if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+			return err
+		}
+		if streamCtx.Err() == nil {
+			slog.Warn("fleet server discovery failed", "error", err)
+			if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", err)); sendErr != nil {
+				return sendErr
+			}
+		}
 	}
 
-	h.forwardDiscoverySources(streamCtx, info.OrganizationID, resultChan, nodeReq, fwd)
+	sourceErr := h.forwardDiscoverySources(streamCtx, info.OrganizationID, resultChan, nodeReq, fwd)
 	if err := fwd.failure(); err != nil {
 		return err
 	}
-	// A client cancel/deadline drains the sources without a Send error; report it
-	// rather than success. (A fan-out-budget expiry is not a client error.)
+	// Keep explicit cancellation quiet; caller deadlines remain transport errors.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			return connect.NewError(connect.CodeDeadlineExceeded, ctxErr)
 		}
-		return fleeterror.NewCanceledError()
+		return nil
 	}
-	return nil
+	return sourceErr
 }
 
 func (h *Handler) forwardDiscoverySources(
@@ -119,32 +121,47 @@ func (h *Handler) forwardDiscoverySources(
 	serverResults <-chan *pb.DiscoverResponse,
 	nodeReq *pb.DiscoverRequest,
 	fwd *dedupForwarder,
-) {
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var sourceErr error
+	var failOnce sync.Once
+	fail := func(err error) {
+		failOnce.Do(func() { sourceErr = err; cancel() })
+	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case result, ok := <-serverResults:
-				if !ok {
+	if serverResults != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case result, ok := <-serverResults:
+					if !ok {
+						return
+					}
+					if err := fwd.forward(result); err != nil {
+						return
+					}
+				case <-ctx.Done():
 					return
 				}
-				if err := fwd.forward(result); err != nil {
-					return
-				}
-			case <-ctx.Done():
-				return
 			}
-		}
-	}()
+		}()
+	}
 
 	if nodeReq != nil && h.discovery != nil {
 		nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, organizationID)
 		if err != nil {
-			// Fan-out is best-effort; a lookup failure must never break the
-			// server scan. With zero connected nodes this is the same path.
-			slog.Warn("skipping fleet node discovery fan-out", "error", err)
+			if ctx.Err() == nil {
+				if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+					fail(err)
+				} else {
+					slog.Warn("skipping fleet node discovery fan-out", "error", err)
+					// The server scan can continue even when the node directory is unavailable.
+					_ = fwd.forward(&pb.DiscoverResponse{Warning: "Fleet Nodes: unable to list connected nodes"})
+				}
+			}
 		} else {
 			for _, nodeID := range nodeIDs {
 				if ctx.Err() != nil {
@@ -157,12 +174,19 @@ func (h *Handler) forwardDiscoverySources(
 						return
 					}
 					// Each node is bounded by RunOnNode's per-node timeout.
-					runErr := h.discovery.RunOnNode(ctx, nodeID, nodeReq, fwd.forward)
-					// One node failing must not fail the scan, and is expected on
-					// operator disconnect — stay quiet once ctx is done.
-					if runErr != nil && ctx.Err() == nil {
-						slog.Warn("fleet node discovery failed during server fan-out",
-							"fleet_node_id", nodeID, "error", runErr)
+					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
+					// Node target policy is narrower than the server's: public
+					// addresses and broad ranges can still be scanned locally.
+					// Direct-node requests retain their strict validation errors.
+					if runErr == nil || ctx.Err() != nil {
+						return
+					}
+					if !fleeterror.IsInvalidArgumentError(runErr) || fwd.failure() != nil {
+						fail(runErr)
+						return
+					}
+					if sendErr := fwd.forward(discovery.SourceWarning("Fleet Node", runErr)); sendErr != nil {
+						fail(sendErr)
 					}
 				}(nodeID)
 			}
@@ -170,6 +194,7 @@ func (h *Handler) forwardDiscoverySources(
 	}
 
 	wg.Wait()
+	return sourceErr
 }
 
 // fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The

@@ -25,11 +25,8 @@ import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
-const PARTIAL_REMOTE_COVERAGE_WARNING = "Some remote networks are currently unavailable and may not be searched.";
-const NO_REMOTE_COVERAGE_WARNING =
-  "Remote network discovery is currently unavailable. Some networks may not be searched.";
-const UNKNOWN_REMOTE_COVERAGE_WARNING =
-  "Remote network availability could not be checked. Some networks may not be searched.";
+const PARTIAL_REMOTE_COVERAGE_WARNING = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
+const UNKNOWN_REMOTE_COVERAGE_WARNING = "Could not check Fleet Nodes. Discovery may be incomplete.";
 
 type MinersPageProps = {
   /**
@@ -88,18 +85,12 @@ const MinersPage = ({
     void listFleetNodes()
       .then((nodes) => {
         if (requestId !== requestState.latestId) return;
-        const confirmed = nodes.filter((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED);
-        const eligible = confirmed.filter(
-          (node) => node.controlStreamConnected && !node.commandProtocolUpgradeRequired,
+        const hasIneligibleNode = nodes.some(
+          (node) =>
+            node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+            (!node.controlStreamConnected || node.commandProtocolUpgradeRequired),
         );
-
-        if (confirmed.length === 0 || eligible.length === confirmed.length) {
-          setRemoteDiscoveryWarning(undefined);
-        } else if (eligible.length === 0) {
-          setRemoteDiscoveryWarning(NO_REMOTE_COVERAGE_WARNING);
-        } else {
-          setRemoteDiscoveryWarning(PARTIAL_REMOTE_COVERAGE_WARNING);
-        }
+        setRemoteDiscoveryWarning(hasIneligibleNode ? PARTIAL_REMOTE_COVERAGE_WARNING : undefined);
       })
       .catch(() => {
         if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
@@ -181,6 +172,12 @@ const MinersPage = ({
         discoverRequest: discoverRequest,
         discoverAbortController: abortController,
         onStreamData: processDiscoveredMiners,
+        onWarning: (warning) => {
+          pushToast({
+            message: `Discovery incomplete: ${warning}`,
+            status: TOAST_STATUSES.error,
+          });
+        },
         onError: (error) => {
           console.error("Discovery error:", error);
           pushToast({

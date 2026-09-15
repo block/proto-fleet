@@ -8,6 +8,9 @@ package discovery
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -78,11 +81,11 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 
 // RunOnNode validates req, builds the report scope, dispatches the command over
 // the node's ControlStream, and invokes onBatch for each discovered-device batch
-// until the node acks (or the command times out / the stream drops). It returns
-// nil on an OK or PARTIAL ack, and an error otherwise, including any non-nil
-// error returned by onBatch, which is treated as terminal (the caller's stream
-// is gone, so there is nothing left to forward).
-func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
+// until the node acks (or the command times out / the stream drops). It emits
+// runtime failures as sourced warnings while retaining earlier batches. Validation,
+// authentication, and onBatch failures remain errors. Caller cancellation is quiet.
+// The caller supplies a source label appropriate for its authorization boundary.
+func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
 	req = requestForNode(req)
 	if err := ValidateRequest(req); err != nil {
 		return err
@@ -96,15 +99,44 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
-	return control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(req), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	var callbackErr error
+	forward := func(batch *pairingpb.DiscoverResponse) error {
+		callbackErr = onBatch(batch)
+		return callbackErr
+	}
+	warning := func(detail string) error {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil
+		}
+		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
+	}
+	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(req), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
-				if sendErr := onBatch(ev.Batch); sendErr != nil {
+				if sendErr := forward(ev.Batch); sendErr != nil {
 					return true, sendErr
 				}
 			}
+			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				detail := ev.Ack.GetErrorMessage()
+				if detail == "" {
+					detail = "discovery completed partially"
+				}
+				return true, warning(detail)
+			}
 			return false, nil
 		})
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if err == nil || errors.Is(ctx.Err(), context.Canceled) {
+		return nil
+	}
+	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		return err
+	}
+	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
+	return forward(SourceWarning(source, err))
 }
 
 // requestForNode translates the shared request flag into the sentinel understood

@@ -184,7 +184,7 @@ func TestDiscoverWithIPList(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -215,7 +215,7 @@ func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -245,7 +245,7 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -273,7 +273,7 @@ func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -319,7 +319,7 @@ func TestDiscoverWithIPList_CancelsRemainingPortsAfterFirstSuccessForSameIP(t *t
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -420,7 +420,7 @@ func TestDiscoverWithIPList_ContinuesScanAfterCollisionSkip(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -492,12 +492,19 @@ func TestDiscoverWithIPList_SkipsUnresolvableHostnames(t *testing.T) {
 	require.NoError(t, err)
 
 	var devices []*pb.Device
+	var warnings []string
 	for result := range resultChan {
 		devices = append(devices, result.Devices...)
+		if result.Warning != "" {
+			warnings = append(warnings, result.Warning)
+		}
 	}
 
 	assert.Len(t, devices, 1)
 	assert.Equal(t, "192.168.1.10", devices[0].IpAddress)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "Fleet Server network discovery incomplete")
+	assert.Contains(t, warnings[0], "this-host-definitely-does-not-exist.invalid")
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "this-host-definitely-does-not-exist.invalid", mock.Anything)
 }
 
@@ -607,7 +614,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -656,7 +663,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 3)
@@ -673,7 +680,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		devices = []*pb.Device{}
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -714,7 +721,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -727,7 +734,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		devices = []*pb.Device{}
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -777,7 +784,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -823,7 +830,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -868,7 +875,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -965,7 +972,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1359,7 +1366,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1419,7 +1426,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1479,7 +1486,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1532,7 +1539,7 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)

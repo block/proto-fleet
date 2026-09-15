@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -52,7 +51,7 @@ func TestRunOnNode_ForwardsBatchesUntilAck(t *testing.T) {
 	var got []*pairingpb.Device
 
 	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.5"}, []string{"4028"}), collectBatches(&got))
+	err := svc.RunOnNode(context.Background(), nodeID, "Fleet Node 7", ipListReq([]string{"10.0.0.5"}, []string{"4028"}), collectBatches(&got))
 
 	// Assert
 	require.NoError(t, err)
@@ -60,64 +59,99 @@ func TestRunOnNode_ForwardsBatchesUntilAck(t *testing.T) {
 	assert.Equal(t, "auto:1", got[0].GetDeviceIdentifier())
 }
 
-func TestRunOnNode_PartialAckIsNotFailure(t *testing.T) {
-	// Arrange
+func TestRunOnNode_RejectsIPListRangesBeforeDispatch(t *testing.T) {
+	for _, raw := range []string{"10.0.0.1-2", "10.0-1.0-1.1", "10.0.0.1-10.0.1.2", "10.0.0.0/24"} {
+		t.Run(raw, func(t *testing.T) {
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			stream := reg.Register(7)
+			defer stream.Unregister()
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			var got []*pairingpb.DiscoverResponse
+
+			err := svc.RunOnNode(ctx, 7, "Fleet Node 7", ipListReq([]string{"10.0.0.1", raw}, []string{"4028"}), collectResponses(&got))
+
+			require.True(t, fleeterror.IsInvalidArgumentError(err), "error = %v", err)
+			assert.Empty(t, got)
+			select {
+			case cmd := <-stream.Outgoing:
+				t.Fatalf("invalid IP-list entry dispatched command %q", cmd.GetCommandId())
+			default:
+			}
+		})
+	}
+}
+
+func collectResponses(dst *[]*pairingpb.DiscoverResponse) func(*pairingpb.DiscoverResponse) error {
+	return func(b *pairingpb.DiscoverResponse) error { *dst = append(*dst, b); return nil }
+}
+
+func TestRunOnNode_PartialAndFailedScanKeepResultsWithWarning(t *testing.T) {
+	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_PARTIAL, gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_REPORT_FAILED, gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED} {
+		t.Run(code.String(), func(t *testing.T) {
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			stream := reg.Register(8)
+			defer stream.Unregister()
+			go func() {
+				cmd := <-stream.Outgoing
+				reg.PublishBatch(8, cmd.GetCommandId(), &pairingpb.DiscoverResponse{Devices: []*pairingpb.Device{{DeviceIdentifier: "auto:2", IpAddress: "10.0.0.6", Port: "4028"}}})
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code, ErrorMessage: "stopped early"})
+			}()
+			var got []*pairingpb.DiscoverResponse
+			err := svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, []string{"4028"}), collectResponses(&got))
+			require.NoError(t, err)
+			require.Len(t, got, 2)
+			require.Len(t, got[0].GetDevices(), 1)
+			assert.Equal(t, "auto:2", got[0].GetDevices()[0].GetDeviceIdentifier())
+			assert.Contains(t, got[1].GetWarning(), "Fleet Node 8:")
+			if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				assert.Contains(t, got[1].GetWarning(), "stopped early")
+			} else if code == gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED {
+				assert.Contains(t, got[1].GetWarning(), "rejected discovery credentials")
+			} else {
+				assert.Equal(t, "Fleet Node 8: discovery failed", got[1].GetWarning())
+			}
+		})
+	}
+}
+
+func TestRunOnNode_PartialWithoutDetailStillWarns(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	const nodeID = int64(8)
-	stream := reg.Register(nodeID)
+	stream := reg.Register(8)
 	defer stream.Unregister()
 	go func() {
 		cmd := <-stream.Outgoing
-		reg.PublishBatch(nodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
-			Devices: []*pairingpb.Device{{DeviceIdentifier: "auto:2", IpAddress: "10.0.0.6", Port: "4028"}},
-		})
 		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL})
 	}()
-	var got []*pairingpb.Device
+	var got []*pairingpb.DiscoverResponse
+	require.NoError(t, svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), collectResponses(&got)))
+	require.Len(t, got, 1)
+	assert.Equal(t, "Fleet Node 8: discovery completed partially", got[0].GetWarning())
+}
 
-	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.6"}, []string{"4028"}), collectBatches(&got))
-
-	// Assert: PARTIAL is a usable (incomplete) result, and its batch still streamed.
+func TestRunOnNode_DisconnectBeforeAckWarns(t *testing.T) {
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	stream := reg.Register(9)
+	go func() { <-stream.Outgoing; stream.Unregister() }()
+	var got []*pairingpb.DiscoverResponse
+	err := svc.RunOnNode(t.Context(), 9, "Fleet Node 9", ipListReq([]string{"10.0.0.7"}, nil), collectResponses(&got))
 	require.NoError(t, err)
 	require.Len(t, got, 1)
+	assert.Contains(t, got[0].GetWarning(), "Fleet Node 9:")
+	assert.Contains(t, got[0].GetWarning(), "control stream closed")
 }
 
-func TestRunOnNode_DisconnectBeforeAckReturnsError(t *testing.T) {
-	// Arrange: agent takes the command then drops without acking.
-	reg := control.NewRegistry()
-	svc := NewService(reg, stubLister{})
-	const nodeID = int64(9)
-	stream := reg.Register(nodeID)
-	go func() {
-		<-stream.Outgoing
-		stream.Unregister()
-	}()
-
-	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.7"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
-
-	// Assert
-	require.Error(t, err)
-	var fe fleeterror.FleetError
-	require.ErrorAs(t, err, &fe)
-	assert.Equal(t, connect.CodeFailedPrecondition, fe.ConnectError().Code())
-}
-
-func TestRunOnNode_NoActiveStreamReturnsFailedPrecondition(t *testing.T) {
-	// Arrange: no stream registered for the target node.
-	reg := control.NewRegistry()
-	svc := NewService(reg, stubLister{})
-
-	// Act
-	err := svc.RunOnNode(context.Background(), 404, ipListReq([]string{"10.0.0.8"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
-
-	// Assert
-	require.Error(t, err)
-	var fe fleeterror.FleetError
-	require.ErrorAs(t, err, &fe)
-	assert.Equal(t, connect.CodeFailedPrecondition, fe.ConnectError().Code())
+func TestRunOnNode_NoActiveStreamWarns(t *testing.T) {
+	svc := NewService(control.NewRegistry(), stubLister{})
+	var got []*pairingpb.DiscoverResponse
+	err := svc.RunOnNode(t.Context(), 404, "Fleet Node", ipListReq([]string{"10.0.0.8"}, nil), collectResponses(&got))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Fleet Node: fleet node has no active control stream", got[0].GetWarning())
 }
 
 func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
@@ -126,15 +160,65 @@ func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
 	require.NoError(t, err)
 	defer stream.Unregister()
 	svc := NewService(reg, stubLister{})
-
-	err = svc.RunOnNode(context.Background(), 7, ipListReq([]string{"10.0.0.5"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
-
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	var got []*pairingpb.DiscoverResponse
+	err = svc.RunOnNode(t.Context(), 7, "Fleet Node 7", ipListReq([]string{"10.0.0.5"}, nil), collectResponses(&got))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0].GetWarning(), "Fleet Node 7:")
+	assert.Contains(t, got[0].GetWarning(), "upgrade")
 	select {
 	case cmd := <-stream.Outgoing:
 		t.Fatalf("legacy node received discovery command %q", cmd.GetCommandId())
 	default:
 	}
+}
+
+func TestRunOnNode_BadRequestRemainsError(t *testing.T) {
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	stream := reg.Register(8)
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_BAD_REQUEST})
+	}()
+	var got []*pairingpb.DiscoverResponse
+	err := svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), collectResponses(&got))
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Empty(t, got)
+}
+
+func TestRunOnNode_WarningSendFailureIsTerminal(t *testing.T) {
+	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_PARTIAL, gatewaypb.AckCode_ACK_CODE_SCAN_FAILED} {
+		t.Run(code.String(), func(t *testing.T) {
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			stream := reg.Register(8)
+			defer stream.Unregister()
+			go func() {
+				cmd := <-stream.Outgoing
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
+			}()
+			sendErr := errors.New("stream closed")
+			sends := 0
+			err := svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), func(*pairingpb.DiscoverResponse) error { sends++; return sendErr })
+			require.ErrorIs(t, err, sendErr)
+			assert.Equal(t, 1, sends)
+		})
+	}
+}
+
+func TestRunOnNode_CancellationDoesNotWarn(t *testing.T) {
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	stream := reg.Register(8)
+	defer stream.Unregister()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { <-stream.Outgoing; cancel() }()
+	var got []*pairingpb.DiscoverResponse
+	require.NoError(t, svc.RunOnNode(ctx, 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), collectResponses(&got)))
+	assert.Empty(t, got)
 }
 
 func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T) {
@@ -185,7 +269,7 @@ func TestRunOnNode_PreservesIPRangeRequest(t *testing.T) {
 		},
 	}}
 
-	err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+	err := svc.RunOnNode(context.Background(), nodeID, "Fleet Node 7", req, func(*pairingpb.DiscoverResponse) error { return nil })
 
 	require.NoError(t, err)
 	assert.True(t, proto.Equal(req.GetIpRange(), <-received))
@@ -207,7 +291,7 @@ func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {
 	sentinel := errors.New("operator stream gone")
 
 	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.5"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error {
+	err := svc.RunOnNode(context.Background(), nodeID, "Fleet Node 7", ipListReq([]string{"10.0.0.5"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error {
 		return sentinel
 	})
 
@@ -216,25 +300,20 @@ func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {
 }
 
 func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
-	// Arrange: shrink the command timeout, drain the command, but never ack.
 	prev := DiscoverCommandTimeout
-	DiscoverCommandTimeout = 100 * time.Millisecond
+	DiscoverCommandTimeout = 20 * time.Millisecond
 	t.Cleanup(func() { DiscoverCommandTimeout = prev })
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	const nodeID = int64(12)
-	stream := reg.Register(nodeID)
+	stream := reg.Register(12)
 	defer stream.Unregister()
 	go func() { <-stream.Outgoing }()
-
-	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.5"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
-
-	// Assert
-	require.Error(t, err)
-	var ce *connect.Error
-	require.True(t, errors.As(err, &ce))
-	assert.Equal(t, connect.CodeDeadlineExceeded, ce.Code())
+	var got []*pairingpb.DiscoverResponse
+	err := svc.RunOnNode(t.Context(), 12, "Fleet Node 12", ipListReq([]string{"10.0.0.5"}, nil), collectResponses(&got))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0].GetWarning(), "Fleet Node 12:")
+	assert.Contains(t, got[0].GetWarning(), "timed out")
 }
 
 func TestEligibleNodeIDs_PropagatesListError(t *testing.T) {
@@ -279,7 +358,7 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 				UseFleetNodeLocalSubnet: tc.localSubnet,
 			}}}
 
-			err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+			err := svc.RunOnNode(context.Background(), nodeID, "Fleet Node 7", req, func(*pairingpb.DiscoverResponse) error { return nil })
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTarget, <-gotTarget)

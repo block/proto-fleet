@@ -9,6 +9,7 @@ interface DiscoverMinersProps {
   discoverRequest: DiscoverRequest;
   discoverAbortController?: AbortController;
   onStreamData: (devices: Device[]) => void;
+  onWarning?: (warning: string) => void;
   onError?: (error: string) => void;
 }
 
@@ -25,18 +26,21 @@ const useMinerPairing = () => {
   const [pairingPending, setPairingPending] = useState(false);
 
   const discover = useCallback(
-    async ({ discoverRequest, discoverAbortController, onStreamData, onError }: DiscoverMinersProps) => {
+    async ({ discoverRequest, discoverAbortController, onStreamData, onWarning, onError }: DiscoverMinersProps) => {
       setDiscoverPending(true);
       try {
         for await (const discoveryResponse of pairingClient.discover(discoverRequest, {
           signal: discoverAbortController?.signal,
         })) {
-          if (discoveryResponse.error) {
-            onError?.(discoveryResponse.error);
-            break;
+          if (discoverAbortController?.signal.aborted) return;
+
+          if (discoveryResponse.warning) {
+            onWarning?.(discoveryResponse.warning);
           }
 
-          onStreamData(discoveryResponse.devices);
+          if (discoveryResponse.devices.length > 0) {
+            onStreamData(discoveryResponse.devices);
+          }
         }
       } catch (error) {
         if (

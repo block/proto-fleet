@@ -89,12 +89,12 @@ func dedupeDiscoverResponses(ctx context.Context, source <-chan *pb.DiscoverResp
 				dedupedDevices = append(dedupedDevices, device)
 			}
 
-			if len(dedupedDevices) == 0 && result.Error == "" {
+			if len(dedupedDevices) == 0 && result.Warning == "" {
 				continue
 			}
 
 			select {
-			case resultChan <- &pb.DiscoverResponse{Devices: dedupedDevices, Error: result.Error}:
+			case resultChan <- &pb.DiscoverResponse{Devices: dedupedDevices, Warning: result.Warning}:
 			case <-ctx.Done():
 				return
 			}
@@ -313,7 +313,7 @@ func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []stri
 
 	ports := s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
 	if len(ports) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+		return nil, fleeterror.NewInternalError(discoveryPortsUnavailableError)
 	}
 
 	slog.Debug("Resolved discovery ports from plugin default scan set", "ports", ports)
@@ -340,8 +340,10 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 		err := resolver.Browse(timeoutCtx, r.ServiceType, "local.", entries)
 		if err != nil {
-			rawResultChan <- &pb.DiscoverResponse{
-				Error: fmt.Sprintf("failed to browse: %v", err),
+			slog.Warn("Fleet Server mDNS discovery failed", "error", err)
+			select {
+			case rawResultChan <- &pb.DiscoverResponse{Warning: "Fleet Server mDNS discovery failed"}:
+			case <-ctx.Done():
 			}
 			return
 		}
@@ -381,10 +383,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 				}
 				portStr := fmt.Sprintf("%d", entry.Port)
 
-				_, err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
-				if err != nil {
-					slog.Debug("device discovery failed", "error", err)
-				}
+				s.discoverMDNSDevice(ctx, ipAddress, portStr, rawResultChan)
 
 			case <-timeoutCtx.Done():
 				return
@@ -401,7 +400,8 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 // processDiscoveredDevice returns found==true, preserving fallback to other ports when the first
 // raw winner is collision-skipped or otherwise non-emitting. A plugin that ignores cancellation
 // may outlive this function, but retains its global probe permit until it actually returns.
-func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, ports []string, resultChan chan<- *pb.DiscoverResponse) {
+// Processing failures are returned only if no sibling port successfully emits the host.
+func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, ports []string, resultChan chan<- *pb.DiscoverResponse) error {
 	portCtx, portCancel := context.WithCancel(ctx)
 	defer portCancel()
 
@@ -460,48 +460,53 @@ func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, port
 		close(rawCh)
 	}()
 
+	var processingErr error
 	for {
 		select {
 		case <-portCtx.Done():
-			return
+			return fmt.Errorf("host discovery stopped: %w", portCtx.Err())
 		case w, ok := <-rawCh:
-			if !ok || portCtx.Err() != nil {
-				return
+			if portCtx.Err() != nil {
+				return fmt.Errorf("host discovery stopped: %w", portCtx.Err())
+			}
+			if !ok {
+				return processingErr
 			}
 			found, err := s.processDiscoveredDevice(portCtx, w.device, ipAddr, w.port, resultChan)
 			if err != nil {
 				slog.Debug("failed to process discovered device", "ip", ipAddr, "port", w.port, "error", err)
+				if processingErr == nil {
+					processingErr = fmt.Errorf("could not save discovered device at %s", net.JoinHostPort(ipAddr, w.port))
+				}
 			}
 			if found {
-				return
+				return nil
 			}
 		}
 	}
 }
 
-// discoverDevice attempts to discover a device at the given IP and port. It returns (true, nil)
-// only when a device was found and successfully emitted to resultChan. It returns (false, nil)
-// for handled-but-suppressed paths (e.g. paired-endpoint collision skip) so callers can
-// distinguish "nothing found yet, keep scanning" from "device emitted, stop scanning".
-func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) (bool, error) {
-	// Apply per-device discovery timeout to prevent individual slow devices from blocking others
+// discoverMDNSDevice ignores probe misses and warns if an identified device cannot be saved.
+func (s *Service) discoverMDNSDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) {
+	// Apply per-device discovery timeout to prevent individual slow devices from blocking others.
 	discoveryCtx, cancel := context.WithTimeout(ctx, perDeviceDiscoveryTimeout)
 	defer cancel()
 
 	discoveredDevice, err := s.discoverer.Discover(discoveryCtx, ipAddress, port)
 	if err != nil {
-		// Only log non-timeout errors at debug level; timeouts are expected for non-miner hosts
-		if !errors.Is(err, context.DeadlineExceeded) {
-			slog.Debug("Discovery failed",
-				"ipAddress", ipAddress,
-				"port", port,
-				"error", err)
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			slog.Debug("Discovery failed", "ipAddress", ipAddress, "port", port, "error", err)
 		}
-
-		return false, err
+		return
 	}
 
-	return s.processDiscoveredDevice(ctx, discoveredDevice, ipAddress, port, resultChan)
+	if _, err := s.processDiscoveredDevice(ctx, discoveredDevice, ipAddress, port, resultChan); err != nil {
+		slog.Debug("failed to process mDNS discovered device", "ip", ipAddress, "port", port, "error", err)
+		select {
+		case resultChan <- &pb.DiscoverResponse{Warning: "Fleet Server mDNS discovery incomplete: could not save discovered device"}:
+		case <-ctx.Done():
+		}
+	}
 }
 
 func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, scannedIP string, scannedPort string, resultChan chan<- *pb.DiscoverResponse) (bool, error) {
