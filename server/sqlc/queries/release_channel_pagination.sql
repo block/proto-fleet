@@ -35,9 +35,12 @@ GROUP BY m.channel_id, COALESCE(dd.manufacturer, ''), COALESCE(dd.model, '')
 ORDER BY m.channel_id, manufacturer, model;
 
 -- name: ListReleaseChannelPageFirmware :many
+-- Summaries need active assignments only; cleared rows retain generations for
+-- later assignments but do not contribute additional model groups.
 SELECT f.*
 FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = sqlc.arg('org_id')
   AND c.id = ANY(sqlc.arg('channel_ids')::bigint[])
+  AND f.firmware_checksum <> ''
 ORDER BY f.channel_id, f.manufacturer, f.model;

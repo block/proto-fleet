@@ -1276,6 +1276,8 @@ type Querier interface {
 	// on_target_count follows the contract's definition: reported version and
 	// provenance equal the assignment.
 	ListReleaseChannelModelGroupsPage(ctx context.Context, arg ListReleaseChannelModelGroupsPageParams) ([]ListReleaseChannelModelGroupsPageRow, error)
+	// Summaries need active assignments only; cleared rows retain generations for
+	// later assignments but do not contribute additional model groups.
 	ListReleaseChannelPageFirmware(ctx context.Context, arg ListReleaseChannelPageFirmwareParams) ([]ReleaseChannelFirmware, error)
 	// Aggregate only the requested channels' resolved members. Preserve observed
 	// hardware spelling; assignment matching uses normalized keys in the domain.

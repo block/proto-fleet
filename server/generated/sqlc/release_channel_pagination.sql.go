@@ -17,6 +17,7 @@ FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = $1
   AND c.id = ANY($2::bigint[])
+  AND f.firmware_checksum <> ''
 ORDER BY f.channel_id, f.manufacturer, f.model
 `
 
@@ -25,6 +26,8 @@ type ListReleaseChannelPageFirmwareParams struct {
 	ChannelIds []int64
 }
 
+// Summaries need active assignments only; cleared rows retain generations for
+// later assignments but do not contribute additional model groups.
 func (q *Queries) ListReleaseChannelPageFirmware(ctx context.Context, arg ListReleaseChannelPageFirmwareParams) ([]ReleaseChannelFirmware, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelPageFirmwareStmt, listReleaseChannelPageFirmware, arg.OrgID, pq.Array(arg.ChannelIds))
 	if err != nil {
