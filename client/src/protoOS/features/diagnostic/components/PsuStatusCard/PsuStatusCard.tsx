@@ -3,8 +3,9 @@ import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusMo
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
-import { useErrorsByComponent, useMinerPsuById } from "@/protoOS/store";
+import { useMinerPsuById, useMinerStore } from "@/protoOS/store";
 import type { ComponentId } from "@/protoOS/store/contract";
+import { useErrorsByRef } from "@/protoOS/store/hooks/useMinerStatus";
 import { getPsuId } from "@/protoOS/store/utils/entityIds";
 import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -35,8 +36,9 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
   const avgTemp = psuData?.averageTemperature?.latest?.value ?? undefined;
   const maxTemp = psuData?.hotspotTemperature?.latest?.value ?? undefined;
 
-  const errors = useErrorsByComponent("PSU", slot ?? 1);
-  const hasErrors = componentId ? psuData?.health === "fault" || psuData?.health === "degraded" : errors.length > 0;
+  const component = useMinerStore((state) => state.hardware.psus.get(componentId ?? getPsuId(slot!))?.ref);
+  const errors = useErrorsByRef(component);
+  const hasErrors = errors.length > 0 || psuData?.health === "fault" || psuData?.health === "degraded";
 
   const inputVoltageStat = {
     label: "Input voltage",
@@ -84,10 +86,7 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
           ) : null
         }
         componentIcon={showComponentIcon ? <PsuIndicator position={position} /> : null}
-        onInfoIconClick={
-          // TODO(btc-mining/proto-fleet-internal#93): Restore CT1 info when status details resolve canonical component IDs.
-          componentId ? undefined : () => setShowComponentStatusModal(true)
-        }
+        onInfoIconClick={component ? () => setShowComponentStatusModal(true) : undefined}
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 @3xl:grid-cols-6">
@@ -97,14 +96,11 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
         <LabeledValue value={avgTemp === undefined ? "—" : <TemperatureValue value={avgTemp} />} label="Avg temp" />
         <LabeledValue value={maxTemp === undefined ? "—" : <TemperatureValue value={maxTemp} />} label="High temp" />
       </div>
-      {!componentId ? (
+      {showComponentStatusModal && component ? (
         <StatusModal
           open={showComponentStatusModal}
           onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "PSU",
-            slot: slot ?? 1,
-          }}
+          componentAddress={component}
           showBackButton={false}
         />
       ) : null}

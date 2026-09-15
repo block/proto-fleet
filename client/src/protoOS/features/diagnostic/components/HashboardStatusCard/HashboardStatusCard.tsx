@@ -7,12 +7,14 @@ import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue"
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
 import {
   useAsicDataTransform,
-  useErrorsByComponent,
   useHashboardSlot,
   useMinerHashboard,
   useMinerHashboardAsics,
+  useMinerStore,
 } from "@/protoOS/store";
+import { useErrorsByRef } from "@/protoOS/store/hooks/useMinerStatus";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
+import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import { Alert, HashboardIndicatorV2 as HashboardIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
@@ -52,9 +54,10 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
   const position = slot || 0;
   const name = layout.card.title(slot);
 
-  const errors = useErrorsByComponent("HASHBOARD", slot ?? 1);
+  const component = useMinerStore((state) => state.hardware.hashboards.get(getHashboardId(identifier))?.ref);
+  const errors = useErrorsByRef(component);
   const hasErrors =
-    (layout.card.showInfoButton && errors.length > 0) ||
+    errors.length > 0 ||
     hashboardData?.health === "fault" ||
     hashboardData?.health === "degraded" ||
     (hashboardData?.reportedIssueCount ?? 0) > 0;
@@ -104,10 +107,7 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
             <HashboardIndicator width="w-4" position={position} totalSlots={layout.card.totalSlots} />
           ) : null
         }
-        onInfoIconClick={
-          // TODO(btc-mining/proto-fleet-internal#93): Restore CT1 info when status details resolve canonical component IDs.
-          layout.card.showInfoButton ? () => setShowComponentStatusModal(true) : undefined
-        }
+        onInfoIconClick={component ? () => setShowComponentStatusModal(true) : undefined}
         actions={
           <Button variant="secondary" size="compact" onClick={handleViewClick}>
             View
@@ -123,14 +123,11 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
         </div>
         <AsicTablePreview asics={asicData} rowHeight={layout.card.previewRowHeight} />
       </div>
-      {layout.card.showInfoButton ? (
+      {showComponentStatusModal && component ? (
         <StatusModal
           open={showComponentStatusModal}
           onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "HASHBOARD",
-            slot: slot ?? 1,
-          }}
+          componentAddress={component}
           showBackButton={false}
         />
       ) : null}

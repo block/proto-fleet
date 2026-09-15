@@ -35,7 +35,6 @@ export const RIG_LAYOUT: HashboardLayout = {
   card: {
     title: (slot) => `Slot ${slot ?? "—"}`,
     showEfficiency: false,
-    showInfoButton: true,
     showSlotIndicator: true,
     totalSlots: 9,
   },
@@ -85,7 +84,6 @@ export const CONTAINER_MODULE_LAYOUT: HashboardLayout = {
   card: {
     title: (slot) => `Board ${slot ?? "—"}`,
     showEfficiency: true,
-    showInfoButton: false,
     showSlotIndicator: true,
     totalSlots: 3,
     previewRowHeight: 16,

@@ -72,7 +72,7 @@ test.describe("Diagnostics", () => {
           { label: "ASIC High Temp", valuePattern: celsiusValuePattern },
           { label: "Efficiency", valuePattern: efficiencyValuePattern },
         ],
-        metadata: [{ label: "Serial Number" }, { label: "Model" }, { label: "ASIC Count" }, { label: "Slot Location" }],
+        metadata: [{ label: "Serial Number" }, { label: "Model" }, { label: "ASIC Count" }],
         expectedInfoCardCount: 4,
         emptySlotText: /No hashboard detected in this slot/i,
         allowExtraMetadataRows: true,
@@ -106,11 +106,11 @@ test.describe("Diagnostics", () => {
         const counts: Record<"info" | "empty", number> = { info: 0, empty: 0 };
 
         for (let cardIndex = 0; cardIndex < section.expectedCardCount; cardIndex++) {
-          const kind = await diagnosticsPage.validateCardInfoOrEmptySlot(
-            section.sectionTestIdName,
-            cardIndex,
-            expected,
-          );
+          const kind = await diagnosticsPage.validateCardInfoOrEmptySlot(section.sectionTestIdName, cardIndex, {
+            ...expected,
+            dialogName:
+              section.sectionTestIdName === "Hashboards" ? `Hashboard status · Hashboard ${cardIndex + 1}` : undefined,
+          });
           counts[kind] += 1;
         }
 

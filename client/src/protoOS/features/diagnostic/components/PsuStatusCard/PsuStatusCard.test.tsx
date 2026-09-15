@@ -39,7 +39,7 @@ test("shows missing readings as dashes, retains real zero, and isolates PSU warn
   expect(first.getByRole("img", { name: "PSU 1 needs attention" })).toBeInTheDocument();
   expect(second.getAllByText("—")).toHaveLength(6);
   expect(second.queryByRole("img")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "More info" })).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "More info" })).toHaveLength(2);
   act(() =>
     useMinerStore.setState((state) => {
       state.telemetry.psus.get(ids[0])!.health = "ok";

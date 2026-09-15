@@ -47,6 +47,7 @@ import {
   type Measurement,
   type MetricTelemetry,
   type MetricUnit,
+  type MinerError,
   type MiningStatus,
   type MiningTarget,
   type ModuleId,
@@ -641,6 +642,52 @@ export const toCanonicalContainer = (
     telemetry.hashboards.set(entry.hashboardId, toHashboardTelemetry(entry));
   }
   return { hardware, telemetry };
+};
+
+/** Active health arrays are snapshots; lastShutdownError is latched history. */
+export const toCanonicalErrors = (wire: V2GetContainerMapResponse, deviceId: string): MinerError[] => {
+  const boards = flattenBoards(wire, ct1ContainerId(deviceId));
+  const errors: MinerError[] = [];
+  for (const entry of boards) {
+    const owner = { kind: "module" as const, id: entry.moduleId };
+    const component = { kind: "hashboard" as const, id: entry.hashboardId, owner };
+    for (const [severity, issues] of [
+      ["critical", entry.board.health?.errors],
+      ["warning", entry.board.health?.warnings],
+    ] as const) {
+      for (const [index, issue] of (issues ?? []).entries()) {
+        const code = issue.cause ?? "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR";
+        const cause = code
+          .replace(/^HASHBOARD_ERROR_CAUSE_/, "")
+          .replaceAll("_", " ")
+          .toLowerCase();
+        const details = [cause.charAt(0).toUpperCase() + cause.slice(1)];
+        if (issue.asic?.id !== undefined) details.push(`ASIC ${issue.asic.id}`);
+        if (issue.asic?.temperature !== undefined) details.push(`${issue.asic.temperature} °C`);
+        if (issue.asic?.voltage !== undefined) details.push(`${issue.asic.voltage} V`);
+        if (issue.asic?.voltageDomain) details.push(issue.asic.voltageDomain.replace(/^HASHBOARD_VOLTAGE_DOMAIN_/, ""));
+        if (issue.stack !== undefined) details.push(`Stack ${issue.stack} (firmware index)`);
+        // Firmware timestamps are not specified as wall-clock time by the API.
+        errors.push({
+          id: `${entry.hashboardId}:${severity}:${code}:${index}`,
+          code,
+          message: details.join(" · "),
+          owner,
+          component,
+          source: { kind: "hashboard", slot: entry.slot },
+          severity,
+        });
+      }
+    }
+  }
+  for (const [moduleId, entries] of groupBoards(boards, (entry) => entry.moduleId)) {
+    const psu = normalizeModulePsu(
+      moduleId,
+      entries.map((entry) => entry.board),
+    );
+    if (psu) errors.push(...psu.errors);
+  }
+  return errors;
 };
 
 export const toCanonicalContainerTelemetry = (

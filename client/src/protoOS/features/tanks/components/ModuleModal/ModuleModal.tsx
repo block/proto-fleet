@@ -32,7 +32,7 @@ const ModuleModal = ({
     const previous = document.activeElement;
     dialog.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
     const trapFocus = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
       // The picker uses a portal; include its visible buttons in this modal's
       // tab order while keeping the tank page behind the modal out of it.
       const buttons = [

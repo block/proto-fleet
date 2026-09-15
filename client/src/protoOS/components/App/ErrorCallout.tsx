@@ -36,7 +36,7 @@ const ErrorCallout = () => {
           <Callout
             buttonOnClick={() => setModalOpen(true)}
             buttonText="View details"
-            intent={intents.information}
+            intent={intents.danger}
             prefixIcon={prefixIcon}
             title={title}
             subtitle={subtitle}

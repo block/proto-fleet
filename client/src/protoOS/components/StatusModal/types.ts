@@ -2,16 +2,8 @@
  * ProtoOS-specific StatusModal types
  */
 
-import type { ErrorSource } from "@/protoOS/store/types";
-
-/**
- * Component address for navigation to ComponentStatusModal
- */
-export interface ComponentAddress {
-  source: ErrorSource;
-  /** The 1-based component slot */
-  slot?: number;
-}
+import type { ComponentAddress } from "@/protoOS/store/utils/componentSelection";
+export type { ComponentAddress };
 
 /**
  * Props for the ProtoOS StatusModal wrapper component

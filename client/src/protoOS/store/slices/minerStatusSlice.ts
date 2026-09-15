@@ -1,6 +1,12 @@
 import type { StateCreator } from "zustand";
 
-import { type MinerError, type MinerStatusState, type OperationalStatus, ROOT_MODULE_KEY } from "../contract";
+import {
+  asEntityKey,
+  type MinerError,
+  type MinerStatusState,
+  type OperationalStatus,
+  ROOT_MODULE_KEY,
+} from "../contract";
 import type { MinerStore } from "../useMinerStore";
 
 export interface MinerStatusSlice extends MinerStatusState {
@@ -24,7 +30,14 @@ export const createMinerStatusSlice: StateCreator<
   setErrors: (errors) =>
     set(
       (state) => {
-        state.minerStatus.errorsByOwner.set(ROOT_MODULE_KEY, errors);
+        const byOwner = new Map<ReturnType<typeof asEntityKey>, MinerError[]>();
+        for (const error of errors) {
+          const key = asEntityKey(error.owner.id);
+          const group = byOwner.get(key) ?? [];
+          group.push(error);
+          byOwner.set(key, group);
+        }
+        state.minerStatus.errorsByOwner = byOwner;
       },
       false,
       "minerStatus/setErrors",

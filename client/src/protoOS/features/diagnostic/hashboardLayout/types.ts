@@ -76,7 +76,6 @@ export interface HashboardLayout {
   card: {
     title: (slot: number | undefined) => string;
     showEfficiency: boolean;
-    showInfoButton: boolean;
     /** Rigs show a slot-position indicator; container modules do not. */
     showSlotIndicator: boolean;
     totalSlots: number;

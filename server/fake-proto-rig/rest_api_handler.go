@@ -393,7 +393,7 @@ type CoolingStatusInner struct {
 type FanStatus struct {
 	Slot            int  `json:"slot"`
 	RPM             int  `json:"rpm"`
-	SpeedPercentage *int `json:"speed_percentage,omitempty"`
+	SpeedPercentage *int `json:"percentage,omitempty"`
 }
 
 // CoolingConfig is the cooling configuration request

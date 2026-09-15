@@ -1,5 +1,11 @@
 import type { V2Hashboard } from "./generated/generatedApi";
-import { asComponentId, type ModuleId, type PsuHardware, type PsuTelemetry } from "@/protoOS/store/contract";
+import {
+  asComponentId,
+  type MinerError,
+  type ModuleId,
+  type PsuHardware,
+  type PsuTelemetry,
+} from "@/protoOS/store/contract";
 
 const freshest = <T>(values: T[], age: (value: T) => number | undefined): T | undefined =>
   values.reduce<T | undefined>((best, value) => {
@@ -61,5 +67,23 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[]) =>
             ? "degraded"
             : "ok",
   };
-  return { id, hardware, telemetry };
+  const errors: MinerError[] = [];
+  if (state?.thermalStateValid === true) {
+    for (const [active, code, severity, message] of [
+      [state.overTemperatureFault, "PSU_OVER_TEMPERATURE_FAULT", "critical", "PSU over temperature fault"],
+      [state.overTemperatureWarning, "PSU_OVER_TEMPERATURE_WARNING", "warning", "PSU over temperature warning"],
+    ] as const) {
+      if (active)
+        errors.push({
+          id: `${id}:${code}`,
+          code,
+          severity,
+          message,
+          owner: hardware.ref.owner,
+          component: hardware.ref,
+          source: { kind: "psu", slot: 1 },
+        });
+    }
+  }
+  return { id, hardware, telemetry, errors };
 };

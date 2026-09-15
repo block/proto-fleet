@@ -51,6 +51,7 @@ interface ModalProps {
   zIndex?: string;
   testId?: string;
   forceTitleCollapsed?: boolean;
+  manageFocus?: boolean;
   fixedFooter?: ReactNode;
 }
 
@@ -79,11 +80,12 @@ const Modal = ({
   iconAriaLabel = "Close dialog",
   testId = "modal",
   forceTitleCollapsed = false,
+  manageFocus = false,
   fixedFooter,
 }: ModalProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const isFullscreen = size === sizes.fullscreen;
   const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
@@ -92,28 +94,62 @@ const Modal = ({
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
 
   useEffect(() => {
-    if (!title || !sentinelRef.current || !scrollRef.current) {
+    if (!manageFocus || open === false) return;
+    const dialog = scrollRef.current?.closest<HTMLElement>('[role="dialog"]');
+    if (!dialog) return;
+    const previous = document.activeElement;
+    const buttons = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].filter(
+        (button) => !button.disabled && button.getClientRects().length > 0,
+      );
+    buttons()[0]?.focus({ preventScroll: true });
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
+      const targets = buttons();
+      const index = targets.findIndex((button) => button === document.activeElement);
+      if (
+        targets.length &&
+        (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === targets.length - 1))
+      ) {
+        event.preventDefault();
+        targets[event.shiftKey ? targets.length - 1 : 0].focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [manageFocus, open]);
+
+  useEffect(() => {
+    if (open === false || !title || !titleRef.current || !scrollRef.current) {
       setIsTitleCollapsed(false);
       return;
     }
 
     const headerHeight = headerRef.current?.offsetHeight ?? 0;
+    const scroller = scrollRef.current;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsTitleCollapsed(!entry.isIntersecting);
+        // Ignore edge rounding during the opening animation and stale observer
+        // notifications after scrolling back to the top.
+        setIsTitleCollapsed(scroller.scrollTop > 1 && !entry.isIntersecting);
       },
       {
-        root: scrollRef.current,
+        root: scroller,
         rootMargin: `-${headerHeight}px 0px 0px 0px`,
         threshold: 0,
       },
     );
 
-    observer.observe(sentinelRef.current);
+    // Observe the full title: collapse only once it has passed under the header,
+    // rather than testing a zero-size marker on the header's exact boundary.
+    observer.observe(titleRef.current);
 
     return () => observer.disconnect();
-  }, [title, showHeader]);
+  }, [title, showHeader, open, isFullscreen, forceTitleCollapsed]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -180,6 +216,9 @@ const Modal = ({
             className,
           )}
           ref={scrollRef}
+          onScroll={(event) => {
+            if (event.currentTarget.scrollTop <= 1) setIsTitleCollapsed(false);
+          }}
           data-testid={testId}
         >
           {showHeader ? (
@@ -205,7 +244,7 @@ const Modal = ({
               <div className="relative">
                 <Header
                   title={showTitleInHeader ? title : undefined}
-                  titleSize={clsx("text-heading-200", !hasPhoneFooterButtons && "phone:truncate")}
+                  titleSize="truncate text-heading-200"
                   className={hasPhoneFooterButtons ? undefined : "phone:pr-40"}
                   {...headerIconProps}
                   buttonSize={buttonSize}
@@ -222,8 +261,10 @@ const Modal = ({
                   />
                 )}
               </div>
-              {divider && showTitleInHeader ? (
-                <Divider className={headerSpacingClassName} />
+              {divider ? (
+                // Reserve the divider's height so toggling the title cannot
+                // move the content being observed and trigger another toggle.
+                <Divider className={clsx(headerSpacingClassName, !showTitleInHeader && "invisible")} />
               ) : (
                 <div className={headerSpacingClassName} />
               )}
@@ -231,8 +272,8 @@ const Modal = ({
           ) : null}
           {title && !isFullscreen && !forceTitleCollapsed ? (
             <>
-              <div ref={sentinelRef} className="h-0 w-0" />
               <div
+                ref={titleRef}
                 className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
                   "phone:mb-0": hideHeaderOnPhone,
                 })}
