@@ -29,9 +29,9 @@ func TestAckFailure_MapsCodes(t *testing.T) {
 			wantCode: connect.CodeInvalidArgument,
 		},
 		{
-			name:     "unauthenticated stays an authentication error",
+			name:     "miner credentials map to failed precondition",
 			ack:      &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED},
-			wantCode: connect.CodeUnauthenticated,
+			wantCode: connect.CodeFailedPrecondition,
 		},
 		{
 			name:     "busy maps to resource exhausted",

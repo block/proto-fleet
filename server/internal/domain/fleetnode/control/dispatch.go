@@ -100,7 +100,8 @@ func AckFailure(ack *gatewaypb.ControlAck, noun string) error {
 		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected %s command: %s", noun, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED {
-		return fleeterror.NewUnauthenticatedErrorf("fleet node rejected %s credentials: %s", noun, reason)
+		// These are miner credentials, not the operator session.
+		return fleeterror.NewFailedPreconditionErrorf("fleet node rejected %s credentials: %s", noun, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		return fleeterror.NewPlainError(

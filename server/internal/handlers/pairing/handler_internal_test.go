@@ -20,11 +20,13 @@ import (
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	discoverymocks "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/mocks"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -244,14 +246,16 @@ func TestForwardDiscoverySources_AuthenticationAndLookupValidationErrorsAreTermi
 	}
 }
 
-func TestDiscover_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
+func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		req      *pb.DiscoverRequest
-		serverIP string
+		name              string
+		req               *pb.DiscoverRequest
+		serverIP          string
+		rejectCredentials bool
 	}{
-		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}, Ports: []string{"4028"}}}}, "8.8.8.8"},
-		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255", Ports: []string{"4028"}}}}, "10.0.0.0"},
+		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}, Ports: []string{"4028"}}}}, "8.8.8.8", false},
+		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255", Ports: []string{"4028"}}}}, "10.0.0.0", false},
+		{"miner credentials rejected", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}}, "192.168.1.10", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -264,7 +268,7 @@ func TestDiscover_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
 					if ip != tc.serverIP {
 						return nil, nil
 					}
-					// A real server result must survive after the node policy warning reaches the client.
+					// A real server result must survive after the node warning reaches the client.
 					select {
 					case <-warningSeen:
 						return &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "server", FirmwareVersion: "1"}}, nil
@@ -279,7 +283,20 @@ func TestDiscover_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
 				})
 			caps := pairingmocks.NewMockCapabilitiesProvider(ctrl)
 			caps.EXPECT().GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).Return(nil)
-			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			var runner fleetNodeDiscoveryRunner = &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			if tc.rejectCredentials {
+				reg := control.NewRegistry()
+				nodeStream := reg.Register(7)
+				defer nodeStream.Unregister()
+				go func() {
+					select {
+					case cmd := <-nodeStream.Outgoing:
+						nodeStream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED})
+					case <-ctx.Done():
+					}
+				}()
+				runner = credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
+			}
 			client := discoveryClientForHandler(t, &Handler{
 				pairingSvc: domainpairing.NewService(store, nil, nil, nil, discoverer, caps, nil, nil),
 				discovery:  runner,
@@ -575,4 +592,13 @@ func TestIsNoCloudPairTargetsError(t *testing.T) {
 	assert.True(t, isNoCloudPairTargetsError(fleeterror.NewInvalidArgumentError("no devices match the selector")))
 	assert.False(t, isNoCloudPairTargetsError(fleeterror.NewInvalidArgumentError("include_devices selector requires at least one device identifier")))
 	assert.False(t, isNoCloudPairTargetsError(connect.NewError(connect.CodeInvalidArgument, errors.New("no devices match the selector"))))
+}
+
+// Use the real command/ACK path while fixing node eligibility for the RPC test.
+type credentialAckDiscoveryRunner struct {
+	*fleetnodediscovery.Service
+}
+
+func (credentialAckDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
+	return []int64{7}, nil
 }

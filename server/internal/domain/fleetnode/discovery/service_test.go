@@ -88,7 +88,7 @@ func collectResponses(dst *[]*pairingpb.DiscoverResponse) func(*pairingpb.Discov
 }
 
 func TestRunOnNode_PartialAndFailedScanKeepResultsWithWarning(t *testing.T) {
-	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_PARTIAL, gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_REPORT_FAILED} {
+	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_PARTIAL, gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_REPORT_FAILED, gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED} {
 		t.Run(code.String(), func(t *testing.T) {
 			reg := control.NewRegistry()
 			svc := NewService(reg, stubLister{})
@@ -108,6 +108,8 @@ func TestRunOnNode_PartialAndFailedScanKeepResultsWithWarning(t *testing.T) {
 			assert.Contains(t, got[1].GetWarning(), "Fleet Node 8:")
 			if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
 				assert.Contains(t, got[1].GetWarning(), "stopped early")
+			} else if code == gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED {
+				assert.Contains(t, got[1].GetWarning(), "rejected discovery credentials")
 			} else {
 				assert.Equal(t, "Fleet Node 8: discovery failed", got[1].GetWarning())
 			}
@@ -171,28 +173,19 @@ func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
 	}
 }
 
-func TestRunOnNode_RequestAndAuthenticationFailuresRemainErrors(t *testing.T) {
-	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_BAD_REQUEST, gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED} {
-		t.Run(code.String(), func(t *testing.T) {
-			reg := control.NewRegistry()
-			svc := NewService(reg, stubLister{})
-			stream := reg.Register(8)
-			defer stream.Unregister()
-			go func() {
-				cmd := <-stream.Outgoing
-				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
-			}()
-			var got []*pairingpb.DiscoverResponse
-			err := svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), collectResponses(&got))
-			require.Error(t, err)
-			if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
-				assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			} else {
-				assert.True(t, fleeterror.IsAuthenticationError(err))
-			}
-			assert.Empty(t, got)
-		})
-	}
+func TestRunOnNode_BadRequestRemainsError(t *testing.T) {
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	stream := reg.Register(8)
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_BAD_REQUEST})
+	}()
+	var got []*pairingpb.DiscoverResponse
+	err := svc.RunOnNode(t.Context(), 8, "Fleet Node 8", ipListReq([]string{"10.0.0.6"}, nil), collectResponses(&got))
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Empty(t, got)
 }
 
 func TestRunOnNode_WarningSendFailureIsTerminal(t *testing.T) {
