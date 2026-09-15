@@ -162,6 +162,9 @@ it("applies the debounced search alongside the other filters", async () => {
   render(<InventoryTab />);
 
   await user.click(screen.getByRole("button", { name: "Search parts" }));
+  // The toolbar keeps wrapping on phones, so the expanded field has to claim a
+  // full row itself rather than sit beside a filter pill at intrinsic width.
+  expect(screen.getByTestId("inventory-search-expanded")).toHaveClass("phone:w-full");
   await user.type(screen.getByRole("textbox", { name: "Search parts" }), "hash");
 
   await waitFor(() =>

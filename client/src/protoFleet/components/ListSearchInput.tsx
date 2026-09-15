@@ -12,8 +12,10 @@ const MAX_SEARCH_QUERY_CODE_POINTS = 255;
 // where `sanitize` applies it to the displayed text and the emitted value
 // together. Trailing whitespace has to survive: stripping it would erase the
 // space the moment it is typed and make multi-word queries impossible. Cap by
-// Unicode code point rather than UTF-16 code unit so this matches the proto
-// validators and the server's utf8.RuneCountInString checks.
+// Unicode code point rather than UTF-16 code unit, the unit the proto
+// validators and the server's utf8.RuneCountInString checks count in. 255 is
+// at or below every list search bound (ticket search allows 256; a UI cap one
+// character stricter than the API is harmless, widening the API is not).
 const sanitizeSearchQuery = (value: string) =>
   Array.from(value.trimStart()).slice(0, MAX_SEARCH_QUERY_CODE_POINTS).join("");
 
@@ -34,6 +36,11 @@ export interface ListSearchInputProps {
    * toolbars; modal/picker search stays persistently visible by default. */
   collapsible?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /** Applied to the expanded field's landmark only, never to the collapsed
+   * toggle. In a wrapping toolbar the field is an auto-sized flex item, so a
+   * consumer that wants it on its own full-width row at phone widths passes
+   * `phone:w-full` here rather than sizing the icon button too. */
+  className?: string;
 }
 
 /** Search control for server-filtered lists. The visible input updates
@@ -54,6 +61,7 @@ const ListSearchInput = ({
   onQueryInput,
   collapsible = false,
   onExpandedChange,
+  className,
 }: ListSearchInputProps) => {
   const [expanded, setExpanded] = useState(!collapsible || Boolean(initialValue));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -145,10 +153,11 @@ const ListSearchInput = ({
   }
 
   return (
-    // The landmark is left unnamed on purpose: its only control already carries
-    // `label`, and naming the region the same way makes "Search miners" resolve
-    // to two elements for assistive tech and for getByLabelText alike.
-    <div role="search" data-testid={`${id}-expanded`}>
+    // The landmark gets a name distinct from the input's: reusing `label` made
+    // "Search miners" resolve to two elements, for assistive tech and for
+    // getByLabelText alike, while an unnamed search region is flagged by
+    // accessibility checks.
+    <div role="search" aria-label={`${label} controls`} className={className} data-testid={`${id}-expanded`}>
       <Search
         id={id}
         label={label}

@@ -165,10 +165,13 @@ const InventoryTab = () => {
           />
         ) : null}
         {/* Last in the filter group so expanding grows into the gap before
-            the actions instead of pushing the filters aside. */}
+            the actions instead of pushing the filters aside. On phones the
+            expanded field takes its own row instead of squeezing in beside a
+            filter pill at its intrinsic width. */}
         <ListSearchInput
           id="inventory-search"
           label="Search parts"
+          className="phone:w-full"
           initialValue={searchQuery}
           onQueryChange={(query) => {
             setSearchQuery(query);
