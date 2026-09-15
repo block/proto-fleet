@@ -23,12 +23,14 @@ export const RIG_LAYOUT: HashboardLayout = {
   grid: {
     frame: "w-full -space-y-[2px]",
     row: "gap-1.5",
+    rowClass: () => "",
     minWidth: "min-w-[800px]",
   },
   cell: {
     frame: "mb-1.5 grow basis-0 p-[2px] phone:truncate",
     fill: "",
     content: "py-3",
+    metricValueVisibility: "always",
   },
   card: {
     title: (slot) => `Slot ${slot ?? "—"}`,
@@ -37,6 +39,14 @@ export const RIG_LAYOUT: HashboardLayout = {
     showSlotIndicator: true,
     totalSlots: 9,
   },
+  headerIcon: "dismiss",
+  detailStats: [
+    { metric: "maximumAsicTemperature", label: "Highest ASIC temp" },
+    { metric: "averageAsicTemperature", label: "Avg ASIC temp" },
+    { metric: "power", label: "Board power usage" },
+    { metric: "hashrate", label: "Board hashrate" },
+  ],
+  detailStatsGrid: "grid-cols-4 phone:grid-cols-2",
   headerTitleSize: "text-heading-300",
 };
 
@@ -61,15 +71,16 @@ export const CONTAINER_MODULE_LAYOUT: HashboardLayout = {
   grid: {
     frame: "flex w-full flex-col gap-1",
     row: "gap-1",
-    // No floor needed: the cells' own 56px minimum sets the grid's width.
+    rowClass: (row) => (row > 0 && row % 2 === 0 ? "mt-5" : ""),
+    // The cells' 40px minimum sets the grid's scroll width.
     minWidth: "",
   },
-  // Cells hold a 56px floor (min-w-14) and flex to fill the available width, so
-  // the row scrolls horizontally when the viewport can't accommodate it.
+  // Cells grow to fill the row; compact cells keep their values in the popover.
   cell: {
-    frame: "h-14 min-w-14 flex-1 p-0",
+    frame: "h-14 min-w-10 flex-1 p-0",
     fill: "h-full",
     content: "h-full justify-center py-1",
+    metricValueVisibility: "when-wide",
   },
   card: {
     title: (slot) => `Board ${slot ?? "—"}`,
@@ -79,6 +90,15 @@ export const CONTAINER_MODULE_LAYOUT: HashboardLayout = {
     totalSlots: 3,
     previewRowHeight: 16,
   },
+  headerIcon: "back",
+  detailStats: [
+    { metric: "maximumAsicTemperature", label: "High ASIC temp" },
+    { metric: "averageAsicTemperature", label: "Avg ASIC temp" },
+    { metric: "power", label: "Power usage" },
+    { metric: "efficiency", label: "Efficiency" },
+    { metric: "hashrate", label: "Total board hashrate" },
+  ],
+  detailStatsGrid: "grid-cols-5 phone:grid-cols-2",
   headerTitleSize: "text-heading-200",
 };
 

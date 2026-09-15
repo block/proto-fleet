@@ -3,6 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import HashboardStatusCard from "./HashboardStatusCard";
+import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
@@ -67,4 +68,21 @@ test.each([
   setReadings(power, hashrate);
   renderCard();
   expect(efficiencyText()).toHaveTextContent("—");
+});
+
+test("CT1 attention previews keep their temperature fault colors", () => {
+  const fixture = moduleFixture("attention");
+  const store = useMinerStore.getState();
+  store.hardware.replaceHardware(fixture.hardware);
+  store.telemetry.mergeTelemetry(fixture.telemetry);
+  render(
+    <MemoryRouter>
+      <HashboardStatusCard identifier="T1-M1-HB3" />
+    </MemoryRouter>,
+  );
+  const cells = screen.getAllByTestId(/^asic-/);
+  expect(cells).toHaveLength(312);
+  const hotCells = cells.filter((cell) => Number(cell.dataset.value) === 85);
+  expect(hotCells).toHaveLength(19);
+  hotCells.forEach((cell) => expect(cell).toHaveStyle({ backgroundColor: "var(--color-intent-critical-fill)" }));
 });

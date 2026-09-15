@@ -1,4 +1,2 @@
-import { type AsicPalette, getAsicColor, useAsicPalette } from "./asicColor";
-
-export { getAsicColor, useAsicPalette };
-export type { AsicPalette };
+export { useAsicPalette } from "./useAsicPalette";
+export type { AsicPalette } from "./useAsicPalette";

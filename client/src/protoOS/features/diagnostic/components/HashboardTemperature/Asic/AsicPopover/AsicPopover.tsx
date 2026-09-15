@@ -1,107 +1,58 @@
-import { useMemo } from "react";
-import AsicChart from "./AsicChart";
+import clsx from "clsx";
+import type { SelectedMetric } from "../../AsicMetricContext";
+import { formatMetric, getMetricValue } from "../metricDisplay";
 import AsicPopoverRow from "./AsicPopoverRow";
-import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
-import { AsicData, convertAndFormatMeasurement, formatValue, temperatureDisplayUnit } from "@/protoOS/store";
-import { useTemperatureUnit } from "@/protoOS/store";
+import { type AsicData, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
-import { minimalMargin } from "@/shared/components/Popover/constants.ts";
-import ProgressCircular from "@/shared/components/ProgressCircular";
+import { minimalMargin } from "@/shared/components/Popover/constants";
 import { positions } from "@/shared/constants";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
-
-// import { dangerTemp } from "../../constants";
 
 interface AsicPopoverProps {
   asic: AsicData;
+  selectedMetric?: SelectedMetric;
   closePopover: () => void;
   closeIgnoreSelectors?: string[];
 }
 
-const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
+const rows: { metric: SelectedMetric; label: string }[] = [
+  { metric: "temperature", label: "Temperature" },
+  { metric: "hashrate", label: "Hashrate" },
+  { metric: "voltage", label: "Voltage" },
+  { metric: "frequency", label: "Frequency" },
+];
+
+const AsicPopover = ({
+  asic,
+  selectedMetric = "temperature",
+  closePopover,
+  closeIgnoreSelectors,
+}: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
   const layout = useHashboardLayout();
-
-  // Convert telemetry data to chart format
-  const { temperatureData, hashrateData } = useMemo(() => {
-    const temperatureData = asic.temperature?.timeSeries
-      ? convertTelemetryTemperatureToChartData(asic.temperature.timeSeries, asic.temperature.timeSeries.bucketSizeMs)
-      : [];
-
-    const hashrateData = asic.hashrate?.timeSeries
-      ? convertTelemetryHashrateToChartData(asic.hashrate.timeSeries, asic.hashrate.timeSeries.bucketSizeMs)
-      : [];
-
-    return { temperatureData, hashrateData };
-  }, [asic.temperature, asic.hashrate]);
-
-  const hashRateValue = hashrateData.length ? hashrateData[hashrateData.length - 1].value : 0;
-
-  // TODO: [STORE_REFACTOR] we can probably use getCurrentValue from the store instead of formatHashrateWithUnit
-  // Deprioritize for now, since this feature is turned off
-  const { value: hashRate, unit: hashUnit } = formatHashrateWithUnit(hashRateValue ? hashRateValue : undefined);
-
-  // Check if we're still loading data (no telemetry data available)
-  const isLoading = !asic.temperature?.timeSeries && !asic.hashrate?.timeSeries;
-
   return (
     <Popover
       className="h-fit pb-3"
+      testId="asic-popover"
       position={positions.top}
       offset={minimalMargin * 3}
+      constrainHeightToViewport
       closePopover={closePopover}
       closeIgnoreSelectors={closeIgnoreSelectors}
     >
-      <div className="space-y-1">
-        <div className="text-200 text-text-primary-70">ASIC</div>
-        <div className="text-heading-200 text-text-primary">{layout.labelDetail(asic)}</div>
-        {/* TODO: update this condition when we have set indicators */}
-        {/* {(asic.temp_c || 0) >= dangerTemp && (
-          <div className="text-200 text-intent-warning-text text-wrap">
-            Based on historical behavior, it’s likely this ASIC will cause the
-            board to overheat.
+      <div id="asic-live-readings" role="region" aria-label={`ASIC ${layout.labelDetail(asic)} live telemetry`}>
+        <div className="mb-4 space-y-1">
+          <div className="text-200 text-text-primary-70">ASIC</div>
+          <div className="text-heading-200 text-text-primary">{layout.labelDetail(asic)}</div>
+        </div>
+        {rows.map(({ metric, label }) => (
+          <div
+            key={metric}
+            className={clsx("-mx-2 rounded-lg px-2", metric === selectedMetric && "bg-surface-overlay")}
+          >
+            <AsicPopoverRow label={label} value={formatMetric(metric, getMetricValue(asic, metric), temperatureUnit)} />
           </div>
-        )} */}
-      </div>
-      <div className="h-[92px] w-[272px]">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <ProgressCircular indeterminate />
-          </div>
-        ) : null}
-        {hashrateData.length || temperatureData.length ? (
-          <AsicChart hashrateData={hashrateData} temperatureData={temperatureData} />
-        ) : !isLoading ? (
-          <div className="flex h-full items-center justify-center text-text-primary-50">No chart data available</div>
-        ) : null}
-      </div>
-      <div>
-        <AsicPopoverRow
-          label="Current temperature"
-          value={
-            asic.temperature?.latest
-              ? convertAndFormatMeasurement(asic.temperature.latest, temperatureDisplayUnit(temperatureUnit), false)
-              : undefined
-          }
-          className="text-core-accent-fill"
-        />
-        <AsicPopoverRow
-          label="Current hashrate"
-          value={hashrateData.length ? `${getDisplayValue(hashRate)} ${hashUnit}` : undefined}
-          className="text-text-primary"
-        />
-        <AsicPopoverRow
-          label="Voltage"
-          value={asic.voltage?.latest ? convertAndFormatMeasurement(asic.voltage.latest, "mV", true) : undefined}
-          className="text-text-primary"
-        />
-        <AsicPopoverRow
-          label="Frequency"
-          value={asic.frequency?.latest ? formatValue(asic.frequency.latest, true) : undefined}
-          className="text-text-primary"
-        />
+        ))}
       </div>
     </Popover>
   );

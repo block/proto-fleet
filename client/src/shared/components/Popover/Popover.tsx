@@ -31,7 +31,7 @@ type PopoverProps = PopoverContentProps & {
    */
   disableAutoFlip?: boolean;
   /**
-   * Cap the popover's height to the visible viewport (portal-fixed only) so a
+   * Cap the popover's height to the visible viewport (either portal mode) so a
    * menu taller than the screen scrolls internally instead of overflowing the
    * tappable area. Tracks `visualViewport`, so it holds under pinch-zoom and
    * mobile browser-chrome collapse where a CSS `100vh` cap would not. The inner

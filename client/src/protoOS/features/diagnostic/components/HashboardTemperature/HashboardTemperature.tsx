@@ -23,41 +23,12 @@ import {
   useMinerStore,
   useTemperatureUnit,
 } from "@/protoOS/store";
-import { Dismiss } from "@/shared/assets/icons";
+import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
+import { ArrowRight, Dismiss } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
 import SegmentedControl from "@/shared/components/SegmentedControl";
-import Stats, { type StatsProps } from "@/shared/components/Stats";
-
-const getStats = (
-  avgAsicTemp: Measurement | undefined,
-  maxAsicTemp: Measurement | undefined,
-  powerUsage: Measurement | undefined,
-  hashrate: Measurement | undefined,
-): StatsProps["stats"] => {
-  return [
-    {
-      label: "Highest ASIC temp",
-      value: formatValue(maxAsicTemp),
-      units: maxAsicTemp?.units,
-    },
-    {
-      label: "Avg ASIC temp",
-      value: formatValue(avgAsicTemp),
-      units: avgAsicTemp?.units,
-    },
-    {
-      label: "Board power usage",
-      value: formatValue(powerUsage),
-      units: powerUsage?.units,
-    },
-    {
-      label: "Board hashrate",
-      value: formatValue(hashrate),
-      units: hashrate?.units,
-    },
-  ];
-};
+import Stats from "@/shared/components/Stats";
 
 const pagePadX = "px-6 tablet:px-10 laptop:px-14";
 const pageMarginX = "mx-6 tablet:mx-10 laptop:mx-14";
@@ -146,23 +117,31 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       .map((board) => ({ serial: board.serial, name: `Hashboard ${board.slot}` }));
   }, [hardwareHashboards, topology, serial, layout]);
 
-  // Memoize stats computation
-  const stats = useMemo(
-    () =>
-      getStats(
-        convertValueUnits(hashboard?.averageAsicTemperature?.latest, temperatureDisplayUnit(temperatureUnit)),
-        convertValueUnits(hashboard?.maximumAsicTemperature?.latest, temperatureDisplayUnit(temperatureUnit)),
-        convertValueUnits(hashboard?.power?.latest, "kW"),
-        convertValueUnits(hashboard?.hashrate?.latest, "TH/s"),
+  const stats = useMemo(() => {
+    const efficiency = efficiencyValue(
+      convertValueUnits(hashboard?.power?.latest, "W")?.value ?? undefined,
+      convertValueUnits(hashboard?.hashrate?.latest, "TH/s")?.value ?? undefined,
+      hashboard?.efficiency?.latest?.value,
+    );
+    const measurements = {
+      averageAsicTemperature: convertValueUnits(
+        hashboard?.averageAsicTemperature?.latest,
+        temperatureDisplayUnit(temperatureUnit),
       ),
-    [
-      temperatureUnit,
-      hashboard?.averageAsicTemperature,
-      hashboard?.maximumAsicTemperature,
-      hashboard?.power,
-      hashboard?.hashrate,
-    ],
-  );
+      maximumAsicTemperature: convertValueUnits(
+        hashboard?.maximumAsicTemperature?.latest,
+        temperatureDisplayUnit(temperatureUnit),
+      ),
+      power: convertValueUnits(hashboard?.power?.latest, "kW"),
+      hashrate: convertValueUnits(hashboard?.hashrate?.latest, "TH/s"),
+      efficiency: efficiency === null ? undefined : { value: efficiency, units: "J/TH" as const },
+    };
+    return layout.detailStats.map(({ metric, label }) => ({
+      label,
+      value: metric === "efficiency" && efficiency === null ? "—" : formatValue(measurements[metric]),
+      units: measurements[metric]?.units,
+    }));
+  }, [hashboard, layout, temperatureUnit]);
 
   // Rail temperatures. Where each reading surfaces depends on airflow direction,
   // which the layout descriptor encodes: rigs run front-to-rear (one rail, inlet
@@ -176,10 +155,12 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   return (
     <div className="min-h-[100vh] w-full bg-surface-base">
       <Header
-        className="fixed z-10 h-16 items-center border-b border-border-5 bg-surface-base px-4"
+        className="fixed top-0 z-10 h-16 items-center border-b border-border-5 bg-surface-base px-4"
         centerButton={true}
-        icon={<Dismiss width="w-3.5" />}
-        iconAriaLabel="Close hashboards"
+        icon={
+          layout.headerIcon === "back" ? <ArrowRight className="rotate-180" width="w-5" /> : <Dismiss width="w-3.5" />
+        }
+        iconAriaLabel={layout.headerIcon === "back" ? "Back to module" : "Close hashboards"}
         iconVariant="textOnly"
         iconTextColor="text-text-primary"
         iconOnClick={close}
@@ -201,7 +182,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       </div>
       <div className="max-w-screen overflow-visible overflow-x-auto">
         <div className={`${pagePadX} phone:mx-6 phone:!px-0`}>
-          <Stats stats={stats} size="medium" gap="gap-10" padding="pb-4" />
+          <Stats stats={stats} grid={layout.detailStatsGrid} size="medium" gap="gap-10" padding="pb-4" />
         </div>
       </div>
       <div className={`my-6 ${pagePadX}`}>
@@ -216,12 +197,12 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
               title: "Hashrate (GH/s)",
             },
             {
-              key: "voltage",
-              title: "Voltage (mV)",
-            },
-            {
               key: "frequency",
               title: "Frequency (MHz)",
+            },
+            {
+              key: "voltage",
+              title: "Voltage (mV)",
             },
           ]}
           onSelect={(metric) => setSelectedMetric(metric as SelectedMetric)}

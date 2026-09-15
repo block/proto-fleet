@@ -55,15 +55,10 @@ const AsicChartTooltip = ({
             <AsicPopoverRow
               label="Temperature"
               value={`${convertAndFormatTemperature(payload.temp_c, temperatureUnit)}`}
-              className="text-core-accent-fill"
             />
           ) : null}
           {payload.hashrate_ghs !== undefined ? (
-            <AsicPopoverRow
-              label="Hashrate"
-              value={`${getDisplayValue(+payload.hashrate_ghs)} TH/s`}
-              className="text-core-primary-fill"
-            />
+            <AsicPopoverRow label="Hashrate" value={`${getDisplayValue(+payload.hashrate_ghs)} TH/s`} />
           ) : null}
         </div>
       ) : null}
