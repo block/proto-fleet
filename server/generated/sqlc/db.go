@@ -1314,6 +1314,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listReleaseChannelModelGroupsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelModelGroupsPage); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReleaseChannelModelGroupsPage: %w", err)
 	}
+	if q.listReleaseChannelPageFirmwareStmt, err = db.PrepareContext(ctx, listReleaseChannelPageFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageFirmware: %w", err)
+	}
+	if q.listReleaseChannelPageMemberModelsStmt, err = db.PrepareContext(ctx, listReleaseChannelPageMemberModels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageMemberModels: %w", err)
+	}
+	if q.listReleaseChannelPageTargetsStmt, err = db.PrepareContext(ctx, listReleaseChannelPageTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageTargets: %w", err)
+	}
 	if q.listReleaseChannelSuppressedMembersStmt, err = db.PrepareContext(ctx, listReleaseChannelSuppressedMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReleaseChannelSuppressedMembers: %w", err)
 	}
@@ -1322,6 +1331,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listReleaseChannelsStmt, err = db.PrepareContext(ctx, listReleaseChannels); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReleaseChannels: %w", err)
+	}
+	if q.listReleaseChannelsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelsPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelsPage: %w", err)
 	}
 	if q.listRepairTicketCommentsStmt, err = db.PrepareContext(ctx, listRepairTicketComments); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRepairTicketComments: %w", err)
@@ -4183,6 +4195,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listReleaseChannelModelGroupsPageStmt: %w", cerr)
 		}
 	}
+	if q.listReleaseChannelPageFirmwareStmt != nil {
+		if cerr := q.listReleaseChannelPageFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageFirmwareStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelPageMemberModelsStmt != nil {
+		if cerr := q.listReleaseChannelPageMemberModelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageMemberModelsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelPageTargetsStmt != nil {
+		if cerr := q.listReleaseChannelPageTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageTargetsStmt: %w", cerr)
+		}
+	}
 	if q.listReleaseChannelSuppressedMembersStmt != nil {
 		if cerr := q.listReleaseChannelSuppressedMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listReleaseChannelSuppressedMembersStmt: %w", cerr)
@@ -4196,6 +4223,11 @@ func (q *Queries) Close() error {
 	if q.listReleaseChannelsStmt != nil {
 		if cerr := q.listReleaseChannelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listReleaseChannelsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelsPageStmt != nil {
+		if cerr := q.listReleaseChannelsPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelsPageStmt: %w", cerr)
 		}
 	}
 	if q.listRepairTicketCommentsStmt != nil {
@@ -5842,9 +5874,13 @@ type Queries struct {
 	listReleaseChannelMinersPageStmt                             *sql.Stmt
 	listReleaseChannelMismatchedMembersStmt                      *sql.Stmt
 	listReleaseChannelModelGroupsPageStmt                        *sql.Stmt
+	listReleaseChannelPageFirmwareStmt                           *sql.Stmt
+	listReleaseChannelPageMemberModelsStmt                       *sql.Stmt
+	listReleaseChannelPageTargetsStmt                            *sql.Stmt
 	listReleaseChannelSuppressedMembersStmt                      *sql.Stmt
 	listReleaseChannelTargetsStmt                                *sql.Stmt
 	listReleaseChannelsStmt                                      *sql.Stmt
+	listReleaseChannelsPageStmt                                  *sql.Stmt
 	listRepairTicketCommentsStmt                                 *sql.Stmt
 	listRepairTicketPartsStmt                                    *sql.Stmt
 	listRepairTicketsStmt                                        *sql.Stmt
@@ -6516,9 +6552,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listReleaseChannelMinersPageStmt:                             q.listReleaseChannelMinersPageStmt,
 		listReleaseChannelMismatchedMembersStmt:                      q.listReleaseChannelMismatchedMembersStmt,
 		listReleaseChannelModelGroupsPageStmt:                        q.listReleaseChannelModelGroupsPageStmt,
+		listReleaseChannelPageFirmwareStmt:                           q.listReleaseChannelPageFirmwareStmt,
+		listReleaseChannelPageMemberModelsStmt:                       q.listReleaseChannelPageMemberModelsStmt,
+		listReleaseChannelPageTargetsStmt:                            q.listReleaseChannelPageTargetsStmt,
 		listReleaseChannelSuppressedMembersStmt:                      q.listReleaseChannelSuppressedMembersStmt,
 		listReleaseChannelTargetsStmt:                                q.listReleaseChannelTargetsStmt,
 		listReleaseChannelsStmt:                                      q.listReleaseChannelsStmt,
+		listReleaseChannelsPageStmt:                                  q.listReleaseChannelsPageStmt,
 		listRepairTicketCommentsStmt:                                 q.listRepairTicketCommentsStmt,
 		listRepairTicketPartsStmt:                                    q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                        q.listRepairTicketsStmt,

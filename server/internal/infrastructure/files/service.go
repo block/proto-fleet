@@ -97,8 +97,9 @@ type Service struct {
 	mu                      sync.Mutex
 	bundleCreationMu        sync.Mutex
 	firmwareMetadataReuseMu sync.RWMutex
-	checksumIndex           map[string][]string // SHA-256 hex -> reuse-eligible file IDs
-	firmwareChecksumByID    map[string]string   // fileID -> SHA-256 hex
+	checksumIndex           map[string][]string    // SHA-256 hex -> reuse-eligible file IDs
+	firmwareChecksumByID    map[string]string      // fileID -> SHA-256 hex
+	firmwarePayloadFailures map[string]os.FileInfo // file ID -> failed payload snapshot; guarded by mu
 	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
 	firmwareExecutionPins   map[string]int // file ID -> active command deliveries; guarded by mu
 	syncFirmwareDir         func(string) error

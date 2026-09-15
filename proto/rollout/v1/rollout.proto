@@ -126,6 +126,10 @@ import "google/protobuf/timestamp.proto";
 // resumes. Fleet has no durable artifact store, so this is what survives a
 // redeploy. Two files with the same version but different payloads are
 // different artifacts; assigning one after the other starts a rollout.
+// Read responses use cached upload/startup checksum identity and current file
+// presence/readability for availability, without rehashing payloads. Known
+// verification failures exclude unchanged copies. This is an availability hint:
+// assignment admission, dispatch and delivery independently verify payload bytes.
 //
 // Managed-deployment provenance is the checksum from the last successful
 // Fleet-managed deployment to a miner, recorded after it reports the target
@@ -621,8 +625,9 @@ message ReleaseChannelModelGroup {
     // firmware is assigned. The assignment's identity under the RolloutService
     // artifact identity rule.
     string firmware_checksum = 13 [(buf.validate.field).string = {max_len: 64, pattern: "^$|^[0-9a-f]{64}$"}];
-    // Whether an uploaded file with firmware_checksum currently exists. False
-    // while the artifact must be re-uploaded before enforcement can dispatch.
+    // Cached availability of an uploaded file with firmware_checksum, including
+    // current presence/readability and known verification failures. Status reads
+    // do not rehash payload bytes; dispatch independently verifies the artifact.
     bool firmware_available = 14;
 }
 
@@ -1266,14 +1271,16 @@ message ListReleaseChannelMinersRequest {
     string model = 3 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     // Maximum miners to return. 0 uses the server default of 100.
     int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
-    // Cursor returned by a previous call; leave empty for the first page.
-    string cursor = 5 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; leave empty for the first page.
+    string cursor = 5 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMinersResponse {
     repeated ReleaseChannelMiner miners = 1 [(buf.validate.field).repeated.max_items = 1000];
-    // Cursor for the next page; empty when there are no more miners.
-    string cursor = 2 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; empty when there are no more miners.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMembershipConflictsRequest {
@@ -1282,16 +1289,18 @@ message ListReleaseChannelMembershipConflictsRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
     // Maximum conflict records to return. 0 uses the server default of 100.
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
-    // Cursor returned by a previous call; leave empty for the first page.
-    string cursor = 3 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMembershipConflictsResponse {
     // Flat records keep the page bounded when one miner matches many channels.
     // Clients may group records by device_id.
     repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
-    // Cursor for the next page; empty when there are no more conflicts.
-    string cursor = 2 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; empty when there are no more conflicts.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 
 message CreateReleaseChannelRequest {

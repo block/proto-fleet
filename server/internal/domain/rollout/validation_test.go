@@ -1200,6 +1200,15 @@ func TestRolloutPaginationValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "channel miners accept maximum cursor length",
+			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, Cursor: strings.Repeat("c", 2048)},
+		},
+		{
+			name:    "channel miners reject oversized cursor",
+			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, Cursor: strings.Repeat("c", 2049)},
+			wantErr: true,
+		},
+		{
 			name:    "channel model groups accept default page size",
 			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1},
 		},
@@ -1251,11 +1260,11 @@ func TestRolloutPaginationValidation(t *testing.T) {
 		},
 		{
 			name:    "membership conflicts accept maximum cursor length",
-			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 100)},
+			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 2048)},
 		},
 		{
 			name:    "membership conflicts reject oversized cursor",
-			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 101)},
+			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 2049)},
 			wantErr: true,
 		},
 	}
@@ -1340,7 +1349,7 @@ func TestBoundedListResponseValidation(t *testing.T) {
 			newElement:      func() proto.Message { return &rolloutv1.ReleaseChannelMiner{} },
 			collectionField: "miners",
 			maxItems:        1000,
-			cursorMaxLen:    100,
+			cursorMaxLen:    2048,
 		},
 		{
 			name:            "rollouts",
@@ -1372,7 +1381,7 @@ func TestBoundedListResponseValidation(t *testing.T) {
 			newElement:      func() proto.Message { return conflict() },
 			collectionField: "conflicts",
 			maxItems:        100,
-			cursorMaxLen:    100,
+			cursorMaxLen:    2048,
 		},
 		{
 			// The events cursor is never empty, so the fixture carries one.

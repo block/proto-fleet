@@ -1276,12 +1276,22 @@ type Querier interface {
 	// on_target_count follows the contract's definition: reported version and
 	// provenance equal the assignment.
 	ListReleaseChannelModelGroupsPage(ctx context.Context, arg ListReleaseChannelModelGroupsPageParams) ([]ListReleaseChannelModelGroupsPageRow, error)
+	// Summaries need active assignments only; cleared rows retain generations for
+	// later assignments but do not contribute additional model groups.
+	ListReleaseChannelPageFirmware(ctx context.Context, arg ListReleaseChannelPageFirmwareParams) ([]ReleaseChannelFirmware, error)
+	// Aggregate only the requested channels' resolved members. Preserve observed
+	// hardware spelling; assignment matching uses normalized keys in the domain.
+	ListReleaseChannelPageMemberModels(ctx context.Context, arg ListReleaseChannelPageMemberModelsParams) ([]ListReleaseChannelPageMemberModelsRow, error)
+	ListReleaseChannelPageTargets(ctx context.Context, arg ListReleaseChannelPageTargetsParams) ([]ListReleaseChannelPageTargetsRow, error)
 	// Members of one pair the enforcement loop currently suppresses;
 	// RetryFailedRolloutDevices re-queues exactly this set.
 	ListReleaseChannelSuppressedMembers(ctx context.Context, arg ListReleaseChannelSuppressedMembersParams) ([]ListReleaseChannelSuppressedMembersRow, error)
 	// Selectors of every channel in the org.
 	ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ListReleaseChannelTargetsRow, error)
 	ListReleaseChannels(ctx context.Context, orgID int64) ([]ReleaseChannel, error)
+	// Channel listing uses immutable IDs so deleting or renaming the cursor's
+	// channel does not change where the next page begins.
+	ListReleaseChannelsPage(ctx context.Context, arg ListReleaseChannelsPageParams) ([]ReleaseChannel, error)
 	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
