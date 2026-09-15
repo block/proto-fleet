@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"connectrpc.com/connect"
@@ -335,8 +336,8 @@ func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
 		{"list over 4096", discoverIPList(append(slices.Clone(addresses), "10.0.16.0"), []string{"80"}), 0},
 		{"range at 4096", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{IpRange: &pairingpb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.15.255", Ports: []string{"80"}}}}, 4096},
 		{"range over 4096", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{IpRange: &pairingpb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.16.0", Ports: []string{"80"}}}}, 0},
-		{"network at /20", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/20", Ports: []string{"80"}}}}, 4094},
-		{"network over /20", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "10.0.0.0/19", Ports: []string{"80"}}}}, 0},
+		{"network at /20", discoverNetworkScan("10.0.0.0/20", []string{"80"}), 4094},
+		{"network over /20", discoverNetworkScan("10.0.0.0/19", []string{"80"}), 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &RunCmd{discoverer: &stubDiscoverer{probes: devices}}
@@ -372,12 +373,18 @@ func TestIPListChoosesPrivateDNSBeforeIPv4Preference(t *testing.T) {
 
 type reportBudgetClient struct {
 	gatewayClient
+	delay     time.Duration
 	mu        sync.Mutex
 	deadlines []time.Time
 	counts    []int
 }
 
 func (c *reportBudgetClient) ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
+	select {
+	case <-time.After(c.delay):
+	case <-ctx.Done():
+		return nil, fmt.Errorf("report interrupted: %w", ctx.Err())
+	}
 	deadline, _ := ctx.Deadline()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -386,18 +393,38 @@ func (c *reportBudgetClient) ReportDiscoveredDevices(ctx context.Context, req *c
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{}), nil
 }
 
-func TestStreamReportsHasOneTotalUploadDeadline(t *testing.T) {
-	client := &reportBudgetClient{}
-	reports := make([]*pb.DiscoveredDeviceReport, 2*maxDevicesPerReport+1)
-	for i := range reports {
-		reports[i] = &pb.DiscoveredDeviceReport{}
+func TestStreamReportsMaximumResultsWithinTotalDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		delay       time.Duration
+		wantTimeout bool
+	}{
+		{"forty batches take longer than the old budget", time.Second, false},
+		{"stalled upload is bounded", discoveryReportTimeout + time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				client := &reportBudgetClient{delay: tc.delay}
+				reports := make([]*pb.DiscoveredDeviceReport, discoverylimits.MaxScanTargets*discoverylimits.MaxPortsPerIP)
+				for i := range reports {
+					reports[i] = &pb.DiscoveredDeviceReport{}
+				}
+				started := time.Now()
+				err := (&RunCmd{}).streamReports(t.Context(), client, "command", reports, discardLogger(t))
+				if tc.wantTimeout {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+					assert.Equal(t, discoveryReportTimeout, time.Since(started))
+					assert.Empty(t, client.counts)
+					return
+				}
+				require.NoError(t, err)
+				require.Len(t, client.counts, 40)
+				assert.Equal(t, 40*time.Second, time.Since(started))
+				for i, count := range client.counts {
+					assert.Equal(t, maxDevicesPerReport, count)
+					assert.Equal(t, started.Add(discoveryReportTimeout), client.deadlines[i])
+				}
+			})
+		})
 	}
-	started := time.Now()
-	err := (&RunCmd{}).streamReports(t.Context(), client, "command", reports, discardLogger(t))
-	require.NoError(t, err)
-	assert.Equal(t, []int{1024, 1024, 1}, client.counts)
-	require.Len(t, client.deadlines, 3)
-	assert.WithinDuration(t, started.Add(discoveryReportTimeout), client.deadlines[0], time.Second)
-	assert.Equal(t, client.deadlines[0], client.deadlines[1])
-	assert.Equal(t, client.deadlines[0], client.deadlines[2])
 }

@@ -40,7 +40,9 @@ const (
 	// connections keep backoff growing.
 	stableSessionThreshold = 30 * time.Second
 	probeConcurrency       = 32
-	discoveryReportTimeout = 30 * time.Second
+	// Leave 30s for dispatch and ACK delivery within the server's 12m wait
+	// after the 10m scan budget. This is one budget for all report batches.
+	discoveryReportTimeout = 90 * time.Second
 	maxDevicesPerReport    = 1024 // server enforces max_items=1024
 	maxIPsPerCommand       = discoverylimits.MaxScanTargets
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP

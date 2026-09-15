@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -99,6 +100,9 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
+	if err := protovalidate.Validate(cmd); err != nil {
+		return fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
+	}
 	var callbackErr error
 	forward := func(batch *pairingpb.DiscoverResponse) error {
 		callbackErr = onBatch(batch)

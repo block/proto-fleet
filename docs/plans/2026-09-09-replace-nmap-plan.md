@@ -34,7 +34,7 @@ Rename response field 2 from `error` to `warning`, regenerating all outputs. Run
 
 Raise the shared prefix minimum to /20 and derive the 4,096-target cap from it. Keep ten ports and 1,024 reports per upload; permit 40,960 reports per command. Rename `NmapModeRequest`/`nmap` to `NetworkScanModeRequest`/`network_scan` at existing field 4 and regenerate all outputs. Update active documentation, scripts, and policy references. Do not rewrite unrelated historical records.
 
-Verify /20 versus /19, 4,096 versus 4,097 targets, ten versus eleven ports, and that forty upload batches plus the ACK fit the existing 64-event queue. Do not promise every /20 completes within ten minutes: responsive ports with slow plugins can consume the budget.
+Validate the serialized command against the existing payload cap before dispatch. Extend the final-upload budget to 90 seconds while retaining the server’s 12-minute command wait. Verify /20 versus /19, 4,096 versus 4,097 targets, ten versus eleven ports, and that forty upload batches plus the ACK fit the existing 64-event queue. Do not promise every /20 completes within ten minutes: responsive ports with slow plugins can consume the budget.
 
 ## Validation
 

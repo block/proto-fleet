@@ -3,6 +3,8 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -362,6 +364,49 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTarget, <-gotTarget)
+		})
+	}
+}
+
+func TestRunOnNode_ValidatesEncodedPayloadBeforeDispatch(t *testing.T) {
+	for _, hostnameLength := range []int{253, 252} {
+		t.Run(fmt.Sprint(hostnameLength), func(t *testing.T) {
+			addresses := make([]string, 4096)
+			for i := range addresses {
+				addresses[i] = fmt.Sprintf("%04d%s.%s.%s.%s", i, strings.Repeat("a", 59), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", hostnameLength-192))
+				require.Len(t, addresses[i], hostnameLength)
+			}
+			req := ipListReq(addresses, []string{"4028"})
+			require.NoError(t, ValidateRequest(req), "target count and grammar fit the discovery contract")
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			stream := reg.Register(7)
+			defer stream.Unregister()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			if hostnameLength == 252 {
+				go func() {
+					select {
+					case cmd := <-stream.Outgoing:
+						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+					case <-ctx.Done():
+					}
+				}()
+			}
+			var got []*pairingpb.DiscoverResponse
+			err := svc.RunOnNode(ctx, 7, "Fleet Node 7", req, collectResponses(&got))
+			if hostnameLength == 253 {
+				require.True(t, fleeterror.IsInvalidArgumentError(err), "error = %v", err)
+				require.Contains(t, err.Error(), "split the request or shorten hostnames")
+				select {
+				case cmd := <-stream.Outgoing:
+					t.Fatalf("oversized payload was dispatched: %d bytes", len(cmd.GetPayload()))
+				default:
+				}
+			} else {
+				require.NoError(t, err)
+			}
+			require.Empty(t, got)
 		})
 	}
 }
