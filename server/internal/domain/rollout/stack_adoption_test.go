@@ -155,9 +155,11 @@ func TestRolloutStackDriftAtReviewGateDispatchesCorrection(t *testing.T) {
 
 func TestRolloutStackNewerProvenanceRequiresCorrectiveSend(t *testing.T) {
 	f := newFixture(t, 2)
+	dispatcher := useAuditedModelDispatcher(t, f)
 	f.channel(t, pilotOf1, f.allMiners()...)
 	started := f.apply(t, "fw-2")
 	f.svc.EnforceTick(t.Context())
+	dispatcher.finish("miner-0", "SUCCESS")
 	f.finishUpdate(t, "miner-0", "2.0.0")
 	f.svc.EnforceTick(t.Context())
 	require.Equal(t, PhaseDone, phaseOf(f.rollout(t, started.ID), "miner-0"))
@@ -173,6 +175,7 @@ func TestRolloutStackNewerProvenanceRequiresCorrectiveSend(t *testing.T) {
 	f.backdateSends(t)
 	f.svc.EnforceTick(t.Context())
 	require.Len(t, f.dispatcher.sent, 2)
+	dispatcher.finish("miner-0", "SUCCESS")
 	f.svc.EnforceTick(t.Context())
 	assert.Equal(t, PhaseDone, phaseOf(f.rollout(t, started.ID), "miner-0"))
 }

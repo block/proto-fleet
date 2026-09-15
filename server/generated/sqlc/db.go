@@ -915,6 +915,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, getReleaseChannelFirmware); err != nil {
 		return nil, fmt.Errorf("error preparing query GetReleaseChannelFirmware: %w", err)
 	}
+	if q.getReleaseChannelForUpdateStmt, err = db.PrepareContext(ctx, getReleaseChannelForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelForUpdate: %w", err)
+	}
 	if q.getReleaseChannelSettingStmt, err = db.PrepareContext(ctx, getReleaseChannelSetting); err != nil {
 		return nil, fmt.Errorf("error preparing query GetReleaseChannelSetting: %w", err)
 	}
@@ -3530,6 +3533,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getReleaseChannelFirmwareStmt: %w", cerr)
 		}
 	}
+	if q.getReleaseChannelForUpdateStmt != nil {
+		if cerr := q.getReleaseChannelForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getReleaseChannelSettingStmt != nil {
 		if cerr := q.getReleaseChannelSettingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getReleaseChannelSettingStmt: %w", cerr)
@@ -5741,6 +5749,7 @@ type Queries struct {
 	getRackSlotsStmt                                             *sql.Stmt
 	getReleaseChannelStmt                                        *sql.Stmt
 	getReleaseChannelFirmwareStmt                                *sql.Stmt
+	getReleaseChannelForUpdateStmt                               *sql.Stmt
 	getReleaseChannelSettingStmt                                 *sql.Stmt
 	getRepairTicketStmt                                          *sql.Stmt
 	getRepairTicketCommentByIdempotencyKeyStmt                   *sql.Stmt
@@ -6419,6 +6428,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackSlotsStmt:                                             q.getRackSlotsStmt,
 		getReleaseChannelStmt:                                        q.getReleaseChannelStmt,
 		getReleaseChannelFirmwareStmt:                                q.getReleaseChannelFirmwareStmt,
+		getReleaseChannelForUpdateStmt:                               q.getReleaseChannelForUpdateStmt,
 		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
 		getRepairTicketStmt:                                          q.getRepairTicketStmt,
 		getRepairTicketCommentByIdempotencyKeyStmt:                   q.getRepairTicketCommentByIdempotencyKeyStmt,

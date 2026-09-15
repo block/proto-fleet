@@ -3420,6 +3420,18 @@ func (q *retryingQuerier) GetReleaseChannelFirmware(ctx context.Context, arg Get
 	return result, err
 }
 
+func (q *retryingQuerier) GetReleaseChannelForUpdate(ctx context.Context, arg GetReleaseChannelForUpdateParams) (ReleaseChannel, error) {
+	var result ReleaseChannel
+	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelForUpdate", func() error {
+		callResult, callErr := q.next.GetReleaseChannelForUpdate(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error) {
 	var result ReleaseChannelSetting
 	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelSetting", func() error {

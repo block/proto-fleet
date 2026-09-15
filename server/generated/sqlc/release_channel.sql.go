@@ -857,6 +857,50 @@ func (q *Queries) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseC
 	return i, err
 }
 
+const getReleaseChannelForUpdate = `-- name: GetReleaseChannelForUpdate :one
+SELECT id, org_id, name, description, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, created_by, created_at, updated_at FROM release_channel
+WHERE id = $1 AND org_id = $2
+FOR NO KEY UPDATE
+`
+
+type GetReleaseChannelForUpdateParams struct {
+	ChannelID int64
+	OrgID     int64
+}
+
+// Serialize assignment changes before reading any pair, including pairs with
+// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+// permits foreign-key checks by concurrent rollout/target inserts.
+func (q *Queries) GetReleaseChannelForUpdate(ctx context.Context, arg GetReleaseChannelForUpdateParams) (ReleaseChannel, error) {
+	row := q.queryRow(ctx, q.getReleaseChannelForUpdateStmt, getReleaseChannelForUpdate, arg.ChannelID, arg.OrgID)
+	var i ReleaseChannel
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Description,
+		&i.Method,
+		&i.OrderBy,
+		&i.BatchSize,
+		&i.PilotSize,
+		&i.WaitBetweenBatchesSeconds,
+		&i.ReviewAfterEachBatch,
+		&i.AutoContinue,
+		&i.StabilizationSeconds,
+		&i.MaxHashrateDropPercent,
+		&i.MaxEfficiencyIncreasePercent,
+		&i.MaxTempIncreaseC,
+		&i.MaxNewErrors,
+		&i.MinSampleCoveragePercent,
+		&i.MaxConcurrentOffline,
+		&i.ControllerTimeoutSeconds,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const haltFirmwareRolloutDevices = `-- name: HaltFirmwareRolloutDevices :exec
 UPDATE firmware_rollout_device
 SET halted_at = now(),
@@ -1089,6 +1133,7 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE(dep.firmware_version, '')::text AS last_deployed_firmware_version,
        dep.deployed_at AS last_deployed_at,
        COALESCE((
            SELECT array_agg(qm.payload->>'firmware_checksum')
@@ -1166,6 +1211,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	OpenErrors                   int32
 	ErrorsSinceBaseline          int32
 	LastDeployedFirmwareChecksum string
+	LastDeployedFirmwareVersion  string
 	LastDeployedAt               sql.NullTime
 	PendingFirmwareChecksums     []string
 	PendingLegacyFirmwareFileIds []string
@@ -1182,6 +1228,9 @@ type ListFirmwareRolloutDevicesRow struct {
 // Existing targets remain tied to their paired device when firmware changes its
 // reported manufacturer/model: the engine still verifies the update's outcome,
 // but in_scope must be true before dispatching another compatible update.
+// The prior deployed version distinguishes a version change from replacing an
+// artifact with another that reports the same version; the latter requires the
+// latest dispatch's successful command result before recording new provenance.
 // Live health is evidence for the engine's
 // next decision; the persisted columns (verified_at, halted_at, excluded_at)
 // carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1232,6 +1281,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.OpenErrors,
 			&i.ErrorsSinceBaseline,
 			&i.LastDeployedFirmwareChecksum,
+			&i.LastDeployedFirmwareVersion,
 			&i.LastDeployedAt,
 			pq.Array(&i.PendingFirmwareChecksums),
 			pq.Array(&i.PendingLegacyFirmwareFileIds),

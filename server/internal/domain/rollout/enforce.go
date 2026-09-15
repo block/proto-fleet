@@ -378,9 +378,10 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 // command still outstanding waits: its report predates that command. The write
 // compares the observed provenance atomically so a stale read cannot replace a
 // concurrent deployment. Returns refreshed targets after attempting the write.
-// A reported pair change additionally requires the exact dispatch's durable
-// successful result: another artifact may report the same version, so queuing
-// or failing the assigned update cannot prove the rename came from that update.
+// Replacing same-version provenance or accepting a reported pair change also
+// requires the exact dispatch's durable successful result: another artifact may
+// report the same version, so queuing or failing the assigned update cannot
+// prove that artifact was installed, even when the pair is unchanged.
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var deployed []int64
 	var expectedPresent []bool
@@ -388,7 +389,8 @@ func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, 
 	var expectedChecksums []string
 	for _, t := range targets {
 		if !t.excluded() && !t.halted() && t.LastDispatchedAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
-			((t.InScope.Valid && t.InScope.Bool) || t.LastDispatchSucceeded) &&
+			(t.LastDispatchSucceeded || (t.InScope.Valid && t.InScope.Bool &&
+				t.LastDeployedFirmwareVersion != r.FirmwareVersion)) &&
 			(!t.LastDeployedAt.Valid || !t.LastDeployedAt.Time.After(t.LastDispatchedAt.Time)) &&
 			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
 			deployed = append(deployed, t.DeviceID)
@@ -606,6 +608,10 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	ev := Evidence{DevicesTotal: int32(len(scope))} // #nosec G115 -- bounded by the member count
 	var hash, power, efficiency, temp metricAggregate
 	for _, t := range scope {
+		if t.excluded() {
+			ev.Excluded++
+			continue
+		}
 		if t.skipped() {
 			ev.Skipped++
 			continue
@@ -664,8 +670,8 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 		ev.HoldReason = "Manual review"
 	case ev.Failed > 0:
 		ev.HoldReason = fmt.Sprintf("%d miners failed to update", ev.Failed)
-	case ev.Verified+ev.Skipped < ev.DevicesTotal:
-		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified-ev.Skipped, ev.DevicesTotal)
+	case ev.Verified+ev.Excluded+ev.Skipped < ev.DevicesTotal:
+		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, ev.DevicesTotal)
 	case th.MaxHashrateDropPercent != nil && !covered(ev.HashRateHs):
 		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified)
 	case th.MaxHashrateDropPercent != nil && ev.HashrateChangePercent == nil:

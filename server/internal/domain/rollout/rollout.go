@@ -1105,17 +1105,23 @@ func activeTargets(targets []target) []target {
 	return out
 }
 
-// reviewScope is the set of targets whose evidence governs the rollout right
-// now: the current batch while batching, at the gate or waiting; everything
-// in the rest stage.
+// reviewScope is the active work the engine must settle: the current batch
+// while batching, at the gate or waiting; every active target in the rest
+// stage, including earlier batches that drifted after their review.
 func reviewScope(r sqlc.FirmwareRollout, targets []target) []target {
-	targets = activeTargets(targets)
 	if r.Stage == StageRest {
-		return targets
+		return activeTargets(targets)
 	}
+	return activeTargets(evidenceScope(r, targets))
+}
+
+// evidenceScope retains neutral excluded targets in the current batch or
+// the unbatched rest targets. All-at-once rollouts have only rest targets.
+func evidenceScope(r sqlc.FirmwareRollout, targets []target) []target {
 	var scope []target
 	for _, t := range targets {
-		if t.inBatch(r.CurrentBatch) {
+		if (r.Stage == StageRest && !t.BatchIndex.Valid) ||
+			(r.Stage != StageRest && t.inBatch(r.CurrentBatch)) {
 			scope = append(scope, t)
 		}
 	}
@@ -1177,7 +1183,7 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 	}
 	var ev *Evidence
 	if r.Status == StatusActive {
-		e := s.evaluate(r, reviewScope(r, targets))
+		e := s.evaluate(r, evidenceScope(r, targets))
 		ev = &e
 		view.Evidence = ev
 	}

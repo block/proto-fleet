@@ -865,9 +865,10 @@ message RolloutDeviceCounts {
     int32 skipped = 7 [(buf.validate.field).int32.gte = 0];
 }
 
-// Post-update evidence for the miners under review: the batch at the gate
-// (or in flight), or every target in the rest stage. Compared against each
-// miner's own baseline.
+// Post-update evidence for the miners under review: the current batch, every
+// target for an unbatched rollout, or the unbatched targets in the rest stage
+// after batching. Includes excluded and skipped targets as neutral counts;
+// health samples are compared against each contributing miner's own baseline.
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"

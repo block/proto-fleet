@@ -988,7 +988,7 @@ type FirmwarePlan struct {
 func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, channelID int64, assignments []Assignment, override *Behavior) ([]Rollout, error) {
 	var started []Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		channel, err := s.store.GetQueries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+		channel, err := s.store.GetQueries(ctx).GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: channelID, OrgID: orgID})
 		if err != nil {
 			return channelLookupError(channelID, err)
 		}
@@ -1101,13 +1101,21 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 	)
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
 		q := s.store.GetQueries(ctx)
-		row, _, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
+		// Discover the channel without locking the rollout: assignment
+		// writers always lock the channel first, then its rollout rows.
+		row, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID})
 		if err != nil {
-			return err
+			return rolloutLookupError(rolloutID, err)
 		}
-		channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: row.ChannelID, OrgID: orgID})
+		channel, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: row.ChannelID, OrgID: orgID})
 		if err != nil {
 			return channelLookupError(row.ChannelID, err)
+		}
+		// Reload and check the revision after waiting for the channel so a
+		// concurrent apply cannot leave us rolling back stale lineage.
+		row, _, err = s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
+		if err != nil {
+			return err
 		}
 		channelID = channel.ID
 		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
@@ -1202,7 +1210,8 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 
 // applyAssignments is the shared body of ApplyFirmware and RollbackFirmware.
 // cancelReason is recorded on any active rollout a changed assignment
-// replaces. Must run inside a transaction.
+// replaces. Must run inside a transaction holding the channel row lock so
+// current assignment comparisons and rollback lineage survive concurrent writes.
 func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, assignments []Assignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
 	resolved, err := s.resolveAssignments(ctx, channel, assignments)
 	if err != nil {

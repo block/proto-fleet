@@ -49,6 +49,14 @@ RETURNING *;
 SELECT * FROM release_channel
 WHERE id = sqlc.arg('channel_id') AND org_id = sqlc.arg('org_id');
 
+-- name: GetReleaseChannelForUpdate :one
+-- Serialize assignment changes before reading any pair, including pairs with
+-- no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+-- permits foreign-key checks by concurrent rollout/target inserts.
+SELECT * FROM release_channel
+WHERE id = sqlc.arg('channel_id') AND org_id = sqlc.arg('org_id')
+FOR NO KEY UPDATE;
+
 -- name: ListReleaseChannels :many
 SELECT * FROM release_channel
 WHERE org_id = sqlc.arg('org_id')
@@ -717,6 +725,9 @@ WHERE id = sqlc.arg('rollout_id');
 -- Existing targets remain tied to their paired device when firmware changes its
 -- reported manufacturer/model: the engine still verifies the update's outcome,
 -- but in_scope must be true before dispatching another compatible update.
+-- The prior deployed version distinguishes a version change from replacing an
+-- artifact with another that reports the same version; the latter requires the
+-- latest dispatch's successful command result before recording new provenance.
 -- Live health is evidence for the engine's
 -- next decision; the persisted columns (verified_at, halted_at, excluded_at)
 -- carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -770,6 +781,7 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE(dep.firmware_version, '')::text AS last_deployed_firmware_version,
        dep.deployed_at AS last_deployed_at,
        COALESCE((
            SELECT array_agg(qm.payload->>'firmware_checksum')

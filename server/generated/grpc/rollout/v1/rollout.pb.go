@@ -2107,9 +2107,10 @@ func (x *RolloutDeviceCounts) GetSkipped() int32 {
 	return 0
 }
 
-// Post-update evidence for the miners under review: the batch at the gate
-// (or in flight), or every target in the rest stage. Compared against each
-// miner's own baseline.
+// Post-update evidence for the miners under review: the current batch, every
+// target for an unbatched rollout, or the unbatched targets in the rest stage
+// after batching. Includes excluded and skipped targets as neutral counts;
+// health samples are compared against each contributing miner's own baseline.
 type RolloutEvidence struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	DevicesTotal int32                  `protobuf:"varint,1,opt,name=devices_total,json=devicesTotal,proto3" json:"devices_total,omitempty"`

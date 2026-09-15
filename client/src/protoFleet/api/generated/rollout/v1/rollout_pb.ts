@@ -779,9 +779,10 @@ export const RolloutDeviceCountsSchema: GenMessage<RolloutDeviceCounts> =
   messageDesc(file_rollout_v1_rollout, 11);
 
 /**
- * Post-update evidence for the miners under review: the batch at the gate
- * (or in flight), or every target in the rest stage. Compared against each
- * miner's own baseline.
+ * Post-update evidence for the miners under review: the current batch, every
+ * target for an unbatched rollout, or the unbatched targets in the rest stage
+ * after batching. Includes excluded and skipped targets as neutral counts;
+ * health samples are compared against each contributing miner's own baseline.
  *
  * @generated from message rollout.v1.RolloutEvidence
  */

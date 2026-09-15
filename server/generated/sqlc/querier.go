@@ -804,6 +804,10 @@ type Querier interface {
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
 	GetReleaseChannel(ctx context.Context, arg GetReleaseChannelParams) (ReleaseChannel, error)
 	GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
+	// Serialize assignment changes before reading any pair, including pairs with
+	// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+	// permits foreign-key checks by concurrent rollout/target inserts.
+	GetReleaseChannelForUpdate(ctx context.Context, arg GetReleaseChannelForUpdateParams) (ReleaseChannel, error)
 	// No row means the org has never chosen a channel; the service layer maps
 	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
 	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
@@ -1153,6 +1157,9 @@ type Querier interface {
 	// Existing targets remain tied to their paired device when firmware changes its
 	// reported manufacturer/model: the engine still verifies the update's outcome,
 	// but in_scope must be true before dispatching another compatible update.
+	// The prior deployed version distinguishes a version change from replacing an
+	// artifact with another that reports the same version; the latter requires the
+	// latest dispatch's successful command result before recording new provenance.
 	// Live health is evidence for the engine's
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
