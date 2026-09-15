@@ -236,6 +236,78 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 	return i, err
 }
 
+const countReleaseChannelFirmwarePreviewMembers = `-- name: CountReleaseChannelFirmwarePreviewMembers :one
+WITH members AS (
+    SELECT COALESCE(dd.firmware_version, '') = $1::text
+           AND COALESCE(dep.firmware_checksum, '') = $2::text
+           AND NOT EXISTS (
+               SELECT 1 FROM queue_message qm
+               WHERE qm.device_id = d.id
+                 AND qm.command_type = 'FirmwareUpdate'
+                 AND qm.status IN ('PENDING', 'PROCESSING')
+                 AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+                     THEN qm.payload->>'firmware_checksum' <> $2::text
+                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($3::text[], '{}')))
+                 END
+           ) AS on_target,
+           EXISTS (
+               SELECT 1 FROM firmware_rollout_suppressed_device s
+               WHERE s.channel_id = m.channel_id
+                 AND s.device_id = d.id
+                 AND s.manufacturer_key = release_channel_pair_key($4::text)
+                 AND s.model_key = release_channel_pair_key($5::text)
+                 AND s.assignment_generation = $6::bigint
+           ) AS suppressed
+    FROM release_channel_member m
+    JOIN device d ON d.id = m.device_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+    WHERE m.org_id = $7
+      AND m.channel_id = $8
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($4::text)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key($5::text)
+)
+SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE on_target)::int AS on_target_count
+FROM members
+`
+
+type CountReleaseChannelFirmwarePreviewMembersParams struct {
+	FirmwareVersion      string
+	FirmwareChecksum     string
+	AssignedFileIds      []string
+	Manufacturer         string
+	Model                string
+	AssignmentGeneration int64
+	OrgID                int64
+	ChannelID            int64
+}
+
+type CountReleaseChannelFirmwarePreviewMembersRow struct {
+	TargetCount   int32
+	OnTargetCount int32
+}
+
+// Both preview counts use one snapshot of the mismatch rule above. A pending
+// foreign command makes a member mismatched even when it reports the assigned
+// version and provenance. Suppression excludes dispatch targets, but does not
+// change whether a member matches the assignment.
+func (q *Queries) CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error) {
+	row := q.queryRow(ctx, q.countReleaseChannelFirmwarePreviewMembersStmt, countReleaseChannelFirmwarePreviewMembers,
+		arg.FirmwareVersion,
+		arg.FirmwareChecksum,
+		pq.Array(arg.AssignedFileIds),
+		arg.Manufacturer,
+		arg.Model,
+		arg.AssignmentGeneration,
+		arg.OrgID,
+		arg.ChannelID,
+	)
+	var i CountReleaseChannelFirmwarePreviewMembersRow
+	err := row.Scan(&i.TargetCount, &i.OnTargetCount)
+	return i, err
+}
+
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 
 INSERT INTO firmware_rollout (

@@ -409,6 +409,45 @@ WHERE m.org_id = sqlc.arg('org_id')
   )
 ORDER BY d.device_identifier;
 
+-- name: CountReleaseChannelFirmwarePreviewMembers :one
+-- Both preview counts use one snapshot of the mismatch rule above. A pending
+-- foreign command makes a member mismatched even when it reports the assigned
+-- version and provenance. Suppression excludes dispatch targets, but does not
+-- change whether a member matches the assignment.
+WITH members AS (
+    SELECT COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
+           AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
+           AND NOT EXISTS (
+               SELECT 1 FROM queue_message qm
+               WHERE qm.device_id = d.id
+                 AND qm.command_type = 'FirmwareUpdate'
+                 AND qm.status IN ('PENDING', 'PROCESSING')
+                 AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+                     THEN qm.payload->>'firmware_checksum' <> sqlc.arg('firmware_checksum')::text
+                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE(sqlc.arg('assigned_file_ids')::text[], '{}')))
+                 END
+           ) AS on_target,
+           EXISTS (
+               SELECT 1 FROM firmware_rollout_suppressed_device s
+               WHERE s.channel_id = m.channel_id
+                 AND s.device_id = d.id
+                 AND s.manufacturer_key = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+                 AND s.model_key = release_channel_pair_key(sqlc.arg('model')::text)
+                 AND s.assignment_generation = sqlc.arg('assignment_generation')::bigint
+           ) AS suppressed
+    FROM release_channel_member m
+    JOIN device d ON d.id = m.device_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+    WHERE m.org_id = sqlc.arg('org_id')
+      AND m.channel_id = sqlc.arg('channel_id')
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
+)
+SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE on_target)::int AS on_target_count
+FROM members;
+
 -- name: ListReleaseChannelSuppressedMembers :many
 -- Members of one pair the enforcement loop currently suppresses;
 -- RetryFailedRolloutDevices re-queues exactly this set.

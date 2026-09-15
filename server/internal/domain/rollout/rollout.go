@@ -667,7 +667,10 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 		}
 		var remaining []int64
 		for _, t := range targets {
-			if !t.excluded() && !t.halted() && !t.verified(*row) {
+			// A target outside the channel still owns unfinished work. Halt
+			// it too so returning to this assignment cannot undo cancellation;
+			// its displayed phase remains excluded in this rollout's history.
+			if !t.halted() && !t.verified(*row) {
 				remaining = append(remaining, t.DeviceID)
 			}
 		}

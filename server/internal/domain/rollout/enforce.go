@@ -358,23 +358,17 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 	if err != nil {
 		return nil, err
 	}
-	var leavers, returners []int64
+	targets, err = s.excludeDepartedTargets(ctx, r, targets)
+	if err != nil {
+		return nil, err
+	}
+	var returners []int64
 	for _, t := range targets {
-		inScope := t.IsChannelMember
-		switch {
-		case !inScope && !t.excluded():
-			leavers = append(leavers, t.DeviceID)
-		case inScope && t.excluded():
+		if t.IsChannelMember && t.excluded() {
 			returners = append(returners, t.DeviceID)
 		}
 	}
 	changed := false
-	if len(leavers) > 0 {
-		if err := q.ExcludeFirmwareRolloutDevices(ctx, sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: leavers}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("exclude rollout devices: %w", err)
-		}
-		changed = true
-	}
 	if len(returners) > 0 {
 		if err := q.ReincludeFirmwareRolloutDevices(ctx, sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: returners}); err != nil {
 			return nil, fleeterror.NewInternalErrorf("reinclude rollout devices: %w", err)
@@ -401,6 +395,25 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 	}
 	if !changed {
 		return targets, nil
+	}
+	return s.listTargets(ctx, r)
+}
+
+// excludeDepartedTargets can also run immediately before dispatch: it records
+// departures without re-including returners that still need convergence checks
+// during the next preparation pass.
+func (s *Service) excludeDepartedTargets(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
+	var leavers []int64
+	for _, t := range targets {
+		if !t.IsChannelMember && !t.excluded() {
+			leavers = append(leavers, t.DeviceID)
+		}
+	}
+	if len(leavers) == 0 {
+		return targets, nil
+	}
+	if err := s.store.GetQueries(ctx).ExcludeFirmwareRolloutDevices(ctx, sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: leavers}); err != nil {
+		return nil, fleeterror.NewInternalErrorf("exclude rollout devices: %w", err)
 	}
 	return s.listTargets(ctx, r)
 }
@@ -532,10 +545,15 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout) (
 			(current.Stage != StageBatch && current.Stage != StageRest) {
 			return nil
 		}
-		// Preparation and concurrent ticks can change target evidence (and
-		// revision) without changing the dispatch stage. Use fresh targets
-		// rather than rejecting those legitimate same-stage changes.
+		// Use fresh evidence even when another tick changed the revision.
 		targets, err := s.listTargets(ctx, current)
+		if err != nil {
+			return err
+		}
+		// A scope edit can commit after preparation. Persist departures under
+		// the channel lock before classifying hardware incompatibility. Leave
+		// returners and joiners for preparation, which also checks convergence.
+		targets, err = s.excludeDepartedTargets(ctx, current, targets)
 		if err != nil {
 			return err
 		}

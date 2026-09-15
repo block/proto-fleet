@@ -334,6 +334,11 @@ type Querier interface {
 	// push the building over its aisles×racks_per_aisle grid. Matches
 	// ListBuildingRacks' filter so the count and the list agree.
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
+	// Both preview counts use one snapshot of the mismatch rule above. A pending
+	// foreign command makes a member mismatched even when it reports the assigned
+	// version and provenance. Suppression excludes dispatch targets, but does not
+	// change whether a member matches the assignment.
+	CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error)
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
 	// Only unfinished work blocks deletion; completed tickets retain historical links.
 	CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error)

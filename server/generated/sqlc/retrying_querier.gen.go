@@ -984,6 +984,18 @@ func (q *retryingQuerier) CountRacksInBuilding(ctx context.Context, arg CountRac
 	return result, err
 }
 
+func (q *retryingQuerier) CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error) {
+	var result CountReleaseChannelFirmwarePreviewMembersRow
+	err := q.retrier.RetryQuery(ctx, "CountReleaseChannelFirmwarePreviewMembers", func() error {
+		callResult, callErr := q.next.CountReleaseChannelFirmwarePreviewMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error) {
 	var result int32
 	err := q.retrier.RetryQuery(ctx, "CountRepairTickets", func() error {

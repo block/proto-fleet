@@ -279,6 +279,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRacksInBuildingStmt, err = db.PrepareContext(ctx, countRacksInBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRacksInBuilding: %w", err)
 	}
+	if q.countReleaseChannelFirmwarePreviewMembersStmt, err = db.PrepareContext(ctx, countReleaseChannelFirmwarePreviewMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CountReleaseChannelFirmwarePreviewMembers: %w", err)
+	}
 	if q.countRepairTicketsStmt, err = db.PrepareContext(ctx, countRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTickets: %w", err)
 	}
@@ -2480,6 +2483,11 @@ func (q *Queries) Close() error {
 	if q.countRacksInBuildingStmt != nil {
 		if cerr := q.countRacksInBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRacksInBuildingStmt: %w", cerr)
+		}
+	}
+	if q.countReleaseChannelFirmwarePreviewMembersStmt != nil {
+		if cerr := q.countReleaseChannelFirmwarePreviewMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countReleaseChannelFirmwarePreviewMembersStmt: %w", cerr)
 		}
 	}
 	if q.countRepairTicketsStmt != nil {
@@ -5561,6 +5569,7 @@ type Queries struct {
 	countQueueMessagesByBatchStmt                                *sql.Stmt
 	countRacksBySiteStmt                                         *sql.Stmt
 	countRacksInBuildingStmt                                     *sql.Stmt
+	countReleaseChannelFirmwarePreviewMembersStmt                *sql.Stmt
 	countRepairTicketsStmt                                       *sql.Stmt
 	countRepairTicketsByBuildingStmt                             *sql.Stmt
 	countRepairTicketsBySiteStmt                                 *sql.Stmt
@@ -6243,6 +6252,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countQueueMessagesByBatchStmt:                                q.countQueueMessagesByBatchStmt,
 		countRacksBySiteStmt:                                         q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
+		countReleaseChannelFirmwarePreviewMembersStmt:                q.countReleaseChannelFirmwarePreviewMembersStmt,
 		countRepairTicketsStmt:                                       q.countRepairTicketsStmt,
 		countRepairTicketsByBuildingStmt:                             q.countRepairTicketsByBuildingStmt,
 		countRepairTicketsBySiteStmt:                                 q.countRepairTicketsBySiteStmt,

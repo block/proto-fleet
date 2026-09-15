@@ -1047,25 +1047,15 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 				generation++
 			}
 		}
-		mismatched, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
-			OrgID: orgID, ChannelID: channel.ID, Pair: a.pair,
+		counts, err := q.CountReleaseChannelFirmwarePreviewMembers(ctx, sqlc.CountReleaseChannelFirmwarePreviewMembersParams{
+			OrgID: orgID, ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
 			FirmwareVersion: a.artifact.Metadata.FirmwareVersion, FirmwareChecksum: a.artifact.Checksum,
-			AssignmentGeneration: generation,
-		}, 0))
+			AssignmentGeneration: generation, AssignedFileIds: s.files.FirmwareFileIDsByChecksum(a.artifact.Checksum),
+		})
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("list mismatched members: %w", err)
+			return nil, fleeterror.NewInternalErrorf("count firmware preview members: %w", err)
 		}
-		plan.TargetCount = int32(len(mismatched)) //nolint:gosec // bounded by the member count
-		members, err := q.ListReleaseChannelMembers(ctx, orgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("list channel members: %w", err)
-		}
-		for _, m := range members {
-			if m.ChannelID == channel.ID && a.pair.matchesObserved(m.Manufacturer, m.Model) &&
-				m.FirmwareVersion == a.artifact.Metadata.FirmwareVersion && m.LastDeployedFirmwareChecksum == a.artifact.Checksum {
-				plan.OnTargetCount++
-			}
-		}
+		plan.TargetCount, plan.OnTargetCount = counts.TargetCount, counts.OnTargetCount
 		if !plan.Unchanged {
 			switch behavior.Method {
 			case MethodBatched:
