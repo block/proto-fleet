@@ -110,13 +110,13 @@ WITH filtered AS (
       AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
       AND (NOT sqlc.arg('filter_exclude_completed')::boolean OR rt.status <> 5)
       AND (NOT sqlc.arg('filter_overdue_only')::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-      AND (sqlc.arg('search_query')::text = '' OR
-           rt.ticket_number ILIKE '%' || sqlc.arg('search_query') || '%' OR
-           rt.component ILIKE '%' || sqlc.arg('search_query') || '%' OR
-           COALESCE(rt.miner_identifier, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-           COALESCE(rt.diagnosis, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-           COALESCE(s.name, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-           COALESCE(b.name, '') ILIKE '%' || sqlc.arg('search_query') || '%')
+      AND (sqlc.narg('search_pattern')::text IS NULL OR
+           rt.ticket_number ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\')
 )
 SELECT * FROM filtered
 WHERE sqlc.narg('cursor_value')::text IS NULL
@@ -150,13 +150,13 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
   AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
   AND (NOT sqlc.arg('filter_exclude_completed')::boolean OR rt.status <> 5)
   AND (NOT sqlc.arg('filter_overdue_only')::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-  AND (sqlc.arg('search_query')::text = '' OR
-       rt.ticket_number ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       rt.component ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(rt.miner_identifier, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(rt.diagnosis, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(s.name, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(b.name, '') ILIKE '%' || sqlc.arg('search_query') || '%');
+  AND (sqlc.narg('search_pattern')::text IS NULL OR
+       rt.ticket_number ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\');
 
 -- name: UpdateRepairTicket :one
 UPDATE repair_ticket SET
@@ -220,13 +220,13 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
   AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
   AND (NOT sqlc.arg('filter_exclude_completed')::boolean OR rt.status <> 5)
   AND (NOT sqlc.arg('filter_overdue_only')::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
-  AND (sqlc.arg('search_query')::text = '' OR
-       rt.ticket_number ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       rt.component ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(rt.miner_identifier, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(rt.diagnosis, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(s.name, '') ILIKE '%' || sqlc.arg('search_query') || '%' OR
-       COALESCE(b.name, '') ILIKE '%' || sqlc.arg('search_query') || '%');
+  AND (sqlc.narg('search_pattern')::text IS NULL OR
+       rt.ticket_number ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\');
 
 -- name: ListCompletedTickets :many
 WITH completed AS (

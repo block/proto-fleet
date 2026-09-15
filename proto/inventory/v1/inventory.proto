@@ -81,6 +81,10 @@ message InventoryFilter {
     repeated int64  site_ids       = 1;
     repeated string types          = 2;
     bool            low_stock_only = 3;
+    // Case-insensitive substring search across the part's name, type,
+    // manufacturer, part number, bin location, and site name. AND-ed with the
+    // other filters.
+    string          search_query   = 4 [(buf.validate.field).string.max_len = 255];
 }
 
 message ListInventoryPartsRequest {

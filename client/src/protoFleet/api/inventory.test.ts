@@ -30,14 +30,18 @@ describe("useInventoryApi", () => {
     const { result } = renderHook(() => useInventoryApi());
     await act(() =>
       result.current.listParts({
-        filter: { siteIds: [8n], types: ["fan"], lowStockOnly: true },
+        filter: { siteIds: [8n], types: ["fan"], lowStockOnly: true, searchQuery: "bitmain" },
         pageSize: 20,
         pageToken: "cursor",
         onSuccess,
       }),
     );
     expect(clients.listInventoryParts).toHaveBeenCalledWith(
-      { filter: { siteIds: [8n], types: ["fan"], lowStockOnly: true }, pageSize: 20, pageToken: "cursor" },
+      {
+        filter: { siteIds: [8n], types: ["fan"], lowStockOnly: true, searchQuery: "bitmain" },
+        pageSize: 20,
+        pageToken: "cursor",
+      },
       expect.anything(),
     );
     expect(onSuccess).toHaveBeenCalledWith({ parts: [], nextPageToken: "next", totalCount: 42 });
