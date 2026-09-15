@@ -232,7 +232,7 @@ message TicketFilter {
     repeated string         group_labels = 6;
     optional int64          assignee_user_id = 7;
     bool                    urgent_only  = 8;
-    string                  search_query = 9 [(buf.validate.field).string.max_len = 255];
+    string                  search_query = 9 [(buf.validate.field).string.max_len = 256];
     bool                    exclude_completed = 10;
     bool                    overdue_only      = 11;
 }
