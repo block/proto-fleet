@@ -539,6 +539,37 @@ func TestRolloutViewTranslatesStatesPhasesAndEvidence(t *testing.T) {
 	assert.Equal(t, checksum, d.LastDeployedFirmwareChecksum)
 }
 
+func TestAPIKeyRolloutActionsPreserveOwningUser(t *testing.T) {
+	t.Parallel()
+	svc := newFakeService()
+	h := NewHandler(svc)
+	ctx := middleware.WithEffectivePermissions(
+		authn.SetInfo(t.Context(), &session.Info{
+			OrganizationID: 7, UserID: 8, Username: "controller",
+			AuthMethod: session.AuthMethodAPIKey, APIKeyID: "key-owned-by-user-8",
+		}),
+		authz.NewEffectivePermissions([]authz.Assignment{{AssignmentID: 1, ScopeType: authz.ScopeOrg, Permissions: []string{authz.PermMinerFirmwareUpdate}}}),
+	)
+	actor := rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 8, Name: "controller", OwnerUserID: 8}
+
+	// Every action that can start replacement work must keep the authenticated
+	// owning user available for the eventual command batch's created_by field.
+	_, err := h.ApplyReleaseChannelFirmware(ctx, connect.NewRequest(&pb.ApplyReleaseChannelFirmwareRequest{
+		ChannelId:   3,
+		Assignments: []*pb.FirmwareAssignment{{Manufacturer: "Proto", Model: "Rig", FirmwareFileId: "fw-2"}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, actor, svc.lastActor)
+
+	_, err = h.RetryFailedRolloutDevices(ctx, connect.NewRequest(&pb.RetryFailedRolloutDevicesRequest{RolloutId: 9}))
+	require.NoError(t, err)
+	assert.Equal(t, actor, svc.lastMutation.Actor)
+
+	_, err = h.RollbackReleaseChannelFirmware(ctx, connect.NewRequest(&pb.RollbackReleaseChannelFirmwareRequest{RolloutId: 9}))
+	require.NoError(t, err)
+	assert.Equal(t, actor, svc.lastMutation.Actor)
+}
+
 func TestLifecycleRPCsForwardIdentity(t *testing.T) {
 	t.Parallel()
 	svc := newFakeService()
@@ -566,7 +597,7 @@ func TestLifecycleRPCsForwardIdentity(t *testing.T) {
 	)
 	_, err = h.PauseRollout(keyCtx, connect.NewRequest(&pb.PauseRolloutRequest{RolloutId: 9}))
 	require.NoError(t, err)
-	assert.Equal(t, rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 8, Name: "controller"}, svc.lastMutation.Actor)
+	assert.Equal(t, rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 8, Name: "controller", OwnerUserID: 8}, svc.lastMutation.Actor)
 
 	// Domain reasons travel as RolloutErrorInfo details.
 	svc.err = fleeterror.NewFailedPreconditionErrorf("stale: %w", &rollout.ErrorInfo{Reason: rollout.ReasonStaleRevision, CurrentRevision: 5})
