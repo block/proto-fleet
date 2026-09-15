@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
+import { hashboardAttentionFill } from "./tankStatusColors";
 import {
   boardStatus,
   hashboardLabel,
@@ -28,11 +29,6 @@ const statusColor: Record<ModuleStatus, string> = {
   sleeping: "bg-text-primary-30",
   healthy: "bg-text-primary",
   unknown: "border border-border-30",
-};
-
-const attentionFillByIssueCount: Record<number, string> = {
-  1: "bg-intent-critical-fill/20",
-  2: "bg-intent-critical-fill/50",
 };
 
 export const StatusMarker = ({ status }: { status: ModuleStatus }) => (
@@ -115,9 +111,7 @@ const TankModuleGridContent = ({ tank, topology, modules, telemetry, onViewModul
                           key={slot}
                           className={clsx(
                             "h-full flex-1 border-r border-border-10 last:border-r-0",
-                            state === "attention" &&
-                              (attentionFillByIssueCount[reading?.reportedIssueCount ?? 0] ??
-                                "bg-intent-critical-fill"),
+                            state === "attention" && hashboardAttentionFill(reading?.reportedIssueCount),
                             !board && "bg-surface-5",
                           )}
                         />

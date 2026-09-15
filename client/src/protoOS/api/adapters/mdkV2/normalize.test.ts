@@ -325,7 +325,19 @@ describe("MDK v2 CT1 normalization", () => {
       },
       {
         timestamp: "2026-09-02T12:00:00Z",
-        plant: { totalPowerW: 45, facilityPowerW: 48, pue: 1.1, flowRateLpm: 12 },
+        plant: {
+          totalPowerW: 45,
+          facilityPowerW: 48,
+          pue: 1.1,
+          flowRateLpm: 12,
+          outletATemperatureC: 42,
+          coolantPumpSpeedHz: 50,
+          pumpInletPressurePa: 194_430,
+          tankALiquidLevelMm: 860,
+          heatRejectionActive: true,
+        },
+        controls: [{ name: "dry_cooler_auto", enabled: true, stateKnown: true }],
+        setpoints: [{ name: "dry_cooler_auto_temp_c", value: 18, unit: "°C" }],
         phases: [{ phase: V2Phase.PHASE_A, powerW: 15, currentA: 1.25, voltageV: 12 }],
         coolingFans: [{ componentId: "dry-cooler-1", powerW: 400, speedPercent: 75 }],
         powerDistributions: [{ componentId: "pdu-1", activeFeedCount: 2, activePowerW: 42 }],
@@ -369,6 +381,13 @@ describe("MDK v2 CT1 normalization", () => {
       totalPower: { latest: { value: 45, units: "W" } },
       pue: { latest: { value: 1.1, units: "ratio" } },
       flowRate: { latest: { value: 12, units: "L/min" } },
+      outletATemperature: { latest: { value: 42, units: "°C" } },
+      coolantPumpSpeed: { latest: { value: 50, units: "Hz" } },
+      pumpInletPressure: { latest: { value: 194_430, units: "Pa" } },
+      tankALiquidLevel: { latest: { value: 860, units: "mm" } },
+      heatRejectionActive: true,
+      controls: [{ name: "dry_cooler_auto", enabled: true, stateKnown: true }],
+      setpoints: [{ name: "dry_cooler_auto_temp_c", value: 18, unit: "°C" }],
     });
     expect(result.hardware.topology.container.fanIds).toEqual(["container:ct1-a:fan:dry-cooler-1"]);
     expect(result.telemetry.fans.get("container:ct1-a:fan:dry-cooler-1" as never)).toMatchObject({

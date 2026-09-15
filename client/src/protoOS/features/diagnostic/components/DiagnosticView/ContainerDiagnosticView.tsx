@@ -1,0 +1,666 @@
+import { type ReactNode, useMemo, useState } from "react";
+import clsx from "clsx";
+
+import DiagnosticStatusModal from "./DiagnosticStatusModal";
+import DryCoolerSettingsModal from "./DryCoolerSettingsModal";
+import { useContainerControl } from "./useContainerControl";
+import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
+import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { hashboardAttentionFill } from "@/protoOS/features/tanks/tankStatusColors";
+import {
+  boardStatus,
+  hashboardLabel,
+  moduleHashboards,
+  moduleStatus,
+  statusLabels,
+  tankGrid,
+  tankMiningScope,
+  tankModules,
+} from "@/protoOS/features/tanks/tankView";
+import { useTankPower } from "@/protoOS/features/tanks/useTankPower";
+import {
+  asEntityKey,
+  type ContainerTopology,
+  type HealthState,
+  type LevelRollup,
+  type MetricTelemetry,
+  type MiningStatus,
+  type PlantTelemetry,
+  type TankNode,
+} from "@/protoOS/store/contract";
+import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
+import useMinerStore from "@/protoOS/store/useMinerStore";
+import { Alert, Info } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
+import RadialGauge from "@/shared/components/RadialGauge";
+import SegmentedControl from "@/shared/components/SegmentedControl";
+import Switch from "@/shared/components/Switch";
+import type { TemperatureUnit } from "@/shared/features/preferences/types";
+import { convertCtoF } from "@/shared/utils/telemetryFormat";
+
+type DiagnosticTab = "all" | "tanks" | "dry-cooler" | "power" | "controls";
+
+// Keep the telemetry subscription out of the view so polling state alone does
+// not re-render every card. Remount when scope changes to cancel the old poll.
+const DiagnosticsPolling = ({ full }: { full: boolean }) => {
+  const level = useMemo<TelemetryLevel[]>(() => (full ? ["hashboard", "miner"] : ["miner"]), [full]);
+  useTelemetry({ level });
+  return null;
+};
+
+const tabs = [
+  { key: "all", title: "All" },
+  { key: "tanks", title: "Tanks" },
+  { key: "dry-cooler", title: "Dry cooler" },
+  { key: "power", title: "Circuit breakers" },
+  { key: "controls", title: "Controls" },
+];
+
+const PASCALS_PER_PSI = 6_894.757;
+const GALLONS_PER_LITRE = 0.264_172;
+
+const latest = (metric: MetricTelemetry | undefined) => {
+  const value = metric?.latest?.value;
+  return value !== null && value !== undefined && Number.isFinite(value) ? value : undefined;
+};
+
+const decimal = (value: number | undefined, digits = 1) =>
+  value === undefined
+    ? "—"
+    : value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+
+const formatTemperature = (value: number | undefined, unit: TemperatureUnit) => {
+  if (value === undefined) return "—";
+  const converted = unit === "F" ? convertCtoF(value) : value;
+  return `${decimal(converted)}°${unit}`;
+};
+
+const formatPressure = (pascals: number | undefined) =>
+  pascals === undefined ? "—" : `${decimal(pascals / PASCALS_PER_PSI)} psi`;
+
+const Stat = ({ label, value }: { label: string; value: string }) => (
+  <div>
+    <dt className="mb-1 text-300 text-text-primary-70">{label}</dt>
+    <dd className="text-emphasis-400 text-text-primary tabular-nums">{value}</dd>
+  </div>
+);
+
+const Panel = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <div className={clsx("rounded-2xl bg-surface-5 p-6", className)}>{children}</div>
+);
+
+const useContainerDiagnostics = () => {
+  const topology = useMinerStore((state) => state.hardware.topology);
+  const plantHardware = useMinerStore((state) => state.hardware.plant);
+  const plantTelemetry = useMinerStore((state) => state.telemetry.plant);
+  const fanHardware = useMinerStore((state) => state.hardware.fans);
+  const fanTelemetry = useMinerStore((state) => state.telemetry.fans);
+  const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
+
+  return useMemo(() => {
+    if (topology?.kind !== "container") return undefined;
+    const plantEntry = [...plantHardware.entries()].find(([, hardware]) => hardware.kind === "plant");
+    const plant = plantEntry ? plantTelemetry.get(plantEntry[0]) : undefined;
+    const tanks = [...topology.tanks.values()].sort((a, b) => (a.slot ?? Infinity) - (b.slot ?? Infinity));
+    const fans = [...fanHardware.entries()].map(([id, hardware], index) => {
+      const number = hardware.name?.match(/(\d+)$/)?.[1] ?? index + 1;
+      return { id, name: `Fan ${number}`, telemetry: fanTelemetry.get(id) };
+    });
+    const powerComponents = [...plantHardware.entries()]
+      .filter(([, hardware]) => hardware.kind === "distribution")
+      .map(([id, hardware]) => ({ hardware, telemetry: plantTelemetry.get(id) }));
+    return {
+      topology,
+      plant,
+      tanks,
+      fans,
+      powerComponents,
+      rollups,
+      containerRollup: rollups.get(asEntityKey(topology.containerId)),
+    };
+  }, [fanHardware, fanTelemetry, plantHardware, plantTelemetry, rollups, topology]);
+};
+
+const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: LevelRollup }) => {
+  const unit = useTemperatureUnit();
+  const temperatureDelta = (value: number) => `${decimal(unit === "F" ? (value * 9) / 5 : value)}°${unit}`;
+  const inlet = latest(plant?.inletTemperature);
+  const outlet = latest(plant?.outletTemperature);
+  const pumpInlet = latest(plant?.pumpInletPressure);
+  const pumpOutlet = latest(plant?.pumpOutletPressure);
+  const totalPower = latest(plant?.totalPower);
+  const state = rollup?.miningStatus;
+  const stateLabel = state === "mining" || state === "degradedMining" ? "Mining" : state ? "Not mining" : "—";
+
+  return (
+    <div className="grid gap-1 tablet:grid-cols-2">
+      <Panel>
+        <dl className="grid grid-cols-2 gap-x-8 gap-y-8">
+          <Stat label="State" value={stateLabel} />
+          <Stat label="Total power" value={totalPower === undefined ? "—" : `${decimal(totalPower / 1_000)} kW`} />
+          <Stat label="Ambient temperature" value={formatTemperature(latest(plant?.ambientTemperature), unit)} />
+          <Stat
+            label="Cooler"
+            value={plant?.heatRejectionActive === undefined ? "—" : plant.heatRejectionActive ? "Active" : "Inactive"}
+          />
+        </dl>
+      </Panel>
+      <Panel>
+        <dl className="grid grid-cols-2 gap-x-8 gap-y-8">
+          <Stat
+            label="Inlet to outlet temperature"
+            value={
+              inlet === undefined || outlet === undefined
+                ? "—"
+                : `${formatTemperature(inlet, unit)} → ${formatTemperature(outlet, unit)}`
+            }
+          />
+          <Stat
+            label="Inlet to outlet pressure"
+            value={
+              pumpInlet === undefined || pumpOutlet === undefined
+                ? "—"
+                : `${formatPressure(pumpInlet)} → ${formatPressure(pumpOutlet)}`
+            }
+          />
+          <Stat
+            label="Temperature delta"
+            value={inlet === undefined || outlet === undefined ? "—" : temperatureDelta(outlet - inlet)}
+          />
+          <Stat
+            label="Pressure delta"
+            value={pumpInlet === undefined || pumpOutlet === undefined ? "—" : formatPressure(pumpOutlet - pumpInlet)}
+          />
+        </dl>
+      </Panel>
+    </div>
+  );
+};
+
+const boardColor = {
+  offline: "bg-core-accent-fill",
+  sleeping: "bg-text-primary-30",
+  healthy: "bg-surface-10",
+  unknown: "border border-border-10 bg-surface-base",
+};
+
+const miningStatusLabels: Record<MiningStatus, string> = {
+  uninitialized: "Not initialized",
+  poweringOn: "Powering on",
+  mining: "Mining",
+  degradedMining: "Mining (needs attention)",
+  poweringOff: "Powering off",
+  stopped: "Stopped",
+  curtailed: "Curtailed",
+  noPools: "No pools",
+  error: "Error",
+  unknown: "Unknown",
+};
+
+const healthLabels: Record<HealthState, string> = {
+  ok: "Healthy",
+  degraded: "Needs attention",
+  fault: "Fault",
+  offline: "Offline",
+  unknown: "Unknown",
+};
+
+type TankPower = ReturnType<typeof useTankPower>;
+
+const InfoButton = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button
+    type="button"
+    aria-label={label}
+    aria-haspopup="dialog"
+    onClick={onClick}
+    className="rounded-full bg-surface-10 p-1 text-text-primary-70 hover:bg-surface-20 focus-visible:outline-2 focus-visible:outline-core-accent-fill"
+  >
+    <Info />
+  </button>
+);
+
+const TankDiagnosticCard = ({
+  tank,
+  topology,
+  powerControl,
+}: {
+  tank: TankNode;
+  topology: ContainerTopology;
+  powerControl: TankPower;
+}) => {
+  const unit = useTemperatureUnit();
+  const [showInfo, setShowInfo] = useState(false);
+  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(asEntityKey(tank.id)));
+  const telemetry = useMinerStore((state) => state.telemetry.hashboards);
+  const modules = useMemo(() => tankModules(tank, topology), [tank, topology]);
+  const grid = useMemo(() => tankGrid(tank, modules), [tank, modules]);
+  const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
+  const statuses = modules.map((module) => moduleStatus(module.hashboardIds.map((id) => telemetry.get(id))));
+  const hasIssue = statuses.includes("attention");
+  const on = rollup?.miningStatus === "mining" || rollup?.miningStatus === "degradedMining";
+  const boardCount = rollup?.boardCount;
+  const onlineBoardCount = rollup?.onlineBoardCount;
+  const temperature = latest(rollup?.temperature);
+  const power = latest(rollup?.power);
+
+  return (
+    <article className="rounded-2xl bg-surface-5 p-6" aria-label={tank.label ?? `Tank ${tank.slot ?? ""}`}>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 text-emphasis-300">
+          {hasIssue ? <Alert className="text-intent-critical-fill" /> : null}
+          {tank.label ?? `Tank ${tank.slot ?? ""}`}
+        </h3>
+        <div className="flex items-center gap-3">
+          <Switch
+            ariaLabel={`${tank.label ?? "Tank"} power`}
+            checked={on}
+            disabled={!scope || !rollup?.miningStatus || !powerControl.supported || powerControl.pending}
+            setChecked={() => void powerControl.setPower(scope, !on)}
+          />
+          <InfoButton label={`${tank.label ?? "Tank"} info`} onClick={() => setShowInfo(true)} />
+        </div>
+      </div>
+      <div
+        className="mb-5 grid gap-3"
+        aria-label="Module health"
+        style={{
+          gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${grid.rows}, 56px)`,
+        }}
+      >
+        {modules.map((module, index) => {
+          const bySlot = new Map(moduleHashboards(module, topology).map((board) => [board.location?.slot, board]));
+          const position = grid.positions[index];
+          return (
+            <span
+              key={module.id}
+              role="group"
+              aria-label={`Module ${module.location?.moduleSlot ?? module.id}`}
+              className="flex h-14 overflow-hidden rounded-sm"
+              style={position ? { gridColumn: position.column, gridRow: position.row } : undefined}
+            >
+              {[1, 2, 3].map((slot) => {
+                const board = bySlot.get(slot);
+                const reading = board ? telemetry.get(board.id) : undefined;
+                const status = boardStatus(reading);
+                const count = reading?.reportedIssueCount;
+                const label = `${hashboardLabel(slot)} hashboard: ${statusLabels[status]}${
+                  count ? `, ${count} reported ${count === 1 ? "issue" : "issues"}` : ""
+                }`;
+                return (
+                  <span
+                    key={slot}
+                    role="img"
+                    aria-label={label}
+                    title={label}
+                    className={clsx(
+                      "h-full min-w-0 flex-1",
+                      status === "attention" ? hashboardAttentionFill(count) : boardColor[status],
+                    )}
+                  />
+                );
+              })}
+            </span>
+          );
+        })}
+      </div>
+      <dl className="grid grid-cols-3 gap-4 text-center text-300 text-text-primary-70 tabular-nums">
+        <div>
+          <dt className="sr-only">Online hashboards</dt>
+          <dd>{boardCount === undefined ? "—" : `${onlineBoardCount ?? 0}/${boardCount}`}</dd>
+        </div>
+        <div>
+          <dt className="sr-only">Temperature</dt>
+          <dd>{formatTemperature(temperature, unit)}</dd>
+        </div>
+        <div>
+          <dt className="sr-only">Power</dt>
+          <dd>{power === undefined ? "—" : `${decimal(power / 1_000)} kW`}</dd>
+        </div>
+      </dl>
+      {showInfo ? (
+        <DiagnosticStatusModal
+          title={`${tank.label ?? "Tank"} status`}
+          onDismiss={() => setShowInfo(false)}
+          componentType="tank"
+          summary={hasIssue ? "Modules need attention" : "Tank diagnostics"}
+          errors={[]}
+          metrics={[
+            {
+              label: "Online hashboards",
+              value: boardCount === undefined ? "—" : `${onlineBoardCount ?? 0}/${boardCount}`,
+            },
+            { label: "Modules needing attention", value: statuses.filter((status) => status === "attention").length },
+            { label: "Temperature", value: formatTemperature(temperature, unit) },
+            { label: "Power", value: power === undefined ? "—" : `${decimal(power / 1_000)} kW` },
+          ]}
+          metadata={{
+            status: { label: "Mining status", value: miningStatusLabels[rollup?.miningStatus ?? "unknown"] },
+          }}
+        />
+      ) : null}
+    </article>
+  );
+};
+
+const TankBank = ({
+  side,
+  tanks,
+  data,
+  powerControl,
+}: {
+  side: "Left" | "Right";
+  tanks: TankNode[];
+  data: NonNullable<ReturnType<typeof useContainerDiagnostics>>;
+  powerControl: TankPower;
+}) => {
+  const plant = data.plant;
+  const unit = useTemperatureUnit();
+  const flow = latest(plant?.flowRate);
+  const outlet = side === "Left" ? plant?.outletATemperature : plant?.outletBTemperature;
+  const liquidLevel = latest(side === "Left" ? plant?.tankALiquidLevel : plant?.tankBLiquidLevel);
+  const scopes = tanks.map((tank) => tankMiningScope(tank, tankModules(tank, data.topology)));
+  const scope =
+    scopes.length && scopes.every((item) => item !== undefined)
+      ? { modules: scopes.flatMap((item) => item!.modules ?? []) }
+      : undefined;
+  const statuses = tanks.map((tank) => data.rollups.get(asEntityKey(tank.id))?.miningStatus);
+  const allOn = statuses.length > 0 && statuses.every((status) => status === "mining" || status === "degradedMining");
+  return (
+    <section aria-labelledby={`${side.toLowerCase()}-tanks-title`}>
+      <dl className="mb-6 grid grid-cols-2 gap-6 tablet:grid-cols-4">
+        <Stat label="Flow" value={flow === undefined ? "—" : `${decimal(flow * GALLONS_PER_LITRE)} GPM`} />
+        <Stat
+          label={`${side} tank inlet temperature`}
+          value={formatTemperature(latest(plant?.inletTemperature), unit)}
+        />
+        <Stat
+          label={`${side} tank outlet temperature`}
+          value={formatTemperature(latest(outlet ?? plant?.outletTemperature), unit)}
+        />
+        <Stat label="Fluid level" value={liquidLevel === undefined ? "—" : `${decimal(liquidLevel)} mm`} />
+      </dl>
+      <Panel className="mb-1 flex items-center justify-between">
+        <h3 id={`${side.toLowerCase()}-tanks-title`} className="text-emphasis-300">
+          {side} tanks
+        </h3>
+        <Switch
+          label="All on"
+          ariaLabel={`${side} tanks power`}
+          checked={allOn}
+          disabled={!scope || statuses.some((status) => !status) || !powerControl.supported || powerControl.pending}
+          setChecked={() => void powerControl.setPower(scope, !allOn)}
+        />
+      </Panel>
+      <div className="grid gap-1 laptop:grid-cols-3">
+        {tanks.map((tank) => (
+          <TankDiagnosticCard key={tank.id} tank={tank} topology={data.topology} powerControl={powerControl} />
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
+  const powerControl = useTankPower();
+  const midpoint = Math.ceil(data.tanks.length / 2);
+  return (
+    <section className="space-y-10" aria-labelledby="container-diagnostics-tanks">
+      <h2 id="container-diagnostics-tanks" className="text-heading-200">
+        Tanks
+      </h2>
+      {powerControl.error ? (
+        <p role="alert" className="text-intent-critical-fill">
+          {powerControl.error}
+        </p>
+      ) : null}
+      <TankBank side="Left" tanks={data.tanks.slice(0, midpoint)} data={data} powerControl={powerControl} />
+      <TankBank side="Right" tanks={data.tanks.slice(midpoint)} data={data} powerControl={powerControl} />
+    </section>
+  );
+};
+
+const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
+  const { adapter } = useMinerHosting();
+  const connectionGeneration = useMinerStore((state) => state.connectionGeneration);
+  const [showSettings, setShowSettings] = useState(false);
+  const [selectedFan, setSelectedFan] = useState<string>();
+  const infoFan = data.fans.find((fan) => fan.id === selectedFan);
+  const plant = data.plant;
+  const pumpSpeed = latest(plant?.coolantPumpSpeed);
+  const auto = plant?.controls?.find((control) => control.name === "dry_cooler_auto");
+  const target = plant?.setpoints?.find((setpoint) => setpoint.name === "dry_cooler_auto_temp_c");
+  const canManage = Boolean(adapter?.setContainerControl && adapter.setContainerSetpoint);
+  const refreshTelemetry = async () => {
+    if (!adapter || useMinerStore.getState().connectionGeneration !== connectionGeneration) return;
+    const accept = beginStoreWrite("telemetry:current:miner");
+    const telemetry = await adapter.getCurrentTelemetry(["miner"]);
+    if (accept()) useMinerStore.getState().telemetry.mergeTelemetry(telemetry, accept.requestId);
+  };
+  return (
+    <section aria-labelledby="dry-cooler-title">
+      <h2 id="dry-cooler-title" className="mb-6 text-heading-200">
+        Dry cooler
+      </h2>
+      <dl className="mb-6 grid grid-cols-2 gap-6 laptop:grid-cols-5">
+        <Stat label="Pump speed" value={pumpSpeed === undefined ? "—" : `${decimal(pumpSpeed)} Hz`} />
+        <Stat label="Pump inlet pressure" value={formatPressure(latest(plant?.pumpInletPressure))} />
+        <Stat label="Pump outlet pressure" value={formatPressure(latest(plant?.pumpOutletPressure))} />
+        <Stat label="Loop inlet pressure" value={formatPressure(latest(plant?.heatRejectionInletPressure))} />
+        <Stat label="Loop outlet pressure" value={formatPressure(latest(plant?.heatRejectionOutletPressure))} />
+      </dl>
+      <Panel className="mb-1 flex items-center justify-between">
+        <div>
+          <div className="text-emphasis-300">Mode</div>
+          <div className="text-300 text-text-primary-70">
+            {(auto?.stateKnown && !auto.enabled) || target?.value === undefined
+              ? "—"
+              : `${decimal(target.value)}°C target inlet temp`}
+          </div>
+        </div>
+        <div className="flex items-center gap-6">
+          <span className="text-300 text-text-primary-70">
+            {auto?.stateKnown ? (auto.enabled ? "Auto" : "Manual") : "—"}
+          </span>
+          <Button
+            text="Manage"
+            variant={variants.secondary}
+            disabled={!canManage}
+            ariaHasPopup="dialog"
+            ariaExpanded={showSettings}
+            onClick={() => setShowSettings(true)}
+          />
+        </div>
+      </Panel>
+      <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-cols-5">
+        {data.fans.map((fan) => {
+          const speed = latest(fan.telemetry?.speedPercent);
+          const faulted = fan.telemetry?.health === "fault" || fan.telemetry?.health === "degraded";
+          return (
+            <Panel key={fan.id} className="min-h-44">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-emphasis-300">
+                  {faulted ? <Alert className="text-intent-critical-fill" /> : null}
+                  {fan.name}
+                </h3>
+                <InfoButton label={`${fan.name} info`} onClick={() => setSelectedFan(fan.id)} />
+              </div>
+              <p className="text-300 text-text-primary-70 tabular-nums">— RPM</p>
+              <p className="text-300 text-text-primary-70 tabular-nums">
+                {speed === undefined ? "—" : `${decimal(speed, 0)}% PWM`}
+              </p>
+              <div className="mt-4 text-center">
+                <RadialGauge
+                  value={speed ?? 0}
+                  size={56}
+                  strokeWidth={7}
+                  valueStrokeWidth={7}
+                  strokeLinecap="butt"
+                  colorClassName={faulted ? "text-intent-critical-fill" : "text-text-primary"}
+                />
+              </div>
+            </Panel>
+          );
+        })}
+      </div>
+      {infoFan ? (
+        <DiagnosticStatusModal
+          title={`${infoFan.name} status`}
+          onDismiss={() => setSelectedFan(undefined)}
+          componentType="fan"
+          summary="Fan diagnostics"
+          errors={[]}
+          metrics={[
+            { label: "Speed", value: "— RPM" },
+            {
+              label: "PWM",
+              value:
+                latest(infoFan.telemetry?.speedPercent) === undefined
+                  ? "—"
+                  : `${decimal(latest(infoFan.telemetry?.speedPercent), 0)}%`,
+            },
+          ]}
+          metadata={{ status: { label: "Health", value: healthLabels[infoFan.telemetry?.health ?? "unknown"] } }}
+        />
+      ) : null}
+      {showSettings && adapter ? (
+        <DryCoolerSettingsModal
+          adapter={adapter}
+          initialMode={auto?.enabled === false ? "manual" : "auto"}
+          initialTargetC={target?.value}
+          onSaved={refreshTelemetry}
+          onDismiss={() => setShowSettings(false)}
+        />
+      ) : null}
+    </section>
+  );
+};
+
+const distributionStatus = (telemetry: PlantTelemetry | undefined) => {
+  if (telemetry?.health === "fault") return "Fault";
+  if (telemetry?.powered === false || telemetry?.health === "offline" || telemetry?.activeFeedCount === 0) {
+    return "Offline";
+  }
+  if (telemetry?.powered === true || (telemetry?.activeFeedCount ?? 0) > 0) return "Online";
+  return "—";
+};
+
+const PowerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => (
+  <section aria-labelledby="power-diagnostics-title">
+    <h2 id="power-diagnostics-title" className="mb-6 text-heading-200">
+      Circuit breakers
+    </h2>
+    <Panel>
+      <dl className="grid grid-cols-2 gap-8 tablet:grid-cols-4 desktop:grid-cols-7">
+        <Stat
+          label="Container"
+          value={data.plant?.powered === undefined ? "—" : data.plant.powered ? "Online" : "Offline"}
+        />
+        {data.powerComponents.map(({ hardware, telemetry }) => (
+          <Stat
+            key={telemetry?.componentId ?? hardware.name}
+            label={hardware.name}
+            value={distributionStatus(telemetry)}
+          />
+        ))}
+      </dl>
+    </Panel>
+  </section>
+);
+
+const controlLabels = [
+  ["air_conditioner_1", "AC 1"],
+  ["air_conditioner_2", "AC 2"],
+  ["coolant_pump", "Coolant pump"],
+  ["alarm", "Alarm"],
+  ["tank_led_light", "Tank lights"],
+] as const;
+
+const ControlsDiagnostics = ({ plant }: { plant?: PlantTelemetry }) => {
+  const { setControl, pending, error, supported } = useContainerControl();
+  const pumpSpeed = latest(plant?.coolantPumpSpeed);
+  const flow = latest(plant?.flowRate);
+  return (
+    <section aria-labelledby="controls-diagnostics-title">
+      <h2 id="controls-diagnostics-title" className="mb-6 text-heading-200">
+        Controls
+      </h2>
+      {error ? (
+        <p role="alert" className="mb-4 text-intent-critical-fill">
+          {error}
+        </p>
+      ) : null}
+      <div className="grid gap-1 tablet:grid-cols-2">
+        {controlLabels.map(([name, label]) => {
+          const control = plant?.controls?.find((item) => item.name === name);
+          const isAlarm = name === "alarm";
+          let status = "—";
+          if (isAlarm) {
+            if (plant?.alarmActive !== undefined) status = plant.alarmActive ? "Active" : "Inactive";
+          } else if (control?.stateKnown) {
+            status = control.enabled ? "On" : "Off";
+          }
+          return (
+            <Panel key={name} className="flex items-center justify-between gap-5">
+              <span className="text-emphasis-300">{label}</span>
+              <div className="flex items-center gap-5">
+                <span className="text-300 text-text-primary-70">
+                  {name === "coolant_pump" ? `${decimal(pumpSpeed)} Hz input, ${decimal(flow)} LPM` : status}
+                </span>
+                {!isAlarm ? (
+                  <Switch
+                    ariaLabel={label}
+                    checked={Boolean(control?.enabled)}
+                    disabled={!supported || !control?.stateKnown || pending}
+                    setChecked={() => void setControl(name, !control?.enabled)}
+                  />
+                ) : null}
+              </div>
+            </Panel>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+const ContainerDiagnosticView = ({ className }: { className?: string }) => {
+  const [selectedTab, setSelectedTab] = useState<DiagnosticTab>("all");
+  const data = useContainerDiagnostics();
+  const full = selectedTab === "all" || selectedTab === "tanks";
+  const polling = <DiagnosticsPolling key={full ? "full" : "plant"} full={full} />;
+  if (!data)
+    return (
+      <>
+        {polling}
+        <p role="status">Loading container diagnostics…</p>
+      </>
+    );
+  const show = (tab: Exclude<DiagnosticTab, "all">) => selectedTab === "all" || selectedTab === tab;
+  return (
+    <div className={clsx("w-full", className)} data-testid="container-diagnostics">
+      {polling}
+      <div className="mb-10 flex flex-col items-start justify-between gap-4 tablet:flex-row tablet:items-center">
+        <h1 className="text-heading-300">Diagnostics</h1>
+        <div className="max-w-full overflow-x-auto">
+          <SegmentedControl
+            segments={tabs}
+            initialSegmentKey="all"
+            onSelect={(key) => setSelectedTab(key as DiagnosticTab)}
+          />
+        </div>
+      </div>
+      <div className="space-y-12">
+        {selectedTab === "all" ? <ContainerSummary plant={data.plant} rollup={data.containerRollup} /> : null}
+        {show("tanks") ? <TanksDiagnostics data={data} /> : null}
+        {show("dry-cooler") ? <DryCoolerDiagnostics data={data} /> : null}
+        {show("power") ? <PowerDiagnostics data={data} /> : null}
+        {show("controls") ? <ControlsDiagnostics plant={data.plant} /> : null}
+      </div>
+    </div>
+  );
+};
+
+export default ContainerDiagnosticView;

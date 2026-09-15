@@ -404,12 +404,55 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     inletTemperature: latest(plant?.inletTemperatureC, "°C"),
     outletTemperature: latest(plant?.outletTemperatureC, "°C"),
     ambientTemperature: latest(plant?.ambientTemperatureC, "°C"),
+    outletATemperature: latest(plant?.outletATemperatureC, "°C"),
+    outletBTemperature: latest(plant?.outletBTemperatureC, "°C"),
+    dryCoolerInletTemperature: latest(plant?.dryCoolerInletTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
     facilityPower: latest(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
     pue: latest(plant?.pue, "ratio"),
     flowRate: latest(plant?.flowRateLpm, "L/min"),
+    coolantPumpSpeed: latest(plant?.coolantPumpSpeedHz, "Hz"),
+    pumpInletPressure: latest(plant?.pumpInletPressurePa, "Pa"),
+    pumpOutletPressure: latest(plant?.pumpOutletPressurePa, "Pa"),
+    pumpPressureDelta: latest(plant?.pumpPressureDiffPa, "Pa"),
+    heatRejectionInletPressure: latest(plant?.heatRejectionInletPressurePa, "Pa"),
+    heatRejectionOutletPressure: latest(plant?.heatRejectionOutletPressurePa, "Pa"),
+    heatRejectionPressureDelta: latest(plant?.heatRejectionPressureDiffPa, "Pa"),
+    tankALiquidLevel: latest(plant?.tankALiquidLevelMm, "mm"),
+    tankBLiquidLevel: latest(plant?.tankBLiquidLevelMm, "mm"),
+    coolantPumpActive: plant?.coolantPumpActive,
+    heatRejectionActive: plant?.heatRejectionActive,
+    alarmActive: plant?.alarmActive,
+    criticalAlarmActive: plant?.criticalAlarmActive,
+    buzzerActive: plant?.buzzerActive,
+    controls: (wire.controls ?? []).flatMap((control) =>
+      control.name
+        ? [
+            {
+              name: control.name,
+              description: control.description,
+              enabled: control.enabled,
+              stateKnown: control.stateKnown === true,
+            },
+          ]
+        : [],
+    ),
+    setpoints: (wire.setpoints ?? []).flatMap((setpoint) =>
+      setpoint.name
+        ? [
+            {
+              name: setpoint.name,
+              description: setpoint.description,
+              value: setpoint.value,
+              unit: setpoint.unit,
+              minimum: setpoint.min,
+              maximum: setpoint.max,
+            },
+          ]
+        : [],
+    ),
   });
   for (const phase of wire.phases ?? []) {
     if (!phase.phase) continue;

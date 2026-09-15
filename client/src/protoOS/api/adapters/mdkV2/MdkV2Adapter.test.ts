@@ -12,6 +12,8 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
     miningServiceStopMiningScoped: vi.fn(),
     miningServiceSetModuleFixedVoltage: vi.fn(),
     miningServiceClearModuleFixedVoltage: vi.fn(),
+    powerServiceSetContainerControl: vi.fn(),
+    powerServiceSetContainerSetpoint: vi.fn(),
     runInServiceStartModuleRunIn: vi.fn(),
     telemetryServiceQueryTimeSeries: vi.fn(),
     ...overrides,
@@ -70,6 +72,28 @@ describe("MdkV2Adapter", () => {
     expect(setModuleFixedVoltage).toHaveBeenCalledWith(
       { moduleId: "T1-M02" },
       { millivolts: 14_000 },
+      { headers: { "X-Frigate-Actor": "proto-os" } },
+    );
+  });
+
+  test("forwards container controls and setpoints with actor attribution", async () => {
+    const setControl = vi.fn().mockResolvedValue(undefined);
+    const setSetpoint = vi.fn().mockResolvedValue(undefined);
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetContainerControl: setControl, powerServiceSetContainerSetpoint: setSetpoint }),
+    );
+
+    await adapter.setContainerControl("dry_cooler_auto", true);
+    await adapter.setContainerSetpoint("dry_cooler_auto_temp_c", 18.3);
+
+    expect(setControl).toHaveBeenCalledWith(
+      { name: "dry_cooler_auto" },
+      { enabled: true },
+      { headers: { "X-Frigate-Actor": "proto-os" } },
+    );
+    expect(setSetpoint).toHaveBeenCalledWith(
+      { name: "dry_cooler_auto_temp_c" },
+      { value: 18.3 },
       { headers: { "X-Frigate-Actor": "proto-os" } },
     );
   });
