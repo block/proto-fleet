@@ -23,13 +23,13 @@ const TankMetrics = ({
   const side = [1, 2, 3].includes(tankSlot ?? 0) ? "Left" : [4, 5, 6].includes(tankSlot ?? 0) ? "Right" : undefined;
   const outlet = side === "Left" ? plant?.outletATemperature : side === "Right" ? plant?.outletBTemperature : undefined;
   const fluidLevel = side === "Left" ? plant?.tankALiquidLevel : side === "Right" ? plant?.tankBLiquidLevel : undefined;
-  const coolingMetric = (label: string, metric: MetricTelemetry | undefined, units: string, note?: string) => {
+  const coolingMetric = (label: string, metric: MetricTelemetry | undefined, units: string) => {
     const value = latestValue(metric);
     const converted = value !== null && units === "°C" && unit === "F" ? convertCtoF(value) : value;
     return {
       label,
       text: converted === null ? "—" : `${converted.toFixed(1)} ${units === "°C" ? `°${unit}` : units}`,
-      note: value === null ? "Reading unavailable." : note,
+      note: value === null ? "Reading unavailable." : undefined,
     };
   };
   const hashrate = latestValue(rollup?.hashrate);
@@ -52,22 +52,13 @@ const TankMetrics = ({
     {
       label: "Power",
       text: power === null ? "—" : `${(power / 1000).toFixed(1)} kW`,
-      note:
-        rollup?.powerCoverage?.kind === "hashboardOnly"
-          ? "Hashboard power only; excludes cooling and other plant loads."
-          : undefined,
     },
     { label: "Efficiency", text: formatEfficiencyOrDash(latestValue(rollup?.efficiency)) },
     { label: "Temperature", text: temperature },
     ...(showCooling
       ? [
-          coolingMetric("Flow", plant?.flowRate, "L/min", "Shared container flow."),
-          coolingMetric(
-            `${side ? `${side} tank` : "Tank"} inlet temperature`,
-            plant?.inletTemperature,
-            "°C",
-            "Shared tank inlet.",
-          ),
+          coolingMetric("Flow", plant?.flowRate, "L/min"),
+          coolingMetric(`${side ? `${side} tank` : "Tank"} inlet temperature`, plant?.inletTemperature, "°C"),
           coolingMetric(`${side ? `${side} tank` : "Tank"} outlet temperature`, outlet, "°C"),
           coolingMetric("Fluid level", fluidLevel, "mm"),
         ]

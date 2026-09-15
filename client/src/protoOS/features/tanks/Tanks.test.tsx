@@ -69,7 +69,6 @@ describe("Container tanks page", () => {
     expect(screen.getAllByRole("region")).toHaveLength(2);
     expect(tank.getByText("24,000 TH/s")).toBeInTheDocument();
     expect(tank.getByText("338.4 kW")).toBeInTheDocument();
-    expect(tank.getByText("Hashboard power only; excludes cooling and other plant loads.")).toBeVisible();
     expect(tank.getByText("14.1 J/TH")).toBeInTheDocument();
     expect(tank.getAllByText("—")).toHaveLength(4);
     expect(tank.getByText("Healthy").parentElement).toHaveTextContent("14 modules");
