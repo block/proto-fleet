@@ -31,7 +31,11 @@ export const RIG_LAYOUT: HashboardLayout = {
     content: "py-3",
   },
   card: {
+    title: (slot) => `Slot ${slot ?? "—"}`,
+    showEfficiency: false,
+    showInfoButton: true,
     showSlotIndicator: true,
+    totalSlots: 9,
   },
   headerTitleSize: "text-heading-300",
 };
@@ -68,7 +72,11 @@ export const CONTAINER_MODULE_LAYOUT: HashboardLayout = {
     content: "h-full justify-center py-1",
   },
   card: {
-    showSlotIndicator: false,
+    title: (slot) => `Board ${slot ?? "—"}`,
+    showEfficiency: true,
+    showInfoButton: false,
+    showSlotIndicator: true,
+    totalSlots: 3,
     previewRowHeight: 16,
   },
   headerTitleSize: "text-heading-200",

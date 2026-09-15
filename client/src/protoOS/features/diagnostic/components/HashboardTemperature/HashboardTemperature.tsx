@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
-import { useHashboardStatus, useTelemetry } from "@/protoOS/api";
+import { useTelemetry } from "@/protoOS/api";
 import {
   type Rail,
   type RailEnd,
@@ -20,6 +20,7 @@ import {
   type TemperatureUnit,
   useHashboardsHardware,
   useMinerHashboard,
+  useMinerStore,
   useTemperatureUnit,
 } from "@/protoOS/store";
 import { Dismiss } from "@/shared/assets/icons";
@@ -111,13 +112,6 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
 
   const navigate = useNavigate();
 
-  // ASIC identities and grid positions (row/column) come only from hashboard
-  // status, and only this board's ASIC grid is on screen — so fetch status for
-  // this one serial rather than the whole container. Memoized so the single
-  // element array stays referentially stable across renders.
-  const serials = useMemo(() => [serial], [serial]);
-  useHashboardStatus({ hashboardSerialNumbers: serials, poll: false });
-
   // Fetch latest telemetry data with polling
   // TODO: [STORE_REFACTOR] Telemetry API will give include miner and hashboard level data when we specify level=asic
   // We have another polling call in parent component KpiLayout.  If we want to remove extra requests we could add some logic to useTelemetry
@@ -135,17 +129,22 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
 
   // Subscribe only to hardware slice to avoid telemetry updates triggering hashboardList recomputation
   const hardwareHashboards = useHashboardsHardware();
+  const topology = useMinerStore((state) => state.hardware.topology);
 
   // Memoize hashboard list - only recreate when hardware changes, not on telemetry updates
   const hashboardList = useMemo(() => {
+    if (topology?.kind === "container") {
+      const current = [...topology.hashboards.values()].find((board) => board.identity.value === serial);
+      return [...topology.hashboards.values()]
+        .filter((board) => current && board.moduleId === current.moduleId)
+        .sort((a, b) => (a.location?.slot ?? Infinity) - (b.location?.slot ?? Infinity))
+        .map((board) => ({ serial: board.identity.value, name: layout.card.title(board.location?.slot) }));
+    }
     return hardwareHashboards
       .filter((h): h is HashboardData & { slot: number } => !!h.slot)
       .sort((a, b) => a.slot - b.slot)
-      .map((hashboard) => ({
-        serial: hashboard.serial,
-        name: `Hashboard ${hashboard.slot}`,
-      }));
-  }, [hardwareHashboards]);
+      .map((board) => ({ serial: board.serial, name: `Hashboard ${board.slot}` }));
+  }, [hardwareHashboards, topology, serial, layout]);
 
   // Memoize stats computation
   const stats = useMemo(

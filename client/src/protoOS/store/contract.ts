@@ -342,6 +342,7 @@ export interface AsicTelemetry {
 
 export interface PsuTelemetry {
   componentId: ComponentId;
+  health?: HealthState;
   inputVoltage?: MetricTelemetry;
   inputCurrent?: MetricTelemetry;
   inputPower?: MetricTelemetry;
@@ -402,6 +403,12 @@ export interface TelemetryState {
   plant: Map<ComponentId, PlantTelemetry>;
   coolingModeByOwner: Map<EntityKey, CoolingMode>;
   asicLoadByHashboard: Map<HashboardId, ResourceState>;
+}
+
+/** A polling result may also discover hardware while reading component health. */
+export interface TelemetrySnapshot extends TelemetryState {
+  /** Complete PSU observations for these modules; absence means readings are unavailable, not removal. */
+  modulePsus?: { moduleIds: ModuleId[]; hardware: Map<ComponentId, PsuHardware> };
 }
 
 export interface DeviceIdentity {

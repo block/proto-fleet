@@ -71,8 +71,12 @@ export interface HashboardLayout {
 
   /** Presentation of the hashboard summary card in the diagnostics list. */
   card: {
+    title: (slot: number | undefined) => string;
+    showEfficiency: boolean;
+    showInfoButton: boolean;
     /** Rigs show a slot-position indicator; container modules do not. */
     showSlotIndicator: boolean;
+    totalSlots: number;
     /** Pixel height per ASIC row in the preview heatmap; undefined = default. */
     previewRowHeight?: number;
   };

@@ -140,7 +140,7 @@ export const BoardCards: Story = {
         <ComponentSection title="Hashboards">
           <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-flow-col desktop:grid-cols-3 desktop:grid-rows-3">
             {BOARDS.map(({ serial }) => (
-              <HashboardStatusCard key={serial} serialNumber={serial} />
+              <HashboardStatusCard key={serial} identifier={serial} />
             ))}
           </div>
         </ComponentSection>

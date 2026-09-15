@@ -193,6 +193,8 @@ type slotDTO struct {
 }
 
 type hashboardDTO struct {
+	PsuIdentity         psuIdentity     `json:"psuIdentity"`
+	PsuType             string          `json:"psuType"`
 	MACAddress          string          `json:"macAddress"`
 	Serial              string          `json:"serial"`
 	HWRevision          string          `json:"hwRevision"`
@@ -222,6 +224,8 @@ type hashboardLoc struct {
 }
 
 type hashboardHealth struct {
+	PsuElectrical           psuElectricalHealth    `json:"psuElectrical"`
+	PsuThermal              psuThermalHealth       `json:"psuThermal"`
 	Errors                  []hashboardHealthError `json:"errors,omitempty"`
 	Hashrate                float64                `json:"hashrate"`
 	HashrateIdeal           float64                `json:"hashrateIdeal"`
@@ -1109,6 +1113,7 @@ func (h *RESTApiHandler) handleScopedStop(w http.ResponseWriter, r *http.Request
 // ---------------------------------------------------------------------------
 
 func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
+	identity, electrical, thermal := s.modulePsu(b)
 	mining := b.isMining()
 	hr := 0.0
 	power := 0.0
@@ -1126,6 +1131,8 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 		errors = errors[:min(b.SlotIndex+1, len(errors))]
 	}
 	return &hashboardDTO{
+		PsuIdentity: identity,
+		PsuType:     identity.PsuType,
 		MACAddress:  b.MAC,
 		Serial:      b.Serial,
 		HWRevision:  b.HWRevision,
@@ -1138,6 +1145,8 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 			HashboardPosition: int64str(b.SlotIndex + 1),
 		},
 		Health: hashboardHealth{
+			PsuElectrical:           electrical,
+			PsuThermal:              thermal,
 			Errors:                  errors,
 			Hashrate:                hr,
 			HashrateIdeal:           boardIdealHashrateTHS,

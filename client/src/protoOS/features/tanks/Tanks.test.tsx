@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import Tanks from "./Tanks";
 import { tanksFixture } from "./Tanks.fixtures";
+import { CONTAINER_MODULE_LAYOUT } from "@/protoOS/features/diagnostic/hashboardLayout/layouts";
 import { asEntityKey, asTankId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
@@ -14,9 +15,15 @@ const mocks = vi.hoisted(() => ({
   startScopedMining: vi.fn(),
   stopScopedMining: vi.fn(),
   getCurrentTelemetry: vi.fn(),
+  hashboardStatus: vi.fn(() => ({ error: undefined, pending: false })),
 }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: () => ({ minerRoot: mocks.minerRoot, isFleetHosted: true, adapter: mocks }),
+}));
+vi.mock("@/protoOS/api/hooks/useHashboardStatus", () => ({ useHashboardStatus: mocks.hashboardStatus }));
+vi.mock("@/protoOS/features/diagnostic/hashboardLayout", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useHashboardLayout: () => CONTAINER_MODULE_LAYOUT,
 }));
 vi.mock("@/protoOS/api/hooks/useTelemetry", () => ({ useTelemetry: () => ({ error: mocks.error }) }));
 
@@ -27,7 +34,11 @@ const showPage = (path = "/tanks") =>
       <CurrentPath />
       <Routes>
         <Route path={`${mocks.minerRoot}/tanks/:tankId?`} element={<Tanks />} />
-        <Route path={`${mocks.minerRoot}/diagnostics/:serial`} element={<p>Hashboard diagnostics</p>} />
+        <Route path={`${mocks.minerRoot}/tanks/:tankId/modules/:moduleId`} element={<Tanks />} />
+        <Route
+          path={`${mocks.minerRoot}/tanks/:tankId/modules/:moduleId/:serial`}
+          element={<p>Hashboard diagnostics</p>}
+        />
       </Routes>
     </MemoryRouter>,
   );
@@ -124,20 +135,57 @@ describe("Container tanks page", () => {
     expect(screen.getByRole("checkbox", { name: "Tank A power" })).toBeDisabled();
   });
 
-  test("opens a module modal from the popover without navigating away", async () => {
+  test("opens the module modal with a deep link and returns to its tank", async () => {
     showPage();
     fireEvent.click(screen.getAllByRole("button", { name: "Module 11, Needs attention" })[0]);
     expect(await screen.findByRole("link", { name: "View hashboard (mid)" })).toHaveAttribute(
       "href",
-      "/diagnostics/T1-M11-HB2",
+      "/tanks/1/modules/11/T1-M11-HB2",
     );
     fireEvent.click(screen.getByRole("button", { name: "View module" }));
-    const dialog = screen.getByRole("dialog", { name: "Module 11" });
+    const dialog = screen.getByRole("dialog", { name: "Modules" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(within(dialog).getByText("Module 11")).toBeInTheDocument();
-    expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks");
+    expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks/1/modules/11");
     fireEvent.click(within(dialog).getByRole("button", { name: "Close dialog" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("deep links show three boards, scope ASIC polling, and switch modules", async () => {
+    showPage("/tanks/1/modules/1");
+    const dialogElement = screen.getByRole("dialog", { name: "Modules" });
+    const dialog = within(dialogElement);
+    expect(dialog.getAllByRole("button", { name: "View" })).toHaveLength(3);
+    expect(dialog.getByText("Board 1")).toBeInTheDocument();
+    expect(dialog.getAllByText("Efficiency")).toHaveLength(3);
+    expect(mocks.hashboardStatus).toHaveBeenLastCalledWith({
+      hashboardSerialNumbers: ["T1-M1-HB1", "T1-M1-HB2", "T1-M1-HB3"],
+      poll: true,
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Module 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Module 2" }));
+    expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks/1/modules/2");
+    expect(screen.getByRole("dialog", { name: "Modules" })).toBe(dialogElement);
+    expect(dialog.getByRole("button", { name: "Module 2" })).toHaveFocus();
+    expect(mocks.hashboardStatus).toHaveBeenLastCalledWith({
+      hashboardSerialNumbers: ["T1-M2-HB1", "T1-M2-HB2", "T1-M2-HB3"],
+      poll: true,
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);
+    expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks/1/modules/2/T1-M2-HB1");
+  });
+
+  test("Done closes a directly opened modal and invalid module links show a status", () => {
+    showPage("/tanks/1/modules/1");
+    fireEvent.click(within(screen.getByRole("dialog")).getAllByRole("button", { name: "Done" })[0]);
+    expect(screen.getByTestId("current-path")).toHaveTextContent(/^\/tanks\/1$/);
+  });
+
+  test("invalid modules do not open a modal or poll ASICs", () => {
+    showPage("/tanks/1/modules/missing");
+    expect(screen.getByRole("status")).toHaveTextContent("Module not found");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mocks.hashboardStatus).not.toHaveBeenCalled();
   });
 
   test("toggles module menus with mouse clicks and dismisses them outside the grid", async () => {
@@ -174,7 +222,7 @@ describe("Container tanks page", () => {
     showPage("/miners/ct1/tanks");
     fireEvent.click(screen.getAllByRole("button", { name: "Module 11, Needs attention" })[0]);
     fireEvent.click(await screen.findByRole("link", { name: "View hashboard (mid)" }));
-    expect(screen.getByTestId("current-path")).toHaveTextContent("/miners/ct1/diagnostics/T1-M11-HB2");
+    expect(screen.getByTestId("current-path")).toHaveTextContent("/miners/ct1/tanks/1/modules/11/T1-M11-HB2");
   });
 
   test("confirms power off and sends only this tank's explicit module scope", async () => {

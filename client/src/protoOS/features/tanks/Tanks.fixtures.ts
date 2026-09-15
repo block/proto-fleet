@@ -89,7 +89,7 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16) => {
         power: { latest: { value: 338400 / moduleCount, units: "W" } },
       });
       for (let position = 1; position <= 3; position++) {
-        const boardId = asHashboardId(`${moduleId}:board:${position}`);
+        const boardId = asHashboardId(`serial:T${number}-M${slot}-HB${position}`);
         module.hashboardIds.push(boardId);
         topology.hashboards.set(boardId, {
           id: boardId,
@@ -112,7 +112,15 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16) => {
     resource: { status: "ready", updatedAtMs: 1000 },
     topology,
     controlBoards: new Map(),
-    hashboards: new Map(),
+    hashboards: new Map(
+      [...topology.hashboards.values()].map((board) => [
+        board.id,
+        {
+          ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId } },
+          identity: board.identity,
+        },
+      ]),
+    ),
     asics: new Map(),
     psus: new Map(),
     fans: new Map(),

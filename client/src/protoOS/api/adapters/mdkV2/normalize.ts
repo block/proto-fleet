@@ -21,6 +21,7 @@ import {
   V2PerformanceMode,
   V2PoolConnState,
 } from "./generated/generatedApi";
+import { normalizeModulePsu } from "./modulePsu";
 import {
   asAsicId,
   asComponentId,
@@ -60,10 +61,13 @@ import {
   type SystemInfoData,
   type TankId,
   type TankNode,
+  type TelemetrySnapshot,
   type TelemetryState,
 } from "@/protoOS/store/contract";
 import type { HashboardHardwareData } from "@/protoOS/store/types";
+import { CONTAINER_HASHBOARD_COLUMNS } from "@/protoOS/store/utils/containerHashboardLayout";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
+import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
 
 export const CT1_COMMANDS: CommandCapabilities = {
   startStop: "supported",
@@ -87,6 +91,15 @@ const latest = <U extends Measurement["units"]>(value: number | undefined, units
   value === undefined ? undefined : { latest: { value, units } };
 const average = (values: number[]) =>
   values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
+
+const efficiencyMetric = (
+  power: number | undefined,
+  hashrate: number | undefined,
+  reported?: number,
+): MetricTelemetry => {
+  // Explicit null clears an earlier reading when a later snapshot lacks data.
+  return { latest: { value: efficiencyValue(power, hashrate, reported), units: "J/TH" } };
+};
 
 export const ct1DeviceId = (value: string | undefined) => asDeviceId(`device:${value || "ct1"}`);
 export const ct1ContainerId = (value: string | undefined) => asContainerId(`container:${value || "ct1"}`);
@@ -305,10 +318,7 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
   return {
     hashrate: metric(hashrate, "TH/s"),
     power: metric(power, "W"),
-    efficiency: metric(
-      hashrate !== undefined && hashrate > 0 && power !== undefined ? power / hashrate : undefined,
-      "J/TH",
-    ),
+    efficiency: efficiencyMetric(power, hashrate),
     temperature: metric(average(temps), "°C"),
     minimumTemperature: metric(temps.length ? Math.min(...temps) : undefined, "°C"),
     maximumTemperature: metric(temps.length ? Math.max(...temps) : undefined, "°C"),
@@ -354,12 +364,7 @@ const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
     : null,
   hashrate: latest(entry.board.health?.hashrate, "TH/s"),
   power: latest(entry.board.health?.power, "W"),
-  efficiency: latest(
-    entry.board.health?.hashrate && entry.board.health.power
-      ? entry.board.health.power / entry.board.health.hashrate
-      : undefined,
-    "J/TH",
-  ),
+  efficiency: efficiencyMetric(entry.board.health?.power, entry.board.health?.hashrate),
   temperature: latest(average(entry.board.health?.temperatures ?? []), "°C"),
   averageAsicTemperature: latest(entry.board.health?.averageAsicTemperatureC, "°C"),
 });
@@ -496,7 +501,7 @@ export const toCanonicalContainer = (
   statusWire: V2GetMiningStatusResponse,
   telemetryWire: V2GetContainerHealthResponse,
   deviceIdValue: string,
-): { hardware: HardwareState; telemetry: TelemetryState } => {
+): { hardware: HardwareState; telemetry: TelemetrySnapshot } => {
   const normalizedDeviceId = ct1DeviceId(deviceIdValue);
   const containerId = ct1ContainerId(deviceIdValue);
   const boards = flattenBoards(mapWire ?? {}, containerId);
@@ -591,7 +596,18 @@ export const toCanonicalContainer = (
     plant: plant.hardware,
   };
 
-  const telemetry = createEmptyTelemetryState();
+  const telemetry: TelemetrySnapshot = createEmptyTelemetryState();
+  for (const [id, moduleBoards] of boardsByModule) {
+    const psu = normalizeModulePsu(
+      id,
+      moduleBoards.map((entry) => entry.board),
+    );
+    if (!psu) continue;
+    hardware.psus.set(psu.id, psu.hardware);
+    telemetry.psus.set(psu.id, psu.telemetry);
+    modules.get(id)?.psuIds.push(psu.id);
+  }
+  if (mapWire !== undefined) telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
   const timestampMs = Date.parse(telemetryWire.timestamp ?? "");
   telemetry.resourceByScope.set(
     asResourceKey(`telemetry:current:${containerId}`),
@@ -604,7 +620,7 @@ export const toCanonicalContainer = (
     ...boardSummary,
     hashrate: latest(statusWire.hashrate, "TH/s"),
     power: latest(statusWire.power, "W"),
-    efficiency: latest(statusWire.efficiency, "J/TH"),
+    efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
     temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
     miningStatus: miningStatus(statusWire.operatingState, statusWire.mining),
     boardCount: statusWire.totalBoards ?? boardSummary?.boardCount,
@@ -648,6 +664,22 @@ export const toCanonicalHashboards = (wire: V2GetContainerMapResponse): Hashboar
 export const toCanonicalHashboardStatus = (identifier: string, wire: V2GetHashboardASICsResponse): HashboardStatus => {
   const id = asHashboardId(identifier.includes(":") ? `mac:${identifier}` : `serial:${identifier}`);
   const positions = new Map((wire.layout?.entries ?? []).map((entry) => [entry.index, entry]));
+  // Some APIs report a stack as one long row. Wrap its display only; ASIC
+  // indices and the wire's electrical stack identities remain unchanged.
+  const entries = wire.layout?.entries ?? [];
+  const columns = CONTAINER_HASHBOARD_COLUMNS;
+  const rowsPerStack = Math.ceil((wire.layout?.asicsPerStack ?? columns) / columns);
+  const wrapStacks =
+    entries.some((entry) => (entry.x ?? 0) >= columns) ||
+    (rowsPerStack > 1 &&
+      entries.length > 0 &&
+      entries.every(
+        (entry) =>
+          entry.stackId !== undefined &&
+          entry.stackIndex !== undefined &&
+          entry.x === entry.stackIndex &&
+          entry.y === entry.stackId,
+      ));
   const asicIds: string[] = [];
   const asics: HashboardStatus["asics"] = [];
   const samples: AsicTelemetrySample[] = [];
@@ -660,8 +692,11 @@ export const toCanonicalHashboardStatus = (identifier: string, wire: V2GetHashbo
       id: normalizedId,
       hashboardSerial: identifier,
       index: asic.index,
-      row: position?.y,
-      column: position?.x,
+      row:
+        wrapStacks && position?.x !== undefined && position.y !== undefined
+          ? position.y * rowsPerStack + Math.floor(position.x / columns)
+          : position?.y,
+      column: wrapStacks && position?.x !== undefined ? position.x % columns : position?.x,
     });
     samples.push({
       asicId: normalizedId,

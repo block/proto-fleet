@@ -45,6 +45,7 @@ export {
   useMinerAsic,
   useMinerHashboardAsics,
   useMinerPsu,
+  useMinerPsuById,
   useMinerPsus,
   useMinerFan,
   useMinerFans,

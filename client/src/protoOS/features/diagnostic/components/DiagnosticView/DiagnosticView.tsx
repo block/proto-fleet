@@ -100,7 +100,7 @@ const HashboardsSection = () => {
 
             return serialsInBay.map((serial, slotIndex) => {
               if (serial) {
-                return <HashboardStatusCard key={serial} serialNumber={serial} />;
+                return <HashboardStatusCard key={serial} identifier={serial} />;
               }
 
               const slotNumber = (bayIndex - 1) * slotsPerBay + slotIndex + 1;
