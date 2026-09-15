@@ -16,9 +16,9 @@ func TestRolloutActivityLabelsMigrationDownAndUp(t *testing.T) {
 	}
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	downSQL, err := migrations.Migrations.ReadFile("000149_rollout_activity_labels.down.sql")
+	downSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.down.sql")
 	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000149_rollout_activity_labels.up.sql")
+	upSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.up.sql")
 	require.NoError(t, err)
 
 	const query = `SELECT activity_display_label('rollout_completed_with_failures', CAST(NULL AS TEXT), NULL,
@@ -32,7 +32,7 @@ func TestRolloutActivityLabelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	var priorLabel sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, query).Scan(&priorLabel))
-	require.False(t, priorLabel.Valid, "before 000149 the function has no rollout labels")
+	require.False(t, priorLabel.Valid, "before 000150 the function has no rollout labels")
 
 	_, err = db.ExecContext(ctx, string(upSQL))
 	require.NoError(t, err)
