@@ -54,6 +54,7 @@ export const useInventoryApi = () => {
               siteIds: filter?.siteIds ?? [],
               types: filter?.types ?? [],
               lowStockOnly: filter?.lowStockOnly ?? false,
+              searchQuery: filter?.searchQuery ?? "",
             },
             pageSize,
             pageToken,

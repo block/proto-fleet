@@ -55,10 +55,30 @@ describe("MinerSearchInput", () => {
 
   it("keeps a non-empty search expanded when focus leaves", () => {
     render(<MinerSearchInput collapsible initialValue="rack-7" onQueryChange={vi.fn()} />);
+    // The landmark is named, but not with the input's own label, so neither
+    // resolves to two elements.
+    expect(screen.getByRole("search", { name: "Search miners controls" })).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Search miners")).toHaveLength(1);
 
     fireEvent.blur(searchBox());
 
     expect(searchBox()).toHaveValue("rack-7");
+  });
+
+  it("collapses when Escape clears an active query", async () => {
+    const onQueryChange = vi.fn();
+    render(<MinerSearchInput collapsible initialValue="" onQueryChange={onQueryChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Search miners" }));
+    await waitFor(() => expect(searchBox()).toHaveFocus());
+    fireEvent.change(searchBox(), { target: { value: "rack-7" } });
+
+    // Input blurs itself on Escape before the value is cleared, so the blur
+    // path alone saw "rack-7" and would have left an empty field standing.
+    fireEvent.keyDown(searchBox(), { key: "Escape" });
+
+    expect(onQueryChange).toHaveBeenLastCalledWith("");
+    expect(screen.queryByRole("textbox", { name: /search miners/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search miners" })).toBeInTheDocument();
   });
 
   it("clears an active query immediately and stays expanded for refinement", () => {

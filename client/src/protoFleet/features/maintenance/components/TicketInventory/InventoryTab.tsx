@@ -5,6 +5,7 @@ import AdjustPartModal from "./AdjustPartModal";
 import CreatePartModal from "./CreatePartModal";
 import DeletePartModal from "./DeletePartModal";
 import ImportCsvModal from "./ImportCsvModal";
+import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { useInventory } from "@/protoFleet/features/maintenance/hooks/useInventory";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useHasPermission } from "@/protoFleet/store";
@@ -45,12 +46,14 @@ const InventoryTab = () => {
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const applyFilters = (sites = siteIds, partTypes = types, lowStock = lowStockOnly) => {
+  const applyFilters = (sites = siteIds, partTypes = types, lowStock = lowStockOnly, search = searchQuery) => {
     inventory.setFilter({
       siteIds: sites.map(BigInt),
       types: partTypes,
       lowStockOnly: lowStock,
+      searchQuery: search,
     });
   };
 
@@ -128,15 +131,6 @@ const InventoryTab = () => {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          text="Refresh"
-          variant={variants.secondary}
-          disabled={inventory.loading}
-          onClick={() => {
-            void inventory.refresh();
-            void options.refresh();
-          }}
-        />
-        <Button
           variant={lowStockOnly ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
           onClick={() => {
@@ -170,22 +164,49 @@ const InventoryTab = () => {
             }}
           />
         ) : null}
-        {canManage ? (
-          <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
-            <Button
-              text="Add part"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-              onClick={() => setCreate(true)}
-            />
-            <Button
-              text="Import CSV"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-              onClick={() => setImporting(true)}
-            />
-          </div>
-        ) : null}
+        {/* Last in the filter group so expanding grows into the gap before
+            the actions instead of pushing the filters aside. On phones the
+            expanded field takes its own row instead of squeezing in beside a
+            filter pill at its intrinsic width. */}
+        <ListSearchInput
+          id="inventory-search"
+          label="Search parts"
+          className="phone:w-full"
+          initialValue={searchQuery}
+          onQueryChange={(query) => {
+            setSearchQuery(query);
+            applyFilters(siteIds, types, lowStockOnly, query);
+          }}
+          collapsible
+        />
+        <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
+          <Button
+            text="Refresh"
+            variant={variants.secondary}
+            size={buttonSizes.compact}
+            disabled={inventory.loading}
+            onClick={() => {
+              void inventory.refresh();
+              void options.refresh();
+            }}
+          />
+          {canManage ? (
+            <>
+              <Button
+                text="Add part"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                onClick={() => setCreate(true)}
+              />
+              <Button
+                text="Import CSV"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                onClick={() => setImporting(true)}
+              />
+            </>
+          ) : null}
+        </div>
       </div>
 
       {inventory.data.length ? (

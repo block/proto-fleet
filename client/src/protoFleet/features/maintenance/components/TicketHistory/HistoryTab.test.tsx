@@ -60,14 +60,17 @@ it("loads completed ticket history without an export control", async () => {
   );
 });
 
-it("places Refresh after the component and technician filters", async () => {
+it("places Refresh after the filters, in a right-aligned action group", async () => {
   render(<HistoryTab />);
   await screen.findByText("TK-2");
+  const refresh = screen.getByRole("button", { name: "Refresh" });
   expect(screen.getAllByRole("button").slice(0, 3)).toEqual([
     screen.getByRole("button", { name: "Component" }),
     screen.getByRole("button", { name: "Technician" }),
-    screen.getByRole("button", { name: "Refresh" }),
+    refresh,
   ]);
+  // Same filters-left / actions-right toolbar as the Queue and Inventory tabs.
+  expect(refresh.parentElement).toHaveClass("ml-auto");
 });
 
 it("selects components from a dropdown and clears the filter without losing the technician", async () => {

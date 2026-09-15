@@ -101,8 +101,11 @@ type ListFilter struct {
 	ExcludedSiteIDs []int64
 	Types           []string
 	LowStockOnly    bool
-	CursorID        *int64
-	Limit           int32
+	// SearchQuery is a case-insensitive substring matched against the part's
+	// name, type, manufacturer, part number, bin location, and site name.
+	SearchQuery string
+	CursorID    *int64
+	Limit       int32
 }
 
 // CsvPreviewRow is a single parsed row from a CSV import before

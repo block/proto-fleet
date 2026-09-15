@@ -17,6 +17,7 @@ func toListFilter(req *pb.ListInventoryPartsRequest, orgID int64) (models.ListFi
 		SiteIDs:      filter.GetSiteIds(),
 		Types:        filter.GetTypes(),
 		LowStockOnly: filter.GetLowStockOnly(),
+		SearchQuery:  filter.GetSearchQuery(),
 		Limit:        req.GetPageSize(),
 	}
 	if req.GetPageToken() != "" {
