@@ -1518,6 +1518,12 @@ func (q *retryingQuerier) DeleteReleaseChannelTargets(ctx context.Context, chann
 	})
 }
 
+func (q *retryingQuerier) DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "DeleteReleasedFirmwareRolloutReservations", func() error {
+		return q.next.DeleteReleasedFirmwareRolloutReservations(ctx)
+	})
+}
+
 func (q *retryingQuerier) DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error {
 	return q.retrier.RetryQuery(ctx, "DeleteScheduleTargets", func() error {
 		return q.next.DeleteScheduleTargets(ctx, arg)
@@ -4596,6 +4602,18 @@ func (q *retryingQuerier) ListFirmwareRolloutDevices(ctx context.Context, rollou
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutOfflineSlots", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutOfflineSlots(ctx, channelID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error) {
 	var result []ListFirmwareRolloutsRow
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRollouts", func() error {
@@ -5698,6 +5716,12 @@ func (q *retryingQuerier) NextRepairTicketNumber(ctx context.Context, orgID int6
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error {
+	return q.retrier.RetryQuery(ctx, "ObserveFirmwareRolloutReservationsOffline", func() error {
+		return q.next.ObserveFirmwareRolloutReservationsOffline(ctx, channelID)
+	})
 }
 
 func (q *retryingQuerier) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error) {

@@ -601,6 +601,7 @@ func TestLeastEfficientFirstAndRandomOrdering(t *testing.T) {
 func TestMaxConcurrentOfflineCapsDispatch(t *testing.T) {
 	f := newFixture(t, 4)
 	ctx := t.Context()
+	useQueuedBudgetDispatcher(f)
 	f.channel(t, Behavior{Method: MethodAllAtOnce, MaxConcurrentOffline: 2}, f.allMiners()...)
 
 	started := f.apply(t, "fw-2")
@@ -610,14 +611,18 @@ func TestMaxConcurrentOfflineCapsDispatch(t *testing.T) {
 	assert.Len(t, f.dispatcher.sentIdentifiers(), 2, "ceiling reached: nothing more until one verifies")
 
 	f.finishUpdate(t, "miner-0", "2.0.0")
+	f.finishQueuedBudgetCommand(t, "miner-0", "SUCCESS")
 	f.svc.EnforceTick(ctx)
 	assert.Equal(t, []string{"miner-0", "miner-1", "miner-2"}, f.dispatcher.sentIdentifiers())
 
 	f.finishUpdate(t, "miner-1", "2.0.0")
+	f.finishQueuedBudgetCommand(t, "miner-1", "SUCCESS")
 	f.finishUpdate(t, "miner-2", "2.0.0")
+	f.finishQueuedBudgetCommand(t, "miner-2", "SUCCESS")
 	f.svc.EnforceTick(ctx)
 	assert.Equal(t, []string{"miner-0", "miner-1", "miner-2", "miner-3"}, f.dispatcher.sentIdentifiers())
 	f.finishUpdate(t, "miner-3", "2.0.0")
+	f.finishQueuedBudgetCommand(t, "miner-3", "SUCCESS")
 	f.svc.EnforceTick(ctx)
 	assert.Equal(t, StatusCompleted, f.rollout(t, started.ID).Status)
 }
@@ -983,7 +988,7 @@ func TestQueuedFirmwareCommandForAnotherArtifactIsAMismatch(t *testing.T) {
 
 	// A FirmwareUpdate for another file left on a miner's queue will take it
 	// off the assignment, so the mismatch rule counts the miner as mismatched
-	// now and a corrective rollout queues behind the older command. One for a
+	// now and a corrective rollout waits for the older command to finish. One for a
 	// file carrying the assigned checksum is not a mismatch.
 	f.queueFirmwareCommand(t, "miner-0", "fw-1", "PENDING")
 	f.queueFirmwareCommand(t, "miner-1", "fw-2", "PROCESSING")
@@ -996,19 +1001,23 @@ func TestQueuedFirmwareCommandForAnotherArtifactIsAMismatch(t *testing.T) {
 	rollouts, _, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID, Status: StatusActive})
 	require.NoError(t, err)
 	require.Len(t, rollouts, 1, "a corrective rollout started")
-	assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
-	assert.Equal(t, PhaseInProgress, phaseOf(rollouts[0], "miner-0"))
+	assert.Empty(t, f.dispatcher.sentIdentifiers())
+	assert.Equal(t, PhaseQueued, phaseOf(rollouts[0], "miner-0"))
 	assert.Empty(t, phaseOf(rollouts[0], "miner-1"), "miner-1 is not a target")
 
 	// What the miner reports while the older command is outstanding does not
 	// verify it: the rollout waits for the command to drain.
 	f.svc.EnforceTick(ctx)
-	assert.Equal(t, PhaseInProgress, phaseOf(f.rollout(t, rollouts[0].ID), "miner-0"))
+	assert.Equal(t, PhaseQueued, phaseOf(f.rollout(t, rollouts[0].ID), "miner-0"))
 	assert.Equal(t, StatusActive, f.rollout(t, rollouts[0].ID).Status)
 
-	// Once the stale command has been consumed, nothing else is mismatched.
+	// Once the stale command finishes on its version, dispatch the corrective
+	// update; the earlier pending command never consumed a retry attempt.
 	_, err = f.conn.ExecContext(ctx, `UPDATE queue_message SET status = 'SUCCESS'`)
 	require.NoError(t, err)
+	f.setReportedVersion(t, "miner-0", "1.5.0")
+	f.svc.EnforceTick(ctx)
+	assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
 	f.finishUpdate(t, "miner-0", "2.0.0")
 	f.svc.EnforceTick(ctx)
 	assert.Equal(t, StatusCompleted, f.rollout(t, rollouts[0].ID).Status)

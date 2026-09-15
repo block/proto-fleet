@@ -63,10 +63,10 @@ func TestQueuedArtifactChecksumOverridesMatchingFileID(t *testing.T) {
 
 			f.backdateSends(t)
 			f.svc.EnforceTick(t.Context())
-			assert.Equal(t, []string{"miner-0", "miner-0"}, f.dispatcher.sentIdentifiers())
-			assert.Equal(t, PhaseRetrying, phaseOf(f.rollout(t, started.ID), "miner-0"))
+			assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers(), "wait for the pending firmware command before sending another")
+			assert.Equal(t, PhaseInProgress, phaseOf(f.rollout(t, started.ID), "miner-0"))
 			f.svc.EnforceTick(t.Context())
-			assert.Equal(t, PhaseRetrying, phaseOf(f.rollout(t, started.ID), "miner-0"), "the foreign checksum blocks verification until its command drains")
+			assert.Equal(t, PhaseInProgress, phaseOf(f.rollout(t, started.ID), "miner-0"), "the foreign checksum blocks verification until its command drains")
 
 			_, err = f.conn.ExecContext(t.Context(), `UPDATE queue_message SET status = 'SUCCESS' WHERE id = $1`, commandID)
 			require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestQueuedArtifactChecksumOverridesMatchingFileID(t *testing.T) {
 			current := f.rollout(t, started.ID)
 			assert.Equal(t, PhaseDone, phaseOf(current, "miner-0"))
 			assert.Equal(t, StageAwaitingReview, current.Stage)
-			assert.Equal(t, []string{"miner-0", "miner-0"}, f.dispatcher.sentIdentifiers())
+			assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers(), "wait for the pending firmware command before sending another")
 		})
 	}
 }
@@ -111,8 +111,8 @@ func TestQueuedArtifactAndLegacyCommandsUseTheirOwnIdentities(t *testing.T) {
 			f.svc.EnforceTick(t.Context())
 			current := f.rollout(t, started.ID)
 			if tc.wantForeign {
-				assert.Equal(t, PhaseRetrying, phaseOf(current, "miner-0"))
-				assert.Equal(t, []string{"miner-0", "miner-0"}, f.dispatcher.sentIdentifiers())
+				assert.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
+				assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers(), "wait for the pending firmware command before sending another")
 			} else {
 				assert.Equal(t, PhaseDone, phaseOf(current, "miner-0"))
 				assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())

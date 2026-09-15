@@ -37,14 +37,25 @@ const (
 // with mismatched members and drives every active rollout forward. Errors
 // are logged per rollout so one bad rollout cannot stall the others.
 func (s *Service) EnforceTick(ctx context.Context) {
+	// Observe reservations even while every rollout is paused, at review, or
+	// terminal. Otherwise a recovery between active ticks could be missed.
+	q := s.store.GetQueries(ctx)
+	if err := q.ObserveFirmwareRolloutReservationsOffline(ctx, sql.NullInt64{}); err != nil {
+		slog.Error("rollout enforcement: observe offline reservations", "error", err)
+		return
+	}
+	if err := q.DeleteReleasedFirmwareRolloutReservations(ctx); err != nil {
+		slog.Error("rollout enforcement: release command reservations", "error", err)
+		return
+	}
 	s.startNeededRollouts(ctx)
 	active, err := s.store.GetQueries(ctx).ListActiveFirmwareRollouts(ctx)
 	if err != nil {
 		slog.Error("rollout enforcement: list active rollouts", "error", err)
 		return
 	}
-	// Reconcile every rollout's targets first so the channel-wide offline
-	// budgets see verified miners as settled before anything is dispatched.
+	// Reconcile every rollout's targets before enforcing its next stage.
+	// Dispatch reads the channel's live offline budget under its lock.
 	prepared := make([][]target, len(active))
 	for i, row := range active {
 		targets, err := s.prepareRollout(ctx, row.FirmwareRollout)
@@ -54,12 +65,11 @@ func (s *Service) EnforceTick(ctx context.Context) {
 		}
 		prepared[i] = targets
 	}
-	budgets := s.offlineBudgets(active, prepared)
 	for i, row := range active {
 		if prepared[i] == nil {
 			continue
 		}
-		if err := s.enforceRollout(ctx, row.FirmwareRollout, row.ChannelName, prepared[i], budgets[row.FirmwareRollout.ChannelID]); err != nil {
+		if err := s.enforceRollout(ctx, row.FirmwareRollout, row.ChannelName, prepared[i]); err != nil {
 			slog.Error("rollout enforcement", "rollout_id", row.FirmwareRollout.ID, "error", err)
 		}
 	}
@@ -92,7 +102,7 @@ func (s *Service) prepareRollout(ctx context.Context, r sqlc.FirmwareRollout) ([
 }
 
 // offlineBudget is a channel's live max_concurrent_offline and the slots its
-// active rollouts' targets hold right now. Each distinct target holds at most
+// current and historical targets hold right now. Each distinct target holds at most
 // one slot: an offline slot while it is observed offline in any phase, or a
 // reservation while an update command is outstanding for it and it has not
 // yet been seen offline. Nil means unlimited.
@@ -114,32 +124,26 @@ func (b *offlineBudget) reserve(deviceID int64) {
 	}
 }
 
-// offlineBudgets computes every channel's budget from all its active
-// rollouts, so rollouts started together share it rather than each getting
-// their own.
-func (s *Service) offlineBudgets(active []sqlc.ListActiveFirmwareRolloutsRow, prepared [][]target) map[int64]*offlineBudget {
-	budgets := map[int64]*offlineBudget{}
-	cutoff := s.now().Add(-resendInterval)
-	for i, row := range active {
-		if row.ChannelMaxConcurrentOffline <= 0 || prepared[i] == nil {
-			continue
-		}
-		b, ok := budgets[row.FirmwareRollout.ChannelID]
-		if !ok {
-			b = &offlineBudget{limit: row.ChannelMaxConcurrentOffline, held: map[int64]bool{}}
-			budgets[row.FirmwareRollout.ChannelID] = b
-		}
-		for _, t := range prepared[i] {
-			if t.excluded() {
-				continue
-			}
-			outstanding := t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff) && !t.settled(row.FirmwareRollout)
-			if !t.online() || outstanding {
-				b.held[t.DeviceID] = true
-			}
-		}
+// refreshOfflineBudget runs under the channel lock before dispatch. It uses
+// durable command reservations and every historical target so concurrent ticks,
+// phase changes and membership changes cannot release a slot accidentally.
+func (s *Service) refreshOfflineBudget(ctx context.Context, channelID int64, limit int32) (*offlineBudget, error) {
+	q := s.store.GetQueries(ctx)
+	if err := q.ObserveFirmwareRolloutReservationsOffline(ctx, sql.NullInt64{Int64: channelID, Valid: true}); err != nil {
+		return nil, fleeterror.NewInternalErrorf("observe rollout offline reservations: %w", err)
 	}
-	return budgets
+	if limit <= 0 {
+		return nil, nil
+	}
+	deviceIDs, err := q.ListFirmwareRolloutOfflineSlots(ctx, channelID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("load rollout offline slots: %w", err)
+	}
+	budget := &offlineBudget{limit: limit, held: map[int64]bool{}}
+	for _, deviceID := range deviceIDs {
+		budget.reserve(deviceID)
+	}
+	return budget, nil
 }
 
 // startNeededRollouts creates an all-at-once rollout for every assigned pair
@@ -157,16 +161,45 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 	for _, n := range needed {
 		err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
 			q := s.store.GetQueries(ctx)
+			// The scan only discovers candidates. Serialize with assignment
+			// writers, then reload the assignment and need before creating a
+			// rollout so a concurrent clear or replacement cannot be undone.
+			channel, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: n.ChannelID, OrgID: n.OrgID})
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return channelLookupError(n.ChannelID, err)
+			}
+			assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+			})
+			if errors.Is(err, sql.ErrNoRows) || (err == nil && assignment.FirmwareChecksum == "") {
+				return nil
+			}
+			if err != nil {
+				return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
+			}
+			if _, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+			}); err == nil {
+				return nil
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewInternalErrorf("get active firmware rollout: %w", err)
+			}
 			spec := rolloutSpec{
-				OrgID: n.OrgID, ChannelID: n.ChannelID, Pair: PairKey{Manufacturer: n.Manufacturer, Model: n.Model},
-				FirmwareChecksum: n.FirmwareChecksum, FirmwareVersion: n.FirmwareVersion,
-				AssignmentGeneration: n.AssignmentGeneration, Actor: SystemActor, Behavior: allAtOnce,
+				OrgID: n.OrgID, ChannelID: n.ChannelID, ChannelName: channel.Name,
+				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model},
+				FirmwareChecksum: assignment.FirmwareChecksum, FirmwareVersion: assignment.FirmwareVersion,
+				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: allAtOnce,
 			}
 			latest, err := q.GetLatestFirmwareRolloutForPair(ctx, sqlc.GetLatestFirmwareRolloutForPairParams{
-				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model, AssignmentGeneration: n.AssignmentGeneration,
+				ChannelID: n.ChannelID, Manufacturer: assignment.Manufacturer, Model: assignment.Model, AssignmentGeneration: assignment.AssignmentGeneration,
 			})
 			if err == nil {
 				spec.PreviousFirmwareChecksum, spec.PreviousFirmwareVersion = latest.PreviousFirmwareChecksum, latest.PreviousFirmwareVersion
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewInternalErrorf("get assignment rollout lineage: %w", err)
 			}
 			r, err := s.startRollout(ctx, spec)
 			if err != nil || r == nil {
@@ -187,7 +220,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 // the rollout at the review gate (or the between-batch wait) once the batch
 // settles; the rest stage (and every all-at-once rollout) updates all
 // remaining targets and finishes the rollout once every target settled.
-func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, channelName string, targets []target, budget *offlineBudget) error {
+func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, channelName string, targets []target) error {
 	if r.PausedAt.Valid {
 		return nil
 	}
@@ -207,7 +240,7 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 	// outstanding miner, fall through to settle the stage in the same tick.
 	if r.Stage == StageBatch || r.Stage == StageRest {
 		if !allSettled(scope, r) {
-			halted, err := s.dispatchUpdates(ctx, r, budget)
+			halted, err := s.dispatchUpdates(ctx, r)
 			if err != nil || halted == 0 {
 				return err
 			}
@@ -473,17 +506,22 @@ func countFailed(scope []target) int {
 // failing miners whose attempts are exhausted first and honouring the
 // channel-wide offline budget. Dispatch waits while no uploaded file carries
 // the rollout's checksum. Returns how many miners it failed.
-func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, budget *offlineBudget) (int, error) {
+func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout) (int, error) {
 	var halted int
 	err := s.tx.RunInTxNoRetry(ctx, func(ctx context.Context) error {
 		q := s.store.GetQueries(ctx)
 		// Match assignment and rollback lock ordering. Holding both locks
 		// through enqueue serializes dispatch with assignment changes,
 		// pause, cancel and other operator controls.
-		if _, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{
+		channel, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{
 			ChannelID: r.ChannelID, OrgID: r.OrgID,
-		}); err != nil {
+		})
+		if err != nil {
 			return channelLookupError(r.ChannelID, err)
+		}
+		budget, err := s.refreshOfflineBudget(ctx, r.ChannelID, channel.MaxConcurrentOffline)
+		if err != nil {
+			return err
 		}
 		current, _, err := s.lockRollout(ctx, r.OrgID, r.ID, 0)
 		if err != nil {
@@ -521,6 +559,9 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 		}
 		sentRecently := t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)
 		switch {
+		case len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0:
+			// Queue state, not retry age, determines when another command may
+			// be sent or the prior attempt declared exhausted.
 		case sentRecently:
 		case !t.InScope.Valid || !t.InScope.Bool:
 			incompatible = append(incompatible, t.DeviceID)
@@ -549,8 +590,7 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 		slog.Warn("rollout enforcement failed devices", "rollout_id", r.ID, "devices", len(toHalt))
 	}
 	if room := budget.room(); room >= 0 {
-		// Targets already holding a slot (offline, or outstanding) are not
-		// due, so every due target needs a free slot.
+		// Bound this dispatch by the channel's current free capacity.
 		if len(due) > room {
 			due = due[:room]
 		}

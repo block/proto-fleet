@@ -701,6 +701,16 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 	var view *Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
 		q := s.store.GetQueries(ctx)
+		// A finished retry creates a rollout for the current assignment.
+		// Discover its channel without taking the rollout lock, then follow
+		// assignment writers' channel-before-rollout order and reload below.
+		observed, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID})
+		if err != nil {
+			return rolloutLookupError(rolloutID, err)
+		}
+		if _, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: observed.ChannelID, OrgID: orgID}); err != nil {
+			return channelLookupError(observed.ChannelID, err)
+		}
 		row, channelName, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
 		if err != nil {
 			return err

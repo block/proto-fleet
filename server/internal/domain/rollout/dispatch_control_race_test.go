@@ -24,7 +24,7 @@ func TestStaleTickCannotDispatchAfterOperatorControl(t *testing.T) {
 			stale, targets := preparedDispatch(t, ctx, f, started.ID)
 
 			require.NoError(t, controlRollout(ctx, f, started.ID, action))
-			require.NoError(t, f.svc.enforceRollout(ctx, stale, "Test channel", targets, nil))
+			require.NoError(t, f.svc.enforceRollout(ctx, stale, "Test channel", targets))
 			require.Empty(t, f.dispatcher.sentIdentifiers(), "a tick prepared before the operator action must not dispatch afterward")
 			rows, err := f.svc.store.GetQueries(ctx).ListFirmwareRolloutDevices(ctx, started.ID)
 			require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestOperatorControlWaitsForDispatchToFinish(t *testing.T) {
 				workers.Wait()
 			})
 			dispatchDone := startDispatchWorker(&workers, func() error {
-				return f.svc.enforceRollout(ctx, stale, "Test channel", targets, nil)
+				return f.svc.enforceRollout(ctx, stale, "Test channel", targets)
 			})
 			select {
 			case <-dispatcher.entered:
@@ -72,7 +72,7 @@ func TestOperatorControlWaitsForDispatchToFinish(t *testing.T) {
 			// Even the pre-control snapshot cannot send another command once
 			// the action commits, including after the usual resend interval.
 			f.backdateSends(t)
-			require.NoError(t, f.svc.enforceRollout(ctx, stale, "Test channel", targets, nil))
+			require.NoError(t, f.svc.enforceRollout(ctx, stale, "Test channel", targets))
 			require.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
 			current := f.rollout(t, started.ID)
 			if action == "pause" {
@@ -98,7 +98,7 @@ func TestConcurrentPreparedTicksDoNotDispatchTwice(t *testing.T) {
 		release()
 		workers.Wait()
 	})
-	enforce := func() error { return f.svc.enforceRollout(ctx, stale, "Test channel", targets, nil) }
+	enforce := func() error { return f.svc.enforceRollout(ctx, stale, "Test channel", targets) }
 	firstDone := startDispatchWorker(&workers, enforce)
 	select {
 	case <-dispatcher.entered:
@@ -134,7 +134,7 @@ func TestDispatchIsNotReplayedAfterRetryableDatabaseFailure(t *testing.T) {
 		EXECUTE FUNCTION fail_after_firmware_dispatch();`)
 	require.NoError(t, err)
 
-	err = f.svc.enforceRollout(ctx, row, "Test channel", targets, nil)
+	err = f.svc.enforceRollout(ctx, row, "Test channel", targets)
 	require.ErrorContains(t, err, "injected failure after external dispatch")
 	require.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers(), "a retryable database error must not replay the external command")
 	rows, err := f.svc.store.GetQueries(ctx).ListFirmwareRolloutDevices(ctx, started.ID)
@@ -151,7 +151,7 @@ func TestDispatchRejectsAnOuterRetryableTransaction(t *testing.T) {
 	row, targets := preparedDispatch(t, ctx, f, started.ID)
 
 	err := f.svc.tx.RunInTx(ctx, func(ctx context.Context) error {
-		return f.svc.enforceRollout(ctx, row, "Test channel", targets, nil)
+		return f.svc.enforceRollout(ctx, row, "Test channel", targets)
 	})
 	require.ErrorContains(t, err, "non-retryable transaction cannot be nested")
 	require.Empty(t, f.dispatcher.sentIdentifiers(), "an outer transaction must not be able to retry external dispatch")

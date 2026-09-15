@@ -996,6 +996,13 @@ type FirmwareRolloutDevice struct {
 	AddedAt                 time.Time
 }
 
+type FirmwareRolloutReservation struct {
+	ChannelID       int64
+	DeviceID        int64
+	BatchUuid       string
+	ObservedOffline bool
+}
+
 type FirmwareRolloutSuppressedDevice struct {
 	ChannelID            int64
 	ManufacturerKey      string

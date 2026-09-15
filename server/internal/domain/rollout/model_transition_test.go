@@ -126,6 +126,12 @@ func TestUnverifiedModelTransitionFailsWithoutIncompatibleRedispatch(t *testing.
 
 			f.backdateSends(t)
 			f.svc.EnforceTick(t.Context())
+			if evidence.name == "foreign command" {
+				require.Equal(t, StatusActive, f.rollout(t, started.ID).Status, "a queued command must finish before declaring its target failed")
+				f.finishQueuedBudgetCommand(t, "miner-0", "SUCCESS")
+				f.setReportedVersion(t, "miner-0", "1.5.0")
+				f.svc.EnforceTick(t.Context())
+			}
 			failed := f.rollout(t, started.ID)
 			require.Equal(t, StatusCompletedWithFailures, failed.Status)
 			require.Equal(t, PhaseFailed, phaseOf(failed, "miner-0"))

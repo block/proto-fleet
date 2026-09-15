@@ -454,6 +454,36 @@ func (q *Queries) DeleteReleaseChannelTargets(ctx context.Context, channelID int
 	return err
 }
 
+const deleteReleasedFirmwareRolloutReservations = `-- name: DeleteReleasedFirmwareRolloutReservations :exec
+DELETE FROM firmware_rollout_reservation reservation
+USING device d
+WHERE d.id = reservation.device_id
+  AND (
+      d.deleted_at IS NOT NULL
+      OR NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = reservation.device_id
+            AND qm.command_batch_log_uuid = reservation.batch_uuid
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+      )
+      OR (reservation.observed_offline AND EXISTS (
+          SELECT 1 FROM device_status ds
+          WHERE ds.device_id = d.id
+            AND ds.status::text NOT IN ('OFFLINE', 'UNKNOWN', 'UPDATING')
+      ))
+  )
+`
+
+// Offline targets keep an offline slot through their retained rollout target
+// history, so a terminal command no longer needs its reservation row. A live
+// command can also release after an observed offline/online cycle. Keep that
+// observation until recovery, and discard fleet-deleted targets immediately.
+func (q *Queries) DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error {
+	_, err := q.exec(ctx, q.deleteReleasedFirmwareRolloutReservationsStmt, deleteReleasedFirmwareRolloutReservations)
+	return err
+}
+
 const excludeFirmwareRolloutDevices = `-- name: ExcludeFirmwareRolloutDevices :exec
 UPDATE firmware_rollout_device
 SET excluded_at = now()
@@ -1086,7 +1116,6 @@ func (q *Queries) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDevice
 }
 
 const listFirmwareRolloutDevices = `-- name: ListFirmwareRolloutDevices :many
-
 SELECT rd.device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
@@ -1219,7 +1248,6 @@ type ListFirmwareRolloutDevicesRow struct {
 	InScope                      sql.NullBool
 }
 
-// --- Rollout devices ---
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
 // status, latest telemetry within 15 minutes of this statement, open errors
 // and errors opened since its baseline), provenance, the checksums of pending or processing
@@ -1291,6 +1319,57 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutOfflineSlots = `-- name: ListFirmwareRolloutOfflineSlots :many
+SELECT rd.device_id
+FROM firmware_rollout_device rd
+JOIN firmware_rollout r ON r.id = rd.rollout_id
+JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE r.channel_id = $1
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+UNION
+SELECT reservation.device_id
+FROM firmware_rollout_reservation reservation
+JOIN device d ON d.id = reservation.device_id AND d.deleted_at IS NULL
+WHERE reservation.channel_id = $1
+  AND NOT reservation.observed_offline
+  AND EXISTS (
+      SELECT 1 FROM queue_message qm
+      WHERE qm.device_id = reservation.device_id
+        AND qm.command_batch_log_uuid = reservation.batch_uuid
+        AND qm.command_type = 'FirmwareUpdate'
+        AND qm.status IN ('PENDING', 'PROCESSING')
+  )
+`
+
+// Every historical target can hold an offline slot, regardless of phase or
+// current membership. Actual command reservations persist until their command
+// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+// Fleet deletion releases both. UNION counts a device only once, including
+// when it was targeted by several rollouts in this channel.
+func (q *Queries) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutOfflineSlotsStmt, listFirmwareRolloutOfflineSlots, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2201,7 +2280,15 @@ func (q *Queries) LockReleaseChannelScopes(ctx context.Context, orgID int64) err
 }
 
 const markFirmwareRolloutDevicesSent = `-- name: MarkFirmwareRolloutDevicesSent :exec
-WITH locked_targets AS MATERIALIZED (
+WITH reservations AS (
+    INSERT INTO firmware_rollout_reservation (channel_id, device_id, batch_uuid)
+    SELECT r.channel_id, device_id, $2::text
+    FROM firmware_rollout r
+    CROSS JOIN unnest($1::bigint[]) AS dispatched(device_id)
+    WHERE r.id = $3
+      AND $2::text <> ''
+    ON CONFLICT (channel_id, device_id, batch_uuid) DO NOTHING
+), locked_targets AS MATERIALIZED (
     SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
     FROM firmware_rollout_device AS target
     WHERE target.rollout_id = $3
@@ -2268,6 +2355,29 @@ type MarkFirmwareRolloutDevicesVerifiedParams struct {
 // phase change is a rollout change under the revision rule.
 func (q *Queries) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error {
 	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesVerifiedStmt, markFirmwareRolloutDevicesVerified, arg.RolloutID, pq.Array(arg.DeviceIds))
+	return err
+}
+
+const observeFirmwareRolloutReservationsOffline = `-- name: ObserveFirmwareRolloutReservationsOffline :exec
+
+UPDATE firmware_rollout_reservation reservation
+SET observed_offline = true
+FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE ($1::bigint IS NULL OR reservation.channel_id = $1)
+  AND reservation.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND NOT reservation.observed_offline
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+`
+
+// --- Rollout devices ---
+// Once an outstanding command's target has been seen offline, its reservation
+// becomes an offline slot. Returning online releases that slot even if command
+// completion arrives later. This observation survives exclusion, cancellation,
+// retries and completed rollout history.
+func (q *Queries) ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error {
+	_, err := q.exec(ctx, q.observeFirmwareRolloutReservationsOfflineStmt, observeFirmwareRolloutReservationsOffline, channelID)
 	return err
 }
 

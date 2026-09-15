@@ -718,6 +718,72 @@ WHERE id = sqlc.arg('rollout_id');
 
 -- --- Rollout devices ---
 
+-- name: ObserveFirmwareRolloutReservationsOffline :exec
+-- Once an outstanding command's target has been seen offline, its reservation
+-- becomes an offline slot. Returning online releases that slot even if command
+-- completion arrives later. This observation survives exclusion, cancellation,
+-- retries and completed rollout history.
+UPDATE firmware_rollout_reservation reservation
+SET observed_offline = true
+FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE (sqlc.narg('channel_id')::bigint IS NULL OR reservation.channel_id = sqlc.narg('channel_id'))
+  AND reservation.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND NOT reservation.observed_offline
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING');
+
+-- name: DeleteReleasedFirmwareRolloutReservations :exec
+-- Offline targets keep an offline slot through their retained rollout target
+-- history, so a terminal command no longer needs its reservation row. A live
+-- command can also release after an observed offline/online cycle. Keep that
+-- observation until recovery, and discard fleet-deleted targets immediately.
+DELETE FROM firmware_rollout_reservation reservation
+USING device d
+WHERE d.id = reservation.device_id
+  AND (
+      d.deleted_at IS NOT NULL
+      OR NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = reservation.device_id
+            AND qm.command_batch_log_uuid = reservation.batch_uuid
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+      )
+      OR (reservation.observed_offline AND EXISTS (
+          SELECT 1 FROM device_status ds
+          WHERE ds.device_id = d.id
+            AND ds.status::text NOT IN ('OFFLINE', 'UNKNOWN', 'UPDATING')
+      ))
+  );
+
+-- name: ListFirmwareRolloutOfflineSlots :many
+-- Every historical target can hold an offline slot, regardless of phase or
+-- current membership. Actual command reservations persist until their command
+-- finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+-- Fleet deletion releases both. UNION counts a device only once, including
+-- when it was targeted by several rollouts in this channel.
+SELECT rd.device_id
+FROM firmware_rollout_device rd
+JOIN firmware_rollout r ON r.id = rd.rollout_id
+JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE r.channel_id = sqlc.arg('channel_id')
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+UNION
+SELECT reservation.device_id
+FROM firmware_rollout_reservation reservation
+JOIN device d ON d.id = reservation.device_id AND d.deleted_at IS NULL
+WHERE reservation.channel_id = sqlc.arg('channel_id')
+  AND NOT reservation.observed_offline
+  AND EXISTS (
+      SELECT 1 FROM queue_message qm
+      WHERE qm.device_id = reservation.device_id
+        AND qm.command_batch_log_uuid = reservation.batch_uuid
+        AND qm.command_type = 'FirmwareUpdate'
+        AND qm.status IN ('PENDING', 'PROCESSING')
+  );
+
 -- name: ListFirmwareRolloutDevices :many
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
 -- status, latest telemetry within 15 minutes of this statement, open errors
@@ -894,7 +960,15 @@ WHERE rollout_id = sqlc.arg('rollout_id')
 -- Only targets actually dispatched to may authorize a later provenance write.
 -- Lock targets before sampling one monotonic clock per attempt. A timestamp
 -- evaluated before a target-lock wait would shorten the next retry interval.
-WITH locked_targets AS MATERIALIZED (
+WITH reservations AS (
+    INSERT INTO firmware_rollout_reservation (channel_id, device_id, batch_uuid)
+    SELECT r.channel_id, device_id, sqlc.arg('batch_uuid')::text
+    FROM firmware_rollout r
+    CROSS JOIN unnest(sqlc.arg('dispatched_device_ids')::bigint[]) AS dispatched(device_id)
+    WHERE r.id = sqlc.arg('rollout_id')
+      AND sqlc.arg('batch_uuid')::text <> ''
+    ON CONFLICT (channel_id, device_id, batch_uuid) DO NOTHING
+), locked_targets AS MATERIALIZED (
     SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
     FROM firmware_rollout_device AS target
     WHERE target.rollout_id = sqlc.arg('rollout_id')

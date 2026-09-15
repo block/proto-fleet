@@ -94,7 +94,7 @@ func TestStaleStageTimerCannotAdvanceAfterResume(t *testing.T) {
 	require.NoError(t, err)
 	// This models an enforcement tick whose active-row snapshot predates
 	// the pause and resume; its apparently elapsed timer is now obsolete.
-	require.ErrorContains(t, f.svc.enforceRollout(ctx, stale, "", targets, nil), "changed or was paused")
+	require.ErrorContains(t, f.svc.enforceRollout(ctx, stale, "", targets), "changed or was paused")
 	require.Equal(t, StageWaiting, f.rollout(t, started.ID).Stage)
 	var onDone bool
 	require.ErrorContains(t, f.svc.transition(ctx, &stale, StageWaiting, StageBatch, func() { onDone = true }), "changed or was paused")

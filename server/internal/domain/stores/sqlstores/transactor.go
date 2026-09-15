@@ -35,10 +35,16 @@ func (f *SQLTransactor) RunInTxWithResult(ctx context.Context, action func(ctx c
 		// If the context already has a transaction, just use the existing context
 		return action(ctx)
 	}
-	return db.WithTransaction(ctx, f.conn.DB, func(q sqlc.Querier) (any, error) {
-		txCtx := db.WithTxQueries(ctx, q)
+	var committed func()
+	result, err := db.WithTransaction(ctx, f.conn.DB, func(q sqlc.Querier) (any, error) {
+		txCtx, commit := db.WithCommitHooks(db.WithTxQueries(ctx, q))
+		committed = commit
 		return action(txCtx)
 	})
+	if err == nil {
+		committed()
+	}
+	return result, err
 }
 
 // RunInTxNoRetry holds transaction-bound locks while action performs side
@@ -48,7 +54,14 @@ func (f *SQLTransactor) RunInTxNoRetry(ctx context.Context, action func(context.
 	if f.GetTxQueries(ctx) != nil {
 		return fleeterror.NewInternalError("non-retryable transaction cannot be nested")
 	}
-	return db.WithTransactionNoRetryNoResult(ctx, f.conn.DB, func(q sqlc.Querier) error {
-		return action(db.WithTxQueries(ctx, q))
+	var committed func()
+	err := db.WithTransactionNoRetryNoResult(ctx, f.conn.DB, func(q sqlc.Querier) error {
+		txCtx, commit := db.WithCommitHooks(db.WithTxQueries(ctx, q))
+		committed = commit
+		return action(txCtx)
 	})
+	if err == nil {
+		committed()
+	}
+	return err
 }

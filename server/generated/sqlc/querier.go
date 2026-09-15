@@ -426,6 +426,11 @@ type Querier interface {
 	DeletePool(ctx context.Context, id int64) error
 	DeleteReleaseChannel(ctx context.Context, arg DeleteReleaseChannelParams) (int64, error)
 	DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error
+	// Offline targets keep an offline slot through their retained rollout target
+	// history, so a terminal command no longer needs its reservation row. A live
+	// command can also release after an observed offline/online cycle. Keep that
+	// observation until recovery, and discard fleet-deleted targets immediately.
+	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
 	// True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 	// A device paired to a fleet node is also paired-like (so it reads as paired in
@@ -1148,7 +1153,6 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
-	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
 	// status, latest telemetry within 15 minutes of this statement, open errors
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
@@ -1168,6 +1172,12 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
+	// Every historical target can hold an offline slot, regardless of phase or
+	// current membership. Actual command reservations persist until their command
+	// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+	// Fleet deletion releases both. UNION counts a device only once, including
+	// when it was targeted by several rollouts in this channel.
+	ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned. Incremental polls
 	// include the previous cycle's xmin and all later transaction IDs, allowing
@@ -1513,6 +1523,12 @@ type Querier interface {
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)
+	// --- Rollout devices ---
+	// Once an outstanding command's target has been seen offline, its reservation
+	// becomes an offline slot. Returning online releases that slot even if command
+	// completion arrives later. This observation survives exclusion, cancellation,
+	// retries and completed rollout history.
+	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)

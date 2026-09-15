@@ -984,7 +984,8 @@ type FirmwarePlan struct {
 	OnTargetCount int32
 	BatchCount    int32
 	Behavior      Behavior
-	// Unchanged means the checksum already assigned, so no rollout starts.
+	// Unchanged means the requested assignment is already in place,
+	// including a clear when the pair has no firmware assigned.
 	Unchanged bool
 }
 
@@ -1031,6 +1032,7 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 	for _, a := range resolved {
 		plan := FirmwarePlan{Pair: a.pair, Behavior: behavior}
 		if a.artifact == nil {
+			plan.Unchanged = a.current == nil || a.current.FirmwareChecksum == ""
 			plans = append(plans, plan)
 			continue
 		}
