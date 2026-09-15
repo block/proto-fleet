@@ -2850,7 +2850,9 @@ type UpsertReleaseChannelFirmwareParams struct {
 
 // --- Firmware assignments ---
 // Assigns an artifact to a pair and advances the pair's generation. The
-// stored key keeps the case it was first written with.
+// stored key keeps the case it was first written with. assigned_by is the
+// owning user for enforcement commands, separate from the rollout's audit
+// actor. Reconciliation and retries retain this assignment's owner.
 func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error) {
 	row := q.queryRow(ctx, q.upsertReleaseChannelFirmwareStmt, upsertReleaseChannelFirmware,
 		arg.ChannelID,

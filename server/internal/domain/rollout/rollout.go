@@ -121,6 +121,16 @@ type Actor struct {
 	Type string
 	ID   int64
 	Name string
+	// OwnerUserID is the authenticated user behind an API key. Audit actor
+	// IDs are not command owners; user actors own commands through ID.
+	OwnerUserID int64
+}
+
+func (a Actor) ownerUserID() int64 {
+	if a.Type == ActorTypeUser {
+		return a.ID
+	}
+	return a.OwnerUserID
 }
 
 // SystemActor attributes actions the server takes on its own.

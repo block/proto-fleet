@@ -7,7 +7,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +14,7 @@ import (
 
 // Observe the real transactor without replacing its queries or retry policy.
 type channelRetryObserver struct {
-	interfaces.Transactor
+	Transactor
 	attempts int
 	firstErr error
 }

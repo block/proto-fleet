@@ -207,7 +207,7 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 	// outstanding miner, fall through to settle the stage in the same tick.
 	if r.Stage == StageBatch || r.Stage == StageRest {
 		if !allSettled(scope, r) {
-			halted, err := s.dispatchUpdates(ctx, r, scope, budget)
+			halted, err := s.dispatchUpdates(ctx, r, budget)
 			if err != nil || halted == 0 {
 				return err
 			}
@@ -473,7 +473,43 @@ func countFailed(scope []target) int {
 // failing miners whose attempts are exhausted first and honouring the
 // channel-wide offline budget. Dispatch waits while no uploaded file carries
 // the rollout's checksum. Returns how many miners it failed.
-func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, scope []target, budget *offlineBudget) (int, error) {
+func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, budget *offlineBudget) (int, error) {
+	var halted int
+	err := s.tx.RunInTxNoRetry(ctx, func(ctx context.Context) error {
+		q := s.store.GetQueries(ctx)
+		// Match assignment and rollback lock ordering. Holding both locks
+		// through enqueue serializes dispatch with assignment changes,
+		// pause, cancel and other operator controls.
+		if _, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{
+			ChannelID: r.ChannelID, OrgID: r.OrgID,
+		}); err != nil {
+			return channelLookupError(r.ChannelID, err)
+		}
+		current, _, err := s.lockRollout(ctx, r.OrgID, r.ID, 0)
+		if err != nil {
+			return err
+		}
+		if current.Status != StatusActive || current.PausedAt.Valid ||
+			current.Stage != r.Stage || current.CurrentBatch != r.CurrentBatch || !current.StageChangedAt.Equal(r.StageChangedAt) ||
+			(current.Stage != StageBatch && current.Stage != StageRest) {
+			return nil
+		}
+		// Preparation and concurrent ticks can change target evidence (and
+		// revision) without changing the dispatch stage. Use fresh targets
+		// rather than rejecting those legitimate same-stage changes.
+		targets, err := s.listTargets(ctx, current)
+		if err != nil {
+			return err
+		}
+		halted, err = s.dispatchLockedUpdates(ctx, current, reviewScope(current, targets), budget)
+		return err
+	})
+	return halted, err
+}
+
+// dispatchLockedUpdates runs with the channel and rollout locked until the
+// command service has queued the batch and its dispatch evidence is saved.
+func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRollout, scope []target, budget *offlineBudget) (int, error) {
 	q := s.store.GetQueries(ctx)
 	now := s.now()
 	cutoff := now.Add(-resendInterval)
@@ -550,7 +586,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 			IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
 		},
 	}
-	result, err := s.commands.FirmwareUpdateArtifact(s.enforcementContext(ctx, r), selector, r.FirmwareChecksum, files.FirmwareMetadata{
+	result, err := s.commands.FirmwareUpdateArtifact(s.enforcementContext(ctx, r, assignment.AssignedBy), selector, r.FirmwareChecksum, files.FirmwareMetadata{
 		TargetManufacturer: assignment.FirmwareTargetManufacturer,
 		TargetModel:        assignment.FirmwareTargetModel,
 		FirmwareVersion:    assignment.FirmwareVersion,
@@ -586,12 +622,13 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 	return halted, nil
 }
 
-// enforcementContext synthesizes a session for command dispatch, attributed
-// to the actor who started the rollout.
-func (s *Service) enforcementContext(ctx context.Context, r sqlc.FirmwareRollout) context.Context {
+// enforcementContext supplies the assignment's persisted user owner to command
+// dispatch. The rollout's audit actor remains independent, including system/0
+// for reconciliation and the controller that requests a retry.
+func (s *Service) enforcementContext(ctx context.Context, r sqlc.FirmwareRollout, ownerUserID int64) context.Context {
 	return authn.SetInfo(ctx, &session.Info{
 		SessionID:      rolloutActorName,
-		UserID:         r.StartedByID,
+		UserID:         ownerUserID,
 		OrganizationID: r.OrgID,
 		ExternalUserID: rolloutActorName,
 		Username:       rolloutActorName,

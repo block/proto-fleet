@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -37,5 +38,17 @@ func (f *SQLTransactor) RunInTxWithResult(ctx context.Context, action func(ctx c
 	return db.WithTransaction(ctx, f.conn.DB, func(q sqlc.Querier) (any, error) {
 		txCtx := db.WithTxQueries(ctx, q)
 		return action(txCtx)
+	})
+}
+
+// RunInTxNoRetry holds transaction-bound locks while action performs side
+// effects outside this transaction. Reject nesting because the outer
+// transaction could retry and replay those effects.
+func (f *SQLTransactor) RunInTxNoRetry(ctx context.Context, action func(context.Context) error) error {
+	if f.GetTxQueries(ctx) != nil {
+		return fleeterror.NewInternalError("non-retryable transaction cannot be nested")
+	}
+	return db.WithTransactionNoRetryNoResult(ctx, f.conn.DB, func(q sqlc.Querier) error {
+		return action(db.WithTxQueries(ctx, q))
 	})
 }

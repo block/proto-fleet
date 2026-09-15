@@ -69,10 +69,17 @@ type QueryProvider interface {
 	GetQueries(ctx context.Context) sqlc.Querier
 }
 
+// Transactor supports ordinary mutations and dispatch transactions whose
+// command-queue side effects must never be replayed by transaction retries.
+type Transactor interface {
+	interfaces.Transactor
+	RunInTxNoRetry(ctx context.Context, fn func(context.Context) error) error
+}
+
 // Service implements release channel management and firmware enforcement.
 type Service struct {
 	store    QueryProvider
-	tx       interfaces.Transactor
+	tx       Transactor
 	commands CommandDispatcher
 	files    FirmwareFiles
 	activity ActivityLogger
@@ -82,7 +89,7 @@ type Service struct {
 }
 
 // NewService builds the rollout service. activityLog may be nil.
-func NewService(store QueryProvider, tx interfaces.Transactor, commands CommandDispatcher, firmwareFiles FirmwareFiles, activityLog ActivityLogger) *Service {
+func NewService(store QueryProvider, tx Transactor, commands CommandDispatcher, firmwareFiles FirmwareFiles, activityLog ActivityLogger) *Service {
 	return &Service{
 		store:    store,
 		tx:       tx,
@@ -1221,6 +1228,10 @@ func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChan
 }
 
 func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, resolved []resolvedAssignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+	ownerUserID := actor.ownerUserID()
+	if ownerUserID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("firmware assignment requires an owning user")
+	}
 	q := s.store.GetQueries(ctx)
 	var started []Rollout
 	for _, a := range resolved {
@@ -1235,7 +1246,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 				continue
 			}
 			if _, err := q.ClearReleaseChannelFirmware(ctx, sqlc.ClearReleaseChannelFirmwareParams{
-				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, AssignedBy: actor.ID,
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, AssignedBy: ownerUserID,
 			}); err != nil {
 				return nil, fleeterror.NewInternalErrorf("clear assignment: %w", err)
 			}
@@ -1260,7 +1271,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 			FirmwareVersion:            a.artifact.Metadata.FirmwareVersion,
 			FirmwareTargetManufacturer: a.artifact.Metadata.TargetManufacturer,
 			FirmwareTargetModel:        a.artifact.Metadata.TargetModel,
-			AssignedBy:                 actor.ID,
+			AssignedBy:                 ownerUserID,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("assign firmware: %w", err)

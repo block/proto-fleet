@@ -298,7 +298,9 @@ ORDER BY d.device_identifier, d.id, owner.channel_id;
 
 -- name: UpsertReleaseChannelFirmware :one
 -- Assigns an artifact to a pair and advances the pair's generation. The
--- stored key keeps the case it was first written with.
+-- stored key keeps the case it was first written with. assigned_by is the
+-- owning user for enforcement commands, separate from the rollout's audit
+-- actor. Reconciliation and retries retain this assignment's owner.
 INSERT INTO release_channel_firmware (
     channel_id, manufacturer, model, firmware_checksum, firmware_version,
     firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by
