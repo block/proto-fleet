@@ -321,6 +321,9 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 			MaxConcurrentOffline:         b.MaxConcurrentOffline,
 			ControllerTimeoutSeconds:     b.ControllerTimeoutSeconds,
 		}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return channelLookupError(channelID, err)
+			}
 			if db.IsUniqueViolationError(err) {
 				return fleeterror.NewAlreadyExistsErrorf("a release channel named %q already exists", spec.Name)
 			}
