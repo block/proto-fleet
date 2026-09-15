@@ -55,6 +55,10 @@ describe("MinerSearchInput", () => {
 
   it("keeps a non-empty search expanded when focus leaves", () => {
     render(<MinerSearchInput collapsible initialValue="rack-7" onQueryChange={vi.fn()} />);
+    // The landmark is named, but not with the input's own label, so neither
+    // resolves to two elements.
+    expect(screen.getByRole("search", { name: "Search miners controls" })).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Search miners")).toHaveLength(1);
 
     fireEvent.blur(searchBox());
 
