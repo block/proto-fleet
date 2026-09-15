@@ -403,8 +403,8 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   const plantId = asComponentId(`${containerId}:plant`);
   const plant = wire.plant;
   // Missing or invalid sensors in a successful snapshot must clear the previous reading.
-  const tankReading = (value: number | undefined, units: MetricUnit): MetricTelemetry => ({
-    latest: { value: numeric(value) ?? null, units },
+  const tankReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
+    latest: { value: typeof value === "number" && Number.isFinite(value) ? value : null, units },
   });
   addPlantComponent(plantId, "plant", "Plant", {
     componentId: plantId,

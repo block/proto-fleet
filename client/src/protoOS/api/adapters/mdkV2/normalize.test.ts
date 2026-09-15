@@ -400,20 +400,22 @@ describe("MDK v2 CT1 normalization", () => {
     });
   });
 
-  test.each([undefined, Number.NaN, Infinity, 0])(
+  test.each([undefined, null, "", "12", false, Number.NaN, Infinity, 0])(
     "normalizes optional plant sensors without inventing readings: %s",
     (value) => {
+      // The generated client's static types do not validate device JSON at runtime.
+      const sensor = value as number | undefined;
       const { telemetry } = toCanonicalContainer(
         map,
         {},
         {
           plant: {
-            flowRateLpm: value,
-            inletTemperatureC: value,
-            outletATemperatureC: value,
-            outletBTemperatureC: value,
-            tankALiquidLevelMm: value,
-            tankBLiquidLevelMm: value,
+            flowRateLpm: sensor,
+            inletTemperatureC: sensor,
+            outletATemperatureC: sensor,
+            outletBTemperatureC: sensor,
+            tankALiquidLevelMm: sensor,
+            tankBLiquidLevelMm: sensor,
           },
         },
         "ct1-a",
