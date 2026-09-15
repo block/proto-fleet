@@ -78,7 +78,7 @@ jobs:
 
   build:
     name: Build client and plugins
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PROTOFLEET_E2E_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -90,14 +90,24 @@ jobs:
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
 
+      - name: Restore pre-baked runner content
+        id: runner-image
+        uses: ./.github/actions/protofleet-e2e-runner
+        with:
+          server-hash: ${{ hashFiles('server/**') }}
+          client-lock-hash: ${{ hashFiles('client/package-lock.json') }}
+          # Scheduled runs deliberately refresh upstream Docker base images.
+          allow-docker-images: ${{ github.event_name != 'schedule' }}
+
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      # Cache the npm download cache (~/.npm), not a built node_modules:
-      # restoring node_modules from cache corrupts native optional deps (e.g.
-      # Rolldown's Linux binding), so we always run a clean `npm ci` and just
-      # keep its downloads warm. This is also the pattern Client Checks uses.
+      # Standard runners cache only npm downloads because cross-image
+      # node_modules caches corrupt native optional dependencies. The custom
+      # runner may instead restore an exact-lockfile dependency tree built in
+      # the same VM image.
       - name: Cache npm dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -106,6 +116,7 @@ jobs:
             ${{ runner.os }}-npm-
 
       - name: Install client dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         working-directory: client
         run: npm ci --include=optional
 
@@ -136,7 +147,9 @@ jobs:
           key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
 
       - name: Build E2E Docker images
-        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        if: >-
+          steps.runner-image.outputs.docker-images != 'true' &&
+          steps.docker-image-cache.outputs.cache-hit != 'true'
         working-directory: server
         run: |
           mkdir -p /tmp/docker-images
@@ -157,6 +170,18 @@ jobs:
           docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
           ls -lh /tmp/docker-images/
           echo "::endgroup::"
+
+      # The artifact remains available even when the custom image is used, so
+      # a shard that lands on an older runner image can fall back safely.
+      - name: Export pre-baked Docker images
+        if: >-
+          steps.runner-image.outputs.docker-images == 'true' &&
+          steps.docker-image-cache.outputs.cache-hit != 'true'
+        working-directory: server
+        run: |
+          mkdir -p /tmp/docker-images
+          mapfile -t images < <(docker compose config --images | sort -u)
+          docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
 
       - name: Save Docker image cache
         if: github.event_name != 'schedule' && steps.docker-image-cache.outputs.cache-hit != 'true'
@@ -205,7 +230,7 @@ jobs:
   e2e-tests:
     needs: [detect-specs, build]
     timeout-minutes: 40
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PROTOFLEET_E2E_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
     env:
@@ -229,9 +254,18 @@ jobs:
         with:
           preinstall: "false"
 
-      # See the build job: cache ~/.npm and run a clean `npm ci` rather than
-      # caching a built node_modules.
+      - name: Restore pre-baked runner content
+        id: runner-image
+        uses: ./.github/actions/protofleet-e2e-runner
+        with:
+          server-hash: ${{ hashFiles('server/**') }}
+          client-lock-hash: ${{ hashFiles('client/package-lock.json') }}
+          allow-docker-images: ${{ github.event_name != 'schedule' }}
+
+      # See the build job: the normal path caches ~/.npm and runs npm ci; the
+      # custom runner uses only its exact-lockfile dependency tree.
       - name: Cache npm dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -241,6 +275,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
+        if: steps.runner-image.outputs.playwright-browsers != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -249,11 +284,14 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         working-directory: client
         run: npm ci --include=optional
 
       - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: >-
+          steps.runner-image.outputs.playwright-browsers != 'true' &&
+          steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoFleet
         run: |
           # ubuntu-latest already includes Chromium's runtime libraries. Avoid
@@ -278,12 +316,14 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
+        if: steps.runner-image.outputs.docker-images != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
 
       - name: Load Docker images
+        if: steps.runner-image.outputs.docker-images != 'true'
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
 
@@ -394,7 +434,7 @@ jobs:
     name: Visual Tests
     needs: [build]
     timeout-minutes: 40
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PROTOFLEET_E2E_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
     strategy:
@@ -413,7 +453,16 @@ jobs:
         with:
           preinstall: "false"
 
+      - name: Restore pre-baked runner content
+        id: runner-image
+        uses: ./.github/actions/protofleet-e2e-runner
+        with:
+          server-hash: ${{ hashFiles('server/**') }}
+          client-lock-hash: ${{ hashFiles('client/package-lock.json') }}
+          allow-docker-images: ${{ github.event_name != 'schedule' }}
+
       - name: Cache npm dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
@@ -423,6 +472,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
+        if: steps.runner-image.outputs.playwright-browsers != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -431,11 +481,14 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
+        if: steps.runner-image.outputs.client-dependencies != 'true'
         working-directory: client
         run: npm ci --include=optional
 
       - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: >-
+          steps.runner-image.outputs.playwright-browsers != 'true' &&
+          steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoFleet
         run: npx playwright install chromium
 
@@ -455,12 +508,14 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
+        if: steps.runner-image.outputs.docker-images != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
 
       - name: Load Docker images
+        if: steps.runner-image.outputs.docker-images != 'true'
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
 

@@ -1,0 +1,40 @@
+name: Restore ProtoFleet E2E runner content
+description: Use hash-matched dependencies and Docker images from the custom runner image
+
+inputs:
+  server-hash:
+    description: GitHub hashFiles digest for server/**
+    required: true
+  client-lock-hash:
+    description: GitHub hashFiles digest for client/package-lock.json
+    required: true
+  allow-docker-images:
+    description: Whether pre-baked Docker images may be used for this run
+    required: false
+    default: "true"
+
+outputs:
+  image-version:
+    description: Source commit recorded in the runner image
+    value: ${{ steps.restore.outputs.image-version }}
+  client-dependencies:
+    description: Whether client/node_modules was restored from the runner image
+    value: ${{ steps.restore.outputs.client-dependencies }}
+  playwright-browsers:
+    description: Whether Playwright will use browsers from the runner image
+    value: ${{ steps.restore.outputs.playwright-browsers }}
+  docker-images:
+    description: Whether every required Docker image is present and hash-matched
+    value: ${{ steps.restore.outputs.docker-images }}
+
+runs:
+  using: composite
+  steps:
+    - name: Inspect and restore pre-baked content
+      id: restore
+      shell: bash
+      env:
+        PROTOFLEET_CURRENT_SERVER_HASH: ${{ inputs.server-hash }}
+        PROTOFLEET_CURRENT_CLIENT_LOCK_HASH: ${{ inputs.client-lock-hash }}
+        PROTOFLEET_ALLOW_PREBAKED_DOCKER: ${{ inputs.allow-docker-images }}
+      run: "$GITHUB_ACTION_PATH/../../scripts/restore_protofleet_e2e_runner.sh"
