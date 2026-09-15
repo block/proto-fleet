@@ -10,9 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -84,7 +84,8 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 // until the node acks (or the command times out / the stream drops). It emits
 // runtime failures as sourced warnings while retaining earlier batches. Validation,
 // authentication, and onBatch failures remain errors. Caller cancellation is quiet.
-func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
+// The caller supplies a source label appropriate for its authorization boundary.
+func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
 	req = requestForNode(req)
 	if err := ValidateRequest(req); err != nil {
 		return err
@@ -107,7 +108,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil
 		}
-		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("Fleet Node %d: %s", fleetNodeID, detail)})
+		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
 	}
 	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(req), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
@@ -134,15 +135,8 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
 		return err
 	}
-	detail := err.Error()
-	var fleetErr fleeterror.FleetError
-	var connectErr *connect.Error
-	if errors.As(err, &fleetErr) {
-		detail = fleetErr.DebugMessage
-	} else if errors.As(err, &connectErr) {
-		detail = connectErr.Message()
-	}
-	return warning(detail)
+	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
+	return forward(SourceWarning(source, err))
 }
 
 // requestForNode translates the shared request flag into the sentinel understood

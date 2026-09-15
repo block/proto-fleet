@@ -52,6 +52,7 @@ func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) (
 func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	_ context.Context,
 	nodeID int64,
+	source string,
 	req *pb.DiscoverRequest,
 	onBatch func(*pb.DiscoverResponse) error,
 ) error {
@@ -72,7 +73,7 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 		return err
 	}
 	if s.warning != "" {
-		if err := onBatch(&pb.DiscoverResponse{Warning: fmt.Sprintf("Fleet Node %d: %s", nodeID, s.warning)}); err != nil {
+		if err := onBatch(&pb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, s.warning)}); err != nil {
 			return err
 		}
 	}
@@ -166,7 +167,7 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 			}, nil)
 
 			require.NoError(t, h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, req, fwd))
-			assert.ElementsMatch(t, []string{"Fleet Node 7: node busy", "Fleet Node 8: node busy"}, warnings)
+			assert.ElementsMatch(t, []string{"Fleet Node: node busy", "Fleet Node: node busy"}, warnings)
 
 			require.Len(t, runner.requests, 2)
 			for _, got := range runner.requests {
@@ -299,7 +300,8 @@ func TestDiscover_NodeTargetPolicyFailureKeepsLaterServerResults(t *testing.T) {
 			}
 			require.NoError(t, stream.Err())
 			require.Len(t, warnings, 1)
-			assert.Contains(t, warnings[0], "Fleet Node 7:")
+			assert.Contains(t, warnings[0], "Fleet Node:")
+			assert.NotContains(t, warnings[0], "Fleet Node 7")
 			require.Len(t, devices, 1)
 			assert.Equal(t, "server", devices[0].GetDeviceIdentifier())
 			assert.Equal(t, tc.serverIP, devices[0].GetIpAddress())
@@ -335,9 +337,7 @@ func TestDiscover_ServerDefaultsUnavailableStillScansNodes(t *testing.T) {
 			require.Len(t, runner.requests, 1)
 			require.Len(t, devices, 2)
 			require.Len(t, warnings, 1)
-			assert.Contains(t, warnings[0], "Fleet Server: ")
-			assert.Contains(t, warnings[0], "discovery ports")
-			assert.NotContains(t, warnings[0], "FleetError:")
+			assert.Equal(t, "Fleet Server: discovery failed", warnings[0])
 		})
 	}
 }

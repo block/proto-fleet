@@ -3,7 +3,6 @@ package pairing
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -37,7 +36,7 @@ type Handler struct {
 
 type fleetNodeDiscoveryRunner interface {
 	EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
-	RunOnNode(ctx context.Context, fleetNodeID int64, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
+	RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
 }
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
@@ -95,7 +94,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 			return err
 		}
 		if streamCtx.Err() == nil {
-			if sendErr := fwd.forward(discoverySourceWarning("Fleet Server", err)); sendErr != nil {
+			slog.Warn("fleet server discovery failed", "error", err)
+			if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", err)); sendErr != nil {
 				return sendErr
 			}
 		}
@@ -174,7 +174,7 @@ func (h *Handler) forwardDiscoverySources(
 						return
 					}
 					// Each node is bounded by RunOnNode's per-node timeout.
-					runErr := h.discovery.RunOnNode(ctx, nodeID, nodeReq, fwd.forward)
+					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
 					// Node target policy is narrower than the server's: public
 					// addresses and broad ranges can still be scanned locally.
 					// Direct-node requests retain their strict validation errors.
@@ -185,7 +185,7 @@ func (h *Handler) forwardDiscoverySources(
 						fail(runErr)
 						return
 					}
-					if sendErr := fwd.forward(discoverySourceWarning(fmt.Sprintf("Fleet Node %d", nodeID), runErr)); sendErr != nil {
+					if sendErr := fwd.forward(discovery.SourceWarning("Fleet Node", runErr)); sendErr != nil {
 						fail(sendErr)
 					}
 				}(nodeID)
@@ -195,15 +195,6 @@ func (h *Handler) forwardDiscoverySources(
 
 	wg.Wait()
 	return sourceErr
-}
-
-func discoverySourceWarning(source string, err error) *pb.DiscoverResponse {
-	message := err.Error()
-	var fleetErr fleeterror.FleetError
-	if errors.As(err, &fleetErr) {
-		message = fleetErr.DebugMessage
-	}
-	return &pb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, message)}
 }
 
 // fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The
