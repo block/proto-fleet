@@ -17,7 +17,11 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { buildForceInclusionFields } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildForceInclusionFields,
+  curtailmentExecutionSchemaVersion,
+  getResponseProfileExecutionFields,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -42,10 +46,13 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "minerSelectionMode"
+  | "responseProfileId"
+  | "responseProfileRevision"
   | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
   | "priority"
+  | "postEventCooldownSec"
   | "includeMaintenance"
   | "forceIncludeAllPairedMiners"
 >;
@@ -140,8 +147,13 @@ export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
   const scopes = buildCurtailmentScopes(values);
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
 
-  if (scopes === undefined) {
+  if (scopes === undefined || responseProfileExecutionFields === undefined) {
+    return undefined;
+  }
+  const postEventCooldownSec = parseNonNegativeInteger(values.postEventCooldownSec ?? "");
+  if (postEventCooldownSec !== undefined && postEventCooldownSec > curtailmentNumericFieldLimits.postEventCooldownSec) {
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
@@ -150,8 +162,11 @@ export function buildPreviewCurtailmentPlanRequest(
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
       scopeSchemaVersion: curtailmentScopeSchemaVersion,
+      executionSchemaVersion: curtailmentExecutionSchemaVersion,
+      ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
+      postEventCooldownSec,
       ...buildForceInclusionFields(values),
     });
   }
@@ -165,8 +180,11 @@ export function buildPreviewCurtailmentPlanRequest(
   return create(PreviewCurtailmentPlanRequestSchema, {
     scopes,
     scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
+    ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
+    postEventCooldownSec,
     modeParams: {
       case: "fixedKw",
       value: create(FixedKwParamsSchema, {
@@ -422,10 +440,13 @@ export function useCurtailmentPlanPreview({
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       minerSelectionMode: values.minerSelectionMode,
+      responseProfileId: values.responseProfileId,
+      responseProfileRevision: values.responseProfileRevision,
       curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
       priority: values.priority,
+      postEventCooldownSec: values.postEventCooldownSec,
       includeMaintenance: values.includeMaintenance,
       forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
@@ -435,10 +456,13 @@ export function useCurtailmentPlanPreview({
       values.deviceIdentifiers,
       values.groupTargetIds,
       values.minerSelectionMode,
+      values.responseProfileId,
+      values.responseProfileRevision,
       values.curtailmentMode,
       values.includeMaintenance,
       values.forceIncludeAllPairedMiners,
       values.priority,
+      values.postEventCooldownSec,
       values.rackTargetIds,
       values.scopeId,
       values.siteSelection,

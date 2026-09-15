@@ -16,7 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 )
 
 type stubLister struct {
@@ -120,26 +120,75 @@ func TestRunOnNode_NoActiveStreamReturnsFailedPrecondition(t *testing.T) {
 	assert.Equal(t, connect.CodeFailedPrecondition, fe.ConnectError().Code())
 }
 
-func TestConfirmedConnectedNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
-	// Arrange: 1 = confirmed+connected, 2 = confirmed+disconnected, 3 = pending+connected.
+func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
+	reg := control.NewRegistry()
+	stream, err := reg.RegisterAuthenticated(7, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	svc := NewService(reg, stubLister{})
+
+	err = svc.RunOnNode(context.Background(), 7, ipListReq([]string{"10.0.0.5"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
+
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("legacy node received discovery command %q", cmd.GetCommandId())
+	default:
+	}
+}
+
+func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T) {
+	// Arrange: 1 = eligible, 2 = disconnected, 3 = pending, 4 = legacy protocol.
 	reg := control.NewRegistry()
 	lister := stubLister{nodes: []enrollment.FleetNodeListing{
 		{FleetNode: enrollment.FleetNode{ID: 1, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
 		{FleetNode: enrollment.FleetNode{ID: 2, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
 		{FleetNode: enrollment.FleetNode{ID: 3, EnrollmentStatus: enrollment.FleetNodeStatusPending}},
+		{FleetNode: enrollment.FleetNode{ID: 4, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
 	}}
 	svc := NewService(reg, lister)
 	s1 := reg.Register(1)
 	defer s1.Unregister()
 	s3 := reg.Register(3)
 	defer s3.Unregister()
+	s4, err := reg.RegisterAuthenticated(4, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+	require.NoError(t, err)
+	defer s4.Unregister()
 
 	// Act
-	got, err := svc.ConfirmedConnectedNodeIDs(context.Background(), 1)
+	got, err := svc.EligibleNodeIDs(context.Background(), 1)
 
 	// Assert: only the confirmed AND connected node (order is unspecified).
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{1}, got)
+}
+
+func TestRunOnNode_PreservesIPRangeRequest(t *testing.T) {
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	const nodeID = int64(22)
+	stream := reg.Register(nodeID)
+	defer stream.Unregister()
+	received := make(chan *pairingpb.IPRangeModeRequest, 1)
+	go func() {
+		cmd := <-stream.Outgoing
+		var env gatewaypb.AgentCommand
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+		received <- env.GetDiscover().GetIpRange()
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+	}()
+	req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{
+		IpRange: &pairingpb.IPRangeModeRequest{
+			StartIp: "192.168.1.10",
+			EndIp:   "192.168.1.20",
+			Ports:   []string{"4028", "8080"},
+		},
+	}}
+
+	err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(req.GetIpRange(), <-received))
 }
 
 func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {
@@ -188,42 +237,52 @@ func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
 	assert.Equal(t, connect.CodeDeadlineExceeded, ce.Code())
 }
 
-func TestConfirmedConnectedNodeIDs_PropagatesListError(t *testing.T) {
+func TestEligibleNodeIDs_PropagatesListError(t *testing.T) {
 	// Arrange: the enrollment lookup fails.
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{err: errors.New("db unavailable")})
 
 	// Act
-	_, err := svc.ConfirmedConnectedNodeIDs(context.Background(), 1)
+	_, err := svc.EligibleNodeIDs(context.Background(), 1)
 
 	// Assert: the error propagates (fan-out treats it as best-effort upstream).
 	require.Error(t, err)
 }
 
-func TestRunOnNode_DispatchesLocalSubnetTargetSentinel(t *testing.T) {
-	// Arrange: the LocalSubnetTarget sentinel (operator single-node scan or fan-out)
-	// must reach the agent unchanged so the node scans its own subnet.
-	reg := control.NewRegistry()
-	svc := NewService(reg, stubLister{})
-	const nodeID = int64(21)
-	stream := reg.Register(nodeID)
-	defer stream.Unregister()
-	gotTarget := make(chan string, 1)
-	go func() {
-		cmd := <-stream.Outgoing
-		var env gatewaypb.AgentCommand
-		_ = proto.Unmarshal(cmd.GetPayload(), &env)
-		gotTarget <- env.GetDiscover().GetNmap().GetTarget()
-		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
-	}()
-	req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
-		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget},
-	}}
+func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		target      string
+		localSubnet bool
+		wantTarget  string
+	}{
+		{name: "sentinel passes through", target: netscan.LocalSubnetTarget, wantTarget: netscan.LocalSubnetTarget},
+		{name: "true uses node local subnet", target: "10.0.0.0/28", localSubnet: true, wantTarget: netscan.LocalSubnetTarget},
+		{name: "false preserves target", target: "10.0.0.0/28", wantTarget: "10.0.0.0/28"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := control.NewRegistry()
+			svc := NewService(reg, stubLister{})
+			const nodeID = int64(21)
+			stream := reg.Register(nodeID)
+			defer stream.Unregister()
+			gotTarget := make(chan string, 1)
+			go func() {
+				cmd := <-stream.Outgoing
+				var env gatewaypb.AgentCommand
+				require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+				gotTarget <- env.GetDiscover().GetNmap().GetTarget()
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+			}()
+			req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{
+				Target:                  tc.target,
+				UseFleetNodeLocalSubnet: tc.localSubnet,
+			}}}
 
-	// Act
-	err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+			err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
 
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, nmaptarget.LocalSubnetTarget, <-gotTarget)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantTarget, <-gotTarget)
+		})
+	}
 }

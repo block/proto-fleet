@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { RefObject, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
@@ -79,6 +79,7 @@ const AuthenticationSettings = () => {
   const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<string | null>(null);
   const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<string | null>(null);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
+  const newPasswordInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   // Reset form state when modal closes
   const [prevShowModal, setPrevShowModal] = useState(showModal);
@@ -353,6 +354,7 @@ const AuthenticationSettings = () => {
                         onChange={handleNewPasswordChange}
                         error={passwordErrorMsg}
                         autoFocus
+                        inputRef={newPasswordInputRef}
                       />
                       <div className="flex items-center justify-between gap-5">
                         <div>
@@ -371,7 +373,10 @@ const AuthenticationSettings = () => {
                 </div>
                 {showWeakPasswordWarning && !isSubmitting ? (
                   <WeakPasswordWarning
-                    onReturn={() => setShowWeakPasswordWarning(false)}
+                    onReturn={() => {
+                      setShowWeakPasswordWarning(false);
+                      newPasswordInputRef.current?.focus();
+                    }}
                     onContinue={() => submitPasswordUpdate(true)}
                   />
                 ) : null}

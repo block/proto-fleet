@@ -30,6 +30,7 @@ type FilterProps<ItemType> = {
   onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
   isServerSide?: boolean;
   headerControls?: ReactNode;
+  trailingFilterControls?: ReactNode;
   initialActiveFilters?: ActiveFilters;
 };
 
@@ -49,6 +50,7 @@ const Filters = <ItemType,>({
   onFilter,
   isServerSide = false,
   headerControls,
+  trailingFilterControls,
   initialActiveFilters,
 }: FilterProps<ItemType>) => {
   const defaultActiveFilters = useMemo<ActiveFilters>(
@@ -318,7 +320,7 @@ const Filters = <ItemType,>({
 
   return (
     <div className={clsx("flex w-full min-w-0 flex-col items-stretch justify-start", className)}>
-      <div className="flex min-w-0 items-start justify-between gap-2">
+      <div className="flex min-w-0 items-start justify-between gap-2 phone:flex-wrap">
         <div className="flex min-w-0 grow flex-wrap items-center gap-2">
           {leadingFilters.map((filter) => {
             if (filter.type === "button") {
@@ -452,6 +454,7 @@ const Filters = <ItemType,>({
               </div>
             );
           })}
+          {trailingFilterControls}
         </div>
 
         {headerControls ? (

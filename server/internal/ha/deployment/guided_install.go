@@ -78,7 +78,7 @@ type guidedInstallDependencies struct {
 	operatorUsername func() string
 	checkPeer        func(context.Context, string, string) error
 	transferBundle   func(context.Context, string, string, string) error
-	inspect          func(context.Context, string, NodeConfig) (installedDependencies, error)
+	inspect          func(context.Context, string, NodeConfig, fleetApplicationProfile) (installedDependencies, error)
 	install          func(context.Context, InstallOptions) error
 }
 
@@ -122,12 +122,15 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			defer bundle.Close()
 			return runSSH(ctx, localUsername, bundle, target, remoteBundleInstallCommand)
 		},
-		inspect: func(ctx context.Context, source string, config NodeConfig) (installedDependencies, error) {
+		inspect: func(ctx context.Context, source string, config NodeConfig, profile fleetApplicationProfile) (installedDependencies, error) {
 			host := hostEnvironment{
 				goos: runtime.GOOS, localIPs: localAddresses, interfacePrefixes: interfaceIPv4Prefixes,
 				runCommand: runCommand,
 			}
-			if err := validateHostConfiguration(ctx, config, host, false); err != nil {
+			if err := validateNodeConfig(config); err != nil {
+				return installedDependencies{}, fmt.Errorf("HA preflight failed: %w", err)
+			}
+			if err := validateHostEnvironment(ctx, config, host, false, profile); err != nil {
 				return installedDependencies{}, err
 			}
 			_, installed, err := inspectInstallBase(ctx, source, defaultInstallDependencies())
@@ -140,6 +143,11 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 }
 
 func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDependencies) error {
+	if bundlePath != "" {
+		if err := os.Unsetenv("DD_API_KEY"); err != nil {
+			return fmt.Errorf("clear DD_API_KEY before prepared host installation: %w", err)
+		}
+	}
 	source, err := deps.sourceRoot()
 	if err != nil {
 		return err
@@ -160,7 +168,10 @@ func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDep
 
 func prepareAndInstallCluster(ctx context.Context, source string, release clusterMetadata, scanner *bufio.Scanner, deps guidedInstallDependencies) error {
 	metadata := release
-	var err error
+	applicationProfile, err := captureFleetApplicationEnvironment()
+	if err != nil {
+		return fmt.Errorf("validate HA feature configuration: %w", err)
+	}
 	if metadata.DatabaseBIP, err = readPrompt(scanner, deps.prompts, "ha-b IPv4 address: "); err != nil {
 		return err
 	}
@@ -194,7 +205,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 		DatabaseBIP: metadata.DatabaseBIP, WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP,
 		NetworkInterface: identity.networkInterface, DataDir: dataRoot, SecretsDir: configRoot,
 	}
-	installed, err := deps.inspect(ctx, source, config)
+	installed, err := deps.inspect(ctx, source, config, applicationProfile)
 	if err != nil {
 		return err
 	}
@@ -216,7 +227,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err != nil {
 		return err
 	}
-	if err := prepareInstallBundles(exportDir, metadata); err != nil {
+	if err := prepareInstallBundles(exportDir, metadata, applicationProfile); err != nil {
 		return fmt.Errorf("bundle generation failed; partial exports remain at %s: %w", exportDir, err)
 	}
 	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
@@ -312,7 +323,14 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 		if err := writeInstallerOutput(deps.output, "[validation] Checking the bundle, release, network, and dedicated host...\n"); err != nil {
 			return err
 		}
-		installed, err := deps.inspect(ctx, source, config)
+		profile := fleetApplicationProfile{}
+		if config.isDatabaseNode() {
+			profile, err = loadValidatedFleetApplicationProfile(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
+			if err != nil {
+				return err
+			}
+		}
+		installed, err := deps.inspect(ctx, source, config, profile)
 		if err != nil {
 			return err
 		}
@@ -364,7 +382,7 @@ func stageHostBundle(bundle preparedHostBundle, stagingDir, networkInterface str
 	return options, nil
 }
 
-func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err error) {
+func prepareInstallBundles(exportDir string, metadata clusterMetadata, environment fleetApplicationProfile) (err error) {
 	generated, err := os.MkdirTemp("", "proto-fleet-ha-secrets-")
 	if err != nil {
 		return fmt.Errorf("create secret generation workspace: %w", err)
@@ -374,6 +392,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 	if err := GenerateSecrets(secretsRoot, [3]string{metadata.DatabaseAIP, metadata.DatabaseBIP, metadata.WitnessIP}, metadata.VirtualIP); err != nil {
 		return err
 	}
+	deploymentEnvironment := renderFleetDeploymentEnvironment(environment)
 
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
 		nodeIP := map[string]string{"ha-a": metadata.DatabaseAIP, "ha-b": metadata.DatabaseBIP, "ha-c": metadata.WitnessIP}[role]
@@ -389,6 +408,9 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 			contents, err := os.ReadFile(filepath.Join(secretsRoot, role, name))
 			if err != nil {
 				return fmt.Errorf("read generated %s secret %s: %w", role, name, err)
+			}
+			if name == fleetEnvironmentFile {
+				contents = append(contents, deploymentEnvironment...)
 			}
 			bundle.Secrets[name] = contents
 		}
@@ -438,7 +460,8 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 	if err := validateBundleMetadata(bundle.Metadata); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
 	}
-	expectedSecrets := copiedSecretFiles(NodeConfig{NodeName: bundle.Metadata.Role})
+	config := NodeConfig{NodeName: bundle.Metadata.Role}
+	expectedSecrets := copiedSecretFiles(config)
 	for _, name := range expectedSecrets {
 		if len(bundle.Secrets[name]) == 0 {
 			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: missing secret %s", name)
@@ -452,6 +475,11 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 	}
 	if bundle.Metadata.Role != "ha-a" && len(bundle.EtcdRootPassword) != 0 {
 		return preparedHostBundle{}, errors.New("host bundle rejected: etcd root password is only valid for ha-a")
+	}
+	if config.isDatabaseNode() {
+		if _, err := parseFleetDeploymentEnvironment(bundle.Secrets[fleetEnvironmentFile]); err != nil {
+			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
+		}
 	}
 	return bundle, nil
 }

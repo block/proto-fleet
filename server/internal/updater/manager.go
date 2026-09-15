@@ -58,6 +58,8 @@ const (
 	maxRetainedLogBytes                    = int64(256 << 20)
 	canonicalDownloadBaseURL               = "https://github.com/block/proto-fleet/releases/download"
 	processLockFilename                    = "updater.lock"
+	processLockRetryWindow                 = 250 * time.Millisecond
+	processLockRetryInterval               = 5 * time.Millisecond
 	activationMarkerFilename               = "activation-swap.json"
 	activationMarkerTempName               = ".activation-swap.json.tmp"
 	qualificationBeforeStopBarrierName     = "qualification-pause-before-ha-stop"
@@ -873,6 +875,10 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 }
 
 func acquireProcessLock(stateDir string) (*os.File, error) {
+	return acquireProcessLockWithin(stateDir, processLockRetryWindow)
+}
+
+func acquireProcessLockWithin(stateDir string, retryWindow time.Duration) (*os.File, error) {
 	lockPath := filepath.Join(stateDir, processLockFilename)
 	fd, err := syscall.Open(
 		lockPath,
@@ -901,11 +907,11 @@ func acquireProcessLock(stateDir string) (*os.File, error) {
 	if err := lockFile.Chmod(0o600); err != nil {
 		return closeWithError(fmt.Errorf("secure updater process lock: %w", err))
 	}
-	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+	if err := flockExclusiveWithin(fd, retryWindow); err != nil {
+		if isLockContended(err) {
 			return closeWithError(fmt.Errorf("another updater process is already running"))
 		}
-		return closeWithError(fmt.Errorf("acquire updater process lock: %w", err))
+		return closeWithError(err)
 	}
 	// PID metadata is diagnostic only; the open-file-description lock is the
 	// authority. Failure to refresh the hint must not weaken serialization.
@@ -913,6 +919,35 @@ func acquireProcessLock(stateDir string) (*os.File, error) {
 		log.Printf("write updater process lock owner: %v", err)
 	}
 	return lockFile, nil
+}
+
+// flockExclusiveWithin takes a non-blocking exclusive flock, retrying
+// contention until retryWindow elapses.
+//
+// flock ownership belongs to the open file description, and a child this
+// process forks (docker compose, shell helpers, the candidate smoke test)
+// duplicates every descriptor until it execs. A contender arriving inside that
+// fork→exec window sees EWOULDBLOCK with no updater running, so contention only
+// counts once it outlasts the window. A real updater holds the lock for its
+// whole lifetime, far longer than any exec latency. The lock is never requested
+// in blocking mode, so a genuine holder cannot stall startup.
+func flockExclusiveWithin(fd int, retryWindow time.Duration) error {
+	deadline := time.Now().Add(retryWindow)
+	for {
+		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		retryable := isLockContended(err) || errors.Is(err, syscall.EINTR)
+		if !retryable || !time.Now().Before(deadline) {
+			return fmt.Errorf("acquire updater process lock: %w", err)
+		}
+		time.Sleep(processLockRetryInterval)
+	}
+}
+
+func isLockContended(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
 
 func writeProcessLockPID(lockFile *os.File) error {

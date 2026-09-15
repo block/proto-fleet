@@ -268,6 +268,54 @@ describe("PageHeader", () => {
     expect(updateButton.compareDocumentPosition(setupButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("shows the Fleet Node upgrade pill before routine header widgets", async () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    const onClick = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData({
+            hasVisibleSchedules: true,
+            pillSchedule: createPillSchedule("Night reboot"),
+          })}
+          fleetNodeUpgradePill={{ nodeCount: 2, onClick }}
+        />
+      </MemoryRouter>,
+    );
+
+    const widgets = screen.getByTestId("page-header-desktop-widgets");
+    const upgradeButton = within(widgets).getByRole("button", {
+      name: "Open node settings for 2 Fleet Nodes requiring an upgrade",
+    });
+    const schedulePill = within(widgets).getByText("Night reboot");
+
+    expect(upgradeButton).toHaveTextContent("2 Fleet Nodes need upgrades");
+    expect(within(upgradeButton).getByTestId("alert-icon")).toHaveClass("text-intent-critical-fill");
+    expect(upgradeButton.compareDocumentPosition(schedulePill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await userEvent.click(upgradeButton);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("uses singular copy for one incompatible Fleet Node", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          fleetNodeUpgradePill={{ nodeCount: 1, onClick: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Fleet Node upgrade required")).toBeInTheDocument();
+  });
+
   it("leads the desktop widgets with the active alerts pill", () => {
     mockUseWindowDimensions.mockReturnValue({
       isPhone: false,

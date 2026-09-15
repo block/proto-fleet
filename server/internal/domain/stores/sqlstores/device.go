@@ -166,20 +166,6 @@ func (s *SQLDeviceStore) GetDistinctDeviceSiteIDs(ctx context.Context, orgID int
 	return nullInt64sToPtrs(rows), nil
 }
 
-func (s *SQLDeviceStore) IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error) {
-	isOwned, err := s.getQueries(ctx).IsDeviceOwnedByFleetNode(ctx, sqlc.IsDeviceOwnedByFleetNodeParams{
-		DeviceIdentifier: identifier,
-		OrgID:            orgID,
-	})
-	if err != nil {
-		return false, handleQueryError(err,
-			fmt.Sprintf("device not found with identifier=%s org_id=%d", identifier, orgID),
-			fmt.Sprintf("failed to query fleet node ownership for device identifier=%s org_id=%d", identifier, orgID))
-	}
-
-	return isOwned, nil
-}
-
 func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
 	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
 		MacAddress:       networking.NormalizeMAC(device.MacAddress),
@@ -459,12 +445,9 @@ func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceId
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
-	// Use the dynamic builder when filters the static sqlc query can't
-	// express are active (numeric ranges, CIDRs, site filters); otherwise
-	// the dashboard counts would diverge from the filtered list.
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
-		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
-		fp.includeNoRack {
+	// The dashboard counts would diverge from the filtered list if this routed
+	// differently than the list query.
+	if fp.requiresDynamicQuery() {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
 	}
 
@@ -526,10 +509,9 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
-	// Static sqlc query can't express numeric ranges, CIDR membership, or
-	// site filters; use the dynamic builder when any are active so the
-	// bulk-action modal counts match the filtered list.
-	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
+	// The bulk-action modal shows these counts beside the filtered list, so both
+	// must route the same way.
+	if buildMinerFilterParams(filter).requiresDynamicQuery() {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -1022,13 +1004,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		})
 	}
 
-	// Total count must use the dynamic builder when filters the static
-	// sqlc query can't express (numeric ranges, CIDRs, site filters) are
-	// active; otherwise the total diverges from the listed rows.
+	// The total must route the same way as the rows above it, or it describes a
+	// wider set than what was listed.
 	var total int64
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
-		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
-		fp.includeNoRack {
+	if fp.requiresDynamicQuery() {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
 		if err != nil {
 			return nil, "", 0, err
@@ -1109,6 +1088,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SiteLabel,
 			&row.BuildingID,
 			&row.BuildingLabel,
+			&row.FleetNodeUnavailable,
 			&row.EmbeddedWebViewAvailable,
 			&row.SortValue,
 		)
@@ -1223,7 +1203,7 @@ SELECT
     END), 0)::bigint AS hashing_count
 FROM (
     SELECT
-        device_status.status,
+		effective_status.status,
         device_pairing.pairing_status,
         open_errors.device_id IS NOT NULL AS has_open_error`)
 	sb.WriteString(minerFromJoins)
@@ -1374,7 +1354,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 }
 
 // GetDeviceIdentifiersByOrgWithFilter returns device identifiers filtered by optional
-// pairing status, device status, model, and error component types. Uses appendFilterSQL
+// pairing status, device status, model, search, and error component types. Uses appendFilterSQL
 // (the same dynamic filter logic as the list view) to ensure semantic parity — particularly
 // for the "needs attention" status filter that includes devices with open actionable errors.
 // If no pairing status filter is specified, defaults to PAIRED for backward compatibility.
@@ -1422,6 +1402,14 @@ FROM device
 JOIN discovered_device ON device.discovered_device_id = discovered_device.id
 JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id`)
+	if fp.statusFilter.Valid || filterNeedsTelemetry {
+		sb.WriteString(`
+LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
+    AND fleet_node_assignment.org_id = device.org_id
+LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
+	}
 	if filterNeedsTelemetry {
 		sb.WriteString(" " + minerTelemetryInnerJoin)
 	}
@@ -1464,29 +1452,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
 	query := fmt.Sprintf(`SELECT dcm.device_set_id,
     -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_status.status = 'OFFLINE'
+             OR (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+        WHEN effective_status.status IN ('MAINTENANCE', 'INACTIVE')
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+        WHEN effective_status.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_status.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_status.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
+        WHEN effective_status.status = 'ACTIVE'
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
@@ -1496,7 +1484,12 @@ JOIN device_set dc ON dcm.device_set_id = dc.id
 JOIN device d ON dcm.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_status ON d.id = device_status.device_id
+LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
+    AND fleet_node_assignment.org_id = d.org_id
+LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 LEFT JOIN (
     SELECT DISTINCT device_id

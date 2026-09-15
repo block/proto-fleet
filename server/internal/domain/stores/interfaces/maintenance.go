@@ -1,0 +1,153 @@
+package interfaces
+
+import (
+	"context"
+
+	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
+)
+
+//go:generate go run go.uber.org/mock/mockgen -source=maintenance.go -destination=mocks/mock_maintenance_store.go -package=mocks
+
+// MaintenanceStore is the persistence boundary for the maintenance
+// (repair ticketing) domain. All methods are org-scoped.
+//
+//nolint:interfacebloat // complete CRUD for tickets + comments + parts + stats
+type MaintenanceStore interface {
+	// ---------------------------------------------------------------
+	// Ticket CRUD
+	// ---------------------------------------------------------------
+
+	// LockRepairTicketCreateKey serializes create attempts sharing one caller key.
+	LockRepairTicketCreateKey(ctx context.Context, orgID int64, idempotencyKey string) error
+
+	// GetRepairTicketByIdempotencyKey returns the existing live ticket for a
+	// caller key, or NotFound when this is the first attempt.
+	GetRepairTicketByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.RepairTicket, string, error)
+
+	// NextTicketNumber atomically returns the next per-organization sequence
+	// value. Callers still transact allocation with ticket creation to avoid gaps.
+	NextTicketNumber(ctx context.Context, orgID int64) (int64, error)
+
+	// CreateRepairTicket inserts a new repair_ticket row and returns
+	// the created row.
+	CreateRepairTicket(ctx context.Context, params models.CreateParams, ticketNumber string) (*models.RepairTicket, error)
+
+	// GetRepairTicket returns the live ticket or NotFound.
+	GetRepairTicket(ctx context.Context, orgID, id int64) (*models.RepairTicket, error)
+	GetRepairTicketForUpdate(ctx context.Context, orgID, id int64) (*models.RepairTicket, error)
+
+	// ListRepairTickets returns tickets matching the supplied filters,
+	// paginated by an opaque stable sort-key plus ID cursor.
+	ListRepairTickets(ctx context.Context, filter models.ListFilter) ([]models.RepairTicketSummary, error)
+
+	// CountRepairTickets returns the total count matching the same
+	// filters (for pagination).
+	CountRepairTickets(ctx context.Context, filter models.ListFilter) (int32, error)
+
+	// UpdateRepairTicket mutates the row's mutable fields. Returns the
+	// updated row or NotFound.
+	UpdateRepairTicket(ctx context.Context, params models.UpdateParams) (*models.RepairTicket, error)
+
+	// ---------------------------------------------------------------
+	// Bulk operations
+	// ---------------------------------------------------------------
+	// Callers must validate the full selection and lock its tickets in ID
+	// order with GetRepairTicketForUpdate inside the same transaction before
+	// calling these writes. The service owns authorization, lifecycle checks,
+	// and ID normalization; these methods only persist the validated changes.
+
+	// BulkUpdateTicketStatus sets status on multiple tickets. Returns
+	// rows affected.
+	BulkUpdateTicketStatus(ctx context.Context, orgID int64, ticketIDs []int64, newStatus int16) (int64, error)
+
+	// BulkAssignTickets sets assignee_user_id on multiple tickets.
+	// Pass nil to unassign. Returns rows affected.
+	BulkAssignTickets(ctx context.Context, orgID int64, ticketIDs []int64, assigneeUserID *int64) (int64, error)
+
+	// BulkMarkUrgent sets urgent=true on multiple tickets. Returns
+	// rows affected.
+	BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []int64) (int64, error)
+
+	// BulkCloseTickets closes multiple tickets with the supplied
+	// resolution and repair location. Returns rows affected.
+	BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution int16, repairLocation int16, notes *string) (int64, error)
+
+	// ---------------------------------------------------------------
+	// Stats
+	// ---------------------------------------------------------------
+
+	// GetTicketStats applies the same filters used by the queue.
+	GetTicketStats(ctx context.Context, filter models.ListFilter) (*models.TicketStats, error)
+
+	// ---------------------------------------------------------------
+	// History
+	// ---------------------------------------------------------------
+
+	// ListCompletedTickets returns completed tickets with optional
+	// component and assignee filters with stable sort-key pagination.
+	ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error)
+	CountCompletedTickets(ctx context.Context, filter models.CompletedFilter) (int32, error)
+	// ListCompletedTicketAssignees includes inactive users referenced by history.
+	ListCompletedTicketAssignees(ctx context.Context, filter models.CompletedFilter) ([]models.Assignee, error)
+
+	// ---------------------------------------------------------------
+	// Comments
+	// ---------------------------------------------------------------
+
+	// LockTicketCommentCreateKey serializes comment attempts sharing one caller key.
+	LockTicketCommentCreateKey(ctx context.Context, orgID int64, idempotencyKey string) error
+
+	// GetTicketCommentByIdempotencyKey returns the prior comment and canonical
+	// request hash, or NotFound for a first attempt.
+	GetTicketCommentByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.TicketComment, string, error)
+
+	// CreateTicketComment inserts a new comment and returns the created row.
+	CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string) (*models.TicketComment, error)
+
+	// ListTicketComments returns live comments for a ticket ordered
+	// by created_at ascending.
+	ListTicketComments(ctx context.Context, orgID, ticketID int64) ([]models.TicketComment, error)
+
+	// GetTicketCommentSiteForUpdate locks a live caller-authored comment and its
+	// live ticket, returning the ticket's site for activity scoping.
+	GetTicketCommentSiteForUpdate(ctx context.Context, orgID, callerUserID, id int64) (*int64, error)
+
+	// SoftDeleteTicketComment sets deleted_at on a comment. Returns
+	// rows affected (0 = not found).
+	SoftDeleteTicketComment(ctx context.Context, orgID, callerUserID, id int64) (int64, error)
+
+	// ---------------------------------------------------------------
+	// Parts
+	// ---------------------------------------------------------------
+
+	// SetTicketParts removes active reservations before replacement in the
+	// caller's transaction while retaining consumed history.
+	SetTicketParts(ctx context.Context, orgID, ticketID int64) error
+
+	// InsertTicketPart inserts a single part usage row.
+	InsertTicketPart(ctx context.Context, orgID, ticketID, inventoryPartID int64, partName string, quantity int32) error
+
+	// MarkTicketPartsConsumed marks active reservations as consumed.
+	MarkTicketPartsConsumed(ctx context.Context, orgID, ticketID int64) error
+
+	// ListTicketParts returns all parts for a ticket.
+	ListTicketParts(ctx context.Context, orgID, ticketID int64) ([]models.PartUsage, error)
+}
+
+// MaintenanceReferenceStore resolves live tenant-scoped references for ticket
+// validation and hydration.
+type MaintenanceReferenceStore interface {
+	// LockSiteForTicket and LockBuildingForTicket take shared locks on live
+	// locations while a ticket is created so location deletion cannot race the
+	// new reference. Miner tickets also lock their rack and device before
+	// re-resolving placement. Callers use
+	// site → building → rack → groups → miner order.
+	LockSiteForTicket(ctx context.Context, orgID, siteID int64) error
+	LockBuildingForTicket(ctx context.Context, orgID, buildingID int64) error
+	LockRackForTicket(ctx context.Context, orgID, rackID int64) error
+	LockMinerForTicket(ctx context.Context, orgID int64, minerIdentifier string) error
+	ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error)
+	ResolveLocationContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (*models.AssetContext, error)
+	ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error)
+	ListAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error)
+}

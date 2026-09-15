@@ -350,6 +350,26 @@ func TestIsFailedPreconditionError(t *testing.T) {
 	}
 }
 
+func TestIsResourceExhaustedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil},
+		{name: "fleet error", err: NewResourceExhaustedErrorf("too many miners"), want: true},
+		{name: "wrapped fleet error", err: fmt.Errorf("resolve scope: %w", NewResourceExhaustedErrorf("too many miners")), want: true},
+		{name: "connect error", err: connect.NewError(connect.CodeResourceExhausted, errors.New("too many miners")), want: true},
+		{name: "different error", err: NewInvalidArgumentError("invalid scope")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsResourceExhaustedError(tt.err))
+		})
+	}
+}
+
 func TestIsCanceledError(t *testing.T) {
 	tests := []struct {
 		name     string

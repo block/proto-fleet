@@ -28,10 +28,14 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
+export const customResponseProfileId = "customPlan";
+export const curtailmentExecutionSchemaVersion = 1;
+
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   | "scopes"
   | "scopeSchemaVersion"
+  | "executionSchemaVersion"
   | "mode"
   | "strategy"
   | "level"
@@ -40,6 +44,12 @@ type CurtailmentRequestFields = Pick<
   | "includeMaintenance"
   | "forceIncludeMaintenance"
   | "forceIncludeAllPairedMiners"
+  | "postEventCooldownSec"
+>;
+
+type ResponseProfileExecutionFields = Pick<
+  StartCurtailmentRequest,
+  "responseProfileId" | "expectedResponseProfileRevision"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -73,6 +83,10 @@ const fanOffDelayOptions: OptionalUint32FieldOptions = {
 const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
   label: "fan restore delay",
   max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const postEventCooldownOptions: OptionalUint32FieldOptions = {
+  label: "post-event cooldown",
+  max: curtailmentNumericFieldLimits.postEventCooldownSec,
 };
 
 function parseOptionalNumber(value: string): number | undefined {
@@ -162,6 +176,22 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
+export function getResponseProfileExecutionFields(
+  values: Pick<CurtailmentSubmitValues, "responseProfileId" | "responseProfileRevision">,
+): ResponseProfileExecutionFields | undefined {
+  if (values.responseProfileId === customResponseProfileId) {
+    return { responseProfileId: 0n, expectedResponseProfileRevision: "" };
+  }
+
+  const responseProfileId = parseCurtailmentTargetId(values.responseProfileId);
+  const expectedResponseProfileRevision = values.responseProfileRevision?.trim();
+  if (responseProfileId === undefined || !expectedResponseProfileRevision) {
+    return undefined;
+  }
+
+  return { responseProfileId, expectedResponseProfileRevision };
+}
+
 // Logical placement scopes can back the durable all-paired policy. Explicit
 // miner lists remain snapshots until their closed-loop lifecycle is supported.
 export function supportsAllPairedTargeting(
@@ -174,40 +204,27 @@ export function supportsAllPairedTargeting(
   return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
 }
 
-function supportsAllPairedExecution(
-  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
-): boolean {
-  if (!supportsAllPairedTargeting(values)) {
-    return false;
-  }
-
-  const scopes = buildCurtailmentScopes(values);
-  return (
-    scopes !== undefined && scopes.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site")
-  );
-}
-
 // Targeting all paired miners also opts in miners flagged for maintenance:
 // parking them as unavailable would contradict the operator's explicit
 // "all paired" choice, and both flags sit behind the same server-side admin
-// gate as the all-paired control itself.
-//
-// The maintenance pair derives SOLELY from the all-paired flag: the UI no
-// longer exposes an independent maintenance toggle, so a stale
-// values.includeMaintenance (hydrated from a profile or past event saved when
-// the pair was coupled) must not survive unchecking "Target all paired
-// miners" — it would silently keep the admin-gated maintenance inclusion with
-// nothing in the UI showing it.
+// gate as the all-paired control itself. Saved profiles may independently opt
+// into maintenance miners, so executions must preserve that stored setting.
+// Custom plans still derive maintenance inclusion solely from the visible
+// all-paired control.
 export function buildForceInclusionFields(
-  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
+  values: CurtailmentScopeSelection &
+    Pick<
+      CurtailmentSubmitValues,
+      "responseProfileId" | "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners"
+    >,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
-  // Topology profiles may persist this policy now, but Preview and Start must
-  // omit it until the server's topology lifecycle can honor it.
-  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedExecution(values);
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  const includeMaintenance =
+    values.responseProfileId === customResponseProfileId ? forceIncludeAllPairedMiners : values.includeMaintenance;
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
-    includeMaintenance: forceIncludeAllPairedMiners,
-    forceIncludeMaintenance: forceIncludeAllPairedMiners,
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,
   };
 }
@@ -234,16 +251,22 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
   return {
     scopes,
     scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
+    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
     ...buildForceInclusionFields(values),
   };
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
+  if (responseProfileExecutionFields === undefined) {
+    throw new Error("Reload the response profile before starting curtailment.");
+  }
   const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
   const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
     values.curtailBatchIntervalSec,
@@ -267,6 +290,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
 
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
+    ...responseProfileExecutionFields,
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
     curtailBatchSize,
     curtailBatchIntervalSec,

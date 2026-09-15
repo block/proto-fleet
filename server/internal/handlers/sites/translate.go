@@ -121,6 +121,17 @@ func toProtoSite(site *models.Site) *pb.Site {
 	}
 }
 
+func toMaintenanceSiteOptionsResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
+	out := make([]*pb.SiteWithCounts, 0, len(rows))
+	for i := range rows {
+		out = append(out, &pb.SiteWithCounts{Site: &pb.Site{
+			Id:   rows[i].Site.ID,
+			Name: rows[i].Site.Name,
+		}})
+	}
+	return &pb.ListSitesResponse{Sites: out}
+}
+
 func toListSitesResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
 	out := make([]*pb.SiteWithCounts, 0, len(rows))
 	for i := range rows {

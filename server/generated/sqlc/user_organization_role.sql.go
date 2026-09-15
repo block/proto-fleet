@@ -393,7 +393,7 @@ WHERE uor.user_id = $1
   AND r.deleted_at IS NULL
   AND u.deleted_at IS NULL
 ORDER BY uor.id, p.key NULLS FIRST
-FOR UPDATE OF uor, u, r
+FOR NO KEY UPDATE OF uor, u, r
 `
 
 type ListEffectivePermissionsForUserForUpdateParams struct {
@@ -411,7 +411,7 @@ type ListEffectivePermissionsForUserForUpdateRow struct {
 
 // Race-safety variant of ListEffectivePermissionsForUser. Same join
 // shape, same row order, same narrowing semantics — but takes
-// FOR UPDATE on every row whose mutation can revoke the caller's
+// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
 // effective permissions: the assignment row (uor), the caller's user
 // row (u), and the caller's role row (r). Concurrent:
 //
@@ -425,7 +425,7 @@ type ListEffectivePermissionsForUserForUpdateRow struct {
 //     can't interleave between our recheck and our commit
 //
 // The LEFT JOIN sides (role_permission, permission) cannot participate
-// in FOR UPDATE because they may have no matching row for a
+// in row locking because they may have no matching row for a
 // zero-permission assignment. We accept that role_permission edits
 // via paths other than UpdateCustomRole (none exist today) would race
 // this check; the practical lock graph through the existing surfaces

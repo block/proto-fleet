@@ -394,6 +394,25 @@ func IsInvalidArgumentError(err error) bool {
 	return false
 }
 
+// IsResourceExhaustedError checks if an error is a resource exhausted error.
+func IsResourceExhaustedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeResourceExhausted
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeResourceExhausted
+	}
+
+	return false
+}
+
 // IsCanceledError checks if an error is a cancellation error (e.g., client disconnect)
 func IsCanceledError(err error) bool {
 	if err == nil {

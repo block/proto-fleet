@@ -33,13 +33,13 @@ func TestInsertEventWithTargets_RejectsEmptyTargetsForNonTerminalEvent(t *testin
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestHierarchicalScopeSiteIDs(t *testing.T) {
+func TestHierarchicalScopeFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name              string
 		event             models.InsertEventParams
-		wantSiteIDs       []int64
+		wantFilter        interfaces.ListCandidatesParams
 		wantUsesScopeLock bool
 		wantErr           bool
 	}{
@@ -51,7 +51,7 @@ func TestHierarchicalScopeSiteIDs(t *testing.T) {
 		{
 			name:              "single site",
 			event:             models.InsertEventParams{State: models.EventStateActive, ScopeType: models.ScopeTypeSite, ScopeJSON: []byte(`{"site_id":7}`)},
-			wantSiteIDs:       []int64{7},
+			wantFilter:        interfaces.ListCandidatesParams{SiteIDs: []int64{7}},
 			wantUsesScopeLock: true,
 		},
 		{
@@ -61,7 +61,17 @@ func TestHierarchicalScopeSiteIDs(t *testing.T) {
 				ScopeType: models.ScopeTypeMixed,
 				ScopeJSON: []byte(`{"site_ids":[8,7,7],"device_identifiers":null}`),
 			},
-			wantSiteIDs:       []int64{7, 8},
+			wantFilter:        interfaces.ListCandidatesParams{SiteIDs: []int64{7, 8}},
+			wantUsesScopeLock: true,
+		},
+		{
+			name: "topology selectors use the scope lock",
+			event: models.InsertEventParams{
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"building_ids":[9,8,8]}`),
+			},
+			wantFilter:        interfaces.ListCandidatesParams{BuildingIDs: []int64{8, 9}},
 			wantUsesScopeLock: true,
 		},
 		{
@@ -91,14 +101,14 @@ func TestHierarchicalScopeSiteIDs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotSiteIDs, gotUsesScopeLock, err := hierarchicalScopeSiteIDs(tc.event)
+			gotFilter, gotUsesScopeLock, err := hierarchicalScopeFilter(tc.event)
 
 			if tc.wantErr {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantSiteIDs, gotSiteIDs)
+			assert.Equal(t, tc.wantFilter, gotFilter)
 			assert.Equal(t, tc.wantUsesScopeLock, gotUsesScopeLock)
 		})
 	}

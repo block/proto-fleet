@@ -21,7 +21,7 @@ type fakeCommandSender struct {
 	cmd    *gatewaypb.ControlCommand
 }
 
-func (f *fakeCommandSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (f *fakeCommandSender) SendCommand(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	f.called = true
 	f.cmd = cmd
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil

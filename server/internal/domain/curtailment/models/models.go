@@ -20,6 +20,7 @@ type OrgConfig struct {
 type ResponseProfile struct {
 	ID                          int64
 	OrgID                       int64
+	Revision                    uuid.UUID
 	ProfileName                 string
 	SiteID                      *int64
 	ScopeJSON                   []byte
@@ -87,6 +88,7 @@ type AutomationRule struct {
 	MQTTSourceID             int64
 	MQTTSourceName           string
 	ResponseProfileID        int64
+	ResponseProfileRevision  uuid.UUID
 	ResponseProfileName      string
 	ResponseProfileSiteID    *int64
 	ResponseProfileScopeJSON []byte
@@ -356,15 +358,21 @@ type InsertEventParams struct {
 	ExpectedFacilityFanSites map[int64]int64
 	FanOffDelaySec           int32
 	FanRestoreDelaySec       int32
-	DecisionSnapshotJSON     []byte
-	SourceActorType          SourceActorType
-	SourceActorID            *string
-	ExternalSource           *string
-	ExternalReference        *string
-	IdempotencyKey           *string
-	Reason                   string
-	ScheduledStartAt         *time.Time
-	StartedAt                *time.Time
+	// Execution-fence fields are consumed by the store and are not persisted on
+	// the event.
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	DecisionSnapshotJSON    []byte
+	SourceActorType         SourceActorType
+	SourceActorID           *string
+	ExternalSource          *string
+	ExternalReference       *string
+	IdempotencyKey          *string
+	Reason                  string
+	ScheduledStartAt        *time.Time
+	StartedAt               *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.

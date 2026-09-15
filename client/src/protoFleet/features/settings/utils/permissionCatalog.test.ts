@@ -29,6 +29,20 @@ describe("buildPermissionGroups", () => {
       entries: [instanceUpdate],
     });
   });
+
+  it("publishes maintenance permissions as a visible role-editor group", () => {
+    const maintenanceRead: CatalogEntry = {
+      key: "maintenance:read",
+      description: "View repair tickets and parts inventory.",
+      resource: "maintenance",
+    };
+
+    expect(buildPermissionGroups([...catalog, maintenanceRead])).toContainEqual({
+      resource: "maintenance",
+      label: "Maintenance",
+      entries: [maintenanceRead],
+    });
+  });
 });
 
 describe("dependencyGaps", () => {

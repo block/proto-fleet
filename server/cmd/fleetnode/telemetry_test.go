@@ -450,7 +450,17 @@ func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	t.Cleanup(func() { close(closer.release) })
+	// Runs before the token-channel restore above (cleanups are LIFO). The
+	// worker reads the package-level knobs right up to its exit, so wait for
+	// it to hand its token back or it races the next test's setup.
+	t.Cleanup(func() {
+		close(closer.release)
+		select {
+		case tokens <- struct{}{}:
+		case <-time.After(time.Second):
+			t.Error("async close worker did not release its token")
+		}
+	})
 
 	start := time.Now()
 	require.True(t, closeTelemetryDeviceAsync(closer))

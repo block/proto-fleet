@@ -46,6 +46,12 @@
         "event": "pull_request"
       },
       {
+        "name": "Post Codex Security Review",
+        "type": "github_actions",
+        "workflow_path": ".github/workflows/codex-security-review.yml",
+        "event": "pull_request"
+      },
+      {
         "name": "DCO Check",
         "type": "check_run",
         "app_slug": "block-dco-check"
@@ -104,7 +110,7 @@
       "server/internal/domain/fleetnode/**",
       "server/internal/domain/ipscanner/**",
       "server/internal/domain/minerdiscovery/**",
-      "server/internal/domain/nmaptarget/**",
+      "server/internal/domain/netscan/**",
       "server/internal/domain/pairing/**",
       "server/internal/domain/pools/**",
       "server/internal/domain/session/**",

@@ -173,6 +173,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
   headerControls?: ReactNode;
+  /** Controls rendered at the trailing edge of the filter group, between
+   * the last filter pill and the right-aligned `headerControls`. A control
+   * that grows on activation (the collapsible search) expands into that gap
+   * instead of pushing its siblings. */
+  trailingFilterControls?: ReactNode;
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
@@ -609,7 +614,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
 
       {visibleActions.length === 1 && singleVisibleAction && singleVisibleActionTitle ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}
@@ -631,7 +636,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         </td>
       ) : visibleActions.length > 1 ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}
@@ -649,7 +654,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         </td>
       ) : actions.length > 0 ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}
@@ -736,6 +741,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onServerFilter,
   filterSize = sizes.compact,
   headerControls,
+  trailingFilterControls,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -1266,6 +1272,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
         isServerSide={isServerSideFiltering}
         headerControls={headerControls}
+        trailingFilterControls={trailingFilterControls}
         initialActiveFilters={initialActiveFilters}
       />
     ) : null;

@@ -289,8 +289,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    # Keep host access without rediscovering the simulator through the bridge gateway.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     deploy:
       resources:
         limits:
@@ -315,9 +316,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    # Keep host access without rediscovering the simulator through the bridge gateway.
     ports:
-      - "4028:4028"
-      - "8008:80"
+      - "127.0.0.1:4028:4028"
+      - "127.0.0.1:8008:80"
     deploy:
       resources:
         limits:

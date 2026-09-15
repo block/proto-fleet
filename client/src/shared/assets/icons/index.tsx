@@ -71,6 +71,7 @@ import Racks from "./Racks";
 import Reboot from "./Reboot";
 import Rectangle from "./Rectangle";
 import Repair from "./Repair";
+import Search from "./Search";
 import Settings from "./Settings";
 import SettingsSolid from "./SettingsSolid";
 import Site from "./Site";
@@ -163,6 +164,7 @@ export {
   Reboot,
   Rectangle,
   Repair,
+  Search,
   Settings,
   SettingsSolid,
   Site,

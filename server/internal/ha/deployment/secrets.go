@@ -22,7 +22,9 @@ const (
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
 	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
-	certificateValidity     = 10 * 365 * 24 * time.Hour
+	// Apple's TLS verifier rejects server certificates valid for more than 825 days.
+	// Keep one day of headroom for the one-minute NotBefore backdating below.
+	certificateValidity = 824 * 24 * time.Hour
 )
 
 var databasePasswordFiles = []string{

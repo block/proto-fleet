@@ -151,6 +151,25 @@ func (mr *MockUpdateSchedulerMockRecorder) RemoveDevices(ctx any, deviceID ...an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).RemoveDevices), varargs...)
 }
 
+// RequeueDevices mocks base method.
+func (m *MockUpdateScheduler) RequeueDevices(ctx context.Context, devices ...models.Device) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range devices {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RequeueDevices", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequeueDevices indicates an expected call of RequeueDevices.
+func (mr *MockUpdateSchedulerMockRecorder) RequeueDevices(ctx any, devices ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, devices...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).RequeueDevices), varargs...)
+}
+
 // MockTelemetryDataStore is a mock of TelemetryDataStore interface.
 type MockTelemetryDataStore struct {
 	ctrl     *gomock.Controller

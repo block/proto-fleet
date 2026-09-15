@@ -60,7 +60,7 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 
 	pair := &control.PairMeta{OrgID: orgID, AssignedBy: assignedBy, Targets: scopeTargets}
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
-	err = control.RunCommand(context.WithoutCancel(ctx), s.dispatcher, fleetNodeID, cmd, nil, control.ReportKindPair, pair, PairCommandTimeout, "pair",
+	err = control.RunCommand(context.WithoutCancel(ctx), s.dispatcher, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, nil, control.ReportKindPair, pair, PairCommandTimeout, "pair",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if len(ev.PairResults) == 0 {
 				return false, nil

@@ -228,6 +228,21 @@ func (mr *MockUserManagementStoreMockRecorder) AdminResetUserPassword(ctx, userI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdminResetUserPassword", reflect.TypeOf((*MockUserManagementStore)(nil).AdminResetUserPassword), ctx, userID, passwordHash)
 }
 
+// CountActiveRepairTicketsAssignedToUser mocks base method.
+func (m *MockUserManagementStore) CountActiveRepairTicketsAssignedToUser(ctx context.Context, organizationID, userID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveRepairTicketsAssignedToUser", ctx, organizationID, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveRepairTicketsAssignedToUser indicates an expected call of CountActiveRepairTicketsAssignedToUser.
+func (mr *MockUserManagementStoreMockRecorder) CountActiveRepairTicketsAssignedToUser(ctx, organizationID, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveRepairTicketsAssignedToUser", reflect.TypeOf((*MockUserManagementStore)(nil).CountActiveRepairTicketsAssignedToUser), ctx, organizationID, userID)
+}
+
 // CreateUser mocks base method.
 func (m *MockUserManagementStore) CreateUser(ctx context.Context, externalUserID, username, passwordHash string, requiresPasswordChange bool) (int64, error) {
 	m.ctrl.T.Helper()

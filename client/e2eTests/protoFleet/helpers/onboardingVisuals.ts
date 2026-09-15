@@ -33,6 +33,7 @@ export const VISUAL_SNAPSHOTS = {
   groups: ["visual", "groups-screen.png"],
   energy: ["visual", "energy-screen.png"],
   settingsPools: ["visual", "settings-pools-screen.png"],
+  navigationMenu: ["visual", "navigation-menu.png"],
   findMiners: ["visual", "find-miners-screen.png"],
   completeSetup: ["visual", "complete-setup-module.png"],
   singleMinerActions: ["visual", "single-miner-actions-menu.png"],
@@ -162,6 +163,19 @@ export class OnboardingVisualHelper {
     await settingsPoolsPage.validateMiningPoolsPageOpened();
     await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
     await snapshots.capturePage(page, VISUAL_SNAPSHOTS.settingsPools);
+  }
+
+  async captureNavigationMenu() {
+    const { minersPage, page, snapshots } = this.deps;
+    await minersPage.clickNavigationMenuIfMobile();
+    const navigationMenu = page.getByRole("navigation", { name: "Main" });
+    await expect(navigationMenu).toBeVisible();
+    const mobileSettingsSubmenu = navigationMenu.getByTestId("secondary-nav");
+    if (await mobileSettingsSubmenu.count()) {
+      await expect(mobileSettingsSubmenu).toHaveCSS("opacity", "1");
+      await expect(mobileSettingsSubmenu).toHaveCSS("transform", "none");
+    }
+    await snapshots.captureLocator(navigationMenu, VISUAL_SNAPSHOTS.navigationMenu);
   }
 
   async openFindMinersFromMinersPage() {

@@ -4,7 +4,12 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { sitesClient } from "@/protoFleet/api/clients";
 import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import type { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { type PerDeviceConflict, type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import {
+  MaintenanceSiteOptionsScope,
+  type PerDeviceConflict,
+  type Site,
+  type SiteWithCounts,
+} from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -12,8 +17,10 @@ interface ListSitesProps {
   signal?: AbortSignal;
   errorComponentTypes?: ComponentType[];
   telemetryRanges?: FleetListTelemetryRangeFilter[];
+  maintenanceOptionsScope?: MaintenanceSiteOptionsScope;
   onSuccess?: (sites: SiteWithCounts[]) => void;
-  // ListSites is gated server-side on org-scoped site:read. Callers that
+  // ListSites is gated server-side on site:read, or the requested maintenance
+  // permission when maintenanceOptionsScope requests a redacted catalog. Callers that
   // degrade permission-blocked UX still distinguish PermissionDenied from
   // transient transport failures for stale sessions and server-side auth
   // changes.
@@ -260,12 +267,21 @@ const useSites = () => {
   );
 
   const listSites = useCallback(
-    async ({ signal, errorComponentTypes, telemetryRanges, onSuccess, onError, onFinally }: ListSitesProps = {}) => {
+    async ({
+      signal,
+      errorComponentTypes,
+      telemetryRanges,
+      maintenanceOptionsScope,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListSitesProps = {}) => {
       try {
         const response = await sitesClient.listSites(
           {
             errorComponentTypes: errorComponentTypes ?? [],
             telemetryRanges: telemetryRanges ?? [],
+            maintenanceOptionsScope: maintenanceOptionsScope ?? MaintenanceSiteOptionsScope.UNSPECIFIED,
           },
           { signal },
         );

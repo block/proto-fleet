@@ -55,6 +55,14 @@ type SiteStore interface {
 	// to the site in the org.
 	CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// CountInventoryPartsBySite returns the number of live inventory parts
+	// attached to the site. Site deletion is blocked while this is non-zero.
+	CountInventoryPartsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// CountRepairTicketsBySite returns the number of unfinished repair tickets
+	// attached to the site. Site deletion is blocked while this is non-zero.
+	CountRepairTicketsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// UpdateSite mutates the live site row. Maps unique-violation to
 	// AlreadyExists; returns NotFound when the row is gone.
 	UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error)
@@ -144,8 +152,9 @@ type SiteStore interface {
 
 	// LockBuildingsBySiteForWrite row-locks every live building under
 	// the given site so DeleteSite's cascade serializes against any
-	// concurrent AssignBuildingToSite touching one of those buildings.
-	LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) error
+	// concurrent AssignBuildingToSite touching one of those buildings. It
+	// returns the locked IDs for child-building reference checks.
+	LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error)
 
 	// LockDevicesForReassign takes a row-lock on every matching live
 	// device for the duration of the surrounding transaction so the

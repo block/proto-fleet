@@ -11,6 +11,10 @@ sql:
         emit_interface: true
         sql_package: "database/sql"
         overrides:
+          - column: "firmware_rollout.behavior_snapshot"
+            go_type:
+              import: "github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
+              type: "RolloutBehaviorSnapshot"
           # TimescaleDB continuous aggregate type overrides
           # The time_bucket() function and aggregates return types that sqlc cannot infer
           - column: "device_metrics_hourly.bucket"

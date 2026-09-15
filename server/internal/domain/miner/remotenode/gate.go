@@ -8,10 +8,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
-// DefaultPerNodeCommandLimit caps in-flight commands to one fleet node, held below the
-// node's worker-pool ceiling so a large batch is paced here (the DB queue holds the
-// backlog) rather than oversubscribing the node and being rejected BUSY.
-const DefaultPerNodeCommandLimit = 8
+// DefaultPerNodeCommandLimit matches the Fleet Node's ordinary worker-pool ceiling.
+const DefaultPerNodeCommandLimit = control.MaxConcurrentCommandsPerFleetNode
+
+// DefaultPerNodeDeferrableReadLimit mirrors the node's lower ceiling for
+// retryable reads so Fleet paces those calls before they reach ControlStream.
+const DefaultPerNodeDeferrableReadLimit = control.MaxConcurrentDeferrableReadsPerFleetNode
 
 // DefaultPerNodeLogDownloadLimit matches the gateway's per-node command artifact
 // upload capacity so same-node log batches wait server-side instead of overrunning
@@ -21,6 +23,37 @@ const DefaultPerNodeLogDownloadLimit = control.MaxConcurrentCommandArtifactUploa
 // Gate bounds concurrent commands to a single fleet node.
 type Gate interface {
 	Acquire(ctx context.Context, fleetNodeID int64) (release func(), err error)
+}
+
+// NestedGate acquires two per-node gates in order and rolls back a partial
+// acquisition. It lets deferrable reads consume both their lane and the shared
+// command capacity with one idempotent release closure.
+type NestedGate struct {
+	first  Gate
+	second Gate
+}
+
+func NewNestedGate(first, second Gate) *NestedGate {
+	return &NestedGate{first: first, second: second}
+}
+
+func (g *NestedGate) Acquire(ctx context.Context, fleetNodeID int64) (func(), error) {
+	firstRelease, err := g.first.Acquire(ctx, fleetNodeID)
+	if err != nil {
+		return nil, err
+	}
+	secondRelease, err := g.second.Acquire(ctx, fleetNodeID)
+	if err != nil {
+		firstRelease()
+		return nil, err
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			secondRelease()
+			firstRelease()
+		})
+	}, nil
 }
 
 // PerNodeLimiter is a keyed counting semaphore (up to limit per fleet_node id). Safe for

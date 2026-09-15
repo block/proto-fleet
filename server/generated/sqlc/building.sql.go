@@ -334,6 +334,28 @@ func (q *Queries) CountRacksInBuilding(ctx context.Context, arg CountRacksInBuil
 	return rack_count, err
 }
 
+const countRepairTicketsByBuilding = `-- name: CountRepairTicketsByBuilding :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = $1
+  AND building_id = $2
+  AND deleted_at IS NULL
+  AND status <> 5
+`
+
+type CountRepairTicketsByBuildingParams struct {
+	OrgID      int64
+	BuildingID sql.NullInt64
+}
+
+// Only unfinished work blocks deletion; completed tickets retain historical links.
+func (q *Queries) CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRepairTicketsByBuildingStmt, countRepairTicketsByBuilding, arg.OrgID, arg.BuildingID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (
     org_id,

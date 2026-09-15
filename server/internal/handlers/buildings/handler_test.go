@@ -398,6 +398,7 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	// SoftDeleteBuilding returns the deleted row's site (nil = unassigned here)
 	// so the audit row scopes to the building's site, race-free.
 	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(nil, true, nil)
+	h.buildingStore.EXPECT().CountRepairTicketsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 

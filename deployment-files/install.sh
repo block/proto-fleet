@@ -3,6 +3,7 @@ set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
 HA_BUNDLE_PATH="/var/tmp/proto-fleet-ha-host.json"
+unset HA_DD_API_KEY_CAPTURED
 DOWNLOAD_DIR=""
 UPDATER_BOOTSTRAP_DIR=""
 UPDATER_CLEANUP_FAILED=0
@@ -1546,6 +1547,27 @@ service_docker_id_with() {
   fi
 }
 
+capture_ha_datadog_api_key() {
+  if [ "${DD_API_KEY+x}" = "x" ]; then
+    HA_DD_API_KEY_CAPTURED="$DD_API_KEY"
+    unset DD_API_KEY
+  fi
+}
+
+run_fleet_ha() {
+  local fleet_ha="$1"
+  shift
+  local status=0
+
+  if [ "${HA_DD_API_KEY_CAPTURED+x}" = "x" ]; then
+    DD_API_KEY="$HA_DD_API_KEY_CAPTURED" "$fleet_ha" "$@" || status=$?
+  else
+    "$fleet_ha" "$@" || status=$?
+  fi
+  unset HA_DD_API_KEY_CAPTURED
+  return "$status"
+}
+
 run_ha_install() {
   local tar_path="$1"
   local download_dir="$2"
@@ -1585,14 +1607,14 @@ run_ha_install() {
     if [ "$(id -u)" -eq 0 ]; then
       chown 0:0 "$HA_BUNDLE_PATH"
     fi
-    "$fleet_ha" install "$HA_BUNDLE_PATH"
+    run_fleet_ha "$fleet_ha" install "$HA_BUNDLE_PATH"
     return
   fi
   if [ ! -r /dev/tty ]; then
     echo "❌ HA cluster preparation requires an interactive terminal." >&2
     return 1
   fi
-  "$fleet_ha" install </dev/tty
+  run_fleet_ha "$fleet_ha" install </dev/tty
 }
 
 # END INSTALLER TESTABLE HELPERS
@@ -1787,6 +1809,13 @@ fi
 if [ "$HA_INSTALL" = "1" ] && { [ -n "$REQUESTED_INSTALL_DIR" ] || [ "$NON_INTERACTIVE" = "1" ]; }; then
   echo "Error: --ha cannot be combined with --install-dir or --non-interactive." >&2
   usage
+fi
+
+if [ "$HA_INSTALL" = "1" ]; then
+  # Preserve the key only in this shell, not its setup/download subprocesses.
+  # run_fleet_ha exposes it solely to the fleet-ha process, which captures and
+  # clears it before invoking any host commands.
+  capture_ha_datadog_api_key
 fi
 
 check_page_size

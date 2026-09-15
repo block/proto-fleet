@@ -85,9 +85,12 @@ make_ha_release_archive() {
   local release_root="$1"
   local tar_path="$2"
   mkdir -p "$release_root/deployment/ha"
-  cat > "$release_root/deployment/ha/fleet-ha" <<'EOF'
+cat > "$release_root/deployment/ha/fleet-ha" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "$HA_TEST_LOG"
+if [ -n "${HA_TEST_ENV_LOG:-}" ]; then
+  printf '%s\n' "${DD_API_KEY-unset}" > "$HA_TEST_ENV_LOG"
+fi
 EOF
   chmod 755 "$release_root/deployment/ha/fleet-ha"
   tar -czf "$tar_path" -C "$release_root" deployment
@@ -1513,7 +1516,11 @@ if (
   tar_path="$TEST_TMP/proto-fleet-v0.2.10-arm64.tar.gz"
   make_ha_release_archive "$release_root" "$tar_path"
   HA_TEST_LOG="$TEST_TMP/ha-invocation"
-  export HA_TEST_LOG
+  HA_TEST_ENV_LOG="$TEST_TMP/ha-environment"
+  export HA_TEST_LOG HA_TEST_ENV_LOG
+  DD_API_KEY=isolated-datadog-key
+  export DD_API_KEY
+  capture_ha_datadog_api_key
   HA_BUNDLE_PATH="$TEST_TMP/proto-fleet-ha-host.json"
   printf '%s' '{"prepared":true}' > "$HA_BUNDLE_PATH"
   chmod 600 "$HA_BUNDLE_PATH"
@@ -1523,13 +1530,16 @@ if (
   chown() { printf '%s\n' "$*" > "$TEST_TMP/ha-chown"; }
   download_dir="$TEST_TMP/ha-download"
   mkdir -m 700 "$download_dir"
-  run_ha_install "$tar_path" "$download_dir" \
+  ! env | grep -q '^DD_API_KEY=' \
+    && run_ha_install "$tar_path" "$download_dir" \
     && grep -Fxq "install $HA_BUNDLE_PATH" "$HA_TEST_LOG" \
+    && grep -Fxq "isolated-datadog-key" "$HA_TEST_ENV_LOG" \
+    && [ "${HA_DD_API_KEY_CAPTURED+x}" != x ] \
     && grep -Fxq "0:0 $HA_BUNDLE_PATH" "$TEST_TMP/ha-chown"
 ); then
-  pass "sudo HA installs accept the invoking administrator's prepared peer bundle"
+  pass "sudo HA installs isolate the Datadog key and accept the invoking administrator's prepared peer bundle"
 else
-  fail "sudo HA install rejected the invoking administrator's prepared peer bundle"
+  fail "sudo HA install leaked the Datadog key or rejected the invoking administrator's prepared peer bundle"
 fi
 
 if (

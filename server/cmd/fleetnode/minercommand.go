@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -630,27 +629,6 @@ func ensureFirmwareTempSpace(root string, artifactSize int64) error {
 		return cmdErr(pb.AckCode_ACK_CODE_BUSY, "insufficient firmware temp space: need %d bytes, have %d bytes", needed, freeBytes)
 	}
 	return nil
-}
-
-func firmwareTempFreeBytes(root string) (int64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(root, &stat); err != nil {
-		return 0, fmt.Errorf("statfs firmware temp dir: %w", err)
-	}
-	if stat.Bsize <= 0 {
-		return 0, nil
-	}
-	blockSize := uint64(stat.Bsize) //nolint:gosec // Bsize is guarded above; Statfs reports a non-negative block size in practice.
-	availableBlocks := stat.Bavail
-	const maxInt64 = ^uint64(0) >> 1
-	if availableBlocks > ^uint64(0)/blockSize {
-		return int64(maxInt64), nil
-	}
-	free := availableBlocks * blockSize
-	if free > maxInt64 {
-		return int64(maxInt64), nil
-	}
-	return int64(free), nil
 }
 
 func downloadFirmwareArtifact(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, ref *pb.CommandArtifactRef) (string, func(), error) {

@@ -65,7 +65,7 @@ func TestReportDiscoveredDevices_PublishesBatchToInFlightCommand(t *testing.T) {
 
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "operator-cmd"}, nil, control.ReportKindDiscovery, nil)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "operator-cmd"}, nil, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -105,7 +105,7 @@ func TestReportDiscoveredDevices_PublishesOnlyAcceptedDevices(t *testing.T) {
 
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "partial-cmd"}, nil, control.ReportKindDiscovery, nil)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "partial-cmd"}, nil, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -179,7 +179,7 @@ func TestReportDiscoveredDevices_DropsOutOfScopeDevices(t *testing.T) {
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	scope := func(ip, port string) bool { return ip == "10.0.0.50" && port == "4028" }
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "scoped-cmd"}, scope, control.ReportKindDiscovery, nil)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "scoped-cmd"}, scope, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing

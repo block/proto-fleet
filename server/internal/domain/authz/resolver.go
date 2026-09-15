@@ -57,6 +57,16 @@ func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organiza
 	return LoadEffectiveTx(ctx, r.queries, userID, organizationID)
 }
 
+// LoadRoleName returns the user's current primary role in the organization.
+// Callers use this alongside effective permissions when a persisted operation
+// depends on controls reserved to the built-in Admin and SuperAdmin roles.
+func (r *PermissionResolver) LoadRoleName(ctx context.Context, userID, organizationID int64) (string, error) {
+	return r.queries.GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
+		UserID:         userID,
+		OrganizationID: organizationID,
+	})
+}
+
 // LoadEffectiveTx runs the same query against a caller-supplied
 // sqlc.Querier handle so callers that already hold a transaction can
 // re-load the effective set inside their own snapshot. The role-

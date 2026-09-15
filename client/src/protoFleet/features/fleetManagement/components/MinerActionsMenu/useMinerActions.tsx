@@ -220,7 +220,10 @@ const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStat
  */
 const hasActiveFilter = (filter?: MinerListFilter): boolean =>
   filter !== undefined &&
-  (filter.deviceStatus.length > 0 || filter.errorComponentTypes.length > 0 || filter.models.length > 0);
+  (filter.deviceStatus.length > 0 ||
+    filter.errorComponentTypes.length > 0 ||
+    filter.models.length > 0 ||
+    filter.searchQuery.trim().length > 0);
 
 const buildUnpairConfirmationSubtitle = (
   selectedMiners: MinerSelection[],

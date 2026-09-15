@@ -186,8 +186,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run review policy tests
-        run: python3 .github/scripts/evaluate_review_policy_test.py
+      - name: Run review policy and Codex sharding tests
+        run: |
+          python3 .github/scripts/evaluate_review_policy_test.py
+          python3 .github/scripts/codex_sharding_test.py
 
   gate:
     name: Gate

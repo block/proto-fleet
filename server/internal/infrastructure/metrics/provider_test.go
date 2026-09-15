@@ -504,8 +504,8 @@ func TestDeviceHashingPersistsMaterialChanges(t *testing.T) {
 	provider.EmitDeviceHashing(ctx, labels, 0.88) // jitter: suppressed
 	provider.EmitDeviceHashing(ctx, labels, 1.0)  // clearing sentinel: persists
 
-	// A marginal recovery across the rule's 0.75 threshold must persist
-	// immediately so the Device Hashrate Low rule sees it within one poll.
+	// A marginal recovery across a percentage-based rule threshold must persist
+	// immediately so user-created hashrate rules see it within one poll.
 	edge := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-2"}
 	provider.EmitDeviceHashing(ctx, edge, 0.70) // new series: persists
 	provider.EmitDeviceHashing(ctx, edge, 0.72) // jitter: suppressed

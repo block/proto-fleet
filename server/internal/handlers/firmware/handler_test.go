@@ -1041,6 +1041,36 @@ func TestDeleteFileHandler_Returns400ForInvalidID(t *testing.T) {
 	assertJSONErrorResponse(t, rr, http.StatusBadRequest, "FleetError: invalid_argument (Common: 0) invalid firmware file ID: not-a-uuid")
 }
 
+func TestDeleteFileHandler_ReturnsConflictDuringCommandDelivery(t *testing.T) {
+	env := newTestEnv(t)
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	reader, _, err := env.fileSvc.OpenFirmwareFileForExecution(fileID, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close() })
+
+	deleteFile := func() *httptest.ResponseRecorder {
+		env.expectAuth()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/"+fileID, nil)
+		req.SetPathValue("fileId", fileID)
+		req.AddCookie(validSessionCookie(env.sessionID))
+		rr := httptest.NewRecorder()
+		env.deleteFileHandler().ServeHTTP(rr, req)
+		return rr
+	}
+	rr := deleteFile()
+	require.Equal(t, http.StatusConflict, rr.Code)
+	var response errorResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+	assert.Contains(t, response.Error, "in use by an executing command")
+	assert.Contains(t, response.Error, "retry deletion after it finishes")
+	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err, "the executing command still needs this path")
+
+	require.NoError(t, reader.Close())
+	assert.Equal(t, http.StatusNoContent, deleteFile().Code)
+}
+
 func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
@@ -1107,4 +1137,40 @@ func TestDeleteAllFilesHandler_EmptyReturnsZero(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.DeletedCount)
+}
+
+func TestDeleteAllFilesHandler_ReportsPartialDeletionWhileCommandIsActive(t *testing.T) {
+	env := newTestEnv(t)
+	fileID, err := env.fileSvc.SaveFirmwareFile("active.swu", strings.NewReader("active"), testFirmwareMetadata())
+	require.NoError(t, err)
+	idleID, err := env.fileSvc.SaveFirmwareFile("idle.swu", strings.NewReader("idle"), testFirmwareMetadata())
+	require.NoError(t, err)
+	reader, _, err := env.fileSvc.OpenFirmwareFileForExecution(fileID, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close() })
+
+	deleteAll := func() (*httptest.ResponseRecorder, deleteAllFilesResponse) {
+		env.expectAuth()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
+		req.AddCookie(validSessionCookie(env.sessionID))
+		rr := httptest.NewRecorder()
+		env.deleteAllFilesHandler().ServeHTTP(rr, req)
+		var response deleteAllFilesResponse
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		return rr, response
+	}
+	rr, response := deleteAll()
+	require.Equal(t, http.StatusConflict, rr.Code)
+	assert.Equal(t, 1, response.DeletedCount)
+	assert.Contains(t, response.Error, "in use by an executing command")
+	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+	_, err = env.fileSvc.GetFirmwareFilePath(idleID)
+	require.Error(t, err)
+
+	require.NoError(t, reader.Close())
+	rr, response = deleteAll()
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, 1, response.DeletedCount)
+	assert.Empty(t, response.Error)
 }

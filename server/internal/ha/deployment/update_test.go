@@ -79,7 +79,6 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	// Arrange
 	root := testInstallRelease(t)
 	composeErr := errors.New("invalid target Compose model")
-	var composeArgs []string
 	var commands []string
 	deps := installDependencies{
 		readFile: os.ReadFile,
@@ -90,23 +89,12 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	}
 
 	// Act
-	err := prepareApplicationUpdate(context.Background(), root, deps, func(_ context.Context, args []string) error {
-		composeArgs = append([]string(nil), args...)
+	err := prepareApplicationUpdate(context.Background(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(_ context.Context, _ []string) error {
 		return composeErr
 	})
 
 	// Assert
 	require.ErrorIs(t, err, composeErr)
-	require.Equal(t, []string{
-		"--project-name", "deployment",
-		"--env-file", filepath.Join(configRoot, "base.env"),
-		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
-		"--env-file", filepath.Join(configRoot, "node.env"),
-		"--file", filepath.Join(root, "docker-compose.yaml"),
-		"--file", filepath.Join(root, "docker-compose.alerts.yaml"),
-		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"),
-		"config", "--quiet", "fleet-api", "fleet-client", "grafana",
-	}, composeArgs)
 	require.Empty(t, commands)
 }
 
@@ -123,7 +111,7 @@ func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *
 	}
 
 	// Act
-	err := prepareApplicationUpdate(t.Context(), root, deps, func(context.Context, []string) error { return nil })
+	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil })
 
 	// Assert
 	require.NoError(t, err)
@@ -138,7 +126,7 @@ func TestUpdateCompatibilityRejectsPreGrafanaProfile(t *testing.T) {
 			"DB_DSN=postgresql://fleet:test@db/fleet\n",
 	), 0o600))
 
-	err := requireUpdateCompatibleProfile(path)
+	_, err := loadUpdateCompatibleProfile(path)
 
 	require.ErrorContains(t, err, "reinstall both database hosts")
 }

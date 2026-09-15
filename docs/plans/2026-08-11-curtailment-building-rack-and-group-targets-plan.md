@@ -130,10 +130,11 @@ When an owned miner leaves scope or becomes unpaired:
 - During that staged rollout, topology-scoped profiles remain visible but
   read-only in Settings and are excluded from the New curtailment profile
   selector until the UI can rehydrate their terminal selector. Once the UI
-  lands, operators may preview and save topology scopes, but Run, Test, and
-  automation remain disabled until topology execution and lifecycle support
-  land. No intermediate adapter may synthesize Whole organization for an
-  unsupported typed scope.
+  lands, operators may preview and save topology scopes. Fixed-kW Run and Test
+  become available with frozen topology execution; FULL_FLEET Run/Test and
+  automation remain disabled until topology-following lifecycle support lands.
+  No intermediate adapter may synthesize Whole organization for an unsupported
+  typed scope.
 
 ### 2. Add the shared drill-down target builder
 
@@ -335,10 +336,18 @@ admin requirement, topology, and quotas before claiming targets.
 1. Ship server parsing, schema versions, profile revisions, automation bindings,
    rejection of unknown nonempty scope keys, and a durable topology-scope
    feature gate without emitting topology scopes.
-2. Require every replica at that minimum version and verify there are zero
-   pre-contract profile, rule, or event rows. Any unexpected row blocks rollout;
-   do not backfill or support it. New records missing a required scope, envelope,
-   revision, or binding fail closed.
+2. Require every replica at that minimum version. The migration assigns the
+   current scope schema version and an initial revision to existing profiles,
+   binds each existing automation rule to its profile's revision, and stamps
+   that binding into live automation event snapshots whose persisted execution
+   settings still match the profile and can be recovered through idempotency
+   replay. Mismatches remain unbound and fail closed; other existing events keep
+   their durable recovery data.
+   Revision and binding state lives in companion tables maintained by triggers,
+   leaving the response-profile and automation-rule base table shapes unchanged
+   while the previous active binary serves during a passive-first HA update.
+   After migration, records missing a required scope, envelope, revision, or
+   binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org
    scope, raise the minimum accepted schema version, then open the feature gate.
    Rollback below the minimum requires closing the gate, blocking profile Test/

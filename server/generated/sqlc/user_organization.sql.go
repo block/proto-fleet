@@ -113,6 +113,28 @@ func (q *Queries) GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams
 	return name, err
 }
 
+const getUserRoleNameForUpdate = `-- name: GetUserRoleNameForUpdate :one
+SELECT r.name
+FROM role r
+JOIN user_organization uo ON r.id = uo.role_id
+WHERE uo.user_id = $1
+  AND uo.organization_id = $2
+  AND uo.deleted_at IS NULL
+FOR UPDATE OF uo
+`
+
+type GetUserRoleNameForUpdateParams struct {
+	UserID         int64
+	OrganizationID int64
+}
+
+func (q *Queries) GetUserRoleNameForUpdate(ctx context.Context, arg GetUserRoleNameForUpdateParams) (string, error) {
+	row := q.queryRow(ctx, q.getUserRoleNameForUpdateStmt, getUserRoleNameForUpdate, arg.UserID, arg.OrganizationID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getUsersForOrganization = `-- name: GetUsersForOrganization :many
 SELECT u.id, u.user_id, u.username, u.password_hash, u.password_updated_at, u.last_login_at, u.requires_password_change, u.created_at, u.updated_at, u.deleted_at
 FROM "user" u

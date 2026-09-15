@@ -1,5 +1,6 @@
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
+  DeviceOfflineReason,
   DeviceStatus,
   type MinerStateSnapshot,
   PairingStatus,
@@ -58,6 +59,7 @@ export const miners: MinerStateSnapshot[] = [
       } as Measurement,
     ],
     deviceStatus: DeviceStatus.ONLINE,
+    offlineReason: DeviceOfflineReason.UNSPECIFIED,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
     rackPosition: "",
@@ -113,6 +115,7 @@ export const miners: MinerStateSnapshot[] = [
       } as Measurement,
     ],
     deviceStatus: DeviceStatus.ONLINE,
+    offlineReason: DeviceOfflineReason.UNSPECIFIED,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
     rackPosition: "",
@@ -168,6 +171,7 @@ export const miners: MinerStateSnapshot[] = [
       } as Measurement,
     ],
     deviceStatus: DeviceStatus.ONLINE,
+    offlineReason: DeviceOfflineReason.UNSPECIFIED,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
     rackPosition: "",
@@ -223,6 +227,7 @@ export const miners: MinerStateSnapshot[] = [
       } as Measurement,
     ],
     deviceStatus: DeviceStatus.ONLINE,
+    offlineReason: DeviceOfflineReason.UNSPECIFIED,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
     rackPosition: "",

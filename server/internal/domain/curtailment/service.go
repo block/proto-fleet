@@ -84,11 +84,15 @@ type StartRequest struct {
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
 
-	FacilityFanDeviceIDs  []int64
-	AuthorizedDeviceSites map[string]*int64
-	AuthorizedFanSites    map[int64]int64
-	FanOffDelaySec        int32
-	FanRestoreDelaySec    int32
+	FacilityFanDeviceIDs    []int64
+	AuthorizedDeviceSites   map[string]*int64
+	AuthorizedFanSites      map[int64]int64
+	FanOffDelaySec          int32
+	FanRestoreDelaySec      int32
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -197,11 +201,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
-	if hasTopologySelectors(req.Scope) {
-		return nil, fleeterror.NewUnimplementedError(
-			"topology-scoped Start requires durable authorization and lifecycle support",
-		)
-	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits
@@ -286,7 +285,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
 	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
-	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
+	requiresAdminControls := startRequiresAdminControls(req, orgConfig)
+	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW, requiresAdminControls)
 	if err != nil {
 		return nil, err
 	}
@@ -328,6 +328,25 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		s.metrics.IncMaintenanceOverride()
 	}
 	return plan, nil
+}
+
+// LookupStartReplay returns the persisted event matched by a Start request's
+// idempotency handles. It intentionally does not hydrate targets so handlers
+// can authorize the immutable event envelope before loading response data.
+func (s *Service) LookupStartReplay(ctx context.Context, req StartRequest) (*models.Event, error) {
+	if err := validateStartRequest(req); err != nil {
+		return nil, err
+	}
+	return s.lookupIdempotentReplay(ctx, req)
+}
+
+// RenderStartReplay builds the bounded Start response from an already
+// authorized persisted event.
+func (s *Service) RenderStartReplay(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
+	if event == nil || event.OrgID != orgID {
+		return nil, fleeterror.NewNotFoundError("curtailment event not found")
+	}
+	return s.replayPlanFromPersistedEvent(ctx, orgID, event)
 }
 
 // ListActive returns every non-terminal event for the org, most-recent first.
@@ -1377,6 +1396,28 @@ func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
 		return err
 	}
+	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
+		return fleeterror.NewInvalidArgumentError(
+			"response_profile_id and expected_response_profile_revision must be set together",
+		)
+	}
+	if req.ResponseProfileID < 0 {
+		return fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
+	}
+	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) {
+		return fleeterror.NewInvalidArgumentError(
+			"automation_rule_id and automation_mqtt_source_id must be set together",
+		)
+	}
+	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 {
+		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
+	}
+	if req.AutomationRuleID > 0 &&
+		(req.SourceActorType != models.SourceActorAutomation || req.ResponseProfileID == 0) {
+		return fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires an automation actor and response profile",
+		)
+	}
 	if strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
 	}
@@ -1572,7 +1613,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 	// and never reclaim them, silently breaking the policy's promise.
 	if req.ForceIncludeAllPairedMiners && !isClosedLoopFullFleetStart(req.Scope, req.Mode) {
 		return fleeterror.NewInvalidArgumentError(
-			"force_include_all_paired_miners requires a whole-org or site scope; explicit miner or device-set scopes are not supported",
+			"force_include_all_paired_miners requires a whole-org, site, building, rack, or group scope; explicit miner scopes are not supported",
 		)
 	}
 	if req.Level != "" && req.Level != models.LevelFull {
@@ -1764,6 +1805,17 @@ func hasTopologySelectors(s Scope) bool {
 	return len(s.BuildingIDs) > 0 || len(s.RackIDs) > 0 || len(s.GroupIDs) > 0
 }
 
+// IsTopologyScope reports whether scope targets buildings, racks, or groups.
+func IsTopologyScope(s Scope) bool {
+	return hasTopologySelectors(s)
+}
+
+// ListCandidatesParamsForScope returns the canonical candidate filter for a
+// validated scope. Callers must set OrgID before querying a store.
+func ListCandidatesParamsForScope(s Scope) (interfaces.ListCandidatesParams, error) {
+	return resolveScope(s)
+}
+
 func validateScopeContract(s Scope) error {
 	if err := validateScopeSchemaVersion(s.SchemaVersion); err != nil {
 		return err
@@ -1926,7 +1978,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
-		case "INACTIVE":
+		case deviceStatusInactive:
 			// Excluded by design: INACTIVE means the miner is sleeping
 			// (operator- or curtailment-initiated). Curtailing it is a no-op
 			// and restoring it would wake a miner someone deliberately put
@@ -2056,7 +2108,12 @@ const targetTypeMiner = "miner"
 // plan. baseline_power_w comes from the telemetry snapshot the selector
 // ranked against; non-positive PowerW maps to NULL (a zero baseline would
 // produce a misleading "100% reduction" report at restore).
-func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.InsertEventParams, []models.InsertTargetParams, error) {
+func buildInsertParams(
+	req StartRequest,
+	plan *Plan,
+	minPowerW int32,
+	requiresAdminControls bool,
+) (models.InsertEventParams, []models.InsertTargetParams, error) {
 	scope := normalizeScope(req.Scope)
 	scopeJSON, err := MarshalScopeJSON(scope)
 	if err != nil {
@@ -2078,23 +2135,27 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			)
 		}
 	}
-	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW, req.PostEventCooldownSec, req.ForceIncludeAllPairedMiners)
+	decisionJSON, err := marshalDecisionSnapshot(
+		plan,
+		minPowerW,
+		req.PostEventCooldownSec,
+		req.ForceIncludeAllPairedMiners,
+		requiresAdminControls,
+		req.ResponseProfileID,
+		req.ResponseProfileRevision,
+	)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
 
 	startState := eventStartState(scope, mode, len(plan.Selected))
-	// An all-paired start whose every paired miner is currently unavailable
-	// holds in pending: closed-loop full-fleet starts otherwise insert as
-	// ACTIVE with started_at stamped, so observeActive would enforce
-	// max_duration_seconds before a single Curtail could be dispatched and
-	// the forced restore would release the never-dispatched policy rows —
-	// dropping durable ownership having curtailed nothing. The reconciler
-	// promotes the event to active (stamping started_at) once a target
-	// confirms; readiness refresh and admission both run during pending.
+	// An all-paired start with no currently owned miner, or whose every owned
+	// miner is unavailable, holds in pending. Otherwise max_duration_seconds
+	// could expire before a single Curtail is dispatched, dropping durable
+	// ownership having curtailed nothing. The reconciler promotes the event
+	// once a target confirms; readiness refresh and admission run while pending.
 	if req.ForceIncludeAllPairedMiners &&
-		len(plan.Selected) > 0 &&
-		plan.UnavailableTargetCount == len(plan.Selected) {
+		(len(plan.Selected) == 0 || plan.UnavailableTargetCount == len(plan.Selected)) {
 		startState = models.EventStatePending
 	}
 
@@ -2127,6 +2188,10 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		ExpectedFacilityFanSites:    cloneInt64Map(req.AuthorizedFanSites),
 		FanOffDelaySec:              req.FanOffDelaySec,
 		FanRestoreDelaySec:          req.FanRestoreDelaySec,
+		ResponseProfileID:           req.ResponseProfileID,
+		ResponseProfileRevision:     req.ResponseProfileRevision,
+		AutomationRuleID:            req.AutomationRuleID,
+		AutomationMQTTSourceID:      req.AutomationMQTTSourceID,
 		DecisionSnapshotJSON:        decisionJSON,
 		SourceActorType:             req.SourceActorType,
 		SourceActorID:               req.SourceActorID,
@@ -2266,6 +2331,9 @@ func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 	if mode != models.ModeFullFleet {
 		return false
 	}
+	if IsTopologyScope(scope) {
+		return true
+	}
 	switch scope.Type {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
 		return true
@@ -2395,8 +2463,13 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 
 // RecurtailRequest re-asserts curtailment on a restoring event.
 type RecurtailRequest struct {
-	OrgID     int64
-	EventUUID uuid.UUID
+	OrgID                   int64
+	EventUUID               uuid.UUID
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
 }
 
 // Recurtail flips a restoring event back to pending and reclaims restore
@@ -2409,7 +2482,40 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 	if req.EventUUID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
 	}
-	return s.store.BeginRecurtailTransition(ctx, req.OrgID, req.EventUUID)
+	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"response_profile_id and response_profile_revision must be set together",
+		)
+	}
+	if req.ResponseProfileID < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
+	}
+	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 || req.AutomationServiceUserID < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
+	}
+	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) ||
+		(req.AutomationRuleID > 0) != (req.AutomationServiceUserID > 0) {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires rule, MQTT source, and service user IDs",
+		)
+	}
+	if req.AutomationRuleID > 0 && req.ResponseProfileID == 0 {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires a response profile ID and revision",
+		)
+	}
+	return s.store.BeginRecurtailTransition(
+		ctx,
+		req.OrgID,
+		req.EventUUID,
+		interfaces.BeginRecurtailTransitionParams{
+			ResponseProfileID:       req.ResponseProfileID,
+			ResponseProfileRevision: req.ResponseProfileRevision,
+			AutomationRuleID:        req.AutomationRuleID,
+			AutomationMQTTSourceID:  req.AutomationMQTTSourceID,
+			AutomationServiceUserID: req.AutomationServiceUserID,
+		},
+	)
 }
 
 func validateStopRequest(req StopRequest) error {
@@ -2520,7 +2626,15 @@ func cloneInt32Ptr(v *int32) *int32 {
 // marshalDecisionSnapshot captures the selector outputs for the
 // decision_snapshot column (rejection counters, realized vs. requested
 // kW, resolved candidate floor).
-func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec int32, forceIncludeAllPairedMiners bool) ([]byte, error) {
+func marshalDecisionSnapshot(
+	plan *Plan,
+	minPowerW int32,
+	postEventCooldownSec int32,
+	forceIncludeAllPairedMiners bool,
+	requiresAdminControls bool,
+	responseProfileID int64,
+	responseProfileRevision uuid.UUID,
+) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
 		skipped[i] = map[string]string{
@@ -2537,7 +2651,12 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec i
 		"policy_target_count":             plan.PolicyTargetCount,
 		"unavailable_target_count":        plan.UnavailableTargetCount,
 		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
+		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
+	}
+	if responseProfileID > 0 {
+		snapshot["response_profile_id"] = responseProfileID
+		snapshot["response_profile_revision"] = responseProfileRevision.String()
 	}
 	b, err := json.Marshal(snapshot)
 	if err != nil {
@@ -2546,4 +2665,42 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec i
 		)
 	}
 	return b, nil
+}
+
+func startRequiresAdminControls(req StartRequest, orgConfig *models.OrgConfig) bool {
+	if req.AllowUnbounded || req.CandidateMinPowerWOverride != nil ||
+		req.ForceIncludeMaintenance || req.ForceIncludeAllPairedMiners ||
+		req.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax {
+		return true
+	}
+	return req.MaxDurationSeconds != nil && orgConfig != nil &&
+		orgConfig.MaxDurationDefaultSec > 0 && *req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec
+}
+
+// EventRequiresAdminControls combines the immutable Start-time marker with
+// controls that an operator may change while an event is pending or active.
+// Comparing max duration with the current organization default mirrors the
+// Update gate and prevents a later role demotion from authorizing new members.
+func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (bool, error) {
+	if ev == nil {
+		return false, nil
+	}
+	if ev.AllowUnbounded || ev.ForceIncludeMaintenance || ev.ForceIncludeAllPairedMiners ||
+		ev.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		ev.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		(ev.MaxDurationSeconds != nil && orgConfig != nil && orgConfig.MaxDurationDefaultSec > 0 &&
+			*ev.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec) {
+		return true, nil
+	}
+	if len(ev.DecisionSnapshotJSON) == 0 {
+		return false, nil
+	}
+	var snapshot struct {
+		RequiresAdminControls bool `json:"requires_admin_controls"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil {
+		return false, fmt.Errorf("parse decision snapshot admin marker: %w", err)
+	}
+	return snapshot.RequiresAdminControls, nil
 }

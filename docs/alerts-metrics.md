@@ -42,7 +42,7 @@ All Proto Fleet metric names start with the `fleet_` prefix.
 | Metric | Type | Unit | Labels | Description |
 | --- | --- | --- | --- | --- |
 | `fleet_device_online` | gauge (0/1) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | 1 when the device is reachable and reporting telemetry, 0 when the telemetry pipeline has marked it unreachable. The series stops being emitted when the device is removed from the fleet (see the staleness contract below for the caveats this implies for offline alerts). |
-| `fleet_device_hashing` | gauge (ratio) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate as a fraction of expected (nameplate) while the device is expected to be hashing: 1.0 is at/above expected, lower is degraded, 0 is stopped (no nameplate collapses to 1.0/0.0). A device that is not currently expected to hash (paused, indeterminate, offline, or reporting no hashrate) emits a non-alerting `1.0`, which clears any earlier low sample so intentionally-paused miners never trip the Device Hashrate Low rule. The below-expected threshold lives in the rule, not the emitter. |
+| `fleet_device_hashing` | gauge (ratio) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate as a fraction of expected (nameplate) while the device is expected to be hashing: 1.0 is at/above expected, lower is degraded, 0 is stopped (no nameplate collapses to 1.0/0.0). A device that is not currently expected to hash (paused, indeterminate, offline, or reporting no hashrate) emits a non-alerting `1.0`, which clears any earlier low sample so intentionally-paused miners never trip a percentage-based hashrate rule. The below-expected threshold lives in each user-created rule, not the emitter. |
 | `fleet_device_hashrate_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate of the device. |
 | `fleet_device_hashrate_expected_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Expected (nameplate) hashrate of the device. The Hashrate template compares observed against expected. |
 | `fleet_device_temperature_max_celsius` | gauge | `Cel` | `organization_id`, `device_id`, `device_group?`, `driver?`, `sensor_kind` | Maximum temperature observed across the device's sensors of the given kind. |
@@ -136,9 +136,9 @@ The only path that emits this metric is `Provider.EmitDeviceOnline`.
 `fleet_device_hashing` mirrors the offline gauge for the "is this device
 hashing as expected?" question, and reuses the `hashrate` alert template.
 It rides the same successful telemetry sample as
-`fleet_device_hashrate_terahash` but bakes in intent — so the default
-`Device Hashrate Low` rule never fires on a deliberately paused miner —
-while leaving the threshold to the rule:
+`fleet_device_hashrate_terahash` but bakes in intent, so percentage-based
+hashrate rules never fire on a deliberately paused miner while leaving the
+threshold to each rule:
 
 1. A device reporting health `active`, `warning`, or `critical` emits
    `fleet_device_hashing` as its observed hashrate divided by its expected
@@ -161,16 +161,16 @@ while leaving the threshold to the rule:
    emits a clearing `1.0` only on the explicit offline transition
    (`MinerStatusOffline`) — not on `Error`/`Critical`, which still report
    telemetry and must keep alerting on low hashrate. The device is then
-   paged by `DeviceOffline` rather than `Device Hashrate Low`. Only a
-   removed device's series vanishes; its last value ages out of the
-   ten-minute window, the same staleness `DeviceOffline` carries.
+   paged by `DeviceOffline` rather than a hashrate rule. Only a removed
+   device's series vanishes; its last value ages out of the rule's query
+   window, the same staleness `DeviceOffline` carries.
 
 The expected value is sourced from the plugin-reported nameplate
 (`MetaData.Max`); the **threshold** lives in the rule, not the emitter, so
-it can be retuned without redeploying fleet-api. The `Device Hashrate Low`
-rule fires when the most recent `fleet_device_hashing` value for a device
-in the last ten minutes is below `0.75` (75% of expected). The only path
-that emits this metric is `Provider.EmitDeviceHashing`.
+it can be configured without redeploying fleet-api. A percentage-based
+hashrate rule fires when the most recent `fleet_device_hashing` value for a
+device is below its configured fraction of expected. The only path that emits
+this metric is `Provider.EmitDeviceHashing`.
 
 ## Retention
 

@@ -213,6 +213,117 @@ func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing
 	assert.Nil(t, event.FanOffSentAt)
 }
 
+func TestDriveTopologyRestoresUsesFansThatWereNeverTurnedOff(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+	event := &models.Event{
+		ID:                   84,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanRestoreDelaySec:   30,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		DesiredState:       models.DesiredStateActive,
+		State:              models.TargetStatePending,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase: models.TargetPhaseRestore,
+			State: models.TargetStatePending,
+		},
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, []*models.Target{target}))
+	assert.Empty(t, fans.powers, "fans that were never turned off do not need an ON command")
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+}
+
+func TestDriveTopologyRestoresPreservesFanRestoreDelayBoundary(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+	fanOffAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   89,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+		FanRestoreDelaySec:   30,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		DesiredState:       models.DesiredStateActive,
+		State:              models.TargetStatePending,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase: models.TargetPhaseRestore,
+			State: models.TargetStatePending,
+		},
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, []*models.Target{target}))
+	require.NotNil(t, event.FanAirflowReopenedAt)
+	reopenedAt := *event.FanAirflowReopenedAt
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	r.now = func() time.Time { return reopenedAt.Add(15 * time.Second) }
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, []*models.Target{target}))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	r.now = func() time.Time { return reopenedAt.Add(30 * time.Second) }
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, []*models.Target{target}))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+}
+
+func TestReconciler_PartialRestoreFailureKeepsFacilityFansOn(t *testing.T) {
+	store := newFakeStore()
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, &fakeDispatcher{}, fans)
+	fanOffAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   85,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+	}
+	targets := []*models.Target{
+		{
+			CurtailmentEventID: event.ID,
+			DeviceIdentifier:   "in-scope-miner",
+			DesiredState:       models.DesiredStateCurtailed,
+			State:              models.TargetStateConfirmed,
+		},
+		{
+			CurtailmentEventID: event.ID,
+			DeviceIdentifier:   "departed-miner",
+			DesiredState:       models.DesiredStateActive,
+			State:              models.TargetStateRestoreFailed,
+		},
+	}
+	store.events = []*models.Event{event}
+
+	assert.True(t, r.reconcileActiveFans(t.Context(), event, targets))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, event.FanAirflowReopenedAt)
+}
+
 func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T) {
 	store := newFakeStore()
 	dispatcher := &fakeDispatcher{}
@@ -304,6 +415,109 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn, driver.PowerOff}, fans.powers)
 	assert.Nil(t, event.FanAirflowReopenedAt, "the active-airflow marker clears after fans turn off again")
+}
+
+func TestReconciler_TopologyAdmissionWaitsForAirflowDelay(t *testing.T) {
+	for _, allPaired := range []bool{false, true} {
+		name := "selected miners"
+		if allPaired {
+			name = "all paired miners"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+			dispatcher := &fakeDispatcher{}
+			fans := &fakeFanController{}
+			r := newReconcilerWithFansForTest(
+				store,
+				dispatcher,
+				fans,
+				WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+					effective: topologyDispatchManagePermission(),
+				}),
+			)
+
+			startedAt := r.now().Add(-time.Minute)
+			fanOffAt := r.now().Add(-30 * time.Second)
+			lastCurtailBatchAt := r.now()
+			curtailBatchSize := int32(1)
+			event.StartedAt = &startedAt
+			event.FacilityFanDeviceIDs = []int64{31}
+			event.FanOffSentAt = &fanOffAt
+			event.FanOffDelaySec = 30
+			event.FanRestoreDelaySec = 30
+			event.ForceIncludeAllPairedMiners = allPaired
+			event.CurtailBatchSize = &curtailBatchSize
+			event.CurtailBatchIntervalSec = 20
+			event.LastCurtailPendingDispatchAt = &lastCurtailBatchAt
+			store.targetsByEventID[event.ID] = []*models.Target{{
+				CurtailmentEventID: event.ID,
+				DeviceIdentifier:   "miner-existing",
+				DesiredState:       models.DesiredStateCurtailed,
+				State:              models.TargetStateConfirmed,
+				ConfirmedAt:        &startedAt,
+				BaselinePowerW:     ptrFloat64(3000),
+			}}
+			driverName := "antminer"
+			metricsAt := r.now()
+			store.candidates = []*models.Candidate{
+				{
+					DeviceIdentifier: "miner-existing",
+					DriverName:       &driverName,
+					DeviceStatus:     "ACTIVE",
+					PairingStatus:    "PAIRED",
+					LatestMetricsAt:  &metricsAt,
+					LatestPowerW:     ptrFloat64(50),
+					LatestHashRateHS: ptrFloat64(0),
+					AvgEfficiencyJH:  ptrFloat64(40),
+				},
+				{
+					DeviceIdentifier: "miner-new",
+					DriverName:       &driverName,
+					DeviceStatus:     "ACTIVE",
+					PairingStatus:    "PAIRED",
+					LatestMetricsAt:  &metricsAt,
+					LatestPowerW:     ptrFloat64(3000),
+					LatestHashRateHS: ptrFloat64(100),
+					AvgEfficiencyJH:  ptrFloat64(40),
+				},
+			}
+
+			r.runTick(t.Context())
+
+			assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+			assert.True(t, r.now().Sub(lastCurtailBatchAt) < 20*time.Second,
+				"airflow must reopen even while topology admission pacing is active")
+			assert.Zero(t, store.claimTargetsCalls, "the target must remain unclaimed while airflow starts")
+			assert.Zero(t, store.claimAllPairedCalls)
+			assert.Zero(t, dispatcher.curtailCalls)
+			reopenedAt := *event.FanAirflowReopenedAt
+
+			r.now = func() time.Time { return reopenedAt.Add(29 * time.Second) }
+			r.runTick(t.Context())
+
+			assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+			assert.Zero(t, store.claimTargetsCalls)
+			assert.Zero(t, store.claimAllPairedCalls)
+			assert.Zero(t, dispatcher.curtailCalls)
+
+			r.now = func() time.Time { return reopenedAt.Add(30 * time.Second) }
+			r.runTick(t.Context())
+
+			assert.NotContains(t, fans.powers, driver.PowerOff,
+				"admission must not turn fans off before the new target is observed")
+			if allPaired {
+				assert.Equal(t, 1, store.claimAllPairedCalls)
+				assert.Zero(t, dispatcher.curtailCalls, "all-paired rows dispatch on the following pass")
+				r.now = func() time.Time { return reopenedAt.Add(31 * time.Second) }
+				r.runTick(t.Context())
+			} else {
+				assert.Equal(t, 1, store.claimTargetsCalls)
+			}
+
+			assert.Equal(t, 1, dispatcher.curtailCalls)
+			assert.Equal(t, []string{"miner-new"}, dispatcher.curtailLastIDs)
+		})
+	}
 }
 
 func TestReconciler_DriftRedispatchWaitsForSuccessfulFanOn(t *testing.T) {
@@ -412,6 +626,33 @@ func TestReconciler_RecurtailedPendingEventRetriesFanOnBeforeMinerDispatch(t *te
 	assert.Nil(t, event.FanLastError)
 	assert.Equal(t, &successAt, event.FanAirflowReopenedAt,
 		"successful pending recovery starts a fresh cooling delay")
+}
+
+func TestReconciler_PendingTopologyFanRecoveryPrecedesAdmissionPreflight(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	store.topologyCoverageErr = errors.New("topology unavailable")
+	event.State = models.EventStatePending
+	event.FacilityFanDeviceIDs = []int64{31}
+	fanOffAt := time.Now().Add(-time.Minute)
+	event.FanOffSentAt = &fanOffAt
+	fanError := "fan ON failed"
+	event.FanLastError = &fanError
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "topology-miner",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStatePending,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+
+	r.dispatchPending(t.Context(), event)
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Nil(t, event.FanLastError)
+	assert.Zero(t, dispatcher.curtailCalls)
 }
 
 func TestReconciler_RestoringFanTimeoutReservesTimeForMinerRestore(t *testing.T) {

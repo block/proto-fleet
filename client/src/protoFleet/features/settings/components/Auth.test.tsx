@@ -77,6 +77,42 @@ describe("AuthenticationSettings", () => {
       });
     });
 
+    it("refocuses the new password field when the user chooses to create a stronger password", async () => {
+      mockLogin.mockImplementation(({ onSuccess, onFinally }) => {
+        onSuccess(false);
+        onFinally?.();
+      });
+
+      const { getByTestId, getByLabelText, getByText, findByText, queryByText } = render(<AuthenticationSettings />);
+
+      // Click Update button for password
+      const passwordRow = getByTestId("password-row");
+      const updateButton = passwordRow.querySelector("button");
+      if (updateButton) {
+        fireEvent.click(updateButton);
+      }
+
+      // Fill password and submit authenticate step
+      await waitFor(() => {
+        const passwordInput = getByLabelText("Password");
+        fireEvent.change(passwordInput, { target: { value: "currentpass" } });
+      });
+      fireEvent.click(getByText("Confirm"));
+
+      // Submit a weak new password to trigger the warning
+      await waitFor(() => {
+        fireEvent.change(getByLabelText("New password"), { target: { value: "aaaaaaaa" } });
+      });
+      fireEvent.change(getByLabelText("Confirm password"), { target: { value: "aaaaaaaa" } });
+      fireEvent.click(getByText("Confirm"));
+
+      const returnButton = await findByText("Create a stronger password");
+      fireEvent.click(returnButton);
+
+      expect(queryByText("Create a stronger password")).not.toBeInTheDocument();
+      expect(getByLabelText("New password")).toHaveFocus();
+    });
+
     it("autofocuses the new username field in update username step", async () => {
       mockLogin.mockImplementation(({ onSuccess }) => {
         onSuccess(false);

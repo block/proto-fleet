@@ -1,6 +1,7 @@
 -- name: ListCurtailmentAutomationRulesByOrg :many
 SELECT
     r.*,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -13,6 +14,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -27,6 +30,7 @@ ORDER BY r.id;
 -- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT
     r.*,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -39,6 +43,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -50,9 +56,39 @@ LEFT JOIN curtailment_automation_rule_state st
 WHERE r.id = sqlc.arg('id')
   AND r.org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentAutomationRuleMutation :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_automation_rule:'
+            || sqlc.arg('org_id')::bigint::text
+            || ':'
+            || sqlc.arg('rule_id')::bigint::text,
+        0
+    )
+);
+
+-- name: LockCurtailmentAutomationRuleForExecution :one
+SELECT rule.id
+FROM curtailment_automation_rule AS rule
+JOIN curtailment_automation_rule_profile_revision AS rule_revision
+  ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_mqtt_source_config AS source
+  ON source.id = rule.mqtt_source_id
+ AND source.organization_id = rule.org_id
+WHERE rule.id = sqlc.arg('id')
+  AND rule.org_id = sqlc.arg('org_id')
+  AND rule.enabled = TRUE
+  AND rule.trigger_type = 'MQTT'
+  AND rule.mqtt_source_id = sqlc.arg('mqtt_source_id')
+  AND source.service_user_id = sqlc.arg('service_user_id')
+  AND rule.response_profile_id = sqlc.arg('response_profile_id')
+  AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
+FOR UPDATE OF rule, rule_revision, source;
+
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT
     r.*,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -65,6 +101,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -80,6 +118,7 @@ ORDER BY r.id;
 -- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT
     r.*,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -92,6 +131,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -162,16 +203,27 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
   )
 RETURNING *;
 
+-- name: BindCurtailmentAutomationRuleResponseProfileRevision :execrows
+UPDATE curtailment_automation_rule_profile_revision AS rule_revision
+SET response_profile_revision = sqlc.arg('response_profile_revision')
+FROM curtailment_automation_rule AS rule
+WHERE rule_revision.automation_rule_id = rule.id
+  AND rule.id = sqlc.arg('id')
+  AND rule.org_id = sqlc.arg('org_id')
+  AND rule.response_profile_id = sqlc.arg('expected_response_profile_id');
+
 -- name: SetCurtailmentAutomationRuleEnabled :one
 UPDATE curtailment_automation_rule
-SET enabled = sqlc.arg('enabled')
+SET
+    enabled = sqlc.arg('enabled')
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
   AND (
-      sqlc.arg('enabled') = TRUE
-      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
-      -- external reference, so the nil-pointer window cannot slip a disable.
-      OR NOT EXISTS (
+      sqlc.arg('enabled') = FALSE
+      OR response_profile_id = sqlc.arg('expected_response_profile_id')
+  )
+  AND (
+      NOT EXISTS (
           SELECT 1
           FROM curtailment_event e
           WHERE e.state IN ('pending', 'active', 'restoring')
@@ -188,6 +240,16 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
                     AND e.external_reference = curtailment_automation_rule.id::text
                 )
             )
+      )
+      OR (
+          sqlc.arg('enabled') = TRUE
+          AND curtailment_automation_rule.enabled = TRUE
+          AND EXISTS (
+              SELECT 1
+              FROM curtailment_automation_rule_profile_revision AS rule_revision
+              WHERE rule_revision.automation_rule_id = curtailment_automation_rule.id
+                AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
+          )
       )
   )
 RETURNING *;

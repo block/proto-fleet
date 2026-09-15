@@ -55,6 +55,11 @@ type ZoneKey struct {
 }
 
 type MinerFilter struct {
+	// SearchQuery is a case-insensitive substring matched against miner
+	// identifying fields (name, device identifier, serial, MAC, IP, worker).
+	// Name reuses the display-name sort expression, so an unnamed miner matches
+	// on its manufacturer/model fallback.
+	SearchQuery         string
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
@@ -188,7 +193,6 @@ type DeviceStore interface {
 	// Excludes soft-deleted devices, so DeleteMiners must call it before
 	// the soft-delete.
 	GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, identifiers []string) ([]*int64, error)
-	IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error)
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)

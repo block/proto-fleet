@@ -86,6 +86,7 @@ func TestCurtailmentLifecycle(t *testing.T) {
 	// the miner (over-curtail accepted per the FIXED_KW contract).
 	t.Run("Preview", func(t *testing.T) {
 		previewReq := connect.NewRequest(&curtailmentv1.PreviewCurtailmentPlanRequest{
+			ExecutionSchemaVersion: 1,
 			Scope: &curtailmentv1.PreviewCurtailmentPlanRequest_WholeOrg{
 				WholeOrg: &curtailmentv1.ScopeWholeOrg{},
 			},
@@ -111,6 +112,7 @@ func TestCurtailmentLifecycle(t *testing.T) {
 	var startedEventUUID string
 	t.Run("Start", func(t *testing.T) {
 		startReq := connect.NewRequest(&curtailmentv1.StartCurtailmentRequest{
+			ExecutionSchemaVersion: 1,
 			Scope: &curtailmentv1.StartCurtailmentRequest_WholeOrg{
 				WholeOrg: &curtailmentv1.ScopeWholeOrg{},
 			},
@@ -312,6 +314,7 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 
 	// Start a curtailment event.
 	startReq := connect.NewRequest(&curtailmentv1.StartCurtailmentRequest{
+		ExecutionSchemaVersion: 1,
 		Scope: &curtailmentv1.StartCurtailmentRequest_WholeOrg{
 			WholeOrg: &curtailmentv1.ScopeWholeOrg{},
 		},

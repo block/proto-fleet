@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/singleflight"
 
@@ -333,16 +334,6 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 					return
 				}
 				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
-				return
-			}
-
-			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
-			if err != nil {
-				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
-				return
-			}
-			if ownedByFleetNode {
-				results <- refreshResult{id: deviceID, errMsg: "fleet-node-owned miners are not supported by row refresh yet"}
 				return
 			}
 
@@ -855,7 +846,10 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			if row.SerialNumber.Valid {
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
-			if row.DeviceStatus.Valid {
+			if row.FleetNodeUnavailable {
+				snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+				snapshot.OfflineReason = pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE
+			} else if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {
@@ -1077,6 +1071,14 @@ func parseFilter(
 
 	if pbFilter == nil {
 		return filter, nil
+	}
+
+	filter.SearchQuery = strings.TrimSpace(pbFilter.SearchQuery)
+	// Rune count, not len(): the proto's string.max_len is a code-point bound, so
+	// a byte check would reject multibyte queries the contract accepts.
+	if utf8.RuneCountInString(filter.SearchQuery) > maxMinerSearchQueryLength {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"search_query exceeds maximum of %d characters", maxMinerSearchQueryLength)
 	}
 
 	if len(pbFilter.PairingStatuses) > 0 {
@@ -1381,6 +1383,8 @@ func parseCIDR(idx int, raw string) (netip.Prefix, error) {
 // firmware versions or zones; arbitrarily large arrays from a misbehaving or
 // hostile client would balloon Postgres planner cost on `= ANY($N::text[])`.
 const maxFreeFormFilterValues = 1024
+
+const maxMinerSearchQueryLength = 255
 
 // convertErrorComponentType converts a proto ComponentType to domain ComponentType.
 func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {

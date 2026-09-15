@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"math/rand"
-	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,8 +26,9 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
@@ -47,11 +49,10 @@ const (
 	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
 	// make the ack itself invalid.
 	maxAckPayloadBytes = 1 << 20
-	// commandPoolSize bounds quick per-miner commands handled concurrently by
-	// the daemon across reconnects. Discovery does not draw from this pool; it
-	// has its own process-wide exclusive slot (see runControlSession). Commands
-	// past the ceiling are acked BUSY.
-	commandPoolSize = 16
+	// These aliases keep the runtime and its tests tied to the shared server/node
+	// admission policy. Discovery retains a separate process-wide slot.
+	commandPoolSize               = fleetnodecontrol.MaxConcurrentCommandsPerFleetNode
+	deferrableReadCommandPoolSize = fleetnodecontrol.MaxConcurrentDeferrableReadsPerFleetNode
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -71,6 +72,29 @@ type discoverer interface {
 type acker interface {
 	Send(req *pb.ControlStreamRequest) error
 }
+
+type observedAcker struct {
+	inner   acker
+	ack     *pb.ControlAck
+	sendErr error
+}
+
+func (o *observedAcker) Send(req *pb.ControlStreamRequest) error {
+	err := o.inner.Send(req)
+	if ack := req.GetAck(); ack != nil {
+		o.ack = ack
+		o.sendErr = err
+	}
+	return err
+}
+
+type controlAdmissionRejectReason string
+
+const (
+	controlAdmissionRejectShared     controlAdmissionRejectReason = "shared_limit"
+	controlAdmissionRejectDeferrable controlAdmissionRejectReason = "deferrable_read_limit"
+	controlAdmissionRejectExclusive  controlAdmissionRejectReason = "exclusive_limit"
+)
 
 var errControlSenderClosed = errors.New("control session sender closed")
 
@@ -135,7 +159,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			return nil
 		}
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
-			return err
+			return operatorActionRequired(err)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			// Old server: drop to heartbeat-only instead of looping forever.
@@ -211,7 +235,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		}
 	}()
 
-	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -233,7 +259,11 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
 	}
-	logger.Info("control stream opened")
+	logger.Info("control stream opened",
+		"shared_command_limit", commandPoolSize,
+		"deferrable_read_limit", deferrableReadCommandPoolSize,
+		"reserved_general_slots", fleetnodecontrol.ReservedGeneralCommandSlotsPerFleetNode,
+	)
 
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
@@ -248,12 +278,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		sender.Close()
 	}()
 
-	// Two process-wide lanes owned by RunCmd:
+	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
 	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
 	//     doubling the load.
-	//   - quick per-miner commands use a broader pool, so they run concurrently and a
-	//     long discovery never head-of-line-blocks them.
+	//   - ordinary commands share a broader pool, so they run concurrently and a
+	//     long discovery never head-of-line-blocks them. Selected deferrable reads
+	//     also draw from a smaller pool so they cannot consume every ordinary slot.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
 	for {
@@ -280,22 +311,50 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		slot := r.controlCommandSlots
-		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
-			slot = r.controlDiscoverySlot
-		}
-		select {
-		case slot <- struct{}{}:
+		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
+		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
+		if acquired {
 			r.controlWorkers.Add(1)
-			// All loop-scoped values the handler needs are passed as arguments,
-			// including the acquired lane, so each goroutine releases the same lane.
-			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
+			// All loop-scoped values the handler needs are passed as arguments so each
+			// goroutine releases exactly the permits acquired for that command class.
+			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
 				defer r.controlWorkers.Done()
-				defer func() { <-lane }()
-				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
-			}(cmd, env, parseErr, slot)
-		default:
-			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
+				started := time.Now()
+				workerAcker := &observedAcker{inner: sender}
+				defer func() {
+					release()
+					sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
+					attrs := []any{
+						"command_id", c.GetCommandId(),
+						"command_kind", kind,
+						"admission_class", class,
+						"duration_ms", time.Since(started).Milliseconds(),
+						"shared_active", sharedActive,
+						"deferrable_read_active", deferrableActive,
+						"exclusive_active", exclusiveActive,
+					}
+					if workerAcker.ack != nil {
+						attrs = append(attrs,
+							"ack_code", workerAcker.ack.GetCode(),
+							"ack_succeeded", workerAcker.ack.GetSucceeded(),
+							"ack_send_failed", workerAcker.sendErr != nil,
+						)
+					}
+					logger.Debug("control command completed", attrs...)
+				}()
+				r.handleCommand(sessionCtx, client, workerAcker, c, e, pErr, logger)
+			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
+		} else {
+			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
+			logger.Warn("agent at capacity; rejecting command",
+				"command_id", cmd.GetCommandId(),
+				"command_kind", commandKind,
+				"admission_class", admissionClass,
+				"rejection_reason", rejectReason,
+				"shared_active", sharedActive,
+				"deferrable_read_active", deferrableActive,
+				"exclusive_active", exclusiveActive,
+			)
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
 	}
@@ -331,9 +390,53 @@ func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State
 func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	env := &pb.AgentCommand{}
 	if err := proto.Unmarshal(payload, env); err != nil {
-		return nil, fmt.Errorf("decode AgentCommand: %w", err)
+		return nil, fmt.Errorf("decode server-to-node command envelope: %w", err)
 	}
 	return env, nil
+}
+
+func (r *RunCmd) tryAcquireControlCommandSlot(admissionClass controlCommandAdmissionClass) (func(), bool) {
+	release, _, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
+	return release, acquired
+}
+
+func (r *RunCmd) tryAcquireControlCommandSlotDetailed(admissionClass controlCommandAdmissionClass) (func(), controlAdmissionRejectReason, bool) {
+	if admissionClass == controlCommandAdmissionExclusive {
+		if !tryAcquireControlSlot(r.controlDiscoverySlot) {
+			return nil, controlAdmissionRejectExclusive, false
+		}
+		return func() { <-r.controlDiscoverySlot }, "", true
+	}
+	if admissionClass == controlCommandAdmissionDeferrableRead {
+		if !tryAcquireControlSlot(r.controlDeferrableReadSlots) {
+			return nil, controlAdmissionRejectDeferrable, false
+		}
+		if !tryAcquireControlSlot(r.controlCommandSlots) {
+			<-r.controlDeferrableReadSlots
+			return nil, controlAdmissionRejectShared, false
+		}
+		return func() {
+			<-r.controlCommandSlots
+			<-r.controlDeferrableReadSlots
+		}, "", true
+	}
+	if !tryAcquireControlSlot(r.controlCommandSlots) {
+		return nil, controlAdmissionRejectShared, false
+	}
+	return func() { <-r.controlCommandSlots }, "", true
+}
+
+func (r *RunCmd) controlSlotOccupancy() (shared, deferrable, exclusive int) {
+	return len(r.controlCommandSlots), len(r.controlDeferrableReadSlots), len(r.controlDiscoverySlot)
+}
+
+func tryAcquireControlSlot(slot chan struct{}) bool {
+	select {
+	case slot <- struct{}{}:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pb.AgentCommand, parseErr error, logger *slog.Logger) {
@@ -348,7 +451,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid ControlCommand: %v", vErr), logger)
 		return
 	}
-	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
+	logger.Debug("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
 	if parseErr != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, parseErr.Error(), logger)
@@ -364,7 +467,11 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	case *pb.AgentCommand_Telemetry:
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
+		if len(env.ProtoReflect().GetUnknown()) > 0 {
+			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
+			return
+		}
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "server-to-node command envelope has no recognized command type", logger)
 	}
 }
 
@@ -374,31 +481,38 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	reports, truncated, err := r.discoverForCommand(cmdCtx, req, logger)
-	if err != nil {
-		code := pb.AckCode_ACK_CODE_INTERNAL
-		var ce *commandError
-		if errors.As(err, &ce) {
-			code = ce.code
-		}
-		r.sendAck(stream, commandID, code, err.Error(), logger)
-		return
-	}
-	// Stream on parent ctx, not cmdCtx: if the scan hit commandTimeout,
-	// cmdCtx is dead and partial reports would never upload. Each batch is
-	// still bounded by discoveryReportTimeout.
+	reports, truncated, scanErr := r.discoverForCommand(cmdCtx, req, logger)
+	// Completed identification survives a late scan failure or deadline. Upload
+	// on the live parent context, with one budget for the whole final phase.
 	if err := r.streamReports(ctx, client, commandID, reports, logger); err != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_REPORT_FAILED, err.Error(), logger)
 		return
 	}
+	if scanErr != nil && !errors.Is(scanErr, context.DeadlineExceeded) && !errors.Is(scanErr, context.Canceled) {
+		code := pb.AckCode_ACK_CODE_SCAN_FAILED
+		var ce *commandError
+		if errors.As(scanErr, &ce) {
+			code = ce.code
+		}
+		r.sendAck(stream, commandID, code, scanErr.Error(), logger)
+		return
+	}
 	// Two PARTIAL sources: cmdCtx deadline (commandTimeout) or fanOutProbes
 	// supervisor (a probe ignored ctx). Either way reports already uploaded.
-	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports)), logger)
+	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) || errors.Is(scanErr, context.DeadlineExceeded) {
+		message := fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports))
+		if req.GetNmap() != nil {
+			message += ". Retry to check other addresses, or narrow the range."
+		}
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, message, logger)
 		return
 	}
 	if truncated {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("probe supervisor budget exceeded; %d report(s) uploaded, some endpoints not probed", len(reports)), logger)
+		return
+	}
+	if errors.Is(scanErr, context.Canceled) {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan canceled; %d report(s) uploaded", len(reports)), logger)
 		return
 	}
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
@@ -421,37 +535,49 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if err != nil {
 			return nil, false, err
 		}
-		normalized := make([]string, 0, len(ips))
+		normalized := make([]netip.Addr, 0, len(ips))
+		seen := make(map[netip.Addr]struct{}, len(ips))
 		for _, raw := range ips {
-			n, err := netutil.NormalizeIPListEntry(ctx, raw, net.DefaultResolver)
+			addr, err := netscan.ResolveAddr(ctx, raw, r.resolver, true)
 			if err != nil {
+				if ctx.Err() != nil {
+					return nil, false, fmt.Errorf("resolve IP list: %w", ctx.Err())
+				}
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
 			}
-			normalized = append(normalized, n)
+			if _, duplicate := seen[addr]; !duplicate {
+				seen[addr] = struct{}{}
+				normalized = append(normalized, addr)
+			}
 		}
 		if len(normalized) == 0 {
-			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		reports, truncated := r.probeIPsAndPorts(ctx, normalized, ports, logger)
-		return reports, truncated, nil
+		return r.probeTargets(ctx, slices.Values(normalized), ports, logger)
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpRange.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		ips, err := expandIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp(), maxIPsPerCommand)
+		target, err := netscan.Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
 		if err != nil {
-			return nil, false, err
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 		}
-		reports, truncated := r.probeIPsAndPorts(ctx, ips, ports, logger)
-		return reports, truncated, nil
+		if target.Count() > maxIPsPerCommand {
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
+		}
+		return r.probeTargets(ctx, target.Addresses(), ports, logger)
 	case *pairingpb.DiscoverRequest_Nmap:
 		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		return r.runNmapDiscovery(ctx, m.Nmap, ports, logger)
+		targets, err := r.networkScanTargets(ctx, m.Nmap)
+		if err != nil {
+			return nil, false, err
+		}
+		return r.scanAndProbe(ctx, targets, ports, logger)
 	case *pairingpb.DiscoverRequest_Mdns:
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "mdns mode is not supported on the fleet node agent")
 	default:
@@ -459,95 +585,29 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 	}
 }
 
-func (r *RunCmd) probeIPsAndPorts(ctx context.Context, ips []string, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
-	endpoints := make([]endpoint, 0, len(ips)*len(ports))
-	for _, ip := range ips {
-		for _, port := range ports {
-			endpoints = append(endpoints, endpoint{ip: ip, port: port})
-		}
+func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]uint16, error) {
+	var defaults []string
+	if len(supplied) == 0 {
+		defaults = r.discoverer.DefaultDiscoveryPorts(ctx)
 	}
-	return fanOutProbes(ctx, endpoints, probeConcurrency, r.discoverer.Probe, logger)
-}
-
-// Single decimal port only; range/comma syntax would let one entry bypass
-// maxPortsPerIP. Plugin defaults pass through the same validator.
-func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]string, error) {
-	ports := supplied
-	if len(ports) == 0 {
-		ports = r.discoverer.DefaultDiscoveryPorts(ctx)
-	}
-	if len(ports) == 0 {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ports must be non-empty (no defaults available)")
-	}
-	if len(ports) > maxPortsPerIP {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
-	}
-	// Emit canonical form so "+80"/"080" don't reach the gateway's ^[1-9][0-9]*$ check.
-	seen := make(map[string]struct{}, len(ports))
-	out := make([]string, 0, len(ports))
-	for _, p := range ports {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 1 || n > 65535 {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid port %q: must be decimal 1-65535 (ranges, commas, and protocol prefixes are not allowed)", p)
-		}
-		canonical := strconv.Itoa(n)
-		if _, dup := seen[canonical]; dup {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		out = append(out, canonical)
-	}
-	return out, nil
-}
-
-// Skips .0/.1 at the range start to match server's DiscoverWithIPRange,
-// except inside 127.0.0.0/8 where dev fixtures bind.
-func expandIPv4Range(startStr, endStr string, maxCount int) ([]string, error) {
-	startAddr, err := netutil.ParseIPv4(startStr)
+	ports, err := netscan.Ports(supplied, defaults)
 	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "start_ip %q: %s", startStr, err)
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
-	endAddr, err := netutil.ParseIPv4(endStr)
-	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "end_ip %q: %s", endStr, err)
-	}
-	startU := netutil.IPv4ToUint32(startAddr)
-	endU := netutil.IPv4ToUint32(endAddr)
-	if endU < startU {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "end_ip %q must be >= start_ip %q", endStr, startStr)
-	}
-	startU = netutil.AdjustIPv4RangeStart(startU)
-	if endU < startU {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "range %q-%q only covers network/gateway addresses", startStr, endStr)
-	}
-	size := int(endU - startU + 1)
-	if size > maxCount {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", size, maxCount)
-	}
-	out := make([]string, 0, size)
-	for v := startU; ; v++ {
-		out = append(out, netutil.Uint32ToIPv4(v))
-		if v == endU {
-			break
-		}
-	}
-	return out, nil
+	return ports, nil
 }
 
 // Returns (reports, truncated). Supervisor caps wg.Wait at perProbeTimeout*2
 // so a plugin Probe that ignores ctx can't pin the agent; truncated=true
 // lets the caller ack PARTIAL.
-func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
-	if len(endpoints) == 0 {
-		return nil, false
-	}
+func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	var (
 		mu      sync.Mutex
 		reports []*pb.DiscoveredDeviceReport
 		wg      sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
-	for _, e := range endpoints {
+	for e := range endpoints {
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
@@ -620,13 +680,13 @@ func waitSupervisor[T any](wg *sync.WaitGroup, mu *sync.Mutex, results *[]T, max
 }
 
 func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, commandID string, reports []*pb.DiscoveredDeviceReport, logger *slog.Logger) error {
+	callCtx, cancel := context.WithTimeout(ctx, discoveryReportTimeout)
+	defer cancel()
 	for chunk := range slices.Chunk(reports, maxDevicesPerReport) {
-		callCtx, cancel := context.WithTimeout(ctx, discoveryReportTimeout)
 		_, err := client.ReportDiscoveredDevices(callCtx, connect.NewRequest(&pb.ReportDiscoveredDevicesRequest{
 			CommandId: commandID,
 			Devices:   chunk,
 		}))
-		cancel()
 		if err != nil {
 			logger.Error("report failed", "command_id", commandID, "err", err)
 			return fmt.Errorf("report devices: %w", err)

@@ -795,20 +795,25 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
 			break
 		}
-		reader, info, openErr := es.filesService.OpenFirmwareFileWithInfo(p.FirmwareFileID)
+		// Keep the resolved path available while plugins reopen it or a Fleet
+		// Node downloads the exact ID. A saved checksum remains authoritative
+		// if the enqueue-time upload was replaced while this command waited.
+		reader, info, openErr := es.filesService.OpenFirmwareFileForExecution(p.FirmwareFileID, p.FirmwareChecksum)
 		if openErr != nil {
 			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
 			break
 		}
-		defer reader.Close()
-		err = minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
-			Reader:   reader,
-			ID:       info.ID,
-			Filename: info.Filename,
-			Size:     info.Size,
-			SHA256:   info.SHA256,
-			FilePath: info.FilePath,
-		})
+		err = func() error {
+			defer reader.Close()
+			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
+				Reader:   reader,
+				ID:       info.ID,
+				Filename: info.Filename,
+				Size:     info.Size,
+				SHA256:   info.SHA256,
+				FilePath: info.FilePath,
+			})
+		}()
 		if err != nil {
 			break
 		}

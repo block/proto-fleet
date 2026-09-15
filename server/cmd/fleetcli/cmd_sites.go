@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	sitesv1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/urfave/cli/v3"
@@ -229,9 +230,21 @@ func generatedSitesCommand() *cli.Command {
 				"List sites",
 				"/sites.v1.SiteService/ListSites",
 				generatedAuthAuthenticated,
-				[]cli.Flag{},
+				[]cli.Flag{
+					&cli.StringFlag{Name: "maintenance-options-scope", Usage: "maintenance options scope. Valid options: read, manage"},
+				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.ListSitesRequest{}
+					if cmd.IsSet("maintenance-options-scope") {
+						switch normalizeEnum(cmd.String("maintenance-options-scope")) {
+						case "read":
+							req.MaintenanceOptionsScope = sitesv1.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_READ
+						case "manage":
+							req.MaintenanceOptionsScope = sitesv1.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_MANAGE
+						default:
+							return nil, fmt.Errorf("invalid value for maintenance-options-scope: %s. Valid options: read, manage", cmd.String("maintenance-options-scope"))
+						}
+					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}

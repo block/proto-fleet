@@ -110,4 +110,21 @@ describe("Authentication", () => {
       expect(usernameInput).toHaveValue("newuser");
     });
   });
+
+  describe("weak password warning", () => {
+    it("refocuses the password input when the user chooses to create a stronger password", async () => {
+      const { getByLabelText, getByText, findByText, queryByText } = render(<Authentication {...defaultProps} />);
+
+      fireEvent.change(getByLabelText("Username"), { target: { value: "testuser" } });
+      fireEvent.change(getByLabelText("Password"), { target: { value: "aaaaaaaa" } });
+      fireEvent.change(getByLabelText("Confirm password"), { target: { value: "aaaaaaaa" } });
+      fireEvent.click(getByText("Continue"));
+
+      const returnButton = await findByText("Create a stronger password");
+      fireEvent.click(returnButton);
+
+      expect(queryByText("Create a stronger password")).not.toBeInTheDocument();
+      expect(getByLabelText("Password")).toHaveFocus();
+    });
+  });
 });

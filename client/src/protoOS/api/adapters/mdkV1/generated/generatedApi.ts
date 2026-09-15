@@ -107,12 +107,12 @@ export interface AsicTelemetry {
 export interface AuthTokens {
   /**
    * JWT access token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   access_token: string;
   /**
    * JWT refresh token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   refresh_token: string;
 }
@@ -1789,7 +1789,7 @@ export interface PsusInfo {
 export interface RefreshRequest {
   /**
    * The JWT refresh token to be validated.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   refresh_token: string;
 }
@@ -1798,7 +1798,7 @@ export interface RefreshRequest {
 export interface RefreshResponse {
   /**
    * A new JWT access token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   access_token: string;
 }

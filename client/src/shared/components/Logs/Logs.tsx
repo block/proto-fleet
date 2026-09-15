@@ -300,7 +300,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
                   className="bg-surface-base!"
                   onChange={setSearchValue}
                   initValue={searchValue}
-                  compact
+                  variant="toolbar"
                   shouldFocus={focusSearch}
                 />
               </div>

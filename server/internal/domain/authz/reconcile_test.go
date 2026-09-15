@@ -72,6 +72,8 @@ func TestReconcile_FreshInstall_FieldTechHasExactSeedSet(t *testing.T) {
 	got := orgRolePermissionKeys(t, db, orgID, "FIELD_TECH")
 	want := []string{
 		authz.PermFleetRead,
+		authz.PermMaintenanceManage,
+		authz.PermMaintenanceRead,
 		authz.PermMinerBlinkLED,
 		authz.PermMinerDownloadLogs,
 		authz.PermMinerRead,

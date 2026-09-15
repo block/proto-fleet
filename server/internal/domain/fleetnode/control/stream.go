@@ -22,34 +22,41 @@ type Stream struct {
 
 // Register installs a connection for fleetNodeID, newest-wins: any existing one
 // is evicted via teardown, so its handler wakes on Done and its deferred
-// Unregister no-ops by pointer identity.
+// Unregister no-ops by pointer identity. It records the current command protocol
+// for in-process callers; production streams use RegisterAuthenticated.
 func (r *Registry) Register(fleetNodeID int64) *Stream {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.registerLocked(fleetNodeID)
+	return r.registerLocked(fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
 }
 
 // RegisterAuthenticated installs a connection only if its bearer session has
 // not been replaced or revoked since authentication. A missing fence is valid:
 // the database-backed authentication check is authoritative after process start.
-func (r *Registry) RegisterAuthenticated(fleetNodeID int64, sessionFingerprint string) (*Stream, error) {
+// maxCommandProtocolVersion comes from ControlHello; zero identifies legacy nodes.
+func (r *Registry) RegisterAuthenticated(
+	fleetNodeID int64,
+	sessionFingerprint string,
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+) (*Stream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fence, exists := r.sessionFences[fleetNodeID]
 	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
 		return nil, errSessionInvalidated
 	}
-	return r.registerLocked(fleetNodeID), nil
+	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion), nil
 }
 
-func (r *Registry) registerLocked(fleetNodeID int64) *Stream {
+func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
 	conn := &connection{
-		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
-		done:     make(chan struct{}),
-		cmds:     make(map[string]*inflightCommand),
+		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:                      make(chan struct{}),
+		cmds:                      make(map[string]*inflightCommand),
+		maxCommandProtocolVersion: maxCommandProtocolVersion,
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}

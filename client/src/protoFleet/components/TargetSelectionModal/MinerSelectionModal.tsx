@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerSelectionList, {
@@ -46,6 +46,30 @@ const MinerSelectionModal = ({
     totalMiners: undefined,
   });
 
+  // MinerSelectionList notifies from an effect keyed on this callback, so it
+  // must keep its identity across renders or every notification re-renders
+  // the modal, hands the list a new callback, and re-fires the effect.
+  const handleSelectionChange = useCallback(
+    ({
+      selectedItems,
+      allSelected,
+      totalMiners,
+    }: {
+      selectedItems: string[];
+      allSelected: boolean;
+      totalMiners?: number;
+    }) =>
+      setDraftSelection((prev) =>
+        prev.allSelected === allSelected &&
+        prev.totalMiners === totalMiners &&
+        prev.selectedMinerIds.length === selectedItems.length &&
+        prev.selectedMinerIds.every((id, i) => id === selectedItems[i])
+          ? prev
+          : { selectedMinerIds: selectedItems, allSelected, totalMiners },
+      ),
+    [],
+  );
+
   if (!open) {
     return null;
   }
@@ -92,9 +116,7 @@ const MinerSelectionModal = ({
           disableFilteredSelectAll
           scope={scope}
           filterConfig={filterConfig}
-          onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>
-            setDraftSelection({ selectedMinerIds: selectedItems, allSelected, totalMiners })
-          }
+          onSelectionChange={handleSelectionChange}
         />
       </div>
     </Modal>

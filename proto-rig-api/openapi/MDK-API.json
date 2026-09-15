@@ -1270,17 +1270,8 @@
           "200": {
             "description": "The mining device has successfully started system update check."
           },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "422": {
-            "$ref": "#/components/responses/UnprocessableEntity"
-          },
           "409": {
             "$ref": "#/components/responses/UpdateAlreadyInProgress"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -4437,12 +4428,12 @@
           "refresh_token": {
             "type": "string",
             "description": "JWT refresh token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           },
           "access_token": {
             "type": "string",
             "description": "JWT access token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [
@@ -4457,7 +4448,7 @@
           "refresh_token": {
             "type": "string",
             "description": "The JWT refresh token to be validated.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [
@@ -4471,7 +4462,7 @@
           "access_token": {
             "type": "string",
             "description": "A new JWT access token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [

@@ -1,7 +1,11 @@
 import { ReactNode, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
@@ -56,6 +60,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
+  const isUnavailable = miner.offlineReason === DeviceOfflineReason.FLEET_NODE_UNAVAILABLE;
 
   const needsAttention = useNeedsAttention(
     needsRemediation,
@@ -94,6 +99,15 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
         <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
         <ProgressCircular size={14} indeterminate />
         <span className="text-text-primary-50">Refreshing</span>
+      </StatusWrapper>
+    );
+  }
+
+  if (isUnavailable) {
+    return (
+      <StatusWrapper onClick={onClick}>
+        <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        Unavailable
       </StatusWrapper>
     );
   }

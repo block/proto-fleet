@@ -10,6 +10,8 @@ describe("formatLabel", () => {
     expect(formatLabel("site.created")).toBe("Created site");
     expect(formatLabel("devices.reassigned_to_site")).toBe("Reassigned miners to site");
     expect(formatLabel("cli_reset_password")).toBe("Break-glass password reset");
+    expect(formatLabel("maintenance.ticket_created")).toBe("Created repair ticket");
+    expect(formatLabel("inventory.parts_imported")).toBe("Imported inventory parts");
   });
 
   it("formats completed event types using the base event label", () => {
@@ -26,6 +28,8 @@ describe("formatLabel", () => {
     expect(formatActivityFilterLabel("site.created")).toBe("Create site");
     expect(formatActivityFilterLabel("set_power_target.completed")).toBe("Update power target");
     expect(formatActivityFilterLabel("cli_reset_password")).toBe("Break-glass password reset");
+    expect(formatActivityFilterLabel("maintenance.ticket_bulk_update")).toBe("Bulk update repair tickets");
+    expect(formatActivityFilterLabel("inventory.part_updated")).toBe("Update inventory part");
   });
 
   it("keeps curtailment lifecycle filter labels distinct from curtail commands", () => {

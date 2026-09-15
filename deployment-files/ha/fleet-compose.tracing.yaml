@@ -1,0 +1,13 @@
+services:
+  fleet-api:
+    # Tracing is best-effort in HA and must not gate control-plane startup.
+    depends_on: !reset []
+
+  otel-collector:
+    # Pin the verified multi-architecture manifest because HA release installs
+    # pull this sidecar outside the checksummed release archive.
+    image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0
+    ports:
+      - "127.0.0.1:13133:13133"
+    # Let systemd reapply the HA start gate after Docker restarts.
+    restart: on-failure

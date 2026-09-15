@@ -16,6 +16,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -56,6 +58,28 @@ var ProcedurePermissions = map[string]string{
 	activityv1connect.ActivityServiceListActivitiesProcedure:            authz.PermActivityRead,
 	activityv1connect.ActivityServiceExportActivitiesProcedure:          authz.PermActivityRead,
 	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: authz.PermActivityRead,
+
+	maintenancev1connect.MaintenanceServiceListRepairTicketsProcedure:       authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetRepairTicketProcedure:         authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListTicketCommentsProcedure:      authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListCompletedTicketsProcedure:    authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListAssigneesProcedure:           authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetTicketStatsProcedure:          authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceCreateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceUpdateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceBulkUpdateRepairTicketsProcedure: authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceCreateTicketCommentProcedure:     authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceDeleteTicketCommentProcedure:     authz.PermMaintenanceManage,
+
+	inventoryv1connect.InventoryServiceListInventoryPartsProcedure:     authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryPartProcedure:       authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryInsightsProcedure:   authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceListPartsBySiteProcedure:        authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceCreateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceUpdateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceDeleteInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceImportInventoryCsvProcedure:     authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceConfirmInventoryImportProcedure: authz.PermMaintenanceManage,
 
 	// API key management — gated by RequirePermission(PermAPIKeyManage).
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,
@@ -238,6 +262,8 @@ var ProcedurePermissions = map[string]string{
 
 	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
 	// manage for everything that mutates fleet-node state or triggers a scan.
+	// ListFleetNodes also permits fleetnode:manage and miner:pair because Add
+	// Miners uses a redacted projection to report degraded remote coverage.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:           authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:                 authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:               authz.PermFleetnodeManage,
@@ -247,8 +273,8 @@ var ProcedurePermissions = map[string]string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:           authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:            authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDiscoveredDevicesProcedure: authz.PermFleetnodeRead,
-	// Pairing miners requires both miner:pair (primary gate, matches all other
-	// miner onboarding paths) and fleetnode:manage (inline handler check below).
+	// Pairing through the Fleet Node admin flow requires miner:pair here and
+	// fleetnode:manage in the handler.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: authz.PermMinerPair,
 
 	// ForemanImportService — bulk miner import flow. Gated on
@@ -350,6 +376,8 @@ var ProcedurePermissions = map[string]string{
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
+	// ListSites also accepts maintenance:read inline because maintenance forms
+	// need site IDs and names; this entry records the endpoint's primary gate.
 	sitesv1connect.SiteServiceListSitesProcedure: authz.PermSiteRead,
 	// CreateSite optionally seeds buildings + racks + devices atomically (#559).
 	// This site:manage entry is the primary gate; when the caller opts into

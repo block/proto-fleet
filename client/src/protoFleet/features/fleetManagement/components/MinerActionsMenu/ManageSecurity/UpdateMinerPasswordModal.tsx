@@ -26,6 +26,10 @@ const UpdateMinerPasswordModal = ({
   const [score, setScore] = useState(0);
   const [validationError, setValidationError] = useState("");
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
+  // The modal subtree unmounts while the weak-password warning is shown, so the
+  // new password field can't be focused via a ref when the user returns.
+  // Instead, hand it the autoFocus when the modal remounts.
+  const [refocusNewPassword, setRefocusNewPassword] = useState(false);
 
   // Reset form when modal is dismissed
   const [prevOpen, setPrevOpen] = useState(open);
@@ -38,6 +42,7 @@ const UpdateMinerPasswordModal = ({
       setScore(0);
       setValidationError("");
       setShowWeakPasswordWarning(false);
+      setRefocusNewPassword(false);
     }
   }
 
@@ -104,7 +109,13 @@ const UpdateMinerPasswordModal = ({
   // Conditionally render one modal at a time for proper animations
   if (showWeakPasswordWarning) {
     return (
-      <WeakPasswordWarning onReturn={() => setShowWeakPasswordWarning(false)} onContinue={() => handleConfirm(true)} />
+      <WeakPasswordWarning
+        onReturn={() => {
+          setShowWeakPasswordWarning(false);
+          setRefocusNewPassword(true);
+        }}
+        onContinue={() => handleConfirm(true)}
+      />
     );
   }
 
@@ -134,12 +145,17 @@ const UpdateMinerPasswordModal = ({
       ) : null}
 
       <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
+        {/* initValue re-seeds the inputs from retained state when the modal
+            remounts after the weak-password warning; without it the fields
+            render empty while the state (and the enabled Continue button)
+            still hold the previously typed values. */}
         <Input
           id="currentPassword"
           label="Current miner password"
           type="password"
+          initValue={currentPassword}
           onChange={(value) => setCurrentPassword(value)}
-          autoFocus
+          autoFocus={!refocusNewPassword}
         />
 
         <div className="flex flex-col gap-2">
@@ -147,7 +163,9 @@ const UpdateMinerPasswordModal = ({
             id="newPassword"
             label="New miner password"
             type="password"
+            initValue={newPassword}
             onChange={(value) => setNewPassword(value)}
+            autoFocus={refocusNewPassword}
           />
           {!hasThirdPartyMiners ? (
             <div className="flex items-center justify-between gap-5">
@@ -161,6 +179,7 @@ const UpdateMinerPasswordModal = ({
           id="confirmPassword"
           label="Confirm new miner password"
           type="password"
+          initValue={confirmPassword}
           onChange={(value) => setConfirmPassword(value)}
         />
       </div>

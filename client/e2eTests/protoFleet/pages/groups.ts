@@ -151,6 +151,29 @@ export class GroupsPage extends BasePage {
     await this.modalMinerList.selectRowByCellText("ipAddress", ipAddress);
   }
 
+  async createGroupWithMiners(groupName: string, minerIps: readonly string[]): Promise<bigint> {
+    await this.navigateToGroupsPage();
+    await this.clickAddGroupButton();
+    await this.inputGroupName(groupName);
+    await this.waitForModalListToLoad();
+    for (const minerIp of minerIps) {
+      await this.selectMinerByIp(minerIp);
+    }
+
+    const responsePromise = this.page.waitForResponse(/CreateDeviceSet/);
+    await this.clickSaveInModal();
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    const responseBody = (await response.json()) as { deviceSet?: { id?: string } };
+    const groupId = responseBody.deviceSet?.id;
+    if (!groupId) {
+      throw new Error(`CreateDeviceSet did not return an id for group "${groupName}".`);
+    }
+
+    await this.validateSavedGroupVisible(groupName);
+    return BigInt(groupId);
+  }
+
   async validateMinerGroupsByIp(ipAddress: string, expectedGroups: string) {
     const groupCell = this.page
       .getByTestId("modal")

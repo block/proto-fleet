@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
@@ -30,7 +32,8 @@ func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
-		CanUseAdminControls: true,
+		CanUseAdminControls:             true,
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.NoError(t, err)
@@ -39,8 +42,10 @@ func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
 	assert.Equal(t, models.AutomationTriggerTypeMQTT, created.TriggerType)
 	assert.Equal(t, h.source.ID, created.MQTTSourceID)
 	assert.Equal(t, h.profile.ID, created.ResponseProfileID)
+	assert.Equal(t, h.profile.Revision, created.ResponseProfileRevision)
 	require.NotNil(t, h.rules.created)
 	assert.Equal(t, "MaestroOS curtailment", h.rules.created.RuleName)
+	assert.Equal(t, h.profile.Revision, h.rules.created.ResponseProfileRevision)
 }
 
 func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
@@ -61,6 +66,7 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.Error(t, err)
@@ -84,6 +90,7 @@ func TestAutomationService_CreateRejectsUnsupportedTriggerType(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.Error(t, err)
@@ -142,6 +149,7 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 					MQTTSourceID:      h.source.ID,
 					ResponseProfileID: h.profile.ID,
 				},
+				ExpectedResponseProfileRevision: h.profile.Revision,
 			})
 
 			require.Error(t, err)
@@ -165,7 +173,8 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
-		CanUseAdminControls: true,
+		CanUseAdminControls:             true,
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.NoError(t, err)
@@ -173,7 +182,107 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	assert.Equal(t, 1, h.rules.createCalls)
 }
 
-func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testing.T) {
+func TestAutomationService_CreateRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+
+	_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "MaestroOS curtailment",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+		CanUseAdminControls:             true,
+		ExpectedResponseProfileRevision: uuid.New(),
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "response profile changed")
+	assert.Equal(t, 0, h.rules.createCalls)
+}
+
+func TestAutomationService_AllowsTopologyProfileAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantName string
+		run      func(*automationHarness) (*models.AutomationRule, error)
+	}{
+		{
+			name:     "create",
+			wantName: "Topology automation",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				return h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
+				})
+			},
+		},
+		{
+			name:     "update",
+			wantName: "Topology automation",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				return h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
+				})
+			},
+		},
+		{
+			name:     "enable",
+			wantName: "MaestroOS curtailment",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				h.rule.Enabled = false
+				return h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					h.profile.Revision,
+					true,
+					models.ResponseProfileFanSettings{},
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.SiteID = nil
+			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+
+			updated, err := tt.run(h)
+
+			require.NoError(t, err)
+			require.NotNil(t, updated)
+			assert.Equal(t, tt.wantName, updated.RuleName)
+			assert.Equal(t, h.profile.ID, updated.ResponseProfileID)
+			assert.Equal(t, h.profile.Revision, updated.ResponseProfileRevision)
+		})
+	}
+}
+
+func TestAutomationService_RejectsUnavailableTopologyProfile(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -190,7 +299,8 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 						MQTTSourceID:      h.source.ID,
 						ResponseProfileID: h.profile.ID,
 					},
-					CanUseAdminControls: true,
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
 				})
 				return err
 			},
@@ -206,7 +316,8 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 						MQTTSourceID:      h.source.ID,
 						ResponseProfileID: h.profile.ID,
 					},
-					CanUseAdminControls: true,
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
 				})
 				return err
 			},
@@ -220,10 +331,20 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 					h.orgID,
 					h.rule.ID,
 					true,
+					h.profile.Revision,
 					true,
 					models.ResponseProfileFanSettings{},
 				)
 				return err
+			},
+		},
+		{
+			name: "execute",
+			run: func(h *automationHarness) error {
+				return h.automation.HandleMQTTSignal(h.t.Context(), mqttingest.SignalEdge{
+					Source: h.source,
+					Target: mqttingest.TargetOff,
+				})
 			},
 		},
 	}
@@ -235,14 +356,21 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 			h := newAutomationHarness(t)
 			h.profile.SiteID = nil
 			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+			topologyErr := fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
+			if tt.name == "execute" {
+				h.curtailments.topologyCoverageErr = topologyErr
+			} else {
+				h.profiles.topologyCoverageErr = topologyErr
+			}
 
 			err := tt.run(h)
 
 			require.Error(t, err)
-			assert.True(t, fleeterror.IsFailedPreconditionError(err))
-			assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
-			assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+			assert.True(t, fleeterror.IsNotFoundError(err))
 			assert.Equal(t, 0, h.rules.createCalls)
+			assert.Equal(t, 0, h.rules.updateCalls)
+			assert.Equal(t, 0, h.rules.setEnabledCalls)
+			assert.Equal(t, 0, h.curtailments.insertEventCalls)
 		})
 	}
 }
@@ -266,6 +394,7 @@ func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *te
 						ResponseProfileID: h.profile.ID,
 					},
 					CanUseAdminControls:                true,
+					ExpectedResponseProfileRevision:    h.profile.Revision,
 					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
 				})
 				return err
@@ -286,6 +415,7 @@ func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *te
 						ResponseProfileID: h.profile.ID,
 					},
 					CanUseAdminControls:                true,
+					ExpectedResponseProfileRevision:    h.profile.Revision,
 					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
 				})
 				return err
@@ -303,6 +433,7 @@ func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *te
 					h.orgID,
 					h.rule.ID,
 					true,
+					h.profile.Revision,
 					true,
 					responseProfileFanSettings(h.profile),
 				)
@@ -349,6 +480,7 @@ func TestAutomationService_CreateRejectsStaleFacilityFanSnapshot(t *testing.T) {
 			ResponseProfileID: h.profile.ID,
 		},
 		CanUseAdminControls:                true,
+		ExpectedResponseProfileRevision:    h.profile.Revision,
 		ExpectedResponseProfileFanSettings: models.ResponseProfileFanSettings{},
 	})
 
@@ -372,6 +504,7 @@ func TestAutomationService_UpdateRejectsAdminOnlyProfileWithoutAdminControls(t *
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.Error(t, err)
@@ -393,7 +526,8 @@ func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
-		CanUseAdminControls: true,
+		CanUseAdminControls:             true,
+		ExpectedResponseProfileRevision: h.profile.Revision,
 	})
 
 	require.Error(t, err)
@@ -408,7 +542,9 @@ func TestAutomationService_SetEnabledRejectsDisableWhenRuleOwnsActiveEvent(t *te
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateRestoring)
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
+	_, err := h.automation.SetEnabled(
+		t.Context(), h.orgID, h.rule.ID, false, uuid.Nil, false, models.ResponseProfileFanSettings{},
+	)
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -424,10 +560,28 @@ func TestAutomationService_SetEnabledRejectsAdminOnlyProfileWithoutAdminControls
 	h.profile.IncludeMaintenance = true
 	h.profile.ForceIncludeMaintenance = true
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false, models.ResponseProfileFanSettings{})
+	_, err := h.automation.SetEnabled(
+		t.Context(), h.orgID, h.rule.ID, true, h.profile.Revision, false, models.ResponseProfileFanSettings{},
+	)
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.False(t, h.rule.Enabled)
+}
+
+func TestAutomationService_SetEnabledRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.rule.Enabled = false
+
+	_, err := h.automation.SetEnabled(
+		t.Context(), h.orgID, h.rule.ID, true, uuid.New(), true, models.ResponseProfileFanSettings{},
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "response profile changed")
 	assert.False(t, h.rule.Enabled)
 }
 
@@ -451,7 +605,9 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateCompleted)
 
-	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
+	updated, err := h.automation.SetEnabled(
+		t.Context(), h.orgID, h.rule.ID, false, uuid.Nil, false, models.ResponseProfileFanSettings{},
+	)
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)
@@ -495,10 +651,264 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)
 	assert.Equal(t, "9001", *h.curtailments.lastInsertEvent.ExternalReference)
 	assert.Equal(t, "curtailment_automation_rule:9001", *h.curtailments.lastInsertEvent.IdempotencyKey)
+	assert.Equal(t, h.profile.ID, h.curtailments.lastInsertEvent.ResponseProfileID)
+	assert.Equal(t, h.profile.Revision, h.curtailments.lastInsertEvent.ResponseProfileRevision)
+	assert.Equal(t, h.rule.ID, h.curtailments.lastInsertEvent.AutomationRuleID)
+	assert.Equal(t, h.source.ID, h.curtailments.lastInsertEvent.AutomationMQTTSourceID)
+	assert.Equal(
+		t,
+		automationProfileBindingSnapshot(h.profile.ID, h.profile.Revision),
+		automationProfileBindingFromSnapshot(t, h.curtailments.lastInsertEvent.DecisionSnapshotJSON),
+	)
 	assert.Equal(t, 1, h.rules.setActiveCalls)
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsChangedBoundProfile(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.Revision = uuid.MustParse("44444444-4444-4444-8444-444444444444")
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "rebind_required")
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRecoversReplayAfterBoundProfileChanges(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.Revision = uuid.MustParse("44444444-4444-4444-8444-444444444444")
+	h.profile.RestoreBatchSize = 99
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	eventUUID := uuid.New()
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:                      77,
+			EventUUID:               eventUUID,
+			OrgID:                   h.orgID,
+			State:                   models.EventStateActive,
+			DecisionSnapshotJSON:    automationProfileBindingJSON(t, h.rule.ResponseProfileID, h.rule.ResponseProfileRevision),
+			Mode:                    h.profile.Mode,
+			Strategy:                h.profile.Strategy,
+			Level:                   h.profile.Level,
+			Priority:                h.profile.Priority,
+			CurtailBatchSize:        h.profile.CurtailBatchSize,
+			CurtailBatchIntervalSec: h.profile.CurtailBatchIntervalSec,
+			RestoreBatchSize:        50,
+			RestoreBatchIntervalSec: h.profile.RestoreBatchIntervalSec,
+			FacilityFanDeviceIDs:    nil,
+			FanOffDelaySec:          h.profile.FanOffDelaySec,
+			FanRestoreDelaySec:      h.profile.FanRestoreDelaySec,
+			SourceActorType:         models.SourceActorAutomation,
+			SourceActorID:           &externalReference,
+			ExternalSource:          stringPtr(automationExternalSource),
+			ExternalReference:       &externalReference,
+			IdempotencyKey:          &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, eventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRecurtailsRestoringReplayBeforeRecoveringPointer(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	replayEvent := h.seedAutomationReplayEvent(models.EventStateRestoring)
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, replayEvent.EventUUID, h.curtailments.beginRecurtailLastEventID)
+	assert.Equal(t, h.rule.ResponseProfileID, h.curtailments.beginRecurtailProfileID)
+	assert.Equal(t, h.rule.ResponseProfileRevision, h.curtailments.beginRecurtailRevision)
+	assert.Equal(t, h.rule.ID, h.curtailments.beginRecurtailRuleID)
+	assert.Equal(t, h.source.ID, h.curtailments.beginRecurtailSourceID)
+	assert.Equal(t, h.source.ServiceUserID, h.curtailments.beginRecurtailServiceUser)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, replayEvent.EventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffDoesNotRecoverExpiredRestoringReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	replayEvent := h.seedAutomationReplayEvent(models.EventStateRestoring)
+	startedAt := time.Date(2026, 6, 11, 20, 50, 0, 0, time.UTC)
+	maxDurationSeconds := int32(300)
+	replayEvent.StartedAt = &startedAt
+	replayEvent.MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsRestoringReplayAfterProfileChange(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationReplayEvent(models.EventStateRestoring)
+	h.profile.Revision = uuid.New()
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "rebind_required")
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffStartsTopologyProfile(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.Mode = models.ModeFixedKw
+	targetKW := 2.0
+	h.profile.TargetKW = &targetKW
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	h.curtailments.orgConfigByOrg[h.orgID] = defaultOrgConfig(h.orgID)
+	h.curtailments.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	h.curtailments.candidatesByBuilding[h.orgID] = map[int64][]*models.Candidate{
+		7: {minerWithEff("miner-a", 3000, 100, 50)},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, models.ScopeTypeMixed, h.curtailments.lastInsertEvent.ScopeType)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
+}
+
+func TestValidateAutomationEventOwnership(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID  = int64(42)
+		ruleID = int64(9001)
+	)
+	externalReference, idempotencyKey := automationRuleEventReference(ruleID)
+	validEvent := func() *models.Event {
+		return &models.Event{
+			OrgID:             orgID,
+			SourceActorType:   models.SourceActorAutomation,
+			SourceActorID:     stringPtr(externalReference),
+			ExternalSource:    stringPtr(automationExternalSource),
+			ExternalReference: stringPtr(externalReference),
+			IdempotencyKey:    stringPtr(idempotencyKey),
+		}
+	}
+	tests := []struct {
+		name   string
+		event  func() *models.Event
+		mutate func(*models.Event)
+		wantOK bool
+	}{
+		{name: "valid", event: validEvent, wantOK: true},
+		{name: "nil event", event: func() *models.Event { return nil }},
+		{name: "organization", event: validEvent, mutate: func(event *models.Event) { event.OrgID++ }},
+		{name: "actor type", event: validEvent, mutate: func(event *models.Event) { event.SourceActorType = models.SourceActorWebhook }},
+		{name: "missing external source", event: validEvent, mutate: func(event *models.Event) { event.ExternalSource = nil }},
+		{name: "external source", event: validEvent, mutate: func(event *models.Event) { event.ExternalSource = stringPtr("other") }},
+		{name: "missing external reference", event: validEvent, mutate: func(event *models.Event) { event.ExternalReference = nil }},
+		{name: "external reference", event: validEvent, mutate: func(event *models.Event) { event.ExternalReference = stringPtr("other") }},
+		{name: "missing idempotency key", event: validEvent, mutate: func(event *models.Event) { event.IdempotencyKey = nil }},
+		{name: "idempotency key", event: validEvent, mutate: func(event *models.Event) { event.IdempotencyKey = stringPtr("other") }},
+		{name: "missing actor ID", event: validEvent, mutate: func(event *models.Event) { event.SourceActorID = nil }},
+		{name: "actor ID", event: validEvent, mutate: func(event *models.Event) { event.SourceActorID = stringPtr("other") }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			event := tt.event()
+			if tt.mutate != nil {
+				tt.mutate(event)
+			}
+
+			err := ValidateAutomationEventOwnership(event, orgID, ruleID)
+			if tt.wantOK {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		})
+	}
+}
+
+func TestAutomationService_HandleMQTTSignal_OffStartsClosedLoopTopologyProfile(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	h.curtailments.orgConfigByOrg[h.orgID] = defaultOrgConfig(h.orgID)
+	h.curtailments.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	h.curtailments.candidatesByBuilding[h.orgID] = map[int64][]*models.Candidate{
+		7: {minerWithEff("miner-a", 3000, 100, 50)},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, h.curtailments.lastInsertEvent)
+	assert.Equal(t, models.LoopTypeClosed, h.curtailments.lastInsertEvent.LoopType)
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded)
+	assert.Equal(t, h.rule.ID, h.curtailments.lastInsertEvent.AutomationRuleID)
+	assert.Equal(t, h.profile.Revision, h.curtailments.lastInsertEvent.ResponseProfileRevision)
+	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
 }
 
 func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {
@@ -595,6 +1005,7 @@ func TestAutomationService_HandleMQTTSignal_OffRejectsProfileMismatchedIdempoten
 			EventUUID:            eventUUID,
 			OrgID:                h.orgID,
 			State:                models.EventStateActive,
+			DecisionSnapshotJSON: automationProfileBindingJSON(t, h.rule.ResponseProfileID, uuid.New()),
 			Mode:                 h.profile.Mode,
 			Strategy:             h.profile.Strategy,
 			Level:                h.profile.Level,
@@ -619,6 +1030,32 @@ func TestAutomationService_HandleMQTTSignal_OffRejectsProfileMismatchedIdempoten
 	assert.Contains(t, err.Error(), "no longer matches")
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
+type automationProfileBinding struct {
+	ResponseProfileID       int64  `json:"response_profile_id"`
+	ResponseProfileRevision string `json:"response_profile_revision"`
+}
+
+func automationProfileBindingSnapshot(profileID int64, revision uuid.UUID) automationProfileBinding {
+	return automationProfileBinding{
+		ResponseProfileID:       profileID,
+		ResponseProfileRevision: revision.String(),
+	}
+}
+
+func automationProfileBindingJSON(t *testing.T, profileID int64, revision uuid.UUID) []byte {
+	t.Helper()
+	bindingJSON, err := json.Marshal(automationProfileBindingSnapshot(profileID, revision))
+	require.NoError(t, err)
+	return bindingJSON
+}
+
+func automationProfileBindingFromSnapshot(t *testing.T, snapshotJSON []byte) automationProfileBinding {
+	t.Helper()
+	var binding automationProfileBinding
+	require.NoError(t, json.Unmarshal(snapshotJSON, &binding))
+	return binding
 }
 
 func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
@@ -831,8 +1268,30 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffRecurtailsRecentRestoring
 	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
 	assert.Equal(t, 1, h.curtailments.beginRecurtailCalls)
 	assert.Equal(t, activeEventUUID, h.curtailments.beginRecurtailLastEventID)
+	assert.Equal(t, h.rule.ResponseProfileID, h.curtailments.beginRecurtailProfileID)
+	assert.Equal(t, h.rule.ResponseProfileRevision, h.curtailments.beginRecurtailRevision)
 	assert.Equal(t, 1, h.rules.setActiveCalls)
 	assert.Equal(t, activeEventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_RepeatedOffRejectsRecurtailAfterProfileChange(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.profile.Revision = uuid.MustParse("44444444-4444-4444-8444-444444444444")
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "rebind_required")
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
 func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailAfterMaxDuration(t *testing.T) {
@@ -1055,6 +1514,7 @@ func newAutomationHarness(t *testing.T) *automationHarness {
 	profile := &models.ResponseProfile{
 		ID:                      3001,
 		OrgID:                   orgID,
+		Revision:                uuid.MustParse("33333333-3333-4333-8333-333333333333"),
 		ProfileName:             "Standard shed",
 		SiteID:                  &siteID,
 		Mode:                    models.ModeFullFleet,
@@ -1067,14 +1527,15 @@ func newAutomationHarness(t *testing.T) *automationHarness {
 		RestoreBatchIntervalSec: 5,
 	}
 	rule := &models.AutomationRule{
-		ID:                9001,
-		OrgID:             orgID,
-		RuleName:          "MaestroOS curtailment",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      source.ID,
-		MQTTSourceName:    source.SourceName,
-		ResponseProfileID: profile.ID,
-		Enabled:           true,
+		ID:                      9001,
+		OrgID:                   orgID,
+		RuleName:                "MaestroOS curtailment",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            source.ID,
+		MQTTSourceName:          source.SourceName,
+		ResponseProfileID:       profile.ID,
+		ResponseProfileRevision: profile.Revision,
+		Enabled:                 true,
 	}
 	rules := newAutomationFakeStore(rule)
 	sources := &automationSourceStore{configs: map[int64]mqttingest.SourceConfig{source.ID: source}}
@@ -1119,6 +1580,30 @@ func (h *automationHarness) seedAutomationEvent(state models.EventState) uuid.UU
 	return activeEventUUID
 }
 
+func (h *automationHarness) seedAutomationReplayEvent(state models.EventState) *models.Event {
+	h.t.Helper()
+
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	event := &models.Event{
+		ID:                   77,
+		EventUUID:            uuid.New(),
+		OrgID:                h.orgID,
+		State:                state,
+		DecisionSnapshotJSON: automationProfileBindingJSON(h.t, h.rule.ResponseProfileID, h.rule.ResponseProfileRevision),
+		SourceActorType:      models.SourceActorAutomation,
+		SourceActorID:        &externalReference,
+		ExternalSource:       stringPtr(automationExternalSource),
+		ExternalReference:    &externalReference,
+		IdempotencyKey:       &idempotencyKey,
+	}
+	if h.curtailments.eventsByIdempotencyKey == nil {
+		h.curtailments.eventsByIdempotencyKey = make(map[string]*models.Event)
+	}
+	h.curtailments.eventsByIdempotencyKey[idempotencyKey] = event
+	h.curtailments.eventsByUUID[event.EventUUID] = event
+	return event
+}
+
 func (h *automationHarness) seedRunnableProfile() {
 	h.t.Helper()
 
@@ -1138,6 +1623,8 @@ type automationFakeStore struct {
 	rules                             []*models.AutomationRule
 	created                           *models.AutomationRule
 	createCalls                       int
+	updateCalls                       int
+	setEnabledCalls                   int
 	lastCreateExpectedFanSettings     models.ResponseProfileFanSettings
 	lastUpdateExpectedFanSettings     models.ResponseProfileFanSettings
 	lastSetEnabledExpectedFanSettings models.ResponseProfileFanSettings
@@ -1212,6 +1699,7 @@ func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule model
 func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.updateCalls++
 	f.lastUpdateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for i, existing := range f.rules {
 		if existing.OrgID == rule.OrgID && existing.ID == rule.ID {
@@ -1222,13 +1710,17 @@ func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule model
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
 }
 
-func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
+func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.setEnabledCalls++
 	f.lastSetEnabledExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for _, rule := range f.rules {
 		if rule.OrgID == orgID && rule.ID == ruleID {
 			rule.Enabled = enabled
+			if enabled {
+				rule.ResponseProfileRevision = responseProfileRevision
+			}
 			return rule, nil
 		}
 	}

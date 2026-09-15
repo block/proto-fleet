@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -65,6 +66,7 @@ const firmwareMetadataFilename = "metadata.json"
 var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
 const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
+const maxFirmwareMetadataLength = 255
 
 // allowedFirmwareExtensions lists file suffixes accepted for firmware uploads.
 // .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer format.
@@ -100,15 +102,39 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 
 // MatchesTarget reports whether the firmware applies to a device with the
 // given manufacturer and model. Unlike matches (exact comparison, used for
-// upload dedup), deployment compatibility is case-insensitive, and a device
-// with unknown manufacturer or model never matches.
+// upload dedup), deployment compatibility folds ASCII letters
+// case-insensitively, and a device with unknown manufacturer or model never
+// matches.
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
 	manufacturer = strings.TrimSpace(manufacturer)
 	model = strings.TrimSpace(model)
 	return manufacturer != "" && model != "" &&
-		strings.EqualFold(manufacturer, m.TargetManufacturer) &&
-		strings.EqualFold(model, m.TargetModel)
+		equalFoldASCII(manufacturer, m.TargetManufacturer) &&
+		equalFoldASCII(model, m.TargetModel)
+}
+
+// equalFoldASCII compares two strings byte for byte, folding only ASCII
+// letters. strings.EqualFold would also apply Unicode simple folding, letting
+// look-alikes such as U+212A KELVIN SIGN match "k" and select a different
+// hardware identity than the one the assignment names.
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		ca, cb := a[i], b[i]
+		if 'A' <= ca && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if 'A' <= cb && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateFirmwareMetadata checks that target metadata is complete.
@@ -132,6 +158,31 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	}
 	if metadata.FirmwareVersion == "" {
 		return fleeterror.NewInvalidArgumentError("firmware_version is required")
+	}
+	for _, field := range []struct{ name, value string }{
+		{"target_manufacturer", metadata.TargetManufacturer},
+		{"target_model", metadata.TargetModel},
+		{"firmware_version", metadata.FirmwareVersion},
+	} {
+		if err := validateFirmwareMetadataText(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFirmwareMetadataText enforces the bounds of the stored device
+// identity and version columns (VARCHAR(255), no U+0000) and of the rollout
+// contract's target fields. Metadata outside them could never match a miner,
+// be named by an assignment, or persist as a miner's target.
+func validateFirmwareMetadataText(name, value string) error {
+	if strings.ContainsRune(value, 0) {
+		return fleeterror.NewInvalidArgumentErrorf("%s must not contain U+0000", name)
+	}
+	if utf8.RuneCountInString(value) > maxFirmwareMetadataLength {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"%s must be at most %d Unicode code points", name, maxFirmwareMetadataLength,
+		)
 	}
 	return nil
 }
@@ -651,10 +702,24 @@ func (s *Service) OpenFirmwareFile(fileID string) (io.ReadCloser, string, int64,
 // OpenFirmwareFileWithInfo opens the firmware file for reading and returns
 // metadata required to address it as a command artifact payload.
 func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, FirmwareFileInfo, error) {
+	return s.openFirmwareFileWithInfo(fileID, "")
+}
+
+func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (reader io.ReadCloser, fileInfo FirmwareFileInfo, err error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return nil, FirmwareFileInfo{}, err
 	}
+	defer func() {
+		if err != nil && expectedChecksum != "" {
+			// Failed verification disqualifies reuse, but keeps the original
+			// identity so restored bytes remain discoverable by assignments.
+			// A caller supplying the wrong checksum must not evict a healthy upload.
+			if checksum, cached := s.lookupFirmwareChecksum(canonical); cached && checksum == expectedChecksum {
+				s.removeFirmwareChecksumEligibility(checksum, canonical)
+			}
+		}
+	}()
 	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
 		return nil, FirmwareFileInfo{}, err
@@ -670,21 +735,31 @@ func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, Firmwa
 		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
 	}
 
-	metadata, hasMetadata := FirmwareMetadata{}, true
-	if m, err := readFirmwareMetadata(getFirmwareDirPath(canonical)); err != nil {
-		if !errors.Is(err, errFirmwareMetadataNotFound) {
-			file.Close()
-			return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+	metadata, hasMetadata := FirmwareMetadata{}, false
+	if expectedChecksum == "" {
+		if m, err := readFirmwareMetadata(getFirmwareDirPath(canonical)); err != nil {
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				file.Close()
+				return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+			}
+		} else {
+			metadata, hasMetadata = m, true
 		}
-		hasMetadata = false
-	} else {
-		metadata = m
 	}
 
-	checksum, err := s.firmwareChecksum(canonical, filePath, hasMetadata)
+	var checksum string
+	if expectedChecksum != "" {
+		checksum, err = firmwareArtifactChecksum(file)
+	} else {
+		checksum, err = s.firmwareChecksum(canonical, filePath, hasMetadata)
+	}
 	if err != nil {
 		file.Close()
 		return nil, FirmwareFileInfo{}, err
+	}
+	if expectedChecksum != "" && checksum != expectedChecksum {
+		file.Close()
+		return nil, FirmwareFileInfo{}, fleeterror.NewFailedPreconditionError("firmware payload does not match the assigned checksum")
 	}
 
 	return file, FirmwareFileInfo{
@@ -767,7 +842,9 @@ func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string
 
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.
 // Returns the file ID and true if found, or empty string and false otherwise.
-// Used by the pre-upload check endpoint to let clients skip redundant uploads.
+// Used by uploads and the pre-upload check endpoint to skip redundant uploads.
+// The index supplies candidates only: current metadata and bytes must both match
+// before a healthy staged upload can be discarded in favor of an existing file.
 func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata FirmwareMetadata) (string, bool) {
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
@@ -777,27 +854,44 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 	s.mu.Unlock()
 
 	metadata = metadata.normalized()
+	if ValidateFirmwareUploadMetadata(metadata) != nil {
+		return "", false
+	}
 	for _, fileID := range fileIDs {
 		storedMetadata, err := readFirmwareMetadata(getFirmwareDirPath(fileID))
 		if err != nil {
-			if errors.Is(err, errFirmwareMetadataNotFound) {
-				continue
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", fileID, "error", err)
 			}
-			slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", fileID, "error", err)
-			s.mu.Lock()
-			s.removeFirmwareChecksumLocked(sha256Hex, fileID)
-			s.mu.Unlock()
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
 			continue
 		}
-		if storedMetadata.matches(metadata) {
-			return fileID, true
+		if ValidateFirmwareUploadMetadata(storedMetadata) != nil {
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
+			continue
 		}
+		if !storedMetadata.matches(metadata) {
+			continue
+		}
+		// Use the private opener while holding the lifecycle read lock: calling
+		// the public artifact opener would take a recursive RLock and can block
+		// forever behind a waiting metadata update or deletion.
+		reader, _, err := s.openFirmwareFileWithInfo(fileID, sha256Hex)
+		if err != nil {
+			continue
+		}
+		if err := reader.Close(); err != nil {
+			s.removeFirmwareChecksumEligibility(sha256Hex, fileID)
+			continue
+		}
+		return fileID, true
 	}
 	return "", false
 }
 
 // DeleteFirmwareFile removes a firmware file from disk and the checksum index.
-// Returns a NotFoundError if no file with the given ID exists.
+// Returns NotFound if the ID does not exist, or FailedPrecondition while command
+// delivery needs its path. The caller can retry after the command finishes.
 func (s *Service) DeleteFirmwareFile(fileID string) error {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
@@ -808,6 +902,12 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 	// an existing artifact or observes its completed removal.
 	s.firmwareMetadataReuseMu.Lock()
 	defer s.firmwareMetadataReuseMu.Unlock()
+	s.mu.Lock()
+	inUse := s.firmwareExecutionPins[canonical] > 0
+	s.mu.Unlock()
+	if inUse {
+		return fleeterror.NewFailedPreconditionErrorf("firmware file %s is in use by an executing command; retry deletion after it finishes", canonical)
+	}
 
 	dir := getFirmwareDirPath(canonical)
 	if _, err := os.Stat(dir); err != nil {
@@ -977,7 +1077,9 @@ func (s *Service) DeleteAllFirmwareFiles() (int, error) {
 }
 
 // initChecksumIndex scans the firmware directory on startup and rebuilds the
-// in-memory checksum index from any firmware files on disk.
+// in-memory checksum indexes from the files on disk. Every payload's checksum
+// is remembered by id so artifact lookups find it; only files with a readable
+// metadata sidecar become eligible for checksum reuse.
 func (s *Service) initChecksumIndex() error {
 	entries, err := os.ReadDir(firmwareDir)
 	if err != nil {
@@ -993,12 +1095,6 @@ func (s *Service) initChecksumIndex() error {
 			continue
 		}
 		dir := getFirmwareDirPath(fileID)
-		if _, err := readFirmwareMetadata(dir); err != nil {
-			if !errors.Is(err, errFirmwareMetadataNotFound) {
-				slog.Warn("skipping firmware with invalid metadata during checksum rebuild", "file_id", fileID, "error", err)
-			}
-			continue
-		}
 		filePath, err := findSingleFileInDir(dir, firmwareMetadataFilename)
 		if err != nil {
 			continue
@@ -1008,15 +1104,17 @@ func (s *Service) initChecksumIndex() error {
 			slog.Warn("failed to compute checksum for existing firmware file", "file_id", fileID, "error", err)
 			continue
 		}
-
+		if _, err := readFirmwareMetadata(dir); err != nil {
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				slog.Warn("firmware with invalid metadata is not eligible for checksum reuse", "file_id", fileID, "error", err)
+			}
+			s.rememberFirmwareChecksumByID(checksum, fileID)
+			continue
+		}
 		s.rememberFirmwareChecksum(checksum, fileID)
 	}
 
-	count := 0
-	for _, ids := range s.checksumIndex {
-		count += len(ids)
-	}
-	if count > 0 {
+	if count := len(s.firmwareChecksumByID); count > 0 {
 		slog.Info("rebuilt firmware checksum index from disk", "files", count)
 	}
 	return nil

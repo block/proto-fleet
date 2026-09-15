@@ -1215,6 +1215,8 @@ func templateFromLabel(label string) RuleTemplate {
 		return RuleTemplateMQTTDisconnected
 	case string(RuleTemplateHAReadiness):
 		return RuleTemplateHAReadiness
+	case string(RuleTemplateFleetNodeUnavailable):
+		return RuleTemplateFleetNodeUnavailable
 	}
 	return ""
 }

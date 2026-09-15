@@ -170,6 +170,9 @@ message MinerStateSnapshot {
   // ownership; unsupported or fleet-node-owned devices should use their external
   // URL or typed control-stream commands instead.
   bool embedded_web_view_available = 29;
+
+  // Explains why device_status is OFFLINE. Unspecified for all other statuses.
+  DeviceOfflineReason offline_reason = 30;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -202,6 +205,13 @@ enum DeviceStatus {
 
   // Miner firmware has been installed but requires a reboot to activate
   DEVICE_STATUS_REBOOT_REQUIRED = 8;
+}
+
+enum DeviceOfflineReason {
+  DEVICE_OFFLINE_REASON_UNSPECIFIED = 0;
+
+  // The miner is unreachable because its assigned Fleet Node stopped checking in.
+  DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE = 1;
 }
 
 // Request to list miners with their metadata
@@ -364,6 +374,16 @@ message MinerListFilter {
   // survives a round-trip through the filter without being decomposed into
   // covering CIDRs. IPv4 only.
   repeated IpRange ip_ranges = 19;
+
+  // Case-insensitive substring search across the miner's display name, device
+  // identifier, serial number, MAC address, IP address, and worker name.
+  // When combined with other filters, the search predicate is AND-ed with
+  // those filters.
+  //
+  // Display name is matched as the list renders it, so a miner with no custom
+  // name is matched on its "<manufacturer> <model>" fallback — searching "S21"
+  // finds unnamed S21s, not just miners named after one.
+  string search_query = 20 [(buf.validate.field).string.max_len = 255];
 }
 
 // An inclusive IPv4 address range (start and end are both matched).

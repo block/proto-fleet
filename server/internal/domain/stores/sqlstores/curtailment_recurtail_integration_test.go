@@ -66,7 +66,12 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 	)
 	require.NoError(t, err)
 
-	_, err = store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID)
+	_, err = store.BeginRecurtailTransition(
+		ctx,
+		user.OrganizationID,
+		sourceEventUUID,
+		interfaces.BeginRecurtailTransitionParams{},
+	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "overlap must be retryable, got %v", err)
 
@@ -276,7 +281,12 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	`, source.ID, deviceID, uuid.New().String())
 	require.NoError(t, err)
 
-	got, err := store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID)
+	got, err := store.BeginRecurtailTransition(
+		ctx,
+		user.OrganizationID,
+		sourceEventUUID,
+		interfaces.BeginRecurtailTransitionParams{},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, models.EventStatePending, got.State)
@@ -561,7 +571,7 @@ func TestSQLCurtailmentStore_ClaimClosedLoopFullFleetTargets(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	claimed, err := store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, []models.InsertTargetParams{
+	claimed, err := store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, 2, []models.InsertTargetParams{
 		curtailmentStoreTestTarget("claim-a", models.TargetStatePending, models.DesiredStateCurtailed),
 		curtailmentStoreTestTarget("claim-b", models.TargetStatePending, models.DesiredStateCurtailed),
 	})
@@ -570,7 +580,7 @@ func TestSQLCurtailmentStore_ClaimClosedLoopFullFleetTargets(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatching, claimed[0].State)
 	assert.Equal(t, models.TargetStateDispatching, claimed[1].State)
 
-	claimed, err = store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, []models.InsertTargetParams{
+	claimed, err = store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, 2, []models.InsertTargetParams{
 		curtailmentStoreTestTarget("claim-a", models.TargetStatePending, models.DesiredStateCurtailed),
 		curtailmentStoreTestTarget("claim-b", models.TargetStatePending, models.DesiredStateCurtailed),
 	})
@@ -585,7 +595,7 @@ func TestSQLCurtailmentStore_ClaimClosedLoopFullFleetTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, other.ID)
 
-	claimed, err = store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, []models.InsertTargetParams{
+	claimed, err = store.ClaimClosedLoopFullFleetTargets(ctx, source.ID, user.OrganizationID, 0, 2, []models.InsertTargetParams{
 		curtailmentStoreTestTarget("claim-conflict", models.TargetStatePending, models.DesiredStateCurtailed),
 		curtailmentStoreTestTarget("claim-c", models.TargetStatePending, models.DesiredStateCurtailed),
 	})

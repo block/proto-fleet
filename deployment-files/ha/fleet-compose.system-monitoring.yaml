@@ -1,0 +1,6 @@
+services:
+  fleet-api:
+    volumes:
+      # Replace the standalone Docker-volume sentinel with an empty directory
+      # on the filesystem that holds the HA database.
+      - "${HA_DATA_DIR}/system-monitoring:/hostfs:ro"

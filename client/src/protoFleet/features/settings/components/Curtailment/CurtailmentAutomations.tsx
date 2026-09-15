@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
   AutomationRule,
@@ -74,7 +75,7 @@ const emptyResponseProfiles: ResponseProfile[] = [];
 
 type AutomationRuleWithDetails = AutomationRule & {
   responseProfileName: string;
-  isResponseProfileExecutionReady: boolean;
+  isResponseProfileAutomationReady: boolean;
 };
 
 type AutomationModalProps = {
@@ -125,7 +126,11 @@ type CurtailmentAutomationsContentProps = {
   loadResponseProfilesError?: string | null;
   onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
   onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
-  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (
+    rule: AutomationRule,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
@@ -152,10 +157,12 @@ function getDefaultAutomationFormValues(
   sources: CurtailmentSource[],
   responseProfiles: ResponseProfile[],
 ): AutomationRuleFormValues {
+  const responseProfile = responseProfiles[0];
   return {
     name: "",
     sourceId: sources[0]?.id ?? "",
-    responseProfileId: responseProfiles[0]?.id ?? "",
+    responseProfileId: responseProfile?.id ?? "",
+    responseProfileRevision: responseProfile?.revision ?? "",
   };
 }
 
@@ -168,12 +175,12 @@ function getAutomationFormValuesFromRule(
     return getDefaultAutomationFormValues(sources, responseProfiles);
   }
 
+  const responseProfile = responseProfiles.find((profile) => profile.id === rule.responseProfileId);
   return {
     name: rule.name,
     sourceId: rule.sourceId ?? sources[0]?.id ?? "",
-    responseProfileId: responseProfiles.some((profile) => profile.id === rule.responseProfileId)
-      ? rule.responseProfileId
-      : "",
+    responseProfileId: rule.responseProfileId,
+    responseProfileRevision: responseProfile?.revision ?? "",
   };
 }
 
@@ -195,6 +202,8 @@ function validateAutomationFormValues(values: AutomationRuleFormValues): Automat
   }
   if (values.responseProfileId === "") {
     errors.responseProfileId = "Select a response profile.";
+  } else if (values.responseProfileRevision === "") {
+    errors.responseProfileId = "Reload response profiles before saving.";
   }
 
   return errors;
@@ -316,15 +325,27 @@ function AutomationModal({
   const validationErrors = useMemo(() => validateAutomationFormValues(values), [values]);
   const visibleValidationErrors = showValidationErrors ? validationErrors : {};
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
-  const isSaveUnavailable = isLoadingSources || isLoadingResponseProfiles || isBusy;
+  const isSelectedResponseProfileUnavailable =
+    values.responseProfileId !== "" &&
+    !responseProfiles.some((profile) => profile.id === values.responseProfileId && profile.revision);
+  const isSaveUnavailable =
+    isLoadingSources || isLoadingResponseProfiles || isSelectedResponseProfileUnavailable || isBusy;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency options can load after the modal opens
-    setValues((currentValues) => ({
-      ...currentValues,
-      sourceId: currentValues.sourceId || sources[0]?.id || "",
-      responseProfileId: currentValues.responseProfileId || responseProfiles[0]?.id || "",
-    }));
+    setValues((currentValues) => {
+      const responseProfileId = currentValues.responseProfileId || responseProfiles[0]?.id || "";
+      const responseProfile = responseProfiles.find((profile) => profile.id === responseProfileId);
+      return {
+        ...currentValues,
+        sourceId: currentValues.sourceId || sources[0]?.id || "",
+        responseProfileId,
+        responseProfileRevision:
+          currentValues.responseProfileId === responseProfileId && currentValues.responseProfileRevision
+            ? currentValues.responseProfileRevision
+            : (responseProfile?.revision ?? ""),
+      };
+    });
   }, [responseProfiles, sources]);
 
   const handleNameChange = useCallback((value: string) => {
@@ -346,6 +367,10 @@ function AutomationModal({
       await onSave(values);
       onDismiss();
     } catch (error) {
+      if (error instanceof AutomationResponseProfileRevisionConflictError) {
+        const latestRevision = error.latestResponseProfileRevisionById.get(values.responseProfileId) ?? "";
+        setValues((currentValues) => ({ ...currentValues, responseProfileRevision: latestRevision }));
+      }
       setSaveError(error instanceof Error && error.message ? error.message : "Failed to save automation.");
     }
   }, [hasValidationErrors, isSaveUnavailable, onDismiss, onSave, values]);
@@ -469,7 +494,15 @@ function AutomationModal({
               label="Response profile"
               options={responseProfileOptions}
               value={values.responseProfileId}
-              onChange={(responseProfileId) => setValues((currentValues) => ({ ...currentValues, responseProfileId }))}
+              onChange={(responseProfileId) => {
+                const responseProfileRevision =
+                  responseProfiles.find((profile) => profile.id === responseProfileId)?.revision ?? "";
+                setValues((currentValues) => ({
+                  ...currentValues,
+                  responseProfileId,
+                  responseProfileRevision,
+                }));
+              }}
               disabled={isLoadingResponseProfiles || responseProfileOptions.length === 0}
               error={visibleValidationErrors.responseProfileId}
               testId="automation-response-profile-select"
@@ -513,7 +546,7 @@ function createAutomationColConfig(
           <Switch
             checked={rule.enabled}
             setChecked={() => onToggle(rule.id)}
-            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileExecutionReady)}
+            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileAutomationReady)}
           />
         </div>
       ),
@@ -533,7 +566,7 @@ function mapAutomationRules(
     return {
       ...rule,
       responseProfileName: responseProfile?.name ?? rule.responseProfileName ?? "Unknown profile",
-      isResponseProfileExecutionReady: responseProfile?.isExecutionReady === true,
+      isResponseProfileAutomationReady: responseProfile?.isAutomationReady === true,
     };
   });
 }
@@ -576,13 +609,13 @@ export function CurtailmentAutomationsContent({
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [editingAutomationRule, setEditingAutomationRule] = useState<AutomationRule | null>(null);
   const automationRules = controlledAutomationRules ?? localAutomationRules;
-  const executionReadyResponseProfiles = useMemo(
-    () => responseProfiles.filter((profile) => profile.isExecutionReady),
+  const automationReadyResponseProfiles = useMemo(
+    () => responseProfiles.filter((profile) => profile.isAutomationReady && profile.revision),
     [responseProfiles],
   );
-  const executionReadyResponseProfileIds = useMemo(
-    () => new Set(executionReadyResponseProfiles.map((profile) => profile.id)),
-    [executionReadyResponseProfiles],
+  const automationReadyResponseProfileIds = useMemo(
+    () => new Set(automationReadyResponseProfiles.map((profile) => profile.id)),
+    [automationReadyResponseProfiles],
   );
 
   const rulesWithDetails = useMemo(
@@ -591,8 +624,8 @@ export function CurtailmentAutomationsContent({
   );
   const automationModalMode = editingAutomationRule ? "edit" : "create";
   const automationModalInitialValues = useMemo(
-    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, executionReadyResponseProfiles),
-    [editingAutomationRule, executionReadyResponseProfiles, sources],
+    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, automationReadyResponseProfiles),
+    [automationReadyResponseProfiles, editingAutomationRule, sources],
   );
 
   const openCreateAutomationModal = useCallback(() => {
@@ -616,14 +649,17 @@ export function CurtailmentAutomationsContent({
       if (
         !rule ||
         updatingRuleIds.has(ruleId) ||
-        (!rule.enabled && !executionReadyResponseProfileIds.has(rule.responseProfileId))
+        (!rule.enabled && !automationReadyResponseProfileIds.has(rule.responseProfileId))
       ) {
         return;
       }
 
       const nextEnabled = !rule.enabled;
       if (onToggleAutomation) {
-        void onToggleAutomation(rule, nextEnabled).catch(() => {});
+        const expectedResponseProfileRevision = nextEnabled
+          ? automationReadyResponseProfiles.find((profile) => profile.id === rule.responseProfileId)?.revision
+          : undefined;
+        void onToggleAutomation(rule, nextEnabled, expectedResponseProfileRevision).catch(() => {});
         return;
       }
 
@@ -633,7 +669,13 @@ export function CurtailmentAutomationsContent({
         ),
       );
     },
-    [automationRules, executionReadyResponseProfileIds, onToggleAutomation, updatingRuleIds],
+    [
+      automationReadyResponseProfileIds,
+      automationReadyResponseProfiles,
+      automationRules,
+      onToggleAutomation,
+      updatingRuleIds,
+    ],
   );
 
   const automationColConfig = useMemo(
@@ -750,7 +792,7 @@ export function CurtailmentAutomationsContent({
         hideTotal
         itemName={{ singular: "automation", plural: "automations" }}
         stickyFirstColumn={false}
-        isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileExecutionReady}
+        isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileAutomationReady}
         columnsExemptFromDisabledStyling={automationColumnsExemptFromDisabledStyling}
         tableClassName={automationTableClassName}
         noDataElement={automationsNoDataElement}
@@ -768,7 +810,7 @@ export function CurtailmentAutomationsContent({
         mode={automationModalMode}
         initialValues={automationModalInitialValues}
         sources={sources}
-        responseProfiles={executionReadyResponseProfiles}
+        responseProfiles={automationReadyResponseProfiles}
         isLoadingSources={isLoadingSources}
         loadSourcesError={loadSourcesError}
         isLoadingResponseProfiles={isLoadingResponseProfiles}

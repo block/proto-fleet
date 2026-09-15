@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -3660,6 +3661,77 @@ func TestExecRunnerMarksCommandsAsUpdaterManaged(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "1", output.String())
+}
+
+func TestAcquireProcessLockWaitsOutTransientHolder(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	holder, err := acquireProcessLock(stateDir)
+	require.NoError(t, err)
+	released := make(chan struct{})
+	go func() {
+		defer close(released)
+		time.Sleep(50 * time.Millisecond)
+		assert.NoError(t, holder.Close())
+	}()
+
+	lock, err := acquireProcessLockWithin(stateDir, 10*time.Second)
+	require.NoError(t, err, "a holder that releases inside the window is not a competing updater")
+	<-released
+	require.NoError(t, lock.Close())
+}
+
+func TestAcquireProcessLockRejectsPersistentHolder(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	holder, err := acquireProcessLock(stateDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, holder.Close()) })
+
+	window := 50 * time.Millisecond
+	started := time.Now()
+	_, err = acquireProcessLockWithin(stateDir, window)
+	require.ErrorContains(t, err, "another updater process is already running")
+	assert.GreaterOrEqual(t, time.Since(started), window, "contention must outlast the window before it is reported")
+}
+
+// Regression for a flake seen in CI: a child forked by another goroutine holds
+// a duplicate of the lock descriptor until it execs, so a same-process
+// close→reacquire could observe EWOULDBLOCK with no updater running.
+func TestAcquireProcessLockToleratesForkExecWindow(t *testing.T) {
+	t.Parallel()
+
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true binary on PATH")
+	}
+	stop := make(chan struct{})
+	var forkers sync.WaitGroup
+	for range 4 {
+		forkers.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = exec.Command(truePath).Run()
+				}
+			}
+		})
+	}
+	t.Cleanup(func() {
+		close(stop)
+		forkers.Wait()
+	})
+
+	stateDir := t.TempDir()
+	for range 200 {
+		lock, err := acquireProcessLock(stateDir)
+		require.NoError(t, err, "a forked child mid-exec must not read as a competing updater")
+		require.NoError(t, lock.Close())
+	}
 }
 
 func newTestManager(t *testing.T, installRoot string, server *httptest.Server, runner CommandRunner) *Manager {

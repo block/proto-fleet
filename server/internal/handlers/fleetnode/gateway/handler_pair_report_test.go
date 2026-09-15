@@ -63,7 +63,7 @@ func TestReportPairedDevices_PersistsAuthoritativelyAndForwards(t *testing.T) {
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-corr-1": {}}}
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "pair-cmd"}, nil, control.ReportKindPair, pair)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pair-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -108,7 +108,7 @@ func TestReportPairedDevices_DefaultPasswordActivePersistsAndForwards(t *testing
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-default-1": {}}}
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "pair-default-cmd"}, nil, control.ReportKindPair, pair)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pair-default-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -167,7 +167,7 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"mac:race": {}}}
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "race-cmd"}, nil, control.ReportKindPair, pair)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "race-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -206,7 +206,7 @@ func TestReportPairedDevices_RejectsEmptyBatch(t *testing.T) {
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"x": {}}}
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "pair-empty"}, nil, control.ReportKindPair, pair)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pair-empty"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing

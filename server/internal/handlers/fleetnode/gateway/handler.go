@@ -283,7 +283,9 @@ func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.Rea
 	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
 		return h.files.OpenCommandArtifact(ref.GetArtifactId())
 	}
-	reader, info, err := h.files.OpenFirmwareFileWithInfo(ref.GetArtifactId())
+	// Admission grants this exact artifact ID. The checksum in the request
+	// verifies its bytes; it must not select a different, ungranted upload.
+	reader, info, err := h.files.OpenFirmwareArtifact(ref.GetArtifactId(), ref.GetSha256())
 	if err != nil {
 		return nil, files.CommandArtifactInfo{}, err
 	}
@@ -712,11 +714,16 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}
 		first = r.msg
 	}
-	if first.GetHello() == nil {
+	hello := first.GetHello()
+	if hello == nil {
 		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
 
-	regHandle, err := h.registry.RegisterAuthenticated(subject.FleetNodeID, subject.SessionFingerprint)
+	regHandle, err := h.registry.RegisterAuthenticated(
+		subject.FleetNodeID,
+		subject.SessionFingerprint,
+		hello.GetMaxCommandProtocolVersion(),
+	)
 	if err != nil {
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}

@@ -166,6 +166,12 @@ message SiteWithCounts {
 
 // ListSites
 
+enum MaintenanceSiteOptionsScope {
+    MAINTENANCE_SITE_OPTIONS_SCOPE_UNSPECIFIED = 0;
+    MAINTENANCE_SITE_OPTIONS_SCOPE_READ = 1;
+    MAINTENANCE_SITE_OPTIONS_SCOPE_MANAGE = 2;
+}
+
 message ListSitesRequest {
     // Filter sites whose rolled-up devices have any open issue matching
     // these component types. OR within the list, AND with other filters.
@@ -174,6 +180,11 @@ message ListSitesRequest {
     // Filter by rolled-up telemetry values for the site. Multiple ranges
     // are AND'd.
     repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 2;
+
+    // Return the redacted ID/name catalog used by maintenance workflows and
+    // authorize each row with the requested maintenance permission rather than
+    // site:read. Fleet filters are invalid in either maintenance mode.
+    MaintenanceSiteOptionsScope maintenance_options_scope = 3;
 }
 
 message ListSitesResponse {

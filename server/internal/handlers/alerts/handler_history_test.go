@@ -257,6 +257,11 @@ func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
 			alertName: "HA Failover Readiness Degraded",
 			summary:   "Proto Fleet HA is not ready to fail over safely.",
 		},
+		{
+			template:  string(alerts.RuleTemplateFleetNodeUnavailable),
+			alertName: "Fleet Node Unavailable",
+			summary:   "A Fleet Node is unavailable.",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.template, func(t *testing.T) {

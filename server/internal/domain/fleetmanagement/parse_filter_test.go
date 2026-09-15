@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net/netip"
+	"strings"
 	"testing"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -78,6 +79,20 @@ func TestParseFilter_NilFilter(t *testing.T) {
 	assert.Empty(t, filter.FirmwareVersions)
 	assert.Empty(t, filter.ZoneKeys)
 	assert.Empty(t, filter.BuildingIDs)
+}
+
+func TestParseFilter_SearchQuery(t *testing.T) {
+	filter, err := callParseFilter(t, &pb.MinerListFilter{SearchQuery: "  worker-42  "})
+
+	require.NoError(t, err)
+	assert.Equal(t, "worker-42", filter.SearchQuery)
+}
+
+func TestParseFilter_SearchQueryTooLong(t *testing.T) {
+	_, err := callParseFilter(t, &pb.MinerListFilter{SearchQuery: strings.Repeat("x", maxMinerSearchQueryLength+1)})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "search_query exceeds maximum")
 }
 
 func TestParseFilter_FirmwareVersions(t *testing.T) {

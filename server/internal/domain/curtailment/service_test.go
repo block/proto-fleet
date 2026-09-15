@@ -88,6 +88,11 @@ type fakeStore struct {
 	beginRecurtailErr         error
 	beginRecurtailCalls       int
 	beginRecurtailLastEventID uuid.UUID
+	beginRecurtailProfileID   int64
+	beginRecurtailRevision    uuid.UUID
+	beginRecurtailRuleID      int64
+	beginRecurtailSourceID    int64
+	beginRecurtailServiceUser int64
 
 	// List-history fakes. eventsHistory is the slice the fake's ListEvents
 	// paginates over (callers seed it newest-first to match the SQL impl).
@@ -930,9 +935,19 @@ func (f *fakeStore) guardAutomationDemandForRestore(eventUUID uuid.UUID, guard *
 	)
 }
 
-func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+func (f *fakeStore) BeginRecurtailTransition(
+	_ context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	params interfaces.BeginRecurtailTransitionParams,
+) (*models.Event, error) {
 	f.beginRecurtailCalls++
 	f.beginRecurtailLastEventID = eventUUID
+	f.beginRecurtailProfileID = params.ResponseProfileID
+	f.beginRecurtailRevision = params.ResponseProfileRevision
+	f.beginRecurtailRuleID = params.AutomationRuleID
+	f.beginRecurtailSourceID = params.AutomationMQTTSourceID
+	f.beginRecurtailServiceUser = params.AutomationServiceUserID
 	if f.beginRecurtailErr != nil {
 		return nil, f.beginRecurtailErr
 	}
@@ -981,6 +996,7 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised")
@@ -989,6 +1005,8 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised")
@@ -996,6 +1014,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,

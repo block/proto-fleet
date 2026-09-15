@@ -74,8 +74,19 @@ describe("SitesProvider", () => {
     expect(screen.getByTestId("granted").textContent).toBe("true");
   });
 
-  it("skips the fetch entirely for callers without site:read", async () => {
-    hasPermissionMock.current = (key) => key !== "site:read";
+  it("keeps maintenance-only site options out of the global fleet catalog", () => {
+    hasPermissionMock.current = (key) => key === "maintenance:read";
+
+    renderProvider();
+
+    expect(listSitesMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("count").textContent).toBe("0");
+    expect(screen.getByTestId("settled").textContent).toBe("true");
+    expect(screen.getByTestId("granted").textContent).toBe("false");
+  });
+
+  it("skips the fetch entirely for callers without site read", async () => {
+    hasPermissionMock.current = () => false;
 
     renderProvider();
 

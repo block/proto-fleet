@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +17,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+const (
+	handlerResponseProfileTestRevision       = "22222222-2222-4222-8222-222222222222"
+	handlerResponseProfileCreatedRevision    = "33333333-3333-4333-8333-333333333333"
+	handlerResponseProfileNextUpdateRevision = "44444444-4444-4444-8444-444444444444"
 )
 
 func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
@@ -52,6 +59,7 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	profile := resp.Msg.GetProfile()
 	require.NotNil(t, profile)
 	assert.Equal(t, int64(201), profile.GetProfileId())
+	assert.Equal(t, handlerResponseProfileCreatedRevision, profile.GetRevision())
 	assert.Equal(t, "Standard shed", profile.GetProfileName())
 	assert.Equal(t, int64(7), profile.GetSite().GetSiteId())
 	assert.Equal(t, float64(2500), profile.GetFixedKw().GetTargetKw())
@@ -488,7 +496,7 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func TestHandler_GetCurtailmentResponseProfileMasksInaccessibleFacilityFans(t *testing.T) {
+func TestHandler_GetCurtailmentResponseProfileChecksPersistedFacilityFanSites(t *testing.T) {
 	t.Parallel()
 
 	profileSiteID := int64(7)
@@ -515,7 +523,8 @@ func TestHandler_GetCurtailmentResponseProfileMasksInaccessibleFacilityFans(t *t
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Zero(t, store.infrastructureDeviceListCalls, "persisted envelopes must not re-resolve facility fans")
 }
 
 func TestHandler_GetCurtailmentResponseProfileChecksStoredCompositeSites(t *testing.T) {
@@ -565,10 +574,11 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	resp, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated",
-			Site:        &pb.ScopeSite{SiteId: siteID},
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated",
+			Site:             &pb.ScopeSite{SiteId: siteID},
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000, ToleranceKw: ptrFloat64(10)},
 			},
@@ -582,12 +592,14 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	profile := resp.Msg.GetProfile()
 	require.NotNil(t, profile)
 	assert.Equal(t, int64(201), profile.GetProfileId())
+	assert.Equal(t, handlerResponseProfileNextUpdateRevision, profile.GetRevision())
 	assert.Equal(t, "Updated", profile.GetProfileName())
 	assert.Equal(t, float64(3000), profile.GetFixedKw().GetTargetKw())
 	assert.Equal(t, uint32(40), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(0), profile.GetRestoreBatchIntervalSec())
 	assert.Equal(t, uint32(900), profile.GetPostEventCooldownSec())
 	require.NotNil(t, store.updated)
+	assert.Equal(t, uuid.MustParse(handlerResponseProfileTestRevision), store.updated.Revision)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
 	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
 	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
@@ -634,6 +646,7 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresAccessToPreservedFacili
 			testSiteAssignment(8, authz.PermSiteRead),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ExpectedRevision:        handlerResponseProfileTestRevision,
 			ProfileId:               201,
 			ProfileName:             "Updated",
 			Site:                    &pb.ScopeSite{SiteId: profileSiteID},
@@ -664,6 +677,7 @@ func TestHandler_UpdateCurtailmentResponseProfileClearsFacilityFanSettingsWhenRe
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ExpectedRevision:           handlerResponseProfileTestRevision,
 			ProfileId:                  201,
 			ProfileName:                "Updated",
 			Site:                       &pb.ScopeSite{SiteId: siteID},
@@ -707,8 +721,9 @@ func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *t
 			testSiteAssignment(siteB, authz.PermCurtailmentManage),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated composite",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated composite",
 			Scopes: []*pb.CurtailmentScope{
 				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteA}}},
 				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteB}}},
@@ -751,9 +766,10 @@ func TestHandler_UpdateCurtailmentResponseProfileRejectsOmittedScope(t *testing.
 			testSiteAssignment(siteB, authz.PermCurtailmentManage),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated composite",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated composite",
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
 			},
@@ -778,8 +794,9 @@ func TestHandler_UpdateCurtailmentResponseProfileAllowsExplicitSiteClear(t *test
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated whole org",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated whole org",
 			Scopes: []*pb.CurtailmentScope{{
 				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			}},
@@ -821,8 +838,9 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *t
 			testSiteAssignment(narrowedSite),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated whole org",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated whole org",
 			Scopes: []*pb.CurtailmentScope{{
 				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			}},
@@ -858,10 +876,11 @@ func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T
 			SessionID:      "sess-response-profile-update",
 		}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(siteID)),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Still hidden",
-			Site:        &pb.ScopeSite{SiteId: siteID},
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Still hidden",
+			Site:             &pb.ScopeSite{SiteId: siteID},
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
 			},
@@ -896,6 +915,7 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	require.NotNil(t, store.deleteExpectedSiteID)
 	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.deleteExpectedScopeJSON))
+	assert.JSONEq(t, string(store.profiles[0].AuthorizationEnvelopeJSON), string(store.deleteExpectedAuthorizationEnvelopeJSON))
 	assert.Equal(t, []int64{31}, store.deleteExpectedFanSettings.FacilityFanDeviceIDs)
 	assert.Equal(t, int32(45), store.deleteExpectedFanSettings.FanOffDelaySec)
 	assert.Equal(t, int32(90), store.deleteExpectedFanSettings.FanRestoreDelaySec)
@@ -1023,23 +1043,24 @@ func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs                   bool
-	siteCheckCount                int
-	created                       *models.ResponseProfile
-	createdDeviceSites            map[string]*int64
-	updated                       *models.ResponseProfile
-	updateExpectedSiteID          *int64
-	updateExpectedScopeJSON       []byte
-	updateExpectedFanSettings     models.ResponseProfileFanSettings
-	deletedProfileID              int64
-	deleteExpectedSiteID          *int64
-	deleteExpectedScopeJSON       []byte
-	deleteExpectedFanSettings     models.ResponseProfileFanSettings
-	profiles                      []*models.ResponseProfile
-	deviceSites                   map[string]*int64
-	infrastructureDevices         map[int64]models.ResponseProfileInfrastructureDevice
-	infrastructureDeviceListCalls int
-	createdInfrastructureDevices  map[int64]models.ResponseProfileInfrastructureDevice
+	siteBelongs                             bool
+	siteCheckCount                          int
+	created                                 *models.ResponseProfile
+	createdDeviceSites                      map[string]*int64
+	updated                                 *models.ResponseProfile
+	updateExpectedSiteID                    *int64
+	updateExpectedScopeJSON                 []byte
+	updateExpectedFanSettings               models.ResponseProfileFanSettings
+	deletedProfileID                        int64
+	deleteExpectedSiteID                    *int64
+	deleteExpectedScopeJSON                 []byte
+	deleteExpectedAuthorizationEnvelopeJSON []byte
+	deleteExpectedFanSettings               models.ResponseProfileFanSettings
+	profiles                                []*models.ResponseProfile
+	deviceSites                             map[string]*int64
+	infrastructureDevices                   map[int64]models.ResponseProfileInfrastructureDevice
+	infrastructureDeviceListCalls           int
+	createdInfrastructureDevices            map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -1050,16 +1071,76 @@ func newHandlerResponseProfileStore() *handlerResponseProfileStore {
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfiles(context.Context, int64) ([]*models.ResponseProfile, error) {
+	for _, profile := range s.profiles {
+		s.ensureAuthorizationEnvelope(profile)
+	}
 	return s.profiles, nil
 }
 
 func (s *handlerResponseProfileStore) GetResponseProfile(_ context.Context, _ int64, profileID int64) (*models.ResponseProfile, error) {
 	for _, profile := range s.profiles {
 		if profile.ID == profileID {
+			s.ensureAuthorizationEnvelope(profile)
 			return profile, nil
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+}
+
+func (s *handlerResponseProfileStore) ensureAuthorizationEnvelope(profile *models.ResponseProfile) {
+	if profile == nil || len(profile.AuthorizationEnvelopeJSON) > 0 {
+		return
+	}
+	scope, err := domainCurtailment.ResponseProfileScope(*profile)
+	if err != nil {
+		panic(err)
+	}
+	var selectedSiteIDs []int64
+	var currentMemberSiteIDs []int64
+	minerScopeUnbounded := false
+	switch scope.Type {
+	case models.ScopeTypeWholeOrg:
+		minerScopeUnbounded = true
+	case models.ScopeTypeSite:
+		selectedSiteIDs = []int64{scope.SiteID}
+	case models.ScopeTypeMixed:
+		if domainCurtailment.IsSiteOnlyScope(scope) {
+			selectedSiteIDs = append([]int64(nil), scope.SiteIDs...)
+		} else {
+			minerScopeUnbounded = true
+		}
+	case models.ScopeTypeDeviceList:
+		for _, identifier := range scope.DeviceIdentifiers {
+			siteID, ok := s.deviceSites[identifier]
+			if !ok || siteID == nil {
+				minerScopeUnbounded = true
+				continue
+			}
+			currentMemberSiteIDs = append(currentMemberSiteIDs, *siteID)
+		}
+		if len(currentMemberSiteIDs) == 0 {
+			minerScopeUnbounded = true
+		}
+	default:
+		minerScopeUnbounded = true
+	}
+	var fanSiteIDs []int64
+	fanScopeUnbounded := false
+	for _, deviceID := range profile.FacilityFanDeviceIDs {
+		device, ok := s.infrastructureDevices[deviceID]
+		if !ok {
+			fanScopeUnbounded = true
+			continue
+		}
+		fanSiteIDs = append(fanSiteIDs, device.SiteID)
+	}
+	profile.AuthorizationEnvelopeJSON = testAuthorizationEnvelopeJSON(
+		selectedSiteIDs,
+		currentMemberSiteIDs,
+		minerScopeUnbounded,
+		fanSiteIDs,
+		fanScopeUnbounded,
+	)
 }
 
 func (*handlerResponseProfileStore) ListCandidates(
@@ -1094,6 +1175,7 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 
 func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
+	profile.Revision = uuid.MustParse(handlerResponseProfileCreatedRevision)
 	s.created = &profile
 	s.createdDeviceSites = expectedDeviceSites
 	s.createdInfrastructureDevices = expectedInfrastructureDevices
@@ -1101,7 +1183,8 @@ func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, p
 }
 
 func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[string]*int64, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
-	s.updated = &profile
+	requested := profile
+	s.updated = &requested
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
 	s.updateExpectedFanSettings = models.ResponseProfileFanSettings{
@@ -1109,13 +1192,15 @@ func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, p
 		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
 		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
 	}
+	profile.Revision = uuid.MustParse(handlerResponseProfileNextUpdateRevision)
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON, expectedAuthorizationEnvelopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
 	s.deletedProfileID = profileID
 	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.deleteExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.deleteExpectedAuthorizationEnvelopeJSON = cloneBytes(expectedAuthorizationEnvelopeJSON)
 	s.deleteExpectedFanSettings = models.ResponseProfileFanSettings{
 		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
 		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,

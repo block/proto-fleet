@@ -105,6 +105,12 @@ export function getCurtailmentTerminalScope(
   }
 }
 
+export function isCurtailmentTopologyScopeType(
+  scopeType: CurtailmentTerminalScopeType | CurtailmentTerminalScope["type"] | undefined,
+): boolean {
+  return scopeType === "building" || scopeType === "rack" || scopeType === "group";
+}
+
 function formatScopeCount(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }

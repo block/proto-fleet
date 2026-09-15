@@ -57,7 +57,7 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 		if err := siteStore.LockSiteForWrite(txCtx, orgID, site.ID); err != nil {
 			return err
 		}
-		if err := siteStore.LockBuildingsBySiteForWrite(txCtx, orgID, site.ID); err != nil {
+		if _, err := siteStore.LockBuildingsBySiteForWrite(txCtx, orgID, site.ID); err != nil {
 			return err
 		}
 		if _, err := siteStore.UnassignRacksFromBuildingsBySite(txCtx, orgID, site.ID); err != nil {

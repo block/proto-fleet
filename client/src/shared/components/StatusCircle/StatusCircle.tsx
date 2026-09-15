@@ -7,7 +7,7 @@ const statusColors = {
   normal: "text-intent-success-fill",
   error: "text-intent-critical-fill",
   warning: "text-intent-warning-fill",
-  inactive: "text-grayscale-gray-50",
+  inactive: "text-core-primary-50",
   pending: "text-intent-info-fill",
   sleeping: "text-intent-info-fill",
 };

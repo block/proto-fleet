@@ -128,6 +128,9 @@ type Command struct {
 	commandType    commandtype.Type
 	deviceSelector *pb.DeviceSelector
 	payload        interface{}
+	// Only FirmwareUpdateArtifact sets this from a persisted assignment while
+	// holding the payload lease; manual commands use the file's current sidecar.
+	firmwareMetadata *files.FirmwareMetadata
 }
 
 // NewService creates a new command service instance
@@ -1024,11 +1027,17 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if !ok {
 			return nil, fleeterror.NewInternalError("invalid firmware update payload")
 		}
-		metadata, release, err := s.filesService.LeaseFirmwareMetadata(firmwarePayload.FirmwareFileID)
-		if err != nil {
-			return nil, err
+		var metadata files.FirmwareMetadata
+		if command.firmwareMetadata != nil {
+			metadata = *command.firmwareMetadata
+		} else {
+			var release func()
+			metadata, release, err = s.filesService.LeaseFirmwareMetadata(firmwarePayload.FirmwareFileID)
+			if err != nil {
+				return nil, err
+			}
+			defer release()
 		}
-		defer release()
 		if err := s.validateFirmwareUpdateTargets(ctx, info.OrganizationID, resolvedDevices, metadata); err != nil {
 			return nil, err
 		}
@@ -1664,15 +1673,47 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 }
 
 func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) (*CommandResult, error) {
-	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
+	// Persist the canonical id so queued commands compare equal to the ids the
+	// files service reports (release channels match pending updates by file).
+	canonicalFileID, err := files.CanonicalFirmwareFileID(firmwareFileID)
+	if err == nil {
+		_, err = s.filesService.GetFirmwareFilePath(canonicalFileID)
+	}
+	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
 
-	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
+	payload := dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID}
 	result, err := s.processCommand(ctx, &Command{
 		commandType:    commandtype.FirmwareUpdate,
 		deviceSelector: deviceSelector,
 		payload:        payload,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
+	return result, nil
+}
+
+// FirmwareUpdateArtifact dispatches a release-channel assignment using its
+// persisted checksum and metadata snapshot. Callers must supply that saved
+// snapshot, never metadata from a current file sidecar or an RPC request.
+func (s *Service) FirmwareUpdateArtifact(ctx context.Context, deviceSelector *pb.DeviceSelector, checksum string, metadata files.FirmwareMetadata) (*CommandResult, error) {
+	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+		return nil, fleeterror.NewFailedPreconditionErrorf("invalid firmware assignment metadata: %v", err)
+	}
+	fileID, release, err := s.filesService.LeaseFirmwareArtifact(checksum)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	result, err := s.processCommand(ctx, &Command{
+		commandType:      commandtype.FirmwareUpdate,
+		deviceSelector:   deviceSelector,
+		payload:          dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: checksum},
+		firmwareMetadata: &metadata,
 	})
 	if err != nil {
 		return nil, err

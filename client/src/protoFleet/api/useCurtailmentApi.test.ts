@@ -2746,6 +2746,59 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it.each([
+    {
+      scopeType: "building" as const,
+      targetIds: { buildingTargetIds: ["7", "8"] },
+      protoCase: "building",
+      expectedIds: [7n, 8n],
+    },
+    {
+      scopeType: "rack" as const,
+      targetIds: { rackTargetIds: ["9", "10"] },
+      protoCase: "rack",
+      expectedIds: [9n, 10n],
+    },
+    {
+      scopeType: "group" as const,
+      targetIds: { groupTargetIds: ["11", "12"] },
+      protoCase: "group",
+      expectedIds: [11n, 12n],
+    },
+  ])("starts a frozen fixed-kW $scopeType scope with its typed selectors", async (testCase) => {
+    const startedEvent = curtailmentEvent();
+    mockStartCurtailment.mockResolvedValueOnce({ event: startedEvent });
+    mockListActiveCurtailments.mockResolvedValue({ event: startedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [startedEvent], nextPageToken: "" });
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.startCurtailment({
+        ...baseSubmitValues,
+        scopeType: testCase.scopeType,
+        ...testCase.targetIds,
+      });
+    });
+
+    const request = mockStartCurtailment.mock.calls[0]?.[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        mode: CurtailmentMode.FIXED_KW,
+        scopeSchemaVersion: 1,
+      }),
+    );
+    expect(request.scopes.map((scope: { scope: { case?: string } }) => scope.scope.case)).toEqual([
+      testCase.protoCase,
+      testCase.protoCase,
+    ]);
+    expect(
+      request.scopes.map((scope: { scope: { value: { buildingId?: bigint; rackId?: bigint; groupId?: bigint } } }) => {
+        const value = scope.scope.value;
+        return value.buildingId ?? value.rackId ?? value.groupId;
+      }),
+    ).toEqual(testCase.expectedIds);
+  });
+
   it("updates active curtailment fields and refreshes listeners", async () => {
     const changedListener = vi.fn();
     window.addEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);

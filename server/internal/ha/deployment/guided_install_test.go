@@ -56,9 +56,10 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	deps.makeExportDir = func() (string, error) {
 		return exportDir, os.Mkdir(exportDir, 0o700)
 	}
-	deps.inspect = func(_ context.Context, _ string, config NodeConfig) (installedDependencies, error) {
+	deps.inspect = func(_ context.Context, _ string, config NodeConfig, profile fleetApplicationProfile) (installedDependencies, error) {
 		require.Equal(t, testHostIPs[0], config.NodeIP)
 		require.Equal(t, "enp1s0", config.NetworkInterface)
+		require.True(t, profile.enabled("ENABLE_BETA_ALERTS"))
 		inspected = true
 		return installedDependencies{docker: true}, nil
 	}
@@ -213,6 +214,10 @@ func TestBundleExportDirectoryIsOutsideRelease(t *testing.T) {
 
 func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	// Arrange
+	t.Setenv("ENABLE_BETA_ALERTS", "true")
+	t.Setenv("ENABLE_SYSTEM_MONITORING", "true")
+	t.Setenv("ENABLE_TRACING", "true")
+	t.Setenv("DD_API_KEY", "test-datadog-key")
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	require.NoError(t, os.Mkdir(exportDir, 0o700))
 	metadata := clusterMetadata{
@@ -221,20 +226,31 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	}
 
 	// Act
-	err := prepareInstallBundles(exportDir, metadata)
+	profile, err := fleetApplicationEnvironment(os.LookupEnv)
+	require.NoError(t, err)
+	err = prepareInstallBundles(exportDir, metadata, profile)
 
 	// Assert
 	require.NoError(t, err)
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
-		bundle, err := readHostBundle(filepath.Join(exportDir, hostBundleName(role)))
+		bundlePath := filepath.Join(exportDir, hostBundleName(role))
+		bundle, err := readHostBundle(bundlePath)
 		require.NoError(t, err)
+		requireMode(t, bundlePath, 0o600)
+		require.NoFileExists(t, bundlePath+".sha256")
 		require.Equal(t, role, bundle.Metadata.Role)
 		require.NotContains(t, bundle.Secrets, "service-ca.key")
 		require.Equal(t, role == "ha-a", len(bundle.EtcdRootPassword) != 0)
-	}
-	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
-		requireMode(t, filepath.Join(exportDir, name), 0o600)
-		require.NoFileExists(t, filepath.Join(exportDir, name+".sha256"))
+		if role == "ha-c" {
+			require.NotContains(t, bundle.Secrets, fleetEnvironmentFile)
+			continue
+		}
+		profile, err := parseFleetDeploymentEnvironment(bundle.Secrets[fleetEnvironmentFile])
+		require.NoError(t, err)
+		require.True(t, profile.enabled("ENABLE_BETA_ALERTS"))
+		require.True(t, profile.enabled("ENABLE_SYSTEM_MONITORING"))
+		require.True(t, profile.enabled("ENABLE_TRACING"))
+		require.Equal(t, "test-datadog-key", profile["DD_API_KEY"])
 	}
 }
 
@@ -331,6 +347,7 @@ func TestInstallHostBundleConsumption(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
+			t.Setenv("DD_API_KEY", "ambient-secret")
 			source := testGuidedRelease(t, "v0.2.10", "abc123")
 			bundlePath := filepath.Join(t.TempDir(), hostBundleName("ha-c"))
 			writeValidTestBundle(t, bundlePath, testBundleMetadata("ha-c"))
@@ -338,8 +355,10 @@ func TestInstallHostBundleConsumption(t *testing.T) {
 			deps := testGuidedDependencies(source, strings.NewReader(""), &bytes.Buffer{}, &prompts)
 			deps.terminal = func() bool { return false }
 			inspected := false
-			deps.inspect = func(context.Context, string, NodeConfig) (installedDependencies, error) {
+			deps.inspect = func(context.Context, string, NodeConfig, fleetApplicationProfile) (installedDependencies, error) {
 				inspected = true
+				_, stillExported := os.LookupEnv("DD_API_KEY")
+				require.False(t, stillExported)
 				return installedDependencies{}, nil
 			}
 			deps.install = func(context.Context, InstallOptions) error { return tt.installErr }
@@ -374,6 +393,9 @@ func writeValidTestBundle(t *testing.T, path string, metadata bundleMetadata) {
 	secrets := make(map[string][]byte)
 	for _, name := range copiedSecretFiles(NodeConfig{NodeName: metadata.Role}) {
 		secrets[name] = []byte("test")
+		if name == fleetEnvironmentFile {
+			secrets[name] = []byte(testFleetEnvironment)
+		}
 	}
 	writeTestBundle(t, path, metadata, secrets)
 }
@@ -408,7 +430,7 @@ func testGuidedDependencies(source string, input *strings.Reader, output, prompt
 		operatorUsername: func() string { return "operator" },
 		checkPeer:        func(context.Context, string, string) error { return nil },
 		transferBundle:   func(context.Context, string, string, string) error { return nil },
-		inspect: func(context.Context, string, NodeConfig) (installedDependencies, error) {
+		inspect: func(context.Context, string, NodeConfig, fleetApplicationProfile) (installedDependencies, error) {
 			return installedDependencies{}, nil
 		},
 		install: func(context.Context, InstallOptions) error { return nil },

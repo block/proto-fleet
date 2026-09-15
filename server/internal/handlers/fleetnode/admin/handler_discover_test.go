@@ -455,7 +455,7 @@ func TestDiscoverOnFleetNode_NmapModeRejectsEmptyTarget(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
-func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
+func TestDiscoverOnFleetNode_PreservesIPRangeOnWire(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-range")
@@ -464,7 +464,7 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 
 	client := startAdminServer(t, h)
 
-	gotIPs := make(chan []string, 1)
+	gotRange := make(chan *pairingpb.IPRangeModeRequest, 1)
 	go func() {
 		select {
 		case cmd, ok := <-stream.Outgoing:
@@ -473,8 +473,7 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 			}
 			var env gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
-			req := env.GetDiscover()
-			gotIPs <- req.GetIpList().GetIpAddresses()
+			gotRange <- env.GetDiscover().GetIpRange()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):
 			t.Errorf("timed out waiting for command")
@@ -497,10 +496,13 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 
 	// Assert
 	select {
-	case ips := <-gotIPs:
-		assert.Equal(t, []string{"10.0.0.5", "10.0.0.6", "10.0.0.7"}, ips)
+	case ipRange := <-gotRange:
+		require.NotNil(t, ipRange)
+		assert.Equal(t, "10.0.0.5", ipRange.GetStartIp())
+		assert.Equal(t, "10.0.0.7", ipRange.GetEndIp())
+		assert.Equal(t, []string{"80"}, ipRange.GetPorts())
 	case <-time.After(2 * time.Second):
-		t.Fatal("agent never recorded IPs")
+		t.Fatal("agent never recorded the IP range")
 	}
 }
 

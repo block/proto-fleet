@@ -30,8 +30,8 @@ services:
       # HTTP_PPROF_ADDR: "0.0.0.0:6060"  # Uncomment to enable pprof debug server; port mapping below restricts access to host loopback only
       # ports:
       #   - "127.0.0.1:6060:6060"  # pprof debug server (requires HTTP_PPROF_ADDR=0.0.0.0:6060)
-    cap_add:
-      - NET_ADMIN
+    # TCP connect discovery does not need raw sockets.
+    cap_drop:
       - NET_RAW
 
   # TimescaleDB (PostgreSQL with time-series extension)
