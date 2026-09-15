@@ -1,3 +1,4 @@
+import type { ContainerHistoryRequest } from "../containerHistory";
 import type {
   AdapterProbeMatch,
   AdapterRequestOptions,
@@ -12,6 +13,7 @@ import type {
 } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
+import { queryContainerHistory } from "./containerHistory";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
@@ -454,6 +456,10 @@ export class MdkV2Adapter implements MinerAdapter {
       aggregation as "mean" | "avg" | "min" | "max",
       hashboardResponses,
     );
+  }
+
+  getContainerHistory(request: ContainerHistoryRequest, params: AdapterRequestOptions = {}) {
+    return queryContainerHistory(this.client, request, this.decorate(params));
   }
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {

@@ -1,3 +1,4 @@
+import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type {
   CoolingMode,
@@ -210,6 +211,11 @@ export interface MinerAdapter {
   ): Promise<SystemLogs | undefined>;
   getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetrySnapshot>;
   getTimeSeries(request: TimeSeriesQuery, params?: AdapterRequestOptions): Promise<TelemetryState>;
+  /** Container and plant histories without per-hashboard requests. Unsupported adapters omit this capability. */
+  getContainerHistory?(
+    request: ContainerHistoryRequest,
+    params?: AdapterRequestOptions,
+  ): Promise<ContainerHistoryResult>;
   getCoolingStatus(params?: AdapterRequestOptions): Promise<{ mode: CoolingMode; fans: FanTelemetry[] }>;
   setCoolingMode(mode: CoolingMode, params?: AdapterRequestOptions): Promise<void>;
 

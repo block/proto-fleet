@@ -5,11 +5,18 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// Live telemetry and history expose the same simulated fan inventory.
+var dryCoolerFanIDs = []string{
+	"dry-cooler-fan-1", "dry-cooler-fan-2", "dry-cooler-fan-3", "dry-cooler-fan-4", "dry-cooler-fan-5",
+	"dry-cooler-fan-6", "dry-cooler-fan-7", "dry-cooler-fan-8", "dry-cooler-fan-9", "dry-cooler-fan-10",
+}
 
 // RESTApiHandler serves the MDK v2 REST surface a fleet client hits against a
 // CT1 container. JSON field names follow the grpc-gateway camelCase encoding
@@ -433,6 +440,8 @@ type plantTelemetry struct {
 	OutletATemperatureC           float64 `json:"outletATemperatureC"`
 	OutletBTemperatureC           float64 `json:"outletBTemperatureC"`
 	AmbientTemperatureC           float64 `json:"ambientTemperatureC"`
+	InsideAmbientTemperatureC     float64 `json:"insideAmbientTemperatureC"`
+	OutsideAmbientTemperatureC    float64 `json:"outsideAmbientTemperatureC"`
 	CoolantPumpActive             bool    `json:"coolantPumpActive"`
 	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz"`
 	PumpInletPressurePa           float64 `json:"pumpInletPressurePa"`
@@ -817,14 +826,14 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 	facility := totalPower * pue
 	heatRejection := facility - totalPower
 	now := time.Now()
-	coolingFans := make([]plantCoolingFan, 10)
-	for index := range coolingFans {
+	coolingFans := make([]plantCoolingFan, len(dryCoolerFanIDs))
+	for index, id := range dryCoolerFanIDs {
 		speed := 60.0
 		if index%3 != 2 {
 			speed = 85
 		}
 		coolingFans[index] = plantCoolingFan{
-			ComponentID: fmt.Sprintf("dry-cooler-fan-%d", index+1),
+			ComponentID: id,
 			PowerW:      vary(450),
 			SpeedPct:    vary(speed),
 			AlarmActive: index == 3,
@@ -887,6 +896,8 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 			OutletATemperatureC:           vary(plantOutletTempC),
 			OutletBTemperatureC:           vary(plantOutletTempC + 0.4),
 			AmbientTemperatureC:           vary(plantAmbientTempC),
+			InsideAmbientTemperatureC:     vary(plantAmbientTempC + 5),
+			OutsideAmbientTemperatureC:    vary(plantAmbientTempC),
 			CoolantPumpActive:             s.ContainerControls["coolant_pump"],
 			CoolantPumpSpeedHz:            vary(50),
 			PumpInletPressurePa:           vary(194_430),
@@ -997,12 +1008,19 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var unit string
+	boardMetric := metric == timeSeriesMetricHashrate || metric == timeSeriesMetricPower || metric == timeSeriesMetricTemperature
 	switch metric {
 	case timeSeriesMetricHashrate:
 		unit = "TH/s"
 	case timeSeriesMetricPower:
 		unit = "W"
 	case timeSeriesMetricTemperature:
+		unit = "C"
+	case "TIME_SERIES_METRIC_PLANT_POWER", "TIME_SERIES_METRIC_PLANT_FACILITY_POWER", "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER",
+		"TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER", "TIME_SERIES_METRIC_PLANT_FAN_POWER":
+		unit = "W"
+	case "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE", "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
+		"TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE", "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE":
 		unit = "C"
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported metric")
@@ -1012,7 +1030,7 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 	s := h.state
 	s.mu.RLock()
 	boards := s.eachBoard()
-	if identifier := query.Get("identifier"); identifier != "" {
+	if identifier := query.Get("identifier"); identifier != "" && boardMetric {
 		board := s.findBoard(identifier)
 		if board == nil {
 			s.mu.RUnlock()
@@ -1035,11 +1053,45 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 			base += board.targetWatts()
 		case timeSeriesMetricTemperature:
 			base += asicTempC
+		default:
+			base += board.targetWatts()
 		}
 	}
 	s.mu.RUnlock()
 	if metric == timeSeriesMetricTemperature && active > 0 {
 		base /= float64(active)
+	}
+	if !boardMetric {
+		identifier := query.Get("identifier")
+		switch metric {
+		case "TIME_SERIES_METRIC_PLANT_FACILITY_POWER":
+			base *= basePUE
+		case "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER":
+			base *= basePUE - 1
+		case "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER":
+			if identifier != "pdu-main" {
+				writeError(w, http.StatusNotFound, "unknown distribution identifier")
+				return
+			}
+		case "TIME_SERIES_METRIC_PLANT_FAN_POWER":
+			if !slices.Contains(dryCoolerFanIDs, identifier) {
+				writeError(w, http.StatusNotFound, "unknown fan identifier")
+				return
+			}
+			base = 450
+		case "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE":
+			base = plantAmbientTempC + 5
+		case "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE":
+			base = plantAmbientTempC
+		case "TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE":
+			base = plantInletTempC
+		case "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE":
+			base = plantOutletTempC
+		}
+	}
+	count := int64str(1)
+	if metric == timeSeriesMetricTemperature && active == 0 {
+		count = 0
 	}
 	maxBuckets := 300
 	buckets := make([]timeSeriesBucket, 0, min(int(end.Sub(start)/bucketDuration)+1, maxBuckets))
@@ -1050,7 +1102,7 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 			Avg:   value,
 			Min:   value * 0.99,
 			Max:   value * 1.01,
-			Count: int64str(active),
+			Count: count,
 		})
 	}
 	writeJSON(w, http.StatusOK, timeSeriesResponse{Metric: metric, Unit: unit, Buckets: buckets})

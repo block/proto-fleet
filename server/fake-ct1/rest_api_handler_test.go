@@ -448,6 +448,49 @@ func TestTimeSeries(t *testing.T) {
 	}
 }
 
+func TestTimeSeriesIdleAvailability(t *testing.T) {
+	srv, state := newTestServer(t)
+	if status := postJSON(t, srv, "/api/v2/mining/stop", struct{}{}, nil); status != http.StatusOK {
+		t.Fatalf("stop status = %d", status)
+	}
+	for _, test := range []struct {
+		metric, identifier string
+		count              int64str
+		zero               bool
+	}{
+		{timeSeriesMetricTemperature, "", 0, true},
+		{timeSeriesMetricTemperature, state.eachBoard()[0].MAC, 0, true},
+		{timeSeriesMetricHashrate, "", 1, true},
+		{timeSeriesMetricPower, "", 1, true},
+		{"TIME_SERIES_METRIC_PLANT_POWER", "", 1, true},
+		{"TIME_SERIES_METRIC_PLANT_FACILITY_POWER", "", 1, true},
+		{"TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE", "", 1, false},
+		{"TIME_SERIES_METRIC_PLANT_FAN_POWER", "dry-cooler-fan-1", 1, false},
+	} {
+		t.Run(test.metric+test.identifier, func(t *testing.T) {
+			var response timeSeriesResponse
+			path := "/api/v2/telemetry/timeseries?metric=" + test.metric + "&identifier=" + test.identifier + "&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M"
+			getJSON(t, srv, path, &response)
+			if len(response.Buckets) != 12 {
+				t.Fatalf("buckets = %d, want 12", len(response.Buckets))
+			}
+			for _, bucket := range response.Buckets {
+				if bucket.Count != test.count || (bucket.Avg == 0) != test.zero {
+					t.Fatalf("unexpected idle bucket: %+v, want count=%d zero=%t", bucket, test.count, test.zero)
+				}
+			}
+		})
+	}
+	if status := postJSON(t, srv, "/api/v2/mining/start", struct{}{}, nil); status != http.StatusOK {
+		t.Fatalf("start status = %d", status)
+	}
+	var resumed timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_TEMPERATURE&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M", &resumed)
+	if len(resumed.Buckets) != 12 || resumed.Buckets[0].Count != 1 || resumed.Buckets[0].Avg <= 0 {
+		t.Fatalf("unexpected resumed temperature: %+v", resumed)
+	}
+}
+
 func TestModuleRunIn(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var response moduleRunInResponse
@@ -457,6 +500,74 @@ func TestModuleRunIn(t *testing.T) {
 	}
 	if response.TaskID != "test-task" || response.ModuleID != "T1-M01" || len(response.Boards) != 3 {
 		t.Fatalf("unexpected run-in response: %+v", response)
+	}
+}
+
+func TestPlantTimeSeries(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, test := range []struct{ metric, identifier, unit string }{
+		{"PLANT_POWER", "", "W"},
+		{"PLANT_FACILITY_POWER", "", "W"},
+		{"PLANT_HEAT_REJECTION_POWER", "", "W"},
+		{"PLANT_DISTRIBUTION_POWER", "pdu-main", "W"},
+		{"PLANT_FAN_POWER", "dry-cooler-fan-1", "W"},
+		{"PLANT_INSIDE_AMBIENT_TEMPERATURE", "", "C"},
+		{"PLANT_OUTSIDE_AMBIENT_TEMPERATURE", "", "C"},
+		{"PLANT_INLET_TEMPERATURE", "", "C"},
+		{"PLANT_OUTLET_TEMPERATURE", "", "C"},
+	} {
+		t.Run(test.metric, func(t *testing.T) {
+			var response timeSeriesResponse
+			path := "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_" + test.metric + "&identifier=" + test.identifier + "&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M"
+			getJSON(t, srv, path, &response)
+			if response.Unit != test.unit || len(response.Buckets) != 12 || response.Buckets[0].Avg <= 0 {
+				t.Fatalf("unexpected plant history: %+v", response)
+			}
+		})
+	}
+	response, err := http.Get(srv.URL + "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_PLANT_FAN_POWER&identifier=not-a-fan&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown fan status = %d", response.StatusCode)
+	}
+}
+
+func TestPlantFanHistoryMatchesAdvertisedFans(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var telemetry containerTelemetryResponse
+	getJSON(t, srv, "/api/v2/telemetry/container", &telemetry)
+	if len(telemetry.CoolingFans) != 10 {
+		t.Fatalf("advertised fans = %d, want 10", len(telemetry.CoolingFans))
+	}
+	const query = "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_PLANT_FAN_POWER&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M&identifier="
+	for _, fan := range telemetry.CoolingFans {
+		t.Run(fan.ComponentID, func(t *testing.T) {
+			var history timeSeriesResponse
+			getJSON(t, srv, query+fan.ComponentID, &history)
+			if history.Unit != "W" || len(history.Buckets) != 12 {
+				t.Fatalf("unexpected fan history: %+v", history)
+			}
+			for _, bucket := range history.Buckets {
+				if bucket.Count != 1 || bucket.Avg <= 0 {
+					t.Fatalf("unexpected fan bucket: %+v", bucket)
+				}
+			}
+		})
+	}
+	for _, identifier := range []string{"", "not-a-fan", "dry-cooler-fan-0", "dry-cooler-fan-11", "dry-cooler-fan-01"} {
+		t.Run("unknown/"+identifier, func(t *testing.T) {
+			response, err := http.Get(srv.URL + query + identifier)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusNotFound {
+				t.Fatalf("unknown fan status = %d, want 404", response.StatusCode)
+			}
+		})
 	}
 }
 

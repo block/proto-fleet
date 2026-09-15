@@ -395,6 +395,8 @@ export interface PlantTelemetry {
   tankBLiquidLevel?: MetricTelemetry;
   ambientTemperature?: MetricTelemetry;
   dryCoolerInletTemperature?: MetricTelemetry;
+  insideAmbientTemperature?: MetricTelemetry;
+  outsideAmbientTemperature?: MetricTelemetry;
   totalPower?: MetricTelemetry;
   heatRejectionPower?: MetricTelemetry;
   facilityPower?: MetricTelemetry;
