@@ -26,6 +26,10 @@ interface SearchProps {
    * that was present before clearing so collapsible consumers can distinguish
    * clearing a query from dismissing an already-empty field. */
   onClear?: (previousValue: string) => void;
+  /** Called after Escape has emptied the field. Input drops focus on Escape
+   * before the value changes, so `onBlur` still sees the old query; consumers
+   * that collapse an empty, unfocused field have to hook this instead. */
+  onEscape?: () => void;
   /** Keeps the toolbar clear affordance visible when the field is empty. */
   showClearWhenEmpty?: boolean;
   shouldFocus?: boolean;
@@ -45,6 +49,7 @@ const Search = ({
   onChange,
   onBlur,
   onClear,
+  onEscape,
   showClearWhenEmpty = false,
   initValue,
   shouldFocus,
@@ -100,9 +105,10 @@ const Search = ({
     (key: string) => {
       if (key === "Escape") {
         handleChange("");
+        onEscape?.();
       }
     },
-    [handleChange],
+    [handleChange, onEscape],
   );
 
   const cmdOrCtrl = useMemo(() => (window.navigator.platform.match(/^Mac/) ? "⌘" : "Ctrl"), []);

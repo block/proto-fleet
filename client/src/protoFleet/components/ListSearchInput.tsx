@@ -159,6 +159,9 @@ const ListSearchInput = ({
         onClear={(previousValue) => {
           if (!previousValue) collapseIfEmpty("");
         }}
+        // Escape has already blurred and emptied the field by the time this
+        // fires; `onBlur` saw the pre-clear query and kept it open.
+        onEscape={() => collapseIfEmpty("")}
         showClearWhenEmpty={collapsible}
         shouldFocus={collapsible ? expanded : false}
         sanitize={sanitizeSearchQuery}
