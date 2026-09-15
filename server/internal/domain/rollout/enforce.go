@@ -150,8 +150,8 @@ func (s *Service) refreshOfflineBudget(ctx context.Context, channelID int64, lim
 // that has at least one mismatched, unsuppressed member and no active
 // rollout: late joiners, re-entries and miners that drifted. No operator is
 // present to review a gate, so these never stage. The rollout carries the
-// pair's generation and inherits the lineage of the generation's most recent
-// rollout.
+// pair's generation and its saved assignment lineage, including assignments
+// that originally needed no rollout because every member already matched.
 func (s *Service) startNeededRollouts(ctx context.Context) {
 	needed, err := s.store.GetQueries(ctx).ListReleaseChannelFirmwareNeedingRollout(ctx)
 	if err != nil {
@@ -192,14 +192,8 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model},
 				FirmwareChecksum: assignment.FirmwareChecksum, FirmwareVersion: assignment.FirmwareVersion,
 				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: allAtOnce,
-			}
-			latest, err := q.GetLatestFirmwareRolloutForPair(ctx, sqlc.GetLatestFirmwareRolloutForPairParams{
-				ChannelID: n.ChannelID, Manufacturer: assignment.Manufacturer, Model: assignment.Model, AssignmentGeneration: assignment.AssignmentGeneration,
-			})
-			if err == nil {
-				spec.PreviousFirmwareChecksum, spec.PreviousFirmwareVersion = latest.PreviousFirmwareChecksum, latest.PreviousFirmwareVersion
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return fleeterror.NewInternalErrorf("get assignment rollout lineage: %w", err)
+				PreviousFirmwareChecksum: assignment.PreviousFirmwareChecksum,
+				PreviousFirmwareVersion:  assignment.PreviousFirmwareVersion,
 			}
 			r, err := s.startRollout(ctx, spec)
 			if err != nil || r == nil {
@@ -680,16 +674,14 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 	return halted, nil
 }
 
-// enforcementContext supplies the assignment's persisted user owner to command
-// dispatch. The rollout's audit actor remains independent, including system/0
-// for reconciliation and the controller that requests a retry.
+// enforcementContext supplies the assignment's persisted user owner for the
+// command batch, while activity identifies background dispatch as a system
+// action. No human identity is synthesized for the enforcement loop.
 func (s *Service) enforcementContext(ctx context.Context, r sqlc.FirmwareRollout, ownerUserID int64) context.Context {
 	return authn.SetInfo(ctx, &session.Info{
 		SessionID:      rolloutActorName,
 		UserID:         ownerUserID,
 		OrganizationID: r.OrgID,
-		ExternalUserID: rolloutActorName,
-		Username:       rolloutActorName,
 		Actor:          session.ActorRolloutEnforcement,
 	})
 }

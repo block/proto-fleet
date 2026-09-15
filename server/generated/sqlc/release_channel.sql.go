@@ -192,6 +192,8 @@ const clearReleaseChannelFirmware = `-- name: ClearReleaseChannelFirmware :one
 UPDATE release_channel_firmware
 SET firmware_checksum = '',
     firmware_version = '',
+    previous_firmware_checksum = '',
+    previous_firmware_version = '',
     firmware_target_manufacturer = '',
     firmware_target_model = '',
     assignment_generation = assignment_generation + 1,
@@ -201,7 +203,7 @@ WHERE channel_id = $2
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($3::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($4::text)
   AND firmware_checksum <> ''
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
 `
 
 type ClearReleaseChannelFirmwareParams struct {
@@ -232,6 +234,8 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
 		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
 	)
 	return i, err
 }
@@ -579,6 +583,7 @@ WITH locked_rollout AS MATERIALIZED (
     SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = $2 AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
@@ -586,7 +591,7 @@ SET status = $1,
     finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
     paused_at = NULL
 FROM locked_rollout
-WHERE r.id = locked_rollout.id AND r.status = 'active'
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL
 `
 
 type FinishFirmwareRolloutParams struct {
@@ -594,9 +599,11 @@ type FinishFirmwareRolloutParams struct {
 	RolloutID int64
 }
 
-// Ends an active rollout as 'completed' or 'completed_with_failures'.
+// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+// Recheck the pause under the row lock so stale settled targets cannot complete
+// work after the operator pauses it. Resuming permits a later tick to finish.
 // Record the first terminal time after the header lock, bounded by the
-// rollout's preceding lifecycle events, and clear any active pause.
+// rollout's preceding lifecycle events.
 func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.finishFirmwareRolloutStmt, finishFirmwareRollout, arg.Status, arg.RolloutID)
 	if err != nil {
@@ -929,7 +936,7 @@ func (q *Queries) GetReleaseChannel(ctx context.Context, arg GetReleaseChannelPa
 }
 
 const getReleaseChannelFirmware = `-- name: GetReleaseChannelFirmware :one
-SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at FROM release_channel_firmware
+SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version FROM release_channel_firmware
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -955,6 +962,8 @@ func (q *Queries) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseC
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
 		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
 	)
 	return i, err
 }
@@ -1554,7 +1563,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 }
 
 const listReleaseChannelFirmware = `-- name: ListReleaseChannelFirmware :many
-SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at
+SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version
 FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = $1
@@ -1582,6 +1591,8 @@ func (q *Queries) ListReleaseChannelFirmware(ctx context.Context, orgID int64) (
 			&i.AssignmentGeneration,
 			&i.AssignedBy,
 			&i.UpdatedAt,
+			&i.PreviousFirmwareChecksum,
+			&i.PreviousFirmwareVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3009,14 +3020,16 @@ VALUES (
     $6, $7, 1, $8
 )
 ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
-SET firmware_checksum = EXCLUDED.firmware_checksum,
+SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
+    previous_firmware_version = release_channel_firmware.firmware_version,
+    firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
     firmware_target_manufacturer = EXCLUDED.firmware_target_manufacturer,
     firmware_target_model = EXCLUDED.firmware_target_model,
     assignment_generation = release_channel_firmware.assignment_generation + 1,
     assigned_by = EXCLUDED.assigned_by,
     updated_at = now()
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
 `
 
 type UpsertReleaseChannelFirmwareParams struct {
@@ -3058,6 +3071,8 @@ func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertRe
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
 		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
 	)
 	return i, err
 }

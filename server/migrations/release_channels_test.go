@@ -27,9 +27,9 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	upSQL, err := migrations.Migrations.ReadFile("000148_release_channels.up.sql")
 	require.NoError(t, err)
-	reservationDownSQL, err := migrations.Migrations.ReadFile("000149_rollout_offline_reservations.down.sql")
+	reservationDownSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.down.sql")
 	require.NoError(t, err)
-	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_offline_reservations.up.sql")
+	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.up.sql")
 	require.NoError(t, err)
 
 	relations := []string{

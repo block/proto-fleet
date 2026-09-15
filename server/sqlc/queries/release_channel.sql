@@ -310,7 +310,9 @@ VALUES (
     sqlc.arg('firmware_target_manufacturer'), sqlc.arg('firmware_target_model'), 1, sqlc.arg('assigned_by')
 )
 ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
-SET firmware_checksum = EXCLUDED.firmware_checksum,
+SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
+    previous_firmware_version = release_channel_firmware.firmware_version,
+    firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
     firmware_target_manufacturer = EXCLUDED.firmware_target_manufacturer,
     firmware_target_model = EXCLUDED.firmware_target_model,
@@ -325,6 +327,8 @@ RETURNING *;
 UPDATE release_channel_firmware
 SET firmware_checksum = '',
     firmware_version = '',
+    previous_firmware_checksum = '',
+    previous_firmware_version = '',
     firmware_target_manufacturer = '',
     firmware_target_model = '',
     assignment_generation = assignment_generation + 1,
@@ -656,13 +660,16 @@ FROM locked_rollout
 WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: FinishFirmwareRollout :execrows
--- Ends an active rollout as 'completed' or 'completed_with_failures'.
+-- Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+-- Recheck the pause under the row lock so stale settled targets cannot complete
+-- work after the operator pauses it. Resuming permits a later tick to finish.
 -- Record the first terminal time after the header lock, bounded by the
--- rollout's preceding lifecycle events, and clear any active pause.
+-- rollout's preceding lifecycle events.
 WITH locked_rollout AS MATERIALIZED (
     SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
@@ -670,7 +677,7 @@ SET status = sqlc.arg('status'),
     finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
     paused_at = NULL
 FROM locked_rollout
-WHERE r.id = locked_rollout.id AND r.status = 'active';
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL;
 
 -- name: AdvanceFirmwareRolloutStage :one
 -- Stage transitions of an active rollout, attributed to an actor when one

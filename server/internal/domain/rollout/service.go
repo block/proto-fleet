@@ -1279,10 +1279,8 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 			OrgID: channel.OrgID, ChannelID: channel.ID, ChannelName: channel.Name, Pair: a.pair,
 			FirmwareChecksum: a.artifact.Checksum, FirmwareVersion: a.artifact.Metadata.FirmwareVersion,
 			AssignmentGeneration: assigned.AssignmentGeneration, Actor: actor, Behavior: behavior,
-		}
-		if a.current != nil && a.current.FirmwareChecksum != "" {
-			spec.PreviousFirmwareChecksum = a.current.FirmwareChecksum
-			spec.PreviousFirmwareVersion = a.current.FirmwareVersion
+			PreviousFirmwareChecksum: assigned.PreviousFirmwareChecksum,
+			PreviousFirmwareVersion:  assigned.PreviousFirmwareVersion,
 		}
 		r, err := s.startRollout(ctx, spec)
 		if err != nil {

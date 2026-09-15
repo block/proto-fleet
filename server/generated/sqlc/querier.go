@@ -503,9 +503,11 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
-	// Ends an active rollout as 'completed' or 'completed_with_failures'.
+	// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+	// Recheck the pause under the row lock so stale settled targets cannot complete
+	// work after the operator pauses it. Resuming permits a later tick to finish.
 	// Record the first terminal time after the header lock, bounded by the
-	// rollout's preceding lifecycle events, and clear any active pause.
+	// rollout's preceding lifecycle events.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any

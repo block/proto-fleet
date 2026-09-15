@@ -162,14 +162,15 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		return
 	}
 	batchIDCopy := batchID
+	userID, username := activityUserFromSession(info)
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           eventType,
 		Description:    description,
 		ScopeCount:     &deviceCount,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		BatchID:        &batchIDCopy,
 		Metadata:       map[string]any{"batch_id": batchID},
@@ -188,11 +189,20 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
 	case session.ActorRolloutEnforcement:
-		// Enforcement-driven commands are attributed to the user who assigned
-		// the firmware (the session's UserID) through the ActorUser default.
-		return ""
+		return activitymodels.ActorSystem
 	}
 	return ""
+}
+
+// activityUserFromSession snapshots the activity identity independently of the
+// numeric user that owns command batches. Background firmware enforcement is a
+// system action, not an action by the assignment owner or a synthetic user.
+func activityUserFromSession(info *session.Info) (*string, *string) {
+	if info == nil || info.Actor == session.ActorRolloutEnforcement {
+		return nil, nil
+	}
+	userID, username := info.ExternalUserID, info.Username
+	return &userID, &username
 }
 
 // isExternalCommand is true for user/API-key traffic. Internal orchestrators
@@ -258,14 +268,15 @@ func (s *Service) logPreflightBlockedStrict(
 	eventType := activityEventType(commandType)
 	auditCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 	defer cancel()
+	userID, username := activityUserFromSession(info)
 	return s.activitySvc.LogStrict(auditCtx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           "command_preflight_blocked",
 		Description:    fmt.Sprintf("Command %q blocked: %d of %d device(s) excluded by preflight filters", eventType, len(skipped), len(requestedIdentifiers)),
 		Result:         activitymodels.ResultFailure,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		Metadata:       skipMetadata(eventType, len(requestedIdentifiers), skipped),
 	})
@@ -288,14 +299,15 @@ func (s *Service) logFilterSkips(
 		return
 	}
 	requestedCount := dispatchedCount + len(skipped)
+	userID, username := activityUserFromSession(info)
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           "command_filter_skip",
 		Description:    fmt.Sprintf("Command %q dispatched with %d device(s) excluded by preflight filters", eventType, len(skipped)),
 		Result:         activitymodels.ResultSuccess,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		Metadata:       skipMetadata(eventType, requestedCount, skipped),
 	})
@@ -431,8 +443,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			"error", err, "batch_id", batchID)
 		return nil
 	}
-	userID := info.ExternalUserID
-	username := info.Username
+	userID, username := activityUserFromSession(info)
 	organizationID := info.OrganizationID
 	actorType := actorTypeFromSession(info)
 	return func() error {
@@ -464,8 +475,8 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			Result:         result,
 			ScopeCount:     &scopeCount,
 			ActorType:      actorType,
-			UserID:         &userID,
-			Username:       &username,
+			UserID:         userID,
+			Username:       username,
 			OrganizationID: &organizationID,
 			BatchID:        &batchIDCopy,
 			Metadata: map[string]any{

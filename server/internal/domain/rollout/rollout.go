@@ -373,6 +373,13 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 	ordered := s.orderMembers(rows, spec.Behavior.Order)
 
 	b := spec.Behavior
+	// Every creation path snapshots the channel's live cap, including the
+	// all-at-once behavior used by reconciliation, retries and rollback.
+	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: spec.ChannelID, OrgID: spec.OrgID})
+	if err != nil {
+		return nil, channelLookupError(spec.ChannelID, err)
+	}
+	b.MaxConcurrentOffline = channel.MaxConcurrentOffline
 	var batches [][]int64
 	var rest []int64
 	switch b.Method {

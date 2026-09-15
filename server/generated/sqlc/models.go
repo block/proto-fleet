@@ -1348,6 +1348,8 @@ type ReleaseChannelFirmware struct {
 	AssignmentGeneration       int64
 	AssignedBy                 int64
 	UpdatedAt                  time.Time
+	PreviousFirmwareChecksum   string
+	PreviousFirmwareVersion    string
 }
 
 type ReleaseChannelMatch struct {
