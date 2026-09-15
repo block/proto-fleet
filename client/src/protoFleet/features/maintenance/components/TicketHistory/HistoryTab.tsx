@@ -188,13 +188,16 @@ const HistoryTab = () => {
           ]}
           onChange={setAssignee}
         />
-        <Button
-          text="Refresh"
-          variant={variants.secondary}
-          size={sizes.compact}
-          disabled={loading}
-          onClick={() => void refresh()}
-        />
+        {/* Filters left, actions right, matching the Queue and Inventory toolbars. */}
+        <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
+          <Button
+            text="Refresh"
+            variant={variants.secondary}
+            size={sizes.compact}
+            disabled={loading}
+            onClick={() => void refresh()}
+          />
+        </div>
       </div>
       {error && !items.length ? (
         <div role="alert">{error}</div>

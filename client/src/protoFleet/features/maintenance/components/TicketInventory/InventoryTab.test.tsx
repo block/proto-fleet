@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { InventoryPartItem } from "../../types";
@@ -132,7 +132,12 @@ it("uses compact site, type, and low-stock controls", async () => {
 
   await user.click(screen.getByRole("button", { name: "Site" }));
   await user.click(screen.getByTestId("filter-option-2"));
-  expect(inventory.setFilter).toHaveBeenLastCalledWith({ siteIds: [2n], types: [], lowStockOnly: false });
+  expect(inventory.setFilter).toHaveBeenLastCalledWith({
+    siteIds: [2n],
+    types: [],
+    lowStockOnly: false,
+    searchQuery: "",
+  });
 
   await user.click(screen.getByRole("button", { name: "Type" }));
   await user.click(screen.getByTestId("filter-option-Cooling"));
@@ -140,6 +145,7 @@ it("uses compact site, type, and low-stock controls", async () => {
     siteIds: [2n],
     types: ["Cooling"],
     lowStockOnly: false,
+    searchQuery: "",
   });
 
   await user.click(screen.getByRole("button", { name: "Low stock" }));
@@ -147,14 +153,35 @@ it("uses compact site, type, and low-stock controls", async () => {
     siteIds: [2n],
     types: ["Cooling"],
     lowStockOnly: true,
+    searchQuery: "",
   });
+});
+
+it("applies the debounced search alongside the other filters", async () => {
+  const user = userEvent.setup();
+  render(<InventoryTab />);
+
+  await user.click(screen.getByRole("button", { name: "Search parts" }));
+  // The toolbar keeps wrapping on phones, so the expanded field has to claim a
+  // full row itself rather than sit beside a filter pill at intrinsic width.
+  expect(screen.getByTestId("inventory-search-expanded")).toHaveClass("phone:w-full");
+  await user.type(screen.getByRole("textbox", { name: "Search parts" }), "hash");
+
+  await waitFor(() =>
+    expect(inventory.setFilter).toHaveBeenLastCalledWith({
+      siteIds: [],
+      types: [],
+      lowStockOnly: false,
+      searchQuery: "hash",
+    }),
+  );
 });
 
 it("uses the low-stock metric as a filter shortcut", async () => {
   const user = userEvent.setup();
   render(<InventoryTab />);
   await user.click(screen.getByRole("button", { name: "Show low stock items" }));
-  expect(inventory.setFilter).toHaveBeenLastCalledWith({ siteIds: [], types: [], lowStockOnly: true });
+  expect(inventory.setFilter).toHaveBeenLastCalledWith({ siteIds: [], types: [], lowStockOnly: true, searchQuery: "" });
 });
 
 it("renders standard page controls instead of Load more", () => {

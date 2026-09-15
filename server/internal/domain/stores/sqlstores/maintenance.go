@@ -114,7 +114,7 @@ func (s *SQLMaintenanceStore) ListRepairTickets(ctx context.Context, filter mode
 		FilterRackIds:     maintenanceNilIfEmpty(filter.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(filter.GroupLabels),
 		FilterAssigneeUserID: ptrToNullInt64(filter.AssigneeUserID), FilterUrgentOnly: filter.UrgentOnly,
 		FilterExcludeCompleted: filter.ExcludeCompleted, FilterOverdueOnly: filter.OverdueOnly,
-		SearchQuery: filter.SearchQuery,
+		SearchPattern: likeSearchPattern(filter.SearchQuery),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list repair tickets: %w", err)
@@ -483,8 +483,8 @@ func maintenanceWriteError(action string, err error) error {
 	return fleeterror.NewInternalErrorf("failed to %s: %w", action, err)
 }
 func countRepairParams(f models.ListFilter) sqlc.CountRepairTicketsParams {
-	return sqlc.CountRepairTicketsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchQuery: f.SearchQuery}
+	return sqlc.CountRepairTicketsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
 }
 func statsParams(f models.ListFilter) sqlc.GetFilteredTicketStatsParams {
-	return sqlc.GetFilteredTicketStatsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchQuery: f.SearchQuery}
+	return sqlc.GetFilteredTicketStatsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
 }

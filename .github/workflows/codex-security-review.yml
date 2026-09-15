@@ -12,7 +12,7 @@ jobs:
     # GitHub did not interrupt the pinned composite action at its caller step timeout.
     # Leave one minute for trusted finalization before GitHub's five-minute cleanup.
     # This outer job boundary is therefore the enforceable review budget.
-    timeout-minutes: 9
+    timeout-minutes: 30
     concurrency:
       group: codex-security-review-agent-${{ github.ref }}
       cancel-in-progress: true
@@ -21,8 +21,8 @@ jobs:
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-6-astra
-      CODEX_REASONING_EFFORT: xhigh
-      CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_REASONING_EFFORT: medium
+      CODEX_TIMEOUT_MINUTES: "30"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -65,7 +65,7 @@ jobs:
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
           test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
           test "$CODEX_MODEL" = "gpt-6-astra"
-          test "$CODEX_REASONING_EFFORT" = "xhigh"
+          test "$CODEX_REASONING_EFFORT" = "medium"
           if git config --local --get-regexp '^http\..*\.extraheader$'; then
             echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
             exit 1
@@ -101,7 +101,7 @@ jobs:
 
       - name: Run Codex Security Review
         id: run_codex
-        timeout-minutes: 9
+        timeout-minutes: 30
         continue-on-error: true
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
@@ -316,7 +316,7 @@ jobs:
     permissions:
       actions: read
     env:
-      CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_TIMEOUT_MINUTES: "30"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

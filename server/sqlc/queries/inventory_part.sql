@@ -79,6 +79,13 @@ WHERE ip.org_id = sqlc.arg('org_id')
        OR ip.type = ANY(sqlc.narg('filter_types')::text[]))
   AND (NOT sqlc.arg('filter_low_stock')::boolean
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
+  AND (sqlc.narg('search_pattern')::text IS NULL
+       OR ip.name ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR ip.type ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.manufacturer, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.part_number, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.bin_location, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\')
   AND (sqlc.narg('cursor_id')::bigint IS NULL
        OR ip.id < sqlc.narg('cursor_id')::bigint)
 ORDER BY ip.id DESC
@@ -87,6 +94,10 @@ LIMIT sqlc.arg('limit_n')::int;
 -- name: CountInventoryParts :one
 SELECT COUNT(*)::int
 FROM inventory_part ip
+LEFT JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
 WHERE ip.org_id = sqlc.arg('org_id')
   AND ip.deleted_at IS NULL
   AND (sqlc.narg('filter_site_ids')::bigint[] IS NULL
@@ -97,7 +108,14 @@ WHERE ip.org_id = sqlc.arg('org_id')
   AND (sqlc.narg('filter_types')::text[] IS NULL
        OR ip.type = ANY(sqlc.narg('filter_types')::text[]))
   AND (NOT sqlc.arg('filter_low_stock')::boolean
-       OR (ip.on_hand - ip.allocated) <= ip.reorder_point);
+       OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
+  AND (sqlc.narg('search_pattern')::text IS NULL
+       OR ip.name ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR ip.type ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.manufacturer, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.part_number, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(ip.bin_location, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+       OR COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\');
 
 -- name: UpdateInventoryPart :execrows
 UPDATE inventory_part

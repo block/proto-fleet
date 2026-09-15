@@ -11,6 +11,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func TestToListFilterPassesSearchQueryThrough(t *testing.T) {
+	filter, err := toListFilter(&pb.ListInventoryPartsRequest{
+		Filter:   &pb.InventoryFilter{SearchQuery: "hashboard", LowStockOnly: true},
+		PageSize: 20,
+	}, 42)
+	require.NoError(t, err)
+	assert.Equal(t, "hashboard", filter.SearchQuery)
+	assert.True(t, filter.LowStockOnly)
+	assert.Equal(t, int64(42), filter.OrgID)
+}
+
 func TestToUpdateParamsRangeChecksEnumAndPreservesPresence(t *testing.T) {
 	onHand := int32(0)
 	expectedOnHand := int32(3)
