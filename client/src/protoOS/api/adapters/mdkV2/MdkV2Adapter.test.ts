@@ -25,6 +25,110 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
   }) as unknown as MdkV2Client;
 
 describe("MdkV2Adapter", () => {
+  test("pool settings preserve string IDs and use masked edits without resetting credentials or weights", async () => {
+    const update = vi.fn();
+    const create = vi.fn();
+    const remove = vi.fn();
+    const adapter = new MdkV2Adapter(
+      client({ poolServiceUpdatePool: update, poolServiceCreatePool: create, poolServiceDeletePool: remove }),
+    );
+    const pool = { name: "Renamed", url: "stratum+tcp://pool:3333", username: "worker", password: "", priority: 0 };
+    await adapter.savePoolSettings(pool, "9007199254740993");
+    expect(update).toHaveBeenCalledWith(
+      { poolId: "9007199254740993" },
+      {
+        pool: { name: pool.name, url: pool.url, username: pool.username },
+        password: undefined,
+        updateMask: "name,url,username",
+      },
+      { headers: { "X-Frigate-Actor": "proto-os" } },
+    );
+    await adapter.savePoolSettings({ ...pool, priority: 3, password: "secret" });
+    expect(create).toHaveBeenCalledWith(
+      {
+        pool: { name: pool.name, url: pool.url, username: pool.username, priority: 3, enabled: true },
+        password: "secret",
+      },
+      expect.anything(),
+    );
+    await adapter.deletePoolSettings("42");
+    expect(remove).toHaveBeenCalledWith({ id: "42" }, expect.anything());
+  });
+
+  test("reordering never writes duplicate priorities or other pool fields", async () => {
+    const pools = [
+      { id: "42", priority: 0 },
+      { id: "91", priority: 1 },
+      { id: "103", priority: 2 },
+    ];
+    const update = vi.fn(async ({ poolId }, { pool, updateMask }) => {
+      expect(updateMask).toBe("priority");
+      expect(Object.keys(pool)).toEqual(["priority"]);
+      expect(pools.filter((p) => p.id !== poolId).map((p) => p.priority)).not.toContain(pool.priority);
+      pools.find((p) => p.id === poolId)!.priority = pool.priority;
+    });
+    const adapter = new MdkV2Adapter(
+      client({
+        poolServiceListPools: vi.fn().mockResolvedValue({ data: { pools } }),
+        poolServiceUpdatePool: update as never,
+      }),
+    );
+    await adapter.reorderPoolSettings(["103", "42", "91"]);
+    expect(pools.map((pool) => pool.priority)).toEqual([1, 2, 0]);
+    update.mockClear();
+    await expect(adapter.reorderPoolSettings(["42", "missing"])).rejects.toThrow("configuration changed");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("a failed reorder stops without replaying or replacing pools", async () => {
+    const update = vi.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("reload failed"));
+    const adapter = new MdkV2Adapter(
+      client({
+        poolServiceListPools: vi.fn().mockResolvedValue({
+          data: {
+            pools: [
+              { id: "42", priority: 0 },
+              { id: "91", priority: 1 },
+            ],
+          },
+        }),
+        poolServiceUpdatePool: update,
+      }),
+    );
+    await expect(adapter.reorderPoolSettings(["91", "42"])).rejects.toThrow("reload failed");
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  test("container controls retain unknown states and only reported bounds", async () => {
+    const setpoint = vi.fn();
+    const control = vi.fn();
+    const adapter = new MdkV2Adapter(
+      client({
+        powerServiceGetContainerControls: vi.fn().mockResolvedValue({
+          data: {
+            supported: true,
+            controls: [
+              { name: "coolant_pump", enabled: false, stateKnown: false },
+              { name: "dry_cooler", stateKnown: true },
+            ],
+            setpoints: [{ name: "temperature", value: 0, min: 0, max: 0 }],
+          },
+        }),
+        powerServiceSetContainerControl: control,
+        powerServiceSetContainerSetpoint: setpoint,
+      }),
+    );
+    const settings = await adapter.getContainerSettings();
+    expect(settings.controls.map((item) => item.enabled)).toEqual([undefined, false]);
+    expect(settings.setpoints[0]).toMatchObject({ value: 0, min: undefined, max: undefined });
+    await adapter.setContainerControl("coolant_pump", false);
+    expect(control).toHaveBeenCalledWith({ name: "coolant_pump" }, { enabled: false }, expect.anything());
+    await expect(adapter.setContainerSetpoint("temperature", Infinity)).rejects.toThrow("finite");
+    await expect(adapter.setContainerSetpoint("temperature", 1e99)).rejects.toThrow("finite");
+    expect(setpoint).not.toHaveBeenCalled();
+    await adapter.setContainerSetpoint("temperature", 39.5);
+    expect(setpoint).toHaveBeenCalledWith({ name: "temperature" }, { value: 39.5 }, expect.anything());
+  });
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -431,8 +535,8 @@ describe("MdkV2Adapter", () => {
 
     const result = await adapter.startModuleRunIn("container:ct1-a:module:T1-M02", {
       taskId: "task-1",
-      duration: "PT30M",
-      sampleInterval: "PT10S",
+      duration: "1800s",
+      sampleInterval: "10s",
       boardPowerTargetWatts: 5_000,
       stopMiningOnFinish: true,
     });
@@ -440,9 +544,11 @@ describe("MdkV2Adapter", () => {
     expect(startModuleRunIn).toHaveBeenCalledWith(
       { moduleId: "T1-M02", taskId: "task-1" },
       {
-        duration: "PT30M",
-        sampleInterval: "PT10S",
-        boardPowerTargetWatts: 5_000,
+        sampleInterval: "10s",
+        tuningSweep: {
+          dwellDuration: "1800s",
+          powerTarget: { startPowerTargetWatts: 5_000, endPowerTargetWatts: 5_000, stepPowerTargetWatts: 1 },
+        },
         stopMiningOnFinish: true,
       },
       { headers: { "X-Frigate-Actor": "proto-os" } },

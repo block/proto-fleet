@@ -23,6 +23,19 @@ describe("AppNavigationItems", () => {
     // pageName under "settings" opens the settings accordion on mount.
     render(<AppNavigationItems onClick={vi.fn()} pageName="settings/general" />);
 
+  test("container settings show General, Hardware, Pools without rig-only settings", () => {
+    (useMinerHosting as Mock).mockReturnValue({ isFleetHosted: false });
+    (useDeviceType as Mock).mockReturnValue("container");
+    renderExpanded();
+    const general = screen.getByText("General");
+    const hardware = screen.getByText("Hardware");
+    const pools = screen.getByText("Pools");
+    expect(general.compareDocumentPosition(hardware) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hardware.compareDocumentPosition(pools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Authentication")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cooling")).not.toBeInTheDocument();
+  });
+
   test("direct mode shows the Fleet-managed settings", () => {
     (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
 

@@ -64,6 +64,25 @@ const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsHardware = lazy(importSettingsHardware);
 const SettingsCooling = lazy(importSettingsCooling);
 
+const RigSettingsRoute = ({
+  children,
+  allowUnknownDevice = false,
+}: {
+  children: ReactNode;
+  allowUnknownDevice?: boolean;
+}) => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+  const { minerRoot } = useMinerHosting();
+  // Password recovery must remain reachable before a rig can return authenticated system info.
+  if (!systemInfo && allowUnknownDevice) return children;
+  if (!systemInfo && !systemInfoError) return <ProgressCircular indeterminate />;
+  if (!systemInfo || systemInfo.identity.deviceType === "container") {
+    return <Navigate to={`${minerRoot}/settings/general`} replace />;
+  }
+  return children;
+};
+
 const ContainerRoute = ({ children }: { children: ReactNode }) => {
   const systemInfo = useSystemInfo();
   const systemInfoError = useSystemInfoError();
@@ -260,7 +279,11 @@ export const routerConfig: CustomRouteObject[] = [
       },
       {
         path: settingsRouteMetadata.authentication.path,
-        element: <SettingsAuthentication />,
+        element: (
+          <RigSettingsRoute allowUnknownDevice>
+            <SettingsAuthentication />
+          </RigSettingsRoute>
+        ),
       },
       {
         path: settingsRouteMetadata.general.path,
@@ -277,7 +300,11 @@ export const routerConfig: CustomRouteObject[] = [
       },
       {
         path: settingsRouteMetadata.cooling.path,
-        element: <SettingsCooling />,
+        element: (
+          <RigSettingsRoute>
+            <SettingsCooling />
+          </RigSettingsRoute>
+        ),
         requiresAuth: settingsRouteMetadata.cooling.requiresAuth,
       },
     ],

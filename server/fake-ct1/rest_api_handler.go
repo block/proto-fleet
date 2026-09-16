@@ -353,11 +353,21 @@ type timeSeriesResponse struct {
 }
 
 type moduleRunInConfig struct {
-	Duration              string  `json:"duration"`
-	SampleInterval        string  `json:"sampleInterval"`
-	CooldownDuration      string  `json:"cooldownDuration"`
-	BoardPowerTargetWatts float64 `json:"boardPowerTargetWatts"`
-	StopMiningOnFinish    bool    `json:"stopMiningOnFinish"`
+	Duration              string            `json:"duration"`
+	SampleInterval        string            `json:"sampleInterval"`
+	CooldownDuration      string            `json:"cooldownDuration"`
+	BoardPowerTargetWatts float64           `json:"boardPowerTargetWatts"`
+	StopMiningOnFinish    bool              `json:"stopMiningOnFinish"`
+	TuningSweep           *moduleRunInSweep `json:"tuningSweep,omitempty"`
+}
+
+type moduleRunInSweep struct {
+	DwellDuration string `json:"dwellDuration"`
+	PowerTarget   struct {
+		StartPowerTargetWatts float64 `json:"startPowerTargetWatts"`
+		EndPowerTargetWatts   float64 `json:"endPowerTargetWatts"`
+		StepPowerTargetWatts  float64 `json:"stepPowerTargetWatts"`
+	} `json:"powerTarget"`
 }
 
 type moduleRunInResponse struct {

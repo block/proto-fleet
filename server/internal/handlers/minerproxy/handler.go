@@ -512,8 +512,8 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 
 // proxyPathFor builds an allowlisted upstream miner path from the
 // {apiVersion} and {rest...} wildcards and reports whether it is canonical.
-// MDK v1 retains the existing generic proxy surface. MDK v2 is probe-only for
-// now, so only its documented read-only system info endpoint is accepted.
+// MDK v1 retains the existing generic proxy surface. MDK v2 exposes only
+// explicitly listed endpoints used by the embedded CT1 settings and module view.
 //
 // The rest wildcard preserves percent-decoded
 // dot-segments and slashes (Go's ServeMux collapses only *unencoded* ".."), and
@@ -534,7 +534,7 @@ func proxyPathFor(apiVersion string, method string, rest string) (string, bool) 
 	case "v1":
 		// MDK v1 retains the existing generic proxy surface (any method/rest).
 	case "v2":
-		// MDK v2 is probe-only, so only its explicitly allowlisted endpoints
+		// MDK v2 accepts only its explicitly allowlisted endpoints
 		// (keyed by method + rest) are accepted.
 		if _, ok := lookupV2Endpoint(method, rest); !ok {
 			return "", false
@@ -556,10 +556,9 @@ func proxyPathFor(apiVersion string, method string, rest string) (string, bool) 
 	return proxyPath, path.Clean(proxyPath) == proxyPath
 }
 
-// v2Endpoint describes one allowlisted MDK v2 endpoint. While v2 is probe-only,
-// the proxy accepts a fixed, explicitly enumerated set of v2 endpoints; each
-// entry records the {method, rest} that identify it and whether the miner
-// requires bearer authentication for it.
+// v2Endpoint describes an allowed method and path. A single-segment wildcard
+// is used only for hashboard/module identifiers, never for control names.
+// Fleet authorization is required independently of miner bearer authentication.
 type v2Endpoint struct {
 	method       string
 	rest         string
@@ -575,17 +574,40 @@ func (e v2Endpoint) proxyPath() string {
 // endpoints the proxy accepts and whether each needs miner authentication. Both
 // the allowlist decision (proxyPathFor) and the auth decision
 // (requiresMinerAuthentication) derive from this one table so they cannot drift
-// apart. While v2 is probe-only, the sole entry is the documented, read-only,
-// unauthenticated system/info identification endpoint.
+// apart. CT1 endpoints do not use MDK v1 login; Fleet still authenticates the
+// caller, validates the miner target, and checks the operation permissions.
 var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "system/info", requiresAuth: false},
+	{method: http.MethodGet, rest: "system/status", requiresAuth: false},
+	{method: http.MethodGet, rest: "container/map", requiresAuth: false},
+	{method: http.MethodGet, rest: "mining/status", requiresAuth: false},
+	{method: http.MethodGet, rest: "mining/target-power", requiresAuth: false},
+	{method: http.MethodGet, rest: "telemetry/container", requiresAuth: false},
+	{method: http.MethodGet, rest: "telemetry/timeseries", requiresAuth: false},
+	{method: http.MethodGet, rest: "pools", requiresAuth: false},
+	{method: http.MethodGet, rest: "pools/diagnostics", requiresAuth: false},
+	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
+	{method: http.MethodGet, rest: "hashboards/*/asics", requiresAuth: false},
+	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false},
+	{method: http.MethodPost, rest: "modules/*/run-in", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler_auto", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/tank_led_light", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_1", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_2", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/setpoints/coolant_pump_speed_hz", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_auto_temp_c", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_manual_speed_percent", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_1_temp_c", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_2_temp_c", requiresAuth: false},
 }
 
 // lookupV2Endpoint returns the allowlisted v2 endpoint for a {method, rest}, if
 // any.
 func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
 	for _, e := range v2AllowlistedEndpoints {
-		if e.method == method && e.rest == rest {
+		if matches, _ := path.Match(e.rest, rest); e.method == method && matches {
 			return e, true
 		}
 	}
@@ -594,12 +616,11 @@ func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
 
 // requiresMinerAuthentication keeps the existing MDK v1 bearer-token behavior
 // while honoring the per-endpoint auth flag for allowlisted MDK v2 endpoints.
-// The documented v2 identification endpoint is unauthenticated, which prevents a
-// v2 probe from attempting the v1 login endpoint with Fleet's stored miner
-// password.
+// CT1 endpoints must not attempt the v1 login endpoint or send Fleet's stored
+// miner password. Unknown paths retain the conservative authentication default.
 func requiresMinerAuthentication(proxyPath string) bool {
 	for _, e := range v2AllowlistedEndpoints {
-		if e.proxyPath() == proxyPath {
+		if matches, _ := path.Match(e.proxyPath(), proxyPath); matches {
 			return e.requiresAuth
 		}
 	}
@@ -625,7 +646,7 @@ func isUnproxyableEndpoint(method string, proxyPath string) bool {
 	case "/api/v1/auth/password", "/api/v1/auth/change-password":
 		return true
 	}
-	if isWriteMethod(method) && strings.HasPrefix(proxyPath, "/api/v1/pools") {
+	if isWriteMethod(method) && (strings.HasPrefix(proxyPath, "/api/v1/pools") || strings.HasPrefix(proxyPath, "/api/v2/pools")) {
 		return true
 	}
 	return false
@@ -657,6 +678,15 @@ func permissionsFor(method string, proxyPath string) []string {
 	}
 
 	switch {
+	case proxyPath == "/api/v2/mining/target-power":
+		return []string{authz.PermMinerSetPowerTarget}
+	case strings.HasPrefix(proxyPath, "/api/v2/modules/") && strings.HasSuffix(proxyPath, "/run-in") && strings.Count(proxyPath, "/") == 5:
+		return []string{authz.PermMinerStartMining, authz.PermMinerStopMining, authz.PermMinerSetPowerTarget}
+	case proxyPath == "/api/v2/power/container/controls/tank_led_light":
+		return []string{authz.PermMinerBlinkLED}
+	case strings.HasPrefix(proxyPath, "/api/v2/power/container/controls/") ||
+		strings.HasPrefix(proxyPath, "/api/v2/power/container/setpoints/"):
+		return []string{authz.PermMinerSetCoolingMode}
 	case proxyPath == "/api/v1/timeseries":
 		return []string{authz.PermMinerRead}
 	case strings.HasPrefix(proxyPath, "/api/v1/pools"):

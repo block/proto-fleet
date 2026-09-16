@@ -42,6 +42,9 @@ interface PoolModalProps {
   disallowUsernameSeparator?: boolean;
   /** Render ProtoOS's standalone SV2 authority-key field instead of Fleet's legacy URL-path format. */
   standaloneV2AuthorityKey?: boolean;
+  validateURL?: (url: string) => string | undefined;
+  hideConnectionTest?: boolean;
+  description?: string;
 }
 
 const PoolModal = ({
@@ -61,6 +64,9 @@ const PoolModal = ({
   usernameRequired = true,
   disallowUsernameSeparator = false,
   standaloneV2AuthorityKey = false,
+  validateURL,
+  hideConnectionTest = false,
+  description = "Hashrate contributes to default mining pools.",
 }: PoolModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
@@ -75,6 +81,10 @@ const PoolModal = ({
   const [saveError, setSaveError] = useState(false);
 
   const modalSize = isPhone || isTablet ? "fullscreen" : "standard";
+  const validatePoolURL = useCallback(
+    (url: string) => (validateURL ? validateURL(url) : validateURLScheme(url, { standaloneV2AuthorityKey })),
+    [validateURL, standaloneV2AuthorityKey],
+  );
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,
@@ -168,7 +178,7 @@ const PoolModal = ({
         if (!stored) {
           setUrlError(undefined);
         } else {
-          setUrlError(validateURLScheme(stored, { standaloneV2AuthorityKey }));
+          setUrlError(validatePoolURL(stored));
         }
         if (standaloneV2AuthorityKey) {
           if (!isStratumV2URL(stored)) {
@@ -202,7 +212,14 @@ const PoolModal = ({
         setAuthorityKeyError(getV2AuthorityKeyValidationError(poolsInfo[poolIndex].url, value));
       }
     },
-    [draftPoolInfo, poolIndex, disallowUsernameSeparator, editableLegacyUsername, standaloneV2AuthorityKey],
+    [
+      draftPoolInfo,
+      poolIndex,
+      disallowUsernameSeparator,
+      editableLegacyUsername,
+      standaloneV2AuthorityKey,
+      validatePoolURL,
+    ],
   );
 
   const onSubmit = useCallback(async () => {
@@ -214,9 +231,7 @@ const PoolModal = ({
       hasError = true;
     }
 
-    const nextUrlError = !pool?.url?.trim()
-      ? urlValidationErrors.required
-      : validateURLScheme(pool.url, { standaloneV2AuthorityKey });
+    const nextUrlError = !pool?.url?.trim() ? urlValidationErrors.required : validatePoolURL(pool.url);
     if (nextUrlError) {
       setUrlError(nextUrlError);
       hasError = true;
@@ -290,6 +305,7 @@ const PoolModal = ({
     disallowUsernameSeparator,
     editableLegacyUsername,
     standaloneV2AuthorityKey,
+    validatePoolURL,
   ]);
 
   const onTestConnection = useCallback(() => {
@@ -349,14 +365,18 @@ const PoolModal = ({
           },
         ]
       : []),
-    {
-      text: "Test connection",
-      onClick: onTestConnection,
-      loading: isTestingConnection,
-      variant: variants.secondary,
-      testId: "pool-test-connection-button",
-      className: "whitespace-nowrap overflow-clip",
-    },
+    ...(!hideConnectionTest
+      ? [
+          {
+            text: "Test connection",
+            onClick: onTestConnection,
+            loading: isTestingConnection,
+            variant: variants.secondary,
+            testId: "pool-test-connection-button",
+            className: "whitespace-nowrap overflow-clip",
+          },
+        ]
+      : []),
     {
       text: "Save",
       onClick: onSubmit,
@@ -377,7 +397,7 @@ const PoolModal = ({
       divider={false}
       size={modalSize}
     >
-      <div className="mb-6 text-text-primary-70">Hashrate contributes to default mining pools.</div>
+      <div className="mb-6 text-text-primary-70">{description}</div>
       <DismissibleCalloutWrapper
         icon={<Success />}
         intent={intents.success}

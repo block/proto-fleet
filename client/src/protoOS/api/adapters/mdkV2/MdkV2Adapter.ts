@@ -1,6 +1,7 @@
 import type {
   AdapterProbeMatch,
   AdapterRequestOptions,
+  ContainerSettings,
   HashboardStatus,
   MinerAdapter,
   MiningScope,
@@ -193,6 +194,108 @@ export class MdkV2Adapter implements MinerAdapter {
     return toCanonicalPools(pools.data, diagnostics.data);
   }
 
+  async getPoolSettings(params: AdapterRequestOptions = {}) {
+    const { data } = await this.client.poolServiceListPools(this.decorate(params));
+    return (data.pools ?? [])
+      .map((pool) => {
+        if (!pool.id) throw new Error("Pool identity was not reported");
+        return {
+          id: pool.id,
+          name: pool.name ?? "",
+          url: pool.url ?? "",
+          username: pool.username ?? "",
+          password: "",
+          priority: pool.priority ?? 0,
+          enabled: pool.enabled ?? false,
+        };
+      })
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async savePoolSettings(pool: PoolInfo, id?: string, params: AdapterRequestOptions = {}) {
+    const { name, url, username, password, priority } = pool;
+    if (id) {
+      await this.client.poolServiceUpdatePool(
+        { poolId: id },
+        { pool: { name, url, username }, password: password || undefined, updateMask: "name,url,username" },
+        this.decorate(params),
+      );
+    } else {
+      await this.client.poolServiceCreatePool(
+        { pool: { name, url, username, priority, enabled: true }, password: password || undefined },
+        this.decorate(params),
+      );
+    }
+  }
+
+  async deletePoolSettings(id: string, params: AdapterRequestOptions = {}) {
+    await this.client.poolServiceDeletePool({ id }, this.decorate(params));
+  }
+
+  async reorderPoolSettings(ids: string[], params: AdapterRequestOptions = {}) {
+    const pools = await this.getPoolSettings(params);
+    if (
+      ids.length !== pools.length ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !pools.some((p) => p.id === id))
+    ) {
+      throw new Error("The pool configuration changed. Reload before reordering.");
+    }
+    const changed = ids.filter((id, priority) => pools.find((pool) => pool.id === id)!.priority !== priority);
+    // CT1 rejects duplicate priorities on each write. Park changed entries in
+    // unused slots before assigning the final order; preserve credentials and
+    // weighted/enabled settings through priority-only field masks.
+    const temporaryStart = Math.max(ids.length, ...pools.map((pool) => pool.priority + 1));
+    if (temporaryStart + changed.length > 2147483647) throw new Error("Pool priorities exceed the supported range");
+    const setPriority = (id: string, priority: number) =>
+      this.client.poolServiceUpdatePool(
+        { poolId: id },
+        { pool: { priority }, updateMask: "priority" },
+        this.decorate(params),
+      );
+    for (const [index, id] of changed.entries()) await setPriority(id, temporaryStart + index);
+    for (const id of changed) await setPriority(id, ids.indexOf(id));
+  }
+
+  async getContainerSettings(params: AdapterRequestOptions = {}): Promise<ContainerSettings> {
+    const { data } = await this.client.powerServiceGetContainerControls(this.decorate(params));
+    return {
+      supported: data.supported ?? false,
+      controls: (data.controls ?? []).flatMap((control) => {
+        if (!control.name) return [];
+        return [
+          {
+            name: control.name,
+            description: control.description,
+            enabled: control.stateKnown ? (control.enabled ?? false) : undefined,
+          },
+        ];
+      }),
+      setpoints: (data.setpoints ?? []).flatMap((setting) => {
+        if (!setting.name) return [];
+        return [
+          {
+            name: setting.name,
+            description: setting.description,
+            value: setting.value,
+            unit: setting.unit,
+            min: setting.boundsKnown ? setting.min : undefined,
+            max: setting.boundsKnown ? setting.max : undefined,
+          },
+        ];
+      }),
+    };
+  }
+
+  async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
+    await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
+  }
+
+  async setContainerSetpoint(name: string, value: number, params: AdapterRequestOptions = {}) {
+    if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
+    await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
+  }
+
   private async containerState(deviceId: string, params: AdapterRequestOptions) {
     const decorated = this.decorate(params);
     const [map, status, telemetry] = await Promise.all([
@@ -263,10 +366,23 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async startModuleRunIn(moduleId: string, request: ModuleRunInRequest, params: AdapterRequestOptions = {}) {
-    const { taskId, ...config } = request;
+    const { taskId, duration, boardPowerTargetWatts, ...config } = request;
+    if (!duration || !boardPowerTargetWatts || !Number.isFinite(boardPowerTargetWatts) || boardPowerTargetWatts <= 0) {
+      throw new Error("A module run-in requires a duration and positive per-hashboard power target");
+    }
     const response = await this.client.runInServiceStartModuleRunIn(
       { moduleId: toWireModuleId(moduleId), taskId },
-      config,
+      {
+        ...config,
+        tuningSweep: {
+          dwellDuration: duration,
+          powerTarget: {
+            startPowerTargetWatts: boardPowerTargetWatts,
+            endPowerTargetWatts: boardPowerTargetWatts,
+            stepPowerTargetWatts: 1,
+          },
+        },
+      },
       this.decorate(params),
     );
     return {

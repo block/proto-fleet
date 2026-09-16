@@ -169,6 +169,13 @@ export const toCanonicalSystemInfo = (wire: V2GetSystemInfoResponse): SystemInfo
       macAddresses: [],
     },
     moduleModel: "ct1",
+    controlBoard: info.controlBoard
+      ? {
+          model: info.controlBoard.boardModel,
+          serialNumber: info.controlBoard.serialNumber,
+          machineName: info.controlBoard.machineName,
+        }
+      : undefined,
     operatingSystem: info.osBuild
       ? {
           name: info.osBuild.name,
@@ -558,6 +565,7 @@ export const toCanonicalContainer = (
     hashboards.set(entry.hashboardId, {
       ref: { id: entry.hashboardId, kind: "hashboard", owner },
       identity,
+      serialNumber: entry.board.serial,
       boardModel: entry.board.hwRevision,
       chipId: entry.board.chipId,
       miningAsic: "unknown",

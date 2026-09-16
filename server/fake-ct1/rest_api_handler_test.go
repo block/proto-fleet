@@ -368,7 +368,14 @@ func TestTimeSeries(t *testing.T) {
 func TestModuleRunIn(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var response moduleRunInResponse
-	status := postJSON(t, srv, "/api/v2/modules/T1-M01/run-in?taskId=test-task", moduleRunInConfig{Duration: "PT30M"}, &response)
+	config := map[string]any{
+		"sampleInterval": "10s", "cooldownDuration": "120s", "stopMiningOnFinish": true,
+		"tuningSweep": map[string]any{
+			"dwellDuration": "1800s",
+			"powerTarget":   map[string]any{"startPowerTargetWatts": 1200, "endPowerTargetWatts": 1200, "stepPowerTargetWatts": 1},
+		},
+	}
+	status := postJSON(t, srv, "/api/v2/modules/T1-M01/run-in?taskId=test-task", config, &response)
 	if status != http.StatusOK {
 		t.Fatalf("run-in status = %d", status)
 	}

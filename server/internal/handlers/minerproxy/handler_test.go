@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -48,6 +49,12 @@ func TestPermissionsFor(t *testing.T) {
 		proxyPath string
 		want      []string
 	}{
+		{name: "CT1 power target", method: http.MethodPut, proxyPath: "/api/v2/mining/target-power", want: []string{authz.PermMinerSetPowerTarget}},
+		{name: "CT1 module run-in", method: http.MethodPost, proxyPath: "/api/v2/modules/T1-M01/run-in", want: []string{authz.PermMinerStartMining, authz.PermMinerStopMining, authz.PermMinerSetPowerTarget}},
+		{name: "CT1 coolant pump", method: http.MethodPost, proxyPath: "/api/v2/power/container/controls/coolant_pump", want: []string{authz.PermMinerSetCoolingMode}},
+		{name: "CT1 dry cooler setpoint", method: http.MethodPost, proxyPath: "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", want: []string{authz.PermMinerSetCoolingMode}},
+		{name: "CT1 tank lights", method: http.MethodPost, proxyPath: "/api/v2/power/container/controls/tank_led_light", want: []string{authz.PermMinerBlinkLED}},
+		{name: "CT1 controls read", method: http.MethodGet, proxyPath: "/api/v2/power/container/controls", want: []string{authz.PermMinerRead}},
 		{
 			name:      "read endpoints require miner read",
 			method:    http.MethodGet,
@@ -174,7 +181,7 @@ func TestProxyPathFor(t *testing.T) {
 		rest       string
 	}{
 		{name: "unknown API version", apiVersion: "v3", method: http.MethodGet, rest: "system/info"},
-		{name: "unregistered v2 endpoint", apiVersion: "v2", method: http.MethodGet, rest: "pools"},
+		{name: "unregistered v2 endpoint", apiVersion: "v2", method: http.MethodGet, rest: "firmware"},
 		{name: "v2 probe mutation", apiVersion: "v2", method: http.MethodPost, rest: "system/info"},
 	}
 	for _, tt := range unsupported {
@@ -406,6 +413,10 @@ func TestIsUnproxyableEndpoint(t *testing.T) {
 		proxyPath string
 		want      bool
 	}{
+		{name: "v2 pool create blocked", method: http.MethodPost, proxyPath: "/api/v2/pools", want: true},
+		{name: "v2 pool edit blocked", method: http.MethodPut, proxyPath: "/api/v2/pools/42", want: true},
+		{name: "v2 pool delete blocked", method: http.MethodDelete, proxyPath: "/api/v2/pools/42", want: true},
+		{name: "v2 pool read allowed", method: http.MethodGet, proxyPath: "/api/v2/pools", want: false},
 		{name: "password set blocked", method: http.MethodPut, proxyPath: "/api/v1/auth/password", want: true},
 		{name: "change password blocked", method: http.MethodPut, proxyPath: "/api/v1/auth/change-password", want: true},
 		{name: "pool write blocked (put)", method: http.MethodPut, proxyPath: "/api/v1/pools/1", want: true},
@@ -677,5 +688,72 @@ func TestCopyResponseHeadersUsesAllowlist(t *testing.T) {
 		if got := dst.Values(h); len(got) != 0 {
 			t.Fatalf("non-allowlisted header %q passed through: %v", h, got)
 		}
+	}
+}
+
+func TestCT1SettingsPaths(t *testing.T) {
+	for _, endpoint := range []struct{ method, rest string }{
+		{http.MethodGet, "container/map"}, {http.MethodGet, "mining/status"},
+		{http.MethodGet, "telemetry/container"}, {http.MethodGet, "pools/diagnostics"},
+		{http.MethodGet, "hashboards/02:00:00:00:01:01/asics"},
+		{http.MethodPut, "mining/target-power"}, {http.MethodPost, "modules/T1-M01/run-in"},
+		{http.MethodPost, "power/container/controls/coolant_pump"},
+		{http.MethodPost, "power/container/setpoints/dry_cooler_auto_temp_c"},
+	} {
+		t.Run(endpoint.rest, func(t *testing.T) {
+			upstream, ok := proxyPathFor("v2", endpoint.method, endpoint.rest)
+			if !ok || requiresMinerAuthentication(upstream) {
+				t.Fatalf("CT1 endpoint not proxyable without v1 login: %s", endpoint.rest)
+			}
+		})
+	}
+	for _, endpoint := range []struct{ method, rest string }{
+		{http.MethodPut, "pools/1"}, {http.MethodPost, "pools"}, {http.MethodDelete, "pools/1"},
+		{http.MethodPost, "system/reboot"}, {http.MethodPost, "power/container/main-circuit-breaker"},
+		{http.MethodPost, "power/container/controls/unknown"},
+		{http.MethodDelete, "modules/T1-M01/run-in"}, {http.MethodPost, "modules/T1-M01/extra/run-in"},
+		{http.MethodPost, "modules/../run-in"}, {http.MethodPost, "modules//run-in"},
+		{http.MethodPost, "modules/T1-M01%2fextra/run-in"}, {http.MethodPost, "modules/T1-M01?x/run-in"},
+		{http.MethodGet, "hashboards/../asics"}, {http.MethodGet, "hashboards/one/two/asics"},
+	} {
+		t.Run(endpoint.method+endpoint.rest, func(t *testing.T) {
+			if _, ok := proxyPathFor("v2", endpoint.method, endpoint.rest); ok {
+				t.Fatalf("unexpectedly allowed %s %s", endpoint.method, endpoint.rest)
+			}
+		})
+	}
+}
+
+func TestForwardCT1RunInWithoutV1Login(t *testing.T) {
+	const body = `{"sampleInterval":"10s","tuningSweep":{"dwellDuration":"600s","powerTarget":{"startPowerTargetWatts":1200,"endPowerTargetWatts":1200,"stepPowerTargetWatts":1}}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v2/modules/T1-M01/run-in" || r.URL.Query().Get("taskId") != "0123456789abcdef0123456789abcdef" {
+			t.Errorf("unexpected upstream request: %s %s", r.Method, r.URL)
+		}
+		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+			t.Error("caller credentials forwarded to CT1")
+		}
+		got, err := io.ReadAll(r.Body)
+		if err != nil || string(got) != body {
+			t.Errorf("request body changed: %s, %v", got, err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer upstream.Close()
+	h := newForwardTestHandler(t)
+	encrypted, err := h.encryptService.Encrypt([]byte("stored-v1-password"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
+	src := httptest.NewRequest(http.MethodPost, "/miners/ct1/api/v2/modules/T1-M01/run-in?taskId=0123456789abcdef0123456789abcdef", nil)
+	src.Header.Set("Cookie", "fleet_session=private")
+	resp, err := h.forward(context.Background(), src, target, "/api/v2/modules/T1-M01/run-in", []byte(body), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d", resp.StatusCode)
 	}
 }

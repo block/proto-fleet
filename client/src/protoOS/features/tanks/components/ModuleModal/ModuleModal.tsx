@@ -8,6 +8,7 @@ import ComponentSection from "@/protoOS/features/diagnostic/components/Component
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
 import HashboardStatusCard from "@/protoOS/features/diagnostic/components/HashboardStatusCard";
 import PsuStatusCard from "@/protoOS/features/diagnostic/components/PsuStatusCard";
+import ModuleRunIn from "@/protoOS/features/runIn/ModuleRunIn";
 import { moduleHashboards, tankModules } from "@/protoOS/features/tanks/tankView";
 import type { ContainerTopology, ModuleNode, TankNode } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -93,6 +94,11 @@ const ModuleModal = ({
             }}
           />
         </PopoverProvider>
+        <ModuleRunIn
+          key={`${topology.deviceId}:${module.id}`}
+          moduleId={module.id}
+          label={`${tank.label ?? "Tank"} · Module ${module.location?.moduleSlot ?? ""}`}
+        />
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">
           <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>

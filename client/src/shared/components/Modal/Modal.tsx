@@ -98,14 +98,14 @@ const Modal = ({
     const dialog = scrollRef.current?.closest<HTMLElement>('[role="dialog"]');
     if (!dialog) return;
     const previous = document.activeElement;
-    const buttons = () =>
-      [...dialog.querySelectorAll<HTMLButtonElement>("button")].filter(
-        (button) => !button.disabled && button.getClientRects().length > 0,
+    const focusableElements = () =>
+      [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]")].filter(
+        (element) => !element.matches(':disabled, [tabindex="-1"]') && element.getClientRects().length > 0,
       );
-    buttons()[0]?.focus({ preventScroll: true });
+    focusableElements()[0]?.focus({ preventScroll: true });
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
-      const targets = buttons();
+      const targets = focusableElements();
       const index = targets.findIndex((button) => button === document.activeElement);
       if (
         targets.length &&
