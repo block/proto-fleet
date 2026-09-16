@@ -75,6 +75,31 @@ describe("ProtoOS router", () => {
     mocks.systemInfoError = undefined;
   });
 
+  test.each(["cooling", "authentication"])("redirects a container away from rig settings/%s", async (path) => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    const router = createMemoryRouter(routerConfig, { initialEntries: [`/settings/${path}`] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText("settings general")).toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/settings/general");
+  });
+
+  test("preserves the Fleet miner root when redirecting container settings", async () => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    mocks.minerRoot = "/miners/ct1";
+    const router = createMemoryRouter([{ path: "/miners/ct1", children: routerConfig }], {
+      initialEntries: ["/miners/ct1/settings/cooling"],
+    });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText("settings general")).toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/miners/ct1/settings/general");
+  });
+
+  test("keeps password recovery reachable before system info loads", async () => {
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/settings/authentication"] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText("settings authentication")).toBeInTheDocument());
+  });
+
   test("keeps the home index pending while system info is still loading", () => {
     const router = createMemoryRouter(routerConfig, { initialEntries: ["/"] });
 

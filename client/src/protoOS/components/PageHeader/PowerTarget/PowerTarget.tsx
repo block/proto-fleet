@@ -4,7 +4,7 @@ import PowerTargetPopover from "./PowerTargetPopover";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAccessToken } from "@/protoOS/store";
+import { useAccessToken, useDeviceType } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
   useDismissedLoginModal,
@@ -27,8 +27,11 @@ const PowerTarget = () => {
   const setPausedAuthAction = useSetPausedAuthAction();
   const [lastMiningTarget, setLastMiningTarget] = useState<MiningTargetUpdate | null>(null);
   const { isFleetHosted } = useMinerHosting();
+  const isContainer = useDeviceType() === "container";
 
-  const { hasAccess, checkAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
+  const { hasAccess, checkAccess } = useAccessToken(
+    !isFleetHosted && !isContainer && !!pausedAuthAction && !dismissedLoginModal,
+  );
 
   const isMax = useMemo(() => {
     return bounds?.max && miningTarget === bounds?.max;
@@ -63,7 +66,7 @@ const PowerTarget = () => {
       // Fleet-hosted: the server proxy authenticates to the miner, so skip the
       // direct-token gate (no client miner JWT, login modal suppressed) and
       // send the update straight through.
-      if (isFleetHosted) {
+      if (isFleetHosted || isContainer) {
         updateMiningTarget(miningTarget);
         return;
       }
@@ -77,7 +80,7 @@ const PowerTarget = () => {
       setPausedAuthAction(AUTH_ACTIONS.miningTarget);
       checkAccess();
     },
-    [isFleetHosted, updateMiningTarget, setPending, setPausedAuthAction, checkAccess],
+    [isFleetHosted, isContainer, updateMiningTarget, setPending, setPausedAuthAction, checkAccess],
   );
 
   useEffect(() => {

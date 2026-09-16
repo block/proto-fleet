@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import General from "./General";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useSystemInfo } from "@/protoOS/store";
 import { AUTH_ACTIONS } from "@/protoOS/store/types";
 
 const { mockCheckAccess, mockSetPausedAuthAction, mockState } = vi.hoisted(() => ({
@@ -27,6 +28,7 @@ vi.mock("@/protoOS/features/firmwareUpdate/components/CheckForUpdate", () => ({
 
 vi.mock("@/protoOS/api", () => ({
   useSystemTag: vi.fn(),
+  useNetworkInfo: () => ({ data: { ipAddress: "192.168.1.100" }, pending: false }),
 }));
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
@@ -50,6 +52,10 @@ vi.mock("@/protoOS/store", () => ({
 describe("General system-tag flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useSystemInfo).mockReturnValue({
+      identity: { productName: "Rig Alpha" },
+      operatingSystem: { version: "1.2.3" },
+    } as never);
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
@@ -81,5 +87,29 @@ describe("General system-tag flow", () => {
     expect(getByTestId("tag-edit-modal")).toBeInTheDocument();
     expect(mockSetPausedAuthAction).not.toHaveBeenCalledWith(AUTH_ACTIONS.systemTag);
     expect(mockCheckAccess).not.toHaveBeenCalled();
+  });
+
+  test("container reuses preferences and shows its identity and network without rig-only actions", () => {
+    vi.mocked(useSystemInfo).mockReturnValue({
+      identity: {
+        deviceType: "container",
+        deviceId: "device:CT1-01",
+        productName: "Proto Container",
+        serialNumber: "controller-serial",
+      },
+      operatingSystem: { version: "2.0.0" },
+    } as never);
+    const { getByText, getByTestId, queryByTestId } = render(<General />);
+    expect(getByText("Container ID")).toBeInTheDocument();
+    expect(getByText("CT1-01")).toBeInTheDocument();
+    expect(getByText("192.168.1.100")).toBeInTheDocument();
+    expect(getByText("Control server 1")).toBeInTheDocument();
+    expect(getByText("Control server 2").parentElement).toHaveTextContent("—");
+    expect(getByText("Last updated").parentElement).toHaveTextContent("—");
+    expect(getByTestId("theme-button")).toBeInTheDocument();
+    expect(getByTestId("temperature-button")).toBeInTheDocument();
+    expect(queryByTestId("rig-product-image")).not.toBeInTheDocument();
+    expect(queryByTestId("edit-details-button")).not.toBeInTheDocument();
+    expect(queryByTestId("add-miner-id")).not.toBeInTheDocument();
   });
 });

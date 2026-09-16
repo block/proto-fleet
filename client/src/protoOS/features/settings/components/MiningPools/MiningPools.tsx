@@ -3,14 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { STATUS_MESSAGES } from "./constants";
+import ContainerMiningPools from "./ContainerMiningPools";
 import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
 import { useCreatePools, useEditPool, usePoolsInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 
 import { Alert } from "@/shared/assets/icons";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import { DataNullState } from "@/shared/components/DataNullState";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, ToastStatusType } from "@/shared/features/toaster";
 import { debounce } from "@/shared/utils/utility";
 
@@ -18,7 +21,7 @@ interface PoolChangeOptions {
   isDelete?: boolean;
 }
 
-const SettingsMiningPools = () => {
+const LegacyMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [previousPools, setPreviousPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastStatus, setToastStatus] = useState<ToastStatusType | null>(null);
@@ -204,8 +207,16 @@ const SettingsMiningPools = () => {
   // audited flow), so show the miner's current pools read-only rather than an
   // editable form that would fail on save.
   if (isFleetHosted) {
-    const fleetPoolsLoading = poolsInfoPending && !pools.some(isValidPool);
-    return <ReadOnlyMiningPools pools={pools} loading={fleetPoolsLoading} />;
+    if (poolsInfoError)
+      return <DataNullState title="Could not load pools" description="Test your connection and try again." />;
+    const reportedPools = (poolsInfo ?? []).map((pool) => ({
+      ...pool,
+      name: pool.name ?? "",
+      url: pool.url ?? "",
+      username: pool.username ?? "",
+      password: "",
+    }));
+    return <ReadOnlyMiningPools pools={reportedPools} loading={poolsInfoPending ? poolsInfo === undefined : false} />;
   }
 
   return (
@@ -228,6 +239,12 @@ const SettingsMiningPools = () => {
       />
     </MiningPools>
   );
+};
+
+const SettingsMiningPools = () => {
+  const { isFleetHosted } = useMinerHosting();
+  const isContainer = useDeviceType() === "container";
+  return isContainer && !isFleetHosted ? <ContainerMiningPools /> : <LegacyMiningPools />;
 };
 
 export default SettingsMiningPools;

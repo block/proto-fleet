@@ -5,6 +5,7 @@
  * API adapters can depend on them without pointing "up" into UI code.
  */
 export interface PoolInfo {
+  id?: string;
   name: string;
   url: string;
   username: string;

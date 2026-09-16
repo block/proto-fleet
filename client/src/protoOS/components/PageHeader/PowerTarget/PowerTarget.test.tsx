@@ -14,6 +14,7 @@ const { mockCheckAccess, mockSetPausedAuthAction, mockState } = vi.hoisted(() =>
     hasAccess: undefined as boolean | undefined,
     pausedAuthAction: null as string | null,
     dismissedLoginModal: false,
+    deviceType: "rig",
   },
 }));
 
@@ -37,6 +38,7 @@ vi.mock("@/protoOS/store", async () => {
   const { AUTH_ACTIONS: actions } = await import("@/protoOS/store/types");
   return {
     AUTH_ACTIONS: actions,
+    useDeviceType: () => mockState.deviceType,
     useAccessToken: vi.fn(() => ({ checkAccess: mockCheckAccess, hasAccess: mockState.hasAccess })),
     useDismissedLoginModal: vi.fn(() => mockState.dismissedLoginModal),
     useSetDismissedLoginModal: vi.fn(() => vi.fn()),
@@ -54,6 +56,7 @@ describe("PowerTarget", () => {
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
+    mockState.deviceType = "rig";
     (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     (useMiningTarget as Mock).mockReturnValue({
       miningTarget: 4000,
@@ -81,6 +84,13 @@ describe("PowerTarget", () => {
     expect(mockSetPausedAuthAction).toHaveBeenCalledWith(AUTH_ACTIONS.miningTarget);
     expect(mockCheckAccess).toHaveBeenCalledTimes(1);
     expect(mockUpdateMiningTarget).not.toHaveBeenCalled();
+  });
+
+  test("direct CT1 updates without a rig password challenge", () => {
+    mockState.deviceType = "container";
+    openAndApply();
+    expect(mockCheckAccess).not.toHaveBeenCalled();
+    expect(mockUpdateMiningTarget).toHaveBeenCalledWith({ valueWatts: 5000 });
   });
 
   test("direct mode marks the target pending immediately on Apply", () => {

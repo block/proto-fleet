@@ -230,6 +230,7 @@ export interface ControlBoardHardware {
 export interface HashboardHardware {
   ref: HashboardRef;
   identity: BoardIdentity;
+  serialNumber?: string;
   boardModel?: string;
   apiVersion?: string;
   chipId?: string;
@@ -484,6 +485,7 @@ export interface FirmwareUpdateInfo {
 export interface SystemInfoData {
   identity: DeviceIdentity;
   moduleModel: ModuleModel;
+  controlBoard?: { model?: string; serialNumber?: string; machineName?: string };
   operatingSystem?: FirmwareInfo;
   operatingSystemStatus?: {
     cpuLoadPercent?: number;

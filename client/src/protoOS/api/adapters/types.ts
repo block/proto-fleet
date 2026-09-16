@@ -51,6 +51,17 @@ export interface ModuleRunInResult {
   voltageLeaderMac?: string;
 }
 
+export interface ContainerSettings {
+  supported: boolean;
+  controls: Array<{ name: string; description?: string; enabled?: boolean }>;
+  setpoints: Array<{ name: string; description?: string; value?: number; unit?: string; min?: number; max?: number }>;
+}
+
+export interface SavedPoolSettings extends PoolFormInput {
+  id: string;
+  enabled: boolean;
+}
+
 interface MinerAdapterDefinitionBase<Match extends AdapterProbeMatch = AdapterProbeMatch> {
   id: MinerAdapterId;
   displayName: string;
@@ -177,6 +188,11 @@ export interface MinerAdapter {
   getMiningStatus(params?: AdapterRequestOptions): Promise<OperationalStatus>;
   getErrors(params?: AdapterRequestOptions): Promise<MinerError[]>;
   getPools(params?: AdapterRequestOptions): Promise<PoolInfo[]>;
+  getPoolSettings?(params?: AdapterRequestOptions): Promise<SavedPoolSettings[]>;
+  savePoolSettings?(pool: PoolFormInput, id?: string, params?: AdapterRequestOptions): Promise<void>;
+  deletePoolSettings?(id: string, params?: AdapterRequestOptions): Promise<void>;
+  reorderPoolSettings?(ids: string[], params?: AdapterRequestOptions): Promise<void>;
+  getContainerSettings?(params?: AdapterRequestOptions): Promise<ContainerSettings>;
   getMiningTarget(params?: AdapterRequestOptions): Promise<MiningTarget>;
   updateMiningTarget(update: MiningTargetUpdate, params?: AdapterRequestOptions): Promise<MiningTarget>;
   setScopedPowerTarget?(

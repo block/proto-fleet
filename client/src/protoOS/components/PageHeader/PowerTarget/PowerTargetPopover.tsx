@@ -2,6 +2,7 @@ import { RefObject, useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import { PowerTargetMode, powerTargetModes } from "@/protoOS/components/PageHeader/PowerTarget/constants";
+import { useDeviceType } from "@/protoOS/store";
 import type { MiningTargetUpdate, PerformanceMode } from "@/protoOS/store/contract";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
@@ -21,9 +22,9 @@ const getInitialPowerTargetMode = (
   defaultTarget: number | undefined,
   maxTarget: number | undefined,
 ): PowerTargetMode => {
-  if (miningTarget === defaultTarget) {
+  if (defaultTarget !== undefined && miningTarget === defaultTarget) {
     return powerTargetModes.default;
-  } else if (miningTarget === maxTarget) {
+  } else if (maxTarget !== undefined && miningTarget === maxTarget) {
     return powerTargetModes.max;
   } else {
     return powerTargetModes.custom;
@@ -31,6 +32,8 @@ const getInitialPowerTargetMode = (
 };
 
 const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProps) => {
+  const isContainer = useDeviceType() === "container";
+  const minimumWatts = isContainer ? 1 : 0;
   const { miningTarget, defaultTarget, performanceMode, bounds, pending, error: loadError, retry } = useMiningTarget();
   const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<PerformanceMode | undefined>(performanceMode);
   const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<PowerTargetMode | undefined>(
@@ -47,8 +50,14 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
   const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const onChange = (value: string) => {
-    const parsedValue = parseFloat(value as string);
-    if (isNaN(parsedValue)) {
+    const parsedValue = Number(value);
+    if (
+      !value.trim() ||
+      !Number.isFinite(parsedValue) ||
+      parsedValue < 0 ||
+      Math.round(parsedValue * 1000) < minimumWatts
+    ) {
+      setError(isContainer ? "Enter a power target of at least 1 W." : "Enter a non-negative power target.");
       return;
     }
 
@@ -96,13 +105,31 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
     }
 
     const powerTarget = calculatePowerTargetWattage();
+    if (
+      powerTarget === undefined ||
+      !Number.isFinite(powerTarget) ||
+      powerTarget < minimumWatts ||
+      (selectedPowerTargetMode === powerTargetModes.custom && !inputRef.current?.value.trim()) ||
+      (bounds && (powerTarget < bounds.min || powerTarget > bounds.max))
+    ) {
+      setError("Enter a valid power target.");
+      return;
+    }
     const miningTargetUpdate = {
       performanceMode: selectedPerformanceMode,
       valueWatts: powerTarget,
     };
 
     onUpdateStart?.(miningTargetUpdate);
-  }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTargetWattage, onUpdateStart]);
+  }, [
+    pending,
+    selectedPerformanceMode,
+    selectedPowerTargetMode,
+    calculatePowerTargetWattage,
+    onUpdateStart,
+    bounds,
+    minimumWatts,
+  ]);
 
   return (
     <Popover
@@ -134,18 +161,26 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
           <SelectRowList
             type={selectTypes.radio}
             selectRows={[
-              {
-                id: powerTargetModes.default,
-                isSelected: selectedPowerTargetMode === powerTargetModes.default,
-                text: "Default",
-                sideText: `${convertWtoKW(defaultTarget)} kW`,
-              },
-              {
-                id: powerTargetModes.max,
-                isSelected: selectedPowerTargetMode === powerTargetModes.max,
-                text: "Max",
-                sideText: `${convertWtoKW(bounds?.max)} kW`,
-              },
+              ...(defaultTarget !== undefined
+                ? [
+                    {
+                      id: powerTargetModes.default,
+                      isSelected: selectedPowerTargetMode === powerTargetModes.default,
+                      text: "Default",
+                      sideText: `${convertWtoKW(defaultTarget)} kW`,
+                    },
+                  ]
+                : []),
+              ...(bounds?.max !== undefined
+                ? [
+                    {
+                      id: powerTargetModes.max,
+                      isSelected: selectedPowerTargetMode === powerTargetModes.max,
+                      text: "Max",
+                      sideText: `${convertWtoKW(bounds?.max)} kW`,
+                    },
+                  ]
+                : []),
               {
                 id: powerTargetModes.custom,
                 "data-testid": "power-target-mode-custom",
@@ -174,8 +209,10 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
               />
               <p className={clsx("text-200", error ? "text-intent-critical-fill" : "text-text-primary-70")}>
                 {error ||
-                  `Set this miner's power target between
-              ${convertWtoKW(bounds?.min || 0)} kW and ${convertWtoKW(bounds?.max || 0)} kW.`}
+                  (bounds
+                    ? `Set this miner's power target between
+              ${convertWtoKW(bounds.min)} kW and ${convertWtoKW(bounds.max)} kW.`
+                    : "Enter the total power target in kW.")}
               </p>
             </div>
           ) : null}

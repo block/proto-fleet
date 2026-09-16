@@ -6,13 +6,18 @@ import PowerTargetPopover from "./PowerTargetPopover";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 const mockedUpdateMiningTarget = vi.fn();
+let mockDeviceType = "rig";
+
+vi.mock("@/protoOS/store", () => ({
+  useDeviceType: () => mockDeviceType,
+}));
 
 // Create mock return value that we can modify per test
 let mockReturnValue = {
   miningTarget: 1500,
-  defaultTarget: 1200,
+  defaultTarget: 1200 as number | undefined,
   performanceMode: "maximumHashrate",
-  bounds: { min: 400, max: 2000 },
+  bounds: { min: 400, max: 2000 } as { min: number; max: number } | undefined,
   pending: false,
   updateMiningTarget: mockedUpdateMiningTarget,
 };
@@ -33,6 +38,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  mockDeviceType = "rig";
   // Reset mock function
   mockedUpdateMiningTarget.mockClear();
 
@@ -49,6 +55,51 @@ beforeEach(() => {
 });
 
 describe("Power Target Popover", () => {
+  it("uses a custom CT1 target when the device reports no bounds or presets", async () => {
+    mockDeviceType = "container";
+    mockReturnValue.defaultTarget = undefined;
+    mockReturnValue.bounds = undefined;
+    mockReturnValue.miningTarget = 400000;
+    const apply = vi.fn();
+    const user = userEvent.setup();
+    const { queryByText, getByLabelText, getByTestId } = render(
+      <PopoverProvider>
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={apply} />
+      </PopoverProvider>,
+    );
+    expect(queryByText("Default")).not.toBeInTheDocument();
+    expect(queryByText("Max")).not.toBeInTheDocument();
+    expect(getByLabelText("Power target")).toHaveValue(400);
+    await user.clear(getByLabelText("Power target"));
+    expect(getByTestId("power-target-apply-button")).toBeDisabled();
+    await user.type(getByLabelText("Power target"), "410.5");
+    await user.click(getByTestId("power-target-apply-button"));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ valueWatts: 410500 }));
+  });
+
+  it.each(["0", "0.0001"])("rejects a CT1 target of %s kW without reported bounds", async (value) => {
+    mockDeviceType = "container";
+    mockReturnValue.defaultTarget = undefined;
+    mockReturnValue.bounds = undefined;
+    mockReturnValue.miningTarget = 0;
+    const apply = vi.fn();
+    const user = userEvent.setup();
+    const { getByLabelText, getByTestId, getByText } = render(
+      <PopoverProvider>
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={apply} />
+      </PopoverProvider>,
+    );
+    await user.click(getByTestId("power-target-apply-button"));
+    expect(apply).not.toHaveBeenCalled();
+    expect(getByText("Enter a valid power target.")).toBeInTheDocument();
+    await user.clear(getByLabelText("Power target"));
+    await user.type(getByLabelText("Power target"), value);
+    expect(getByTestId("power-target-apply-button")).toBeDisabled();
+    await user.clear(getByLabelText("Power target"));
+    await user.type(getByLabelText("Power target"), "0.001");
+    await user.click(getByTestId("power-target-apply-button"));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ valueWatts: 1 }));
+  });
   it("renders the power target options correctly", () => {
     const { getByText } = render(
       <PopoverProvider>

@@ -19,6 +19,18 @@ import {
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
+test("preserves container controller details and hashboard serial separately from MAC identity", () => {
+  const info = toCanonicalSystemInfo({
+    info: { id: "ct1", controlBoard: { boardModel: "CB", serialNumber: "CB-001", machineName: "Primary" } },
+  });
+  expect(info.controlBoard).toEqual({ model: "CB", serialNumber: "CB-001", machineName: "Primary" });
+  const { hardware } = toCanonicalContainer(map, {}, {}, "ct1");
+  expect([...hardware.hashboards.values()][0]).toMatchObject({
+    identity: { kind: "mac", value: "26:B0:3F:F0:D7:92" },
+    serialNumber: "HB-1",
+  });
+});
+
 const map = {
   containerMap: {
     tanks: [

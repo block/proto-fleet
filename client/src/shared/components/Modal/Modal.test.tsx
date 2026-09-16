@@ -12,6 +12,38 @@ vi.mock("motion/react", () => ({
 }));
 
 describe("Modal", () => {
+  it("includes editable fields in the optional focus trap", () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue(Object.assign([new DOMRect()], { item: () => null }));
+    try {
+      const { unmount } = render(
+        <Modal
+          open
+          manageFocus
+          title="Settings"
+          dialogLabel="Settings"
+          buttons={[{ text: "Apply", variant: "primary" }]}
+        >
+          <input aria-label="Setpoint" />
+        </Modal>,
+      );
+      const close = screen.getByRole("button", { name: "Close dialog" });
+      const apply = screen.getByRole("button", { name: "Apply" });
+      expect(close).toHaveFocus();
+      apply.focus();
+      expect(fireEvent.keyDown(apply, { key: "Tab" })).toBe(true);
+      const input = screen.getByLabelText("Setpoint");
+      input.focus();
+      fireEvent.keyDown(input, { key: "Tab" });
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+      expect(input).toHaveFocus();
+      unmount();
+    } finally {
+      rects.mockRestore();
+    }
+  });
   it("uses the full-width top dialog mobile pattern by default", () => {
     render(
       <Modal title="Standard modal">
