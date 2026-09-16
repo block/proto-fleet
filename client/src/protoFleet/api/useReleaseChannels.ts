@@ -13,6 +13,7 @@ import type {
   RolloutDevice,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
+import { useAuthErrors } from "@/protoFleet/store";
 
 // A channel as the UI works with it: the server's channel (scope included)
 // together with its manufacturer/model groups, which the API pages
@@ -24,7 +25,7 @@ export type ChannelView = ReleaseChannel & { modelGroups: ReleaseChannelModelGro
 export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
 
 const POLL_INTERVAL_MS = 5000;
-// Largest pages the server allows; detail lists are read in as few round
+// Largest pages the server allows; lists are read in as few round
 // trips as possible.
 const DETAIL_PAGE_SIZE = 1000;
 const MODEL_GROUP_PAGE_SIZE = 100;
@@ -92,41 +93,68 @@ async function loadChannel(channelId: bigint): Promise<ChannelView | undefined> 
 }
 
 export function useReleaseChannels(): ReleaseChannelsApi {
+  const { handleAuthErrors } = useAuthErrors();
   const [channels, setChannels] = useState<ChannelView[]>([]);
   const [rollouts, setRollouts] = useState<Rollout[]>([]);
   const [minerNames, setMinerNames] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const inFlightRef = useRef(false);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
+  const fetchState = useCallback(async () => {
     try {
-      const [channelSummaries, rolloutsResp, minersResp] = await Promise.all([
+      const [channelSummaries, allRollouts, miners] = await Promise.all([
         drainPages((cursor) =>
           rolloutClient
             .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor })
             .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
         ),
-        rolloutClient.listRollouts({}),
-        fleetManagementClient.listMinerStateSnapshots({ pageSize: 500 }),
+        drainPages((cursor) =>
+          rolloutClient
+            .listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor })
+            .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
+        ),
+        drainPages((cursor) =>
+          fleetManagementClient
+            .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor })
+            .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+        ),
       ]);
       // The list carries summaries; scope and groups come per channel.
       const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
       setChannels(views.filter((view): view is ChannelView => view !== undefined));
-      setRollouts(rolloutsResp.rollouts);
-      setMinerNames(Object.fromEntries(minersResp.miners.map((miner) => [miner.deviceIdentifier, miner.name])));
+      setRollouts(allRollouts);
+      setMinerNames(Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name])));
+    } catch (error) {
+      handleAuthErrors({ error });
+      throw error;
     } finally {
-      inFlightRef.current = false;
       setIsLoading(false);
     }
-  }, []);
+  }, [handleAuthErrors]);
+
+  const refresh = useCallback(async () => {
+    // A mutation must read state fetched after it completed. Wait for any
+    // older request (including a failed poll), then start a fresh one.
+    while (inFlightRef.current) {
+      await inFlightRef.current.catch(() => undefined);
+    }
+    const request = fetchState();
+    inFlightRef.current = request;
+    try {
+      await request;
+    } finally {
+      inFlightRef.current = null;
+    }
+  }, [fetchState]);
 
   useEffect(() => {
-    refresh().catch((error) => console.error("Failed to load release channels", error));
-    const timer = setInterval(() => {
+    const poll = () => {
+      // Timer ticks never queue work behind an existing refresh.
+      if (inFlightRef.current) return;
       refresh().catch((error) => console.error("Failed to refresh release channels", error));
-    }, POLL_INTERVAL_MS);
+    };
+    poll();
+    const timer = setInterval(poll, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [refresh]);
 

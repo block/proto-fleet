@@ -36,6 +36,8 @@ import {
 import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
+  RolloutDevicePhase,
+  RolloutDeviceSchema,
   RolloutSchema,
   RolloutStage,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -109,6 +111,40 @@ describe("device counts and progress", () => {
   it("scopes counts to the batch under review", () => {
     expect(scopeCounts(gatedRigRollout)).toMatchObject({ updated: 2, total: 2, percent: 100 });
     expect(scopeCounts(activeRigRollout)).toMatchObject({ updated: 2, total: 6 });
+  });
+
+  it.each([
+    { remaining: { queued: 1 }, phase: RolloutDevicePhase.QUEUED, suffix: "" },
+    { remaining: { failed: 1 }, phase: RolloutDevicePhase.FAILED, suffix: ", 1 failed" },
+  ])(
+    "keeps the denominator and incomplete percentage with one miner in phase $phase",
+    ({ remaining, phase, suffix }) => {
+      const summaryCounts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts: { done: 199, ...remaining } }));
+      const fetchedCounts = deviceCounts([
+        ...Array.from({ length: 199 }, () => create(RolloutDeviceSchema, { phase: RolloutDevicePhase.DONE })),
+        create(RolloutDeviceSchema, { phase }),
+      ]);
+      expect(fetchedCounts).toEqual(summaryCounts);
+      expect(summaryCounts).toMatchObject({ updated: 199, total: 200, percent: 99 });
+      expect(rolloutProgressSummary(summaryCounts)).toBe(`199 of 200 miners updated (99%)${suffix}`);
+    },
+  );
+
+  it.each([
+    { done: 1, expected: "1 miner updated (100%)" },
+    { done: 200, expected: "200 miners updated (100%)" },
+  ])("reports exact completion for $done updated miners, excluding neutral targets", ({ done, expected }) => {
+    const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts: { done, excluded: 2, skipped: 1 } }));
+    expect(counts).toMatchObject({ updated: done, total: done, percent: 100 });
+    expect(rolloutProgressSummary(counts)).toBe(expected);
+  });
+
+  it("does not report completion for an empty or entirely neutral scope", () => {
+    for (const deviceCounts of [{}, { excluded: 2, skipped: 1 }]) {
+      const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts }));
+      expect(counts).toMatchObject({ updated: 0, total: 0, percent: 0 });
+      expect(rolloutProgressSummary(counts)).toBe("0 of 0 miners updated (0%)");
+    }
   });
 
   it("tallies a fetched device page the same way the server does", () => {

@@ -220,7 +220,10 @@ function finishCounts(
   snapshotted: number,
 ): RolloutDeviceCounts {
   const total = snapshotted - counts.excluded - counts.skipped;
-  return { ...counts, total, percent: total === 0 ? 0 : Math.round((counts.updated / total) * 100) };
+  // Rounded progress must not report completion while any miner remains.
+  const percent =
+    total === 0 ? 0 : Math.min(counts.updated === total ? 100 : 99, Math.round((counts.updated / total) * 100));
+  return { ...counts, total, percent };
 }
 
 // The server's per-phase tally, in the adapter's vocabulary.
@@ -317,7 +320,7 @@ export function rolloutProgressSegments(counts: RolloutDeviceCounts): Segment[] 
 export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
   const minerNoun = counts.total === 1 ? "miner" : "miners";
   const failed = counts.failed > 0 ? `, ${counts.failed.toLocaleString()} failed` : "";
-  if (counts.percent >= 100) {
+  if (counts.total > 0 && counts.updated === counts.total) {
     return `${counts.updated.toLocaleString()} ${minerNoun} updated (100%)${failed}`;
   }
   return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
