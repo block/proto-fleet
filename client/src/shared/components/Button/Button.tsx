@@ -12,6 +12,7 @@ export interface ButtonProps {
   ariaHasPopup?: boolean | "menu" | "dialog" | "listbox" | "tree" | "grid";
   ariaExpanded?: boolean;
   ariaPressed?: boolean;
+  ariaCurrent?: "page";
   borderColor?: string;
   className?: string;
   children?: ReactNode;
@@ -37,6 +38,7 @@ const Button = ({
   ariaHasPopup,
   ariaExpanded,
   ariaPressed,
+  ariaCurrent,
   borderColor = "border-core-accent-fill",
   className,
   children,
@@ -155,7 +157,13 @@ const Button = ({
         {body}
       </span>
     ) : (
-      <Link to={to} aria-label={ariaLabel} className={containerClassName} data-testid={testId}>
+      <Link
+        to={to}
+        aria-label={ariaLabel}
+        aria-current={ariaCurrent}
+        className={containerClassName}
+        data-testid={testId}
+      >
         {body}
       </Link>
     );
