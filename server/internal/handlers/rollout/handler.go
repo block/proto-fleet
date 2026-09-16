@@ -83,7 +83,7 @@ func authorize(ctx context.Context) (*session.Info, error) {
 // actorOf attributes an action to the caller: an API key or a signed-in user.
 func actorOf(info *session.Info) rollout.Actor {
 	if info.AuthMethod == session.AuthMethodAPIKey {
-		return rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: info.UserID, Name: info.Username, OwnerUserID: info.UserID}
+		return rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: info.APIKeyDatabaseID, Name: info.APIKeyName, OwnerUserID: info.UserID}
 	}
 	return rollout.Actor{Type: rollout.ActorTypeUser, ID: info.UserID, Name: info.Username}
 }

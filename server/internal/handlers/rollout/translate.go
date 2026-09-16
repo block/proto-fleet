@@ -179,7 +179,7 @@ func assignmentsFromProto(in []*pb.FirmwareAssignment) []rollout.Assignment {
 }
 
 func behaviorToProto(b rollout.Behavior) *pb.RolloutBehavior {
-	return &pb.RolloutBehavior{
+	out := &pb.RolloutBehavior{
 		Method:                         methodToProto[b.Method],
 		Order:                          orderToProto[b.Order],
 		BatchSize:                      b.BatchSize,
@@ -190,14 +190,19 @@ func behaviorToProto(b rollout.Behavior) *pb.RolloutBehavior {
 		StabilizationSeconds:           b.StabilizationSeconds,
 		MaxConcurrentOffline:           b.MaxConcurrentOffline,
 		ControllerTimeoutSeconds:       b.ControllerTimeoutSeconds,
-		Thresholds: &pb.RolloutAutomationThresholds{
+	}
+	// Presence is meaningful: callers may reuse this behavior in requests,
+	// where even an empty thresholds message requires auto-continue.
+	if b.Thresholds != (rollout.Thresholds{}) {
+		out.Thresholds = &pb.RolloutAutomationThresholds{
 			MaxHashrateDropPercent:        b.Thresholds.MaxHashrateDropPercent,
 			MaxEfficiencyIncreasePercent:  b.Thresholds.MaxEfficiencyIncreasePercent,
 			MaxTemperatureIncreaseCelsius: b.Thresholds.MaxTempIncreaseC,
 			MaxNewErrors:                  b.Thresholds.MaxNewErrors,
 			MinSampleCoveragePercent:      b.Thresholds.MinSampleCoveragePercent,
-		},
+		}
 	}
+	return out
 }
 
 func channelToProto(c *rollout.Channel) *pb.ReleaseChannel {

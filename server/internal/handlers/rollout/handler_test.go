@@ -546,11 +546,11 @@ func TestAPIKeyRolloutActionsPreserveOwningUser(t *testing.T) {
 	ctx := middleware.WithEffectivePermissions(
 		authn.SetInfo(t.Context(), &session.Info{
 			OrganizationID: 7, UserID: 8, Username: "controller",
-			AuthMethod: session.AuthMethodAPIKey, APIKeyID: "key-owned-by-user-8",
+			AuthMethod: session.AuthMethodAPIKey, APIKeyID: "key-owned-by-user-8", APIKeyDatabaseID: 101, APIKeyName: "deployment key",
 		}),
 		authz.NewEffectivePermissions([]authz.Assignment{{AssignmentID: 1, ScopeType: authz.ScopeOrg, Permissions: []string{authz.PermMinerFirmwareUpdate}}}),
 	)
-	actor := rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 8, Name: "controller", OwnerUserID: 8}
+	actor := rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 101, Name: "deployment key", OwnerUserID: 8}
 
 	// Every action that can start replacement work must keep the authenticated
 	// owning user available for the eventual command batch's created_by field.
@@ -592,12 +592,12 @@ func TestLifecycleRPCsForwardIdentity(t *testing.T) {
 
 	// API keys are attributed as such.
 	keyCtx := middleware.WithEffectivePermissions(
-		authn.SetInfo(t.Context(), &session.Info{OrganizationID: 7, UserID: 8, Username: "controller", AuthMethod: session.AuthMethodAPIKey, APIKeyID: "k1"}),
+		authn.SetInfo(t.Context(), &session.Info{OrganizationID: 7, UserID: 8, Username: "controller", AuthMethod: session.AuthMethodAPIKey, APIKeyID: "k1", APIKeyDatabaseID: 101, APIKeyName: "deployment key"}),
 		authz.NewEffectivePermissions([]authz.Assignment{{AssignmentID: 1, ScopeType: authz.ScopeOrg, Permissions: []string{authz.PermMinerFirmwareUpdate}}}),
 	)
 	_, err = h.PauseRollout(keyCtx, connect.NewRequest(&pb.PauseRolloutRequest{RolloutId: 9}))
 	require.NoError(t, err)
-	assert.Equal(t, rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 8, Name: "controller", OwnerUserID: 8}, svc.lastMutation.Actor)
+	assert.Equal(t, rollout.Actor{Type: rollout.ActorTypeAPIKey, ID: 101, Name: "deployment key", OwnerUserID: 8}, svc.lastMutation.Actor)
 
 	// Domain reasons travel as RolloutErrorInfo details.
 	svc.err = fleeterror.NewFailedPreconditionErrorf("stale: %w", &rollout.ErrorInfo{Reason: rollout.ReasonStaleRevision, CurrentRevision: 5})
