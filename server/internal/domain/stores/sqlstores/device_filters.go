@@ -83,9 +83,7 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		return fp
 	}
 
-	if searchQuery := strings.TrimSpace(filter.SearchQuery); searchQuery != "" {
-		fp.searchQueryFilter = sql.NullString{String: minerSearchPattern(searchQuery), Valid: true}
-	}
+	fp.searchQueryFilter = likeSearchPattern(filter.SearchQuery)
 
 	// Status filter
 	if len(filter.DeviceStatusFilter) > 0 {
@@ -264,14 +262,6 @@ func numericFieldColumn(f stores.NumericFilterField) string {
 		return "latest_metrics.current_a"
 	}
 	return ""
-}
-
-// minerSearchPattern turns a user-entered substring into a literal ILIKE
-// pattern. Escaping wildcards prevents a search for "%" or "_" from
-// unexpectedly matching every miner.
-func minerSearchPattern(query string) string {
-	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
-	return "%" + query + "%"
 }
 
 // appendFilterSQL appends filter conditions to the query builder and returns updated args.

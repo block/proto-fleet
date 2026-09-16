@@ -98,7 +98,7 @@ const usePopoverPosition = (
   // forceBelow + available space) and a viewport-overflow-driven flip would
   // override the caller's intent.
   disableAutoFlip?: boolean,
-  // When set (portal-fixed only), caps the popover's height to the visible
+  // When set (either portal mode), caps the popover's height to the visible
   // viewport so a menu taller than the screen scrolls internally instead of
   // overflowing the tappable area. Unlike a CSS `100vh` cap this tracks
   // `visualViewport` (recomputed on its resize below), so it also holds under
@@ -293,8 +293,8 @@ const usePopoverPosition = (
         visibility: "visible",
       } as CSSProperties;
 
-      if (renderMode === "portal-fixed") {
-        // Portal with fixed positioning: use viewport coordinates (no page offset)
+      if (renderMode !== "inline") {
+        // Clamp both portal modes in viewport coordinates before adding any page offset.
         top = triggerRect.top + top;
         left = triggerRect.left + left;
 
@@ -312,6 +312,9 @@ const usePopoverPosition = (
         );
         left = clampPosition(left, minimalMargin, visibleViewport.width - popoverRect.width - minimalMargin);
 
+        // Scrolling portals are absolute in the document and follow the trigger on scroll.
+        if (renderMode === "portal-scrolling") top += initialPageOffset;
+
         style = {
           top: `${top}px`,
           left: `${left}px`,
@@ -322,16 +325,6 @@ const usePopoverPosition = (
           // capped menu stays fully on-screen and scrolls its own overflow.
           style.maxHeight = `${Math.max(visibleViewport.height - 2 * minimalMargin, 0)}px`;
         }
-      } else if (renderMode === "portal-scrolling") {
-        // Portal with scrolling: use document coordinates (with page offset)
-        top = triggerRect.top + top + initialPageOffset;
-        left = triggerRect.left + left;
-
-        style = {
-          top: `${top}px`,
-          left: `${left}px`,
-          visibility: "visible",
-        };
       } else if (left === alignedLeft) {
         if (finalPosition === positions["top left"] || finalPosition === positions["bottom left"]) {
           style = {

@@ -10,6 +10,103 @@ setup: _server-init _client-init _python-gen-init
 dev: build-plugins-docker
   ./dev.sh
 
+# run the ProtoOS client against the fake CT1 container simulator (no Docker)
+dev-ct1:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # Defaults follow server/fake-ct1/README.md's tank-page recipe: 6 tanks × 16
+  # modules with the demo module states (one sleeping, one offline, one needing
+  # attention per tank). A full 6 × 48 container works but slows the client.
+  # Override any of these in the environment, e.g. CT1_TANKS=1 just dev-ct1.
+  export CT1_TANKS="${CT1_TANKS:-6}"
+  export CT1_MODULES_PER_TANK="${CT1_MODULES_PER_TANK:-16}"
+  export CT1_DEMO_MODULE_STATES="${CT1_DEMO_MODULE_STATES:-true}"
+  # 8080 and 8090 are commonly held by Docker (fake-proto-rig / fake-ct1
+  # containers), so the native sim defaults to a high port.
+  SIM_PORT="${CT1_SIM_PORT:-18080}"
+  SIM_URL="http://localhost:${SIM_PORT}"
+
+  if [ ! -d client/node_modules ]; then
+    echo "client/node_modules missing; run 'just setup' first." >&2
+    exit 1
+  fi
+
+  if curl --connect-timeout 1 --max-time 1 -sS -o /dev/null "${SIM_URL}/health" 2>/dev/null; then
+    echo "Cannot start fake-ct1: ${SIM_URL} is already responding." >&2
+    exit 1
+  fi
+
+  # Build to a binary instead of `go run` so the PID we track (and kill on
+  # exit) is the server itself, not go's wrapper process. fake-ct1 is not in
+  # go.work, hence GOWORK=off.
+  echo "Building fake-ct1..."
+  mkdir -p .cache/fake-ct1
+  (cd server/fake-ct1 && GOWORK=off go build -o ../../.cache/fake-ct1/fake-ct1 .)
+
+  echo "Starting fake-ct1 on ${SIM_URL} (tanks=${CT1_TANKS}, modules/tank=${CT1_MODULES_PER_TANK}, demo states=${CT1_DEMO_MODULE_STATES})..."
+  HTTP_PORT="$SIM_PORT" .cache/fake-ct1/fake-ct1 & SIM_PID=$!
+
+  cleanup() {
+    echo "Stopping processes..."
+    kill "$SIM_PID" 2>/dev/null || true
+    if [ -n "${CLIENT_PID:-}" ]; then
+      kill "$CLIENT_PID" 2>/dev/null || true
+      wait "$CLIENT_PID" 2>/dev/null || true
+    fi
+    wait "$SIM_PID" 2>/dev/null || true
+    echo "All processes stopped"
+  }
+  exit_for_child() {
+    local child_pid="$1"
+    local child_name="$2"
+    local child_status=0
+    wait "$child_pid" || child_status=$?
+    if [ "$child_status" -ne 0 ]; then
+      echo "${child_name} exited with status ${child_status}." >&2
+    fi
+    exit "$child_status"
+  }
+  trap cleanup EXIT
+  # Ctrl+C is the normal way to stop; exit 0 so just doesn't report a failure.
+  trap 'exit 0' INT TERM
+
+  SIM_READY=false
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$SIM_PID" 2>/dev/null; then
+      exit_for_child "$SIM_PID" "fake-ct1"
+    fi
+    if curl --connect-timeout 1 --max-time 1 -fsS "${SIM_URL}/health" >/dev/null 2>&1; then
+      if ! kill -0 "$SIM_PID" 2>/dev/null; then
+        exit_for_child "$SIM_PID" "fake-ct1"
+      fi
+      SIM_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$SIM_READY" != true ]; then
+    echo "fake-ct1 did not become healthy at ${SIM_URL}." >&2
+    exit 1
+  fi
+
+  echo "fake-ct1:  ${SIM_URL}/api/v2/system/status"
+  echo "ProtoOS:   http://localhost:5173/"
+  echo "Press Ctrl+C to stop both processes"
+  # `npm run dev:protoOS` only loads client/.env (which vite does itself via
+  # envDir) before spawning vite through npx/tsx, and killing npm orphans that
+  # chain. exec vite directly so CLIENT_PID is the dev server we stop on exit.
+  (cd client && PROXY_URL="$SIM_URL" exec ./node_modules/.bin/vite --mode protoOS) & CLIENT_PID=$!
+
+  while true; do
+    if ! kill -0 "$SIM_PID" 2>/dev/null; then
+      exit_for_child "$SIM_PID" "fake-ct1"
+    fi
+    if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
+      exit_for_child "$CLIENT_PID" "Vite"
+    fi
+    sleep 1
+  done
+
 # lint all project code (non-mutating)
 lint: _lint-protos _lint-client _lint-server _lint-plugins
 

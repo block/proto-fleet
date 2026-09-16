@@ -15,7 +15,10 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 
 - **288 modules × 3 hashboards = 864 boards** (default: 6 tanks × 48 modules × 3 slots, matching a real CT1)
 - Per-board hydro telemetry (hashrate, temperatures, voltage, power)
+- Shared PSU identity, power, voltage, and thermal health per module, reported by
+  each board. Demo module 11 reports a PSU thermal warning while in its error state.
 - **312 ASICs per board** with layout coordinates
+  (four stacks of 78; the client wraps each stack into three rows of 26)
 - Plant/PUE, fan, power-distribution, and power-feed telemetry
 - Bucketed aggregate time-series telemetry
 - Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)

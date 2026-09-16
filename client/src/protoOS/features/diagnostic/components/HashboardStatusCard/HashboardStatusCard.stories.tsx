@@ -16,13 +16,13 @@ const storyConfigs: Record<string, { slot: number; avg: number; max: number }> =
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {
-  const serialNumber = context.args.serialNumber;
+  const identifier = context.args.identifier;
 
   useEffect(() => {
     const store = useMinerStore.getState();
 
-    // Get config for this serial number
-    const config = storyConfigs[serialNumber] || {
+    // Get config for this identifier
+    const config = storyConfigs[identifier] || {
       slot: 1,
       avg: 65.0,
       max: 70.0,
@@ -38,7 +38,7 @@ const StoreDecorator = (Story: any, context: any) => {
     const tempRange = config.max - config.avg;
 
     for (let i = 0; i < 126; i++) {
-      const asicId = `${serialNumber}-asic-${i}`;
+      const asicId = `${identifier}-asic-${i}`;
       const row = Math.floor(i / 21); // 21 ASICs per row
       const column = i % 21;
 
@@ -47,7 +47,7 @@ const StoreDecorator = (Story: any, context: any) => {
       // Create ASIC with proper structure
       asics.push({
         id: asicId,
-        hashboardSerial: serialNumber,
+        hashboardSerial: identifier,
         row,
         column,
       });
@@ -82,7 +82,7 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock hashboard hardware data - just add this hashboard
     store.hardware.addHashboard({
-      serial: serialNumber,
+      serial: identifier,
       slot: config.slot,
       bay: 0,
       asicIds,
@@ -105,13 +105,13 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock hashboard telemetry data with temperature
     store.telemetry.updateHashboardTemperatures(
-      serialNumber,
+      identifier,
       undefined, // inletTemp
       undefined, // outletTemp
       { value: config.avg, units: "°C" }, // avgAsicTemp
       { value: config.max, units: "°C" }, // maxAsicTemp
     );
-  }, [serialNumber]);
+  }, [identifier]);
 
   return <Story />;
 };
@@ -133,9 +133,9 @@ const meta: Meta<typeof HashboardStatusCard> = {
   },
   tags: ["autodocs"],
   argTypes: {
-    serialNumber: {
+    identifier: {
       control: "text",
-      description: "Hashboard serial number",
+      description: "Hashboard identifier (CT1 MAC address or R2 serial number)",
     },
   },
 };
@@ -145,30 +145,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    serialNumber: "HB123454",
+    identifier: "HB123454",
   },
 };
 
 export const WithWarning: Story = {
   args: {
-    serialNumber: "HB123455",
+    identifier: "HB123455",
   },
 };
 
 export const HighPerformance: Story = {
   args: {
-    serialNumber: "HB123456",
+    identifier: "HB123456",
   },
 };
 
 export const LowPerformance: Story = {
   args: {
-    serialNumber: "HB123457",
+    identifier: "HB123457",
   },
 };
 
 export const Offline: Story = {
   args: {
-    serialNumber: "HB123458",
+    identifier: "HB123458",
   },
 };

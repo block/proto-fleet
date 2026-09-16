@@ -53,6 +53,7 @@ export class DiagnosticsPage extends BasePage {
       metadata: Array<{ label: string }>;
       emptySlotText: RegExp;
       allowExtraMetadataRows?: boolean;
+      dialogName?: string;
     },
   ): Promise<"info" | "empty"> {
     const hasMoreInfo = await this.cardHasMoreInfoButton(sectionTestIdName, cardIndex);
@@ -63,6 +64,9 @@ export class DiagnosticsPage extends BasePage {
     }
 
     await this.openMoreInfoForCard(sectionTestIdName, cardIndex);
+    if (expected.dialogName) {
+      await expect(this.page.getByRole("dialog", { name: expected.dialogName, exact: true })).toBeVisible();
+    }
     await this.validateStatusModalMetrics(expected.metrics);
     await this.validateStatusModalMetadataRows(expected.metadata, { allowExtraRows: expected.allowExtraMetadataRows });
     await this.closeStatusModal();

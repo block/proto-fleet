@@ -18,7 +18,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import ComponentSection from "../ComponentSection";
 import HashboardStatusCard from "../HashboardStatusCard/HashboardStatusCard";
 import HashboardTemperature from "./HashboardTemperature";
-import { CONTAINER_HASHBOARD_COLUMNS, CONTAINER_HASHBOARD_ROWS } from "@/protoOS/store";
+import { CONTAINER_HASHBOARD_COLUMNS, CONTAINER_HASHBOARD_ROWS, getHashboardId } from "@/protoOS/store";
 import { asAsicId, asDeviceId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
@@ -45,7 +45,18 @@ function temp(profile: "cool" | "warm", row: number, col: number): number {
   return Math.round(40 + peak * 48); // ~40°C edges → ~88°C center
 }
 
-const SeedStore = ({ children }: { children: ReactNode }) => {
+function clusterTemp(row: number, col: number): number {
+  const number = row % 2 === 0 ? col + 1 : 52 - col;
+  const warning =
+    (row === 2 && number >= 10 && number <= 14) ||
+    (row === 3 && number >= 38 && number <= 44) ||
+    (row === 4 && number >= 9 && number <= 15) ||
+    (row === 5 && number >= 39 && number <= 43);
+  const critical = (row === 3 && number >= 40 && number <= 42) || (row === 4 && number >= 11 && number <= 13);
+  return critical ? 85 : warning ? 70 : 40;
+}
+
+const SeedStore = ({ children, hotCluster = false }: { children: ReactNode; hotCluster?: boolean }) => {
   useEffect(() => {
     const store = useMinerStore.getState();
 
@@ -76,7 +87,11 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
           const id = `${serial}-asic-${index}`;
           asicIds.push(id);
           asics.push({ id, hashboardSerial: serial, row, column: col, index });
-          telemetry.set(id, { temperature: { latest: { value: temp(profile, row, col), units: "°C" } } });
+          telemetry.set(id, {
+            temperature: {
+              latest: { value: hotCluster ? clusterTemp(row, col) : temp(profile, row, col), units: "°C" },
+            },
+          });
           index++;
         }
       }
@@ -87,16 +102,31 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       useMinerStore.setState((state) => {
         telemetry.forEach((t, id) => {
           const asicId = asAsicId(id);
-          state.telemetry.asics.set(asicId, { asicId, ...state.telemetry.asics.get(asicId), ...t });
+          state.telemetry.asics.set(asicId, {
+            asicId,
+            ...state.telemetry.asics.get(asicId),
+            ...t,
+            hashrate: { latest: { value: 283.3, units: "GH/s" } },
+            voltage: { latest: { value: 0.85, units: "V" } },
+            frequency: { latest: { value: 525, units: "MHz" } },
+          });
         });
       });
 
+      useMinerStore.setState((state) => {
+        const hashboardId = getHashboardId(serial);
+        state.telemetry.hashboards.set(hashboardId, {
+          hashboardId,
+          power: { latest: { value: 1370.2, units: "W" } },
+          hashrate: { latest: { value: 88.4, units: "TH/s" } },
+        });
+      });
       store.telemetry.updateHashboardTemperatures(
         serial,
         { value: profile === "warm" ? 59.5 : 41.2, units: "°C" },
         { value: profile === "warm" ? 62.1 : 43.8, units: "°C" },
         { value: profile === "warm" ? 55.2 : 30.1, units: "°C" },
-        { value: profile === "warm" ? 88.0 : 35.7, units: "°C" },
+        { value: hotCluster ? 85 : profile === "warm" ? 88.0 : 35.7, units: "°C" },
       );
     });
 
@@ -104,7 +134,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
     return () => {
       useMinerStore.getState().resetDeviceData();
     };
-  }, []);
+  }, [hotCluster]);
 
   return <>{children}</>;
 };
@@ -112,9 +142,9 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
 const meta: Meta = {
   title: "Proto OS/Diagnostic/Container Hashboard",
   decorators: [
-    (Story) => (
+    (Story, context) => (
       <MemoryRouter>
-        <SeedStore>
+        <SeedStore hotCluster={context.parameters.hotCluster === true}>
           <Story />
         </SeedStore>
       </MemoryRouter>
@@ -140,7 +170,7 @@ export const BoardCards: Story = {
         <ComponentSection title="Hashboards">
           <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-flow-col desktop:grid-cols-3 desktop:grid-rows-3">
             {BOARDS.map(({ serial }) => (
-              <HashboardStatusCard key={serial} serialNumber={serial} />
+              <HashboardStatusCard key={serial} identifier={serial} />
             ))}
           </div>
         </ComponentSection>
@@ -154,5 +184,10 @@ export const BoardCards: Story = {
 // SegmentedControl, front/rear rails) wrapping the rigid AsicTable grid.
 // Click any cell to see the serpentine ASIC label in the popover.
 export const ExpandedGrid: Story = {
+  render: () => <HashboardTemperature serial="CU1-HB-3" />,
+};
+
+export const HotCluster: Story = {
+  parameters: { hotCluster: true },
   render: () => <HashboardTemperature serial="CU1-HB-3" />,
 };

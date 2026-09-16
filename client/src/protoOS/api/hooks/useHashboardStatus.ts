@@ -6,6 +6,7 @@ import { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
 import { asAsicId } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
   hashboardSerialNumbers: string[];
@@ -49,7 +50,9 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
   usePoll({
     fetchData,
-    params: hashboardSerialNumbers,
+    // Hydrating ASIC hardware rebuilds Diagnostics' serial array. Restart only
+    // when its contents change, or every response triggers another request.
+    params: JSON.stringify(hashboardSerialNumbers),
     poll,
   });
 
@@ -93,6 +96,22 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
     // initial hydration prohibitively expensive.
     useMinerStore.setState((state) => {
       data.forEach((hashboard) => {
+        const temperatures = hashboard.asicTelemetry.flatMap((sample) =>
+          sample.temperature &&
+          typeof sample.temperature.value === "number" &&
+          Number.isFinite(sample.temperature.value)
+            ? [sample.temperature.value]
+            : [],
+        );
+        const id = getHashboardId(hashboard.serial);
+        if (temperatures.length) {
+          const board = state.telemetry.hashboards.get(id) ?? { hashboardId: id };
+          board.maximumAsicTemperature = {
+            ...board.maximumAsicTemperature,
+            latest: { value: Math.max(...temperatures), units: "°C" },
+          };
+          state.telemetry.hashboards.set(id, board);
+        }
         for (const sample of hashboard.asicTelemetry) {
           const normalizedAsicId = asAsicId(sample.asicId);
           let asicTelemetry = state.telemetry.asics.get(normalizedAsicId);

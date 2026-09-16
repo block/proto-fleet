@@ -1,14 +1,18 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useComponentHardware, useComponentTelemetry } from "./hooks";
 import type { ComponentAddress, ProtoOSStatusModalProps } from "./types";
 import { buildComponentStatusProps, getComponentTitle, transformErrorsForModal } from "./utils";
 import { useCoolingStatus } from "@/protoOS/api/hooks/useCoolingStatus";
+import { useErrors as useRefreshErrors } from "@/protoOS/api/hooks/useErrors";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useMinerStatusTitle } from "@/protoOS/hooks/status";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
-import { useErrors, useGroupedErrors, useIsSleeping } from "@/protoOS/store";
-import type { ErrorSource } from "@/protoOS/store/types";
+import { useMinerStore } from "@/protoOS/store";
+import { useIsSleeping } from "@/protoOS/store";
+import type { ComponentRef } from "@/protoOS/store/contract";
+import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
+import { componentName, resolveComponentAddress } from "@/protoOS/store/utils/componentSelection";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
 import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/components/StatusModal/types";
@@ -36,11 +40,18 @@ import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/c
 const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
   const isVisible = open ?? true;
   // Component navigation state
-  const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
+  const [component, setComponent] = useState<ComponentAddress | undefined>(
+    () => resolveComponentAddress(componentAddress, useMinerStore.getState().hardware) ?? componentAddress,
+  );
 
   // ProtoOS store hooks
-  const errors = useErrors();
-  const groupedErrors = useGroupedErrors();
+  const errors = useDetailedErrors();
+  useRefreshErrors({ enabled: isVisible, poll: isVisible, pollIntervalMs: 15_000 });
+  const hardware = useMinerStore((state) => state.hardware);
+  const selected = useMemo(() => resolveComponentAddress(component, hardware), [component, hardware]);
+  // Pin a late-arriving rig slot to its resolved ID before rendering details.
+  if (selected && component && !("kind" in component)) setComponent(selected);
+  const name = useCallback((ref: ComponentRef) => componentName(ref, hardware), [hardware]);
   const { title, subtitle } = useMinerStatusTitle();
   const isSleeping = useIsSleeping();
 
@@ -63,31 +74,30 @@ const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = 
   });
 
   const handleClose = useCallback(() => {
-    setComponent(componentAddress);
+    setComponent(resolveComponentAddress(componentAddress, useMinerStore.getState().hardware) ?? componentAddress);
     onClose();
   }, [componentAddress, onClose]);
 
-  // Stabilize component values to prevent unnecessary re-renders
-  const componentSource = component?.source || "RIG";
-  const componentSlot = component?.slot;
-
-  // Fetch telemetry and hardware data for the selected component
-  const componentTelemetry = useComponentTelemetry(componentSource, componentSlot);
-  const componentHardware = useComponentHardware(componentSource, componentSlot);
+  const componentTelemetry = useComponentTelemetry(selected);
+  const componentHardware = useComponentHardware(selected);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {
-    // Create onClick handler that navigates to component details
-    const onClickHandler = (source: ErrorSource, slot?: number) => {
-      setComponent({ source, slot });
-    };
-
-    // Transform grouped errors with click handlers (using hook's grouping)
+    const group = (kind: ComponentRef["kind"]) =>
+      transformErrorsForModal(
+        errors.filter((error) => error.component?.kind === kind),
+        name,
+        setComponent,
+      );
     const errorsBySource = {
-      hashboard: transformErrorsForModal(groupedErrors.hashboard || [], onClickHandler),
-      psu: transformErrorsForModal(groupedErrors.psu || [], onClickHandler),
-      fan: transformErrorsForModal(groupedErrors.fan || [], onClickHandler),
-      controlBoard: transformErrorsForModal(groupedErrors.system || [], onClickHandler),
+      hashboard: group("hashboard"),
+      psu: group("psu"),
+      fan: group("fan"),
+      controlBoard: transformErrorsForModal(
+        errors.filter((error) => !error.component || error.component.kind === "controlBoard"),
+        name,
+        setComponent,
+      ),
       other: [] as ErrorData[],
     };
 
@@ -120,25 +130,27 @@ const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = 
       buttons,
       onDismiss: handleClose,
     };
-  }, [groupedErrors, title, subtitle, isSleeping, handleClose, wakeMiner]);
+  }, [errors, name, title, subtitle, isSleeping, handleClose, wakeMiner]);
 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(
     (address: ComponentAddress): ComponentStatusData | undefined => {
-      const { source, slot } = address;
+      const ref = resolveComponentAddress(address, hardware);
+      if (!ref)
+        return {
+          props: { componentType: "other", summary: "Component unavailable", errors: [] },
+          title: "Component status",
+          buttons: [],
+          onDismiss: handleClose,
+        };
 
       // Use the telemetry and hardware data from hooks
       // Note: These hooks will be updated when the component changes
-      const props = buildComponentStatusProps(source, slot, errors, componentTelemetry, componentHardware);
-
-      if (!props) {
-        // Return undefined if component not found
-        return undefined;
-      }
+      const props = buildComponentStatusProps(ref, name(ref), errors, componentTelemetry, componentHardware);
 
       return {
         props,
-        title: getComponentTitle(props.componentType),
+        title: `${getComponentTitle(props.componentType)} · ${name(ref)}`,
         buttons: [
           {
             text: "Done",
@@ -150,7 +162,7 @@ const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = 
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [errors, componentTelemetry, componentHardware, handleClose],
+    [errors, hardware, name, componentTelemetry, componentHardware, handleClose],
   );
 
   // If miner is waking, show the waking dialog instead
@@ -161,6 +173,7 @@ const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = 
   // Render the shared StatusModal with integration data
   return (
     <SharedStatusModal
+      manageFocus
       componentAddress={component}
       getMinerStatus={getMinerStatus}
       getComponentStatus={getComponentStatus}

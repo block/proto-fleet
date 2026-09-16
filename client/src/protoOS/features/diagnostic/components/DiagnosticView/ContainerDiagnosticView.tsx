@@ -46,8 +46,12 @@ type DiagnosticTab = "all" | "tanks" | "dry-cooler" | "power" | "controls";
 // not re-render every card. Remount when scope changes to cancel the old poll.
 const DiagnosticsPolling = ({ full }: { full: boolean }) => {
   const level = useMemo<TelemetryLevel[]>(() => (full ? ["hashboard", "miner"] : ["miner"]), [full]);
-  useTelemetry({ level });
-  return null;
+  const { error } = useTelemetry({ level });
+  return error ? (
+    <p role="alert" className="mb-6 text-300 text-text-critical">
+      Could not refresh container readings. Displayed values may be out of date.
+    </p>
+  ) : null;
 };
 
 const tabs = [
@@ -450,7 +454,8 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   const pumpSpeed = latest(plant?.coolantPumpSpeed);
   const auto = plant?.controls?.find((control) => control.name === "dry_cooler_auto");
   const target = plant?.setpoints?.find((setpoint) => setpoint.name === "dry_cooler_auto_temp_c");
-  const canManage = Boolean(adapter?.setContainerControl && adapter.setContainerSetpoint);
+  const mode = auto?.stateKnown && typeof auto.enabled === "boolean" ? (auto.enabled ? "auto" : "manual") : undefined;
+  const canManage = Boolean(adapter?.setContainerControl && adapter.setContainerSetpoint && mode && target);
   const refreshTelemetry = async () => {
     if (!adapter || useMinerStore.getState().connectionGeneration !== connectionGeneration) return;
     const accept = beginStoreWrite("telemetry:current:miner");
@@ -473,14 +478,12 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
         <div>
           <div className="text-emphasis-300">Mode</div>
           <div className="text-300 text-text-primary-70">
-            {(auto?.stateKnown && !auto.enabled) || target?.value === undefined
-              ? "—"
-              : `${decimal(target.value)}°C target inlet temp`}
+            {mode !== "auto" || target?.value === undefined ? "—" : `${decimal(target.value)}°C target inlet temp`}
           </div>
         </div>
         <div className="flex items-center gap-6">
           <span className="text-300 text-text-primary-70">
-            {auto?.stateKnown ? (auto.enabled ? "Auto" : "Manual") : "—"}
+            {mode === "auto" ? "Auto" : mode === "manual" ? "Manual" : "—"}
           </span>
           <Button
             text="Manage"
@@ -543,10 +546,10 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
           metadata={{ status: { label: "Health", value: healthLabels[infoFan.telemetry?.health ?? "unknown"] } }}
         />
       ) : null}
-      {showSettings && adapter ? (
+      {showSettings && canManage && mode && adapter ? (
         <DryCoolerSettingsModal
           adapter={adapter}
-          initialMode={auto?.enabled === false ? "manual" : "auto"}
+          initialMode={mode}
           initialTargetC={target?.value}
           onSaved={refreshTelemetry}
           onDismiss={() => setShowSettings(false)}

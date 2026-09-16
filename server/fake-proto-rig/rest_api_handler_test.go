@@ -2425,6 +2425,42 @@ func TestHandleErrors_ReturnsSpecShape(t *testing.T) {
 
 // --- Cooling endpoint tests ---
 
+func TestHandleCooling_GET_FanPercentageMatchesAPIContract(t *testing.T) {
+	for _, speed := range []uint32{0, 75} {
+		t.Run(fmt.Sprintf("percentage_%d", speed), func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.SetCoolingMode(CoolingModeManual, &speed, nil)
+			h := NewRESTApiHandler(state)
+			rr := httptest.NewRecorder()
+			h.handleCooling(rr, httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			// Decode the wire contract independently of the simulator's response type.
+			var response struct {
+				CoolingStatus struct {
+					Fans []struct {
+						Slot       int  `json:"slot"`
+						Percentage *int `json:"percentage"`
+					} `json:"fans"`
+				} `json:"cooling-status"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if len(response.CoolingStatus.Fans) != 4 {
+				t.Fatalf("expected 4 fans, got %d", len(response.CoolingStatus.Fans))
+			}
+			for _, fan := range response.CoolingStatus.Fans {
+				if fan.Percentage == nil || *fan.Percentage != int(speed) {
+					t.Errorf("fan %d: expected percentage %d in response: %s", fan.Slot, speed, rr.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	targetTemp := 55.0

@@ -25,6 +25,7 @@ import {
   toCanonicalContainerFans,
   toCanonicalContainerTelemetry,
   toCanonicalContainerTimeSeries,
+  toCanonicalErrors,
   toCanonicalHashboards,
   toCanonicalHashboardStatus,
   toCanonicalLifecycle,
@@ -134,7 +135,8 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   private containerDeviceId(context?: { deviceId: string }) {
-    return this.deviceId ?? (context ? toWireDeviceId(context.deviceId) : DEFAULT_DEVICE_ID);
+    if (context) this.deviceId ??= toWireDeviceId(context.deviceId);
+    return this.deviceId ?? DEFAULT_DEVICE_ID;
   }
 
   private removeExpiredHashboardTimeSeriesCacheEntries(nowMs: number) {
@@ -177,8 +179,9 @@ export class MdkV2Adapter implements MinerAdapter {
     return toCanonicalOperationalStatus(wire, ct1ContainerId(this.containerDeviceId()));
   }
 
-  async getErrors() {
-    return [];
+  async getErrors(params: AdapterRequestOptions = {}) {
+    const { data } = await this.client.hashboardServiceGetContainerMap(this.decorate(params));
+    return toCanonicalErrors(data, this.containerDeviceId());
   }
 
   async getPools(params: AdapterRequestOptions = {}) {

@@ -55,6 +55,7 @@ export interface HashboardLayout {
     frame: string;
     /** Applied to each row, alongside a base `flex`. */
     row: string;
+    rowClass: (row: number) => string;
     /** Minimum width of the scrollable grid area. */
     minWidth: string;
   };
@@ -67,15 +68,27 @@ export interface HashboardLayout {
     fill: string;
     /** Innermost content column, which sets vertical padding. */
     content: string;
+    /** CT1 reveals values only when the cell has at least 56px of width. */
+    metricValueVisibility: "always" | "when-wide";
   };
 
   /** Presentation of the hashboard summary card in the diagnostics list. */
   card: {
+    title: (slot: number | undefined) => string;
+    showEfficiency: boolean;
     /** Rigs show a slot-position indicator; container modules do not. */
     showSlotIndicator: boolean;
+    totalSlots: number;
     /** Pixel height per ASIC row in the preview heatmap; undefined = default. */
     previewRowHeight?: number;
   };
+
+  headerIcon: "back" | "dismiss";
+  detailStats: {
+    metric: "maximumAsicTemperature" | "averageAsicTemperature" | "power" | "efficiency" | "hashrate";
+    label: string;
+  }[];
+  detailStatsGrid: string;
 
   /** Title size for the hashboard detail screen header. */
   headerTitleSize: string;

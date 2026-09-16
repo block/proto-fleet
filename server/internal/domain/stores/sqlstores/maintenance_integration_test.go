@@ -795,3 +795,56 @@ func insertMaintenanceTestDevice(t *testing.T, db *sql.DB, orgID int64, identifi
 	require.NoError(t, err)
 	return identifier
 }
+
+// TestMaintenanceStoreSearchTreatsWildcardsLiterally guards the ILIKE escaping:
+// a user typing "%" or "_" must only see tickets that actually contain that
+// character, and List, Count, and Stats must all agree on the searched set.
+func TestMaintenanceStoreSearchTreatsWildcardsLiterally(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	orgID := insertMaintenanceTestOrg(t, db, "wildcard")
+	siteID := insertMaintenanceTestSite(t, db, orgID, "Wildcard Site")
+
+	create := func(component string) *maintenancemodels.RepairTicket {
+		t.Helper()
+		n, err := store.NextTicketNumber(ctx, orgID)
+		require.NoError(t, err)
+		ticket, err := store.CreateRepairTicket(ctx, maintenancemodels.CreateParams{
+			OrgID: orgID, IdempotencyKey: fmt.Sprintf("wildcard-create-%d", n), CreateRequestHash: maintenanceCreateRequestHash, Category: maintenancemodels.TicketCategoryInfrastructure,
+			Component: component, SiteID: &siteID,
+		}, fmt.Sprintf("TK-%04d", n))
+		require.NoError(t, err)
+		return ticket
+	}
+	percent := create("Fan at 100% duty")
+	underscore := create("PSU_secondary")
+	create("Plain hashboard")
+
+	cases := []struct {
+		name  string
+		query string
+		want  int64
+	}{
+		{"percent", "%", percent.ID},
+		{"underscore", "_", underscore.ID},
+		{"trimmed and case-insensitive", "  psu_SECONDARY ", underscore.ID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := maintenancemodels.ListFilter{OrgID: orgID, SearchQuery: tc.query, SortField: maintenancemodels.TicketSortFieldCreatedAt, SortDirection: maintenancemodels.SortDirectionAscending, Limit: 10}
+			tickets, err := store.ListRepairTickets(ctx, filter)
+			require.NoError(t, err)
+			require.Len(t, tickets, 1)
+			assert.Equal(t, tc.want, tickets[0].ID)
+
+			count, err := store.CountRepairTickets(ctx, filter)
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), count)
+
+			stats, err := store.GetTicketStats(ctx, filter)
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), stats.CountByStatus[maintenancemodels.TicketStatusOpen])
+		})
+	}
+}

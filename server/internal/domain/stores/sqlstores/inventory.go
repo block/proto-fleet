@@ -75,6 +75,7 @@ func (s *SQLInventoryStore) List(ctx context.Context, filter models.ListFilter) 
 		ExcludedSiteIds: inventoryNilIfEmpty(filter.ExcludedSiteIDs),
 		FilterTypes:     inventoryNilIfEmpty(filter.Types),
 		FilterLowStock:  filter.LowStockOnly,
+		SearchPattern:   likeSearchPattern(filter.SearchQuery),
 		CursorID:        ptrToNullInt64(filter.CursorID),
 		LimitN:          filter.Limit,
 	})
@@ -95,6 +96,7 @@ func (s *SQLInventoryStore) Count(ctx context.Context, filter models.ListFilter)
 		ExcludedSiteIds: inventoryNilIfEmpty(filter.ExcludedSiteIDs),
 		FilterTypes:     inventoryNilIfEmpty(filter.Types),
 		FilterLowStock:  filter.LowStockOnly,
+		SearchPattern:   likeSearchPattern(filter.SearchQuery),
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to count inventory parts: %w", err)

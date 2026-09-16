@@ -76,7 +76,7 @@ const MinerStatusModalContent = ({
           key: `${componentType}_${idx}_${error.timestamp || idx}`,
           icon: componentIcons[componentType as keyof typeof componentIcons],
           title: error.message,
-          subtitle: formatReportedTimestamp(error.timestamp),
+          subtitle: [error.componentName, formatReportedTimestamp(error.timestamp)].filter(Boolean).join(" · "),
           onClick: error.onClick,
         });
       });

@@ -22,6 +22,26 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers());
 
+test.each(["All", "Dry cooler"])(
+  "warns about stale readings after a failed %s poll and clears on recovery",
+  async (tab) => {
+    render(<ContainerDiagnosticView />);
+    await act(async () => {});
+    if (tab !== "All") {
+      fireEvent.mouseDown(screen.getByRole("button", { name: tab }));
+      await act(async () => {});
+    }
+    mocks.getCurrentTelemetry.mockRejectedValueOnce(new Error("Offline"));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not refresh container readings. Displayed values may be out of date.",
+    );
+    expect(screen.getByTestId("container-diagnostics")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  },
+);
+
 test("switching scopes cancels full telemetry, polls plant only, and restores full reads", async () => {
   const view = render(<ContainerDiagnosticView />);
   await act(async () => {});

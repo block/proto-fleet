@@ -32,6 +32,16 @@ const baseProps: ComponentStatusModalProps = {
 };
 
 describe("ComponentStatusModalContent", () => {
+  it.each([
+    ["fault", "bg-intent-critical-fill"],
+    ["degraded", "text-intent-warning-fill"],
+  ] as const)("shows %s health without detailed errors and clears the icon on recovery", (health, color) => {
+    const { rerender } = render(<ComponentStatusModalContent {...baseProps} health={health} />);
+    expect(screen.getByTestId("hashboard-icon").parentElement).toHaveClass(color);
+    rerender(<ComponentStatusModalContent {...baseProps} health="ok" />);
+    expect(screen.getByTestId("hashboard-icon").parentElement).not.toHaveClass(color);
+  });
+
   describe("icon per component type", () => {
     it("should render Hashboard icon for hashboard component type", () => {
       render(<ComponentStatusModalContent {...baseProps} />);

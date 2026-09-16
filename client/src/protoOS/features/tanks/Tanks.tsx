@@ -1,58 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
+import ModuleModal from "./components/ModuleModal/ModuleModal";
 import TankCard from "./TankCard";
-import TankMetrics from "./TankMetrics";
-import { hashboardLabel, moduleHashboards } from "./tankView";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { asEntityKey, type ModuleId, type ModuleNode } from "@/protoOS/store/contract";
+import { type ModuleNode } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
-import { findTankByRouteParam } from "@/protoOS/topologyRouteParams";
-import Modal from "@/shared/components/Modal";
+import {
+  findModuleInTankByRouteParam,
+  findTankByRouteParam,
+  moduleRouteValue,
+  tankRouteValue,
+} from "@/protoOS/topologyRouteParams";
 
 const TELEMETRY_LEVELS: TelemetryLevel[] = ["hashboard", "miner"];
 
-const ModuleOverview = ({ moduleId, onDismiss }: { moduleId: ModuleId; onDismiss: () => void }) => {
-  const { minerRoot } = useMinerHosting();
-  const topology = useMinerStore((state) => state.hardware.topology);
-  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(asEntityKey(moduleId)));
-  const module = topology?.modules.get(moduleId);
-  if (!topology || !module) return null;
-  const label = `Module ${module.location?.moduleSlot ?? module.id}`;
-  return (
-    <Modal title={label} dialogLabel={label} onDismiss={onDismiss}>
-      <div>
-        <p className="mb-6">{module.location?.tankLabel}</p>
-        <TankMetrics rollup={rollup} />
-        <div className="mt-6 flex flex-col gap-3">
-          {moduleHashboards(module, topology).map((board) => (
-            <Link
-              key={board.id}
-              to={`${minerRoot}/diagnostics/${encodeURIComponent(board.identity.value)}`}
-              className="text-text-primary underline"
-              onClick={onDismiss}
-            >
-              View hashboard ({hashboardLabel(board.location?.slot)})
-            </Link>
-          ))}
-        </div>
-      </div>
-    </Modal>
-  );
-};
-
 const Tanks = () => {
-  const { tankId } = useParams();
+  const { tankId, moduleId } = useParams();
+  const navigate = useNavigate();
+  const { minerRoot } = useMinerHosting();
   const { key: locationKey } = useLocation();
   const { error } = useTelemetry({ level: TELEMETRY_LEVELS });
   const topology = useMinerStore((state) => state.hardware.topology);
   const hardwareResource = useMinerStore((state) => state.hardware.resource);
-  const [selectedModule, setSelectedModule] = useState<ModuleId>();
-  const openModule = useCallback((module: ModuleNode) => setSelectedModule(module.id), []);
+  const openModule = (module: ModuleNode) => {
+    const tank = module.tankId && topology?.kind === "container" ? topology.tanks.get(module.tankId) : undefined;
+    if (tank)
+      navigate(
+        `${minerRoot}/tanks/${tankRouteValue(tank)}/modules/${moduleRouteValue(module, tank.moduleIds.indexOf(module.id) + 1)}`,
+      );
+  };
   const selectedTank = findTankByRouteParam(topology, tankId);
   const selectedTankId = selectedTank?.id;
+  const selectedModule =
+    selectedTank && topology ? findModuleInTankByRouteParam(topology, selectedTank, moduleId) : undefined;
   const tanks = useMemo(
     () =>
       topology?.kind === "container"
@@ -78,6 +61,7 @@ const Tanks = () => {
         </p>
       ) : null}
       {tankId && !selectedTank ? <p role="status">Tank not found. Showing all tanks.</p> : null}
+      {moduleId && selectedTank && !selectedModule ? <p role="status">Module not found. Showing tanks.</p> : null}
       {tanks.length ? (
         tanks.map((tank, index) => (
           <TankCard
@@ -91,8 +75,8 @@ const Tanks = () => {
       ) : (
         <p>No tanks found.</p>
       )}
-      {selectedModule ? (
-        <ModuleOverview moduleId={selectedModule} onDismiss={() => setSelectedModule(undefined)} />
+      {selectedModule && selectedTank ? (
+        <ModuleModal module={selectedModule} tank={selectedTank} topology={topology} />
       ) : null}
     </div>
   );

@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { V2MiningOperatingState, V2PerformanceMode, V2PLLAlgorithm, V2PoolConnState } from "./generated/generatedApi";
+import {
+  type V2GetContainerMapResponse,
+  V2HashboardErrorCause,
+  V2MiningOperatingState,
+  V2PerformanceMode,
+  V2PLLAlgorithm,
+  V2PoolConnState,
+} from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
@@ -22,6 +29,229 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
 describe("MdkV2Adapter", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  test("returns board errors and warnings with canonical ownership for repeated board slots", async () => {
+    const map: V2GetContainerMapResponse = {
+      containerMap: {
+        tanks: [1, 2].map((tank) => ({
+          id: tank,
+          modules: [
+            {
+              id: 1,
+              slots: [
+                {
+                  hashboard: {
+                    macAddress: `board-${tank}`,
+                    moduleId: `T${tank}-M01`,
+                    location: { tank, module: 1, hashboardPosition: 3 },
+                    health:
+                      tank === 1
+                        ? {
+                            errors: [
+                              {
+                                cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_ASIC_OVER_TEMPERATURE,
+                                asic: { id: 7, temperature: 98 },
+                              },
+                            ],
+                          }
+                        : {
+                            warnings: [
+                              {
+                                cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE,
+                                stack: 0,
+                              },
+                            ],
+                          },
+                  },
+                },
+              ],
+            },
+          ],
+        })),
+      },
+    };
+    const getContainerMap = vi.fn().mockResolvedValue({ data: map });
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: getContainerMap,
+      }),
+      { deviceId: "ct1-a" },
+    );
+
+    const errors = await adapter.getErrors();
+
+    expect(errors).toHaveLength(2);
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          owner: { kind: "module", id: "container:ct1-a:module:T1-M01" },
+          component: {
+            kind: "hashboard",
+            id: "mac:board-1",
+            owner: { kind: "module", id: "container:ct1-a:module:T1-M01" },
+          },
+          severity: "critical",
+          message: expect.stringMatching(/ASIC.*7.*98/i),
+        }),
+        expect.objectContaining({
+          owner: { kind: "module", id: "container:ct1-a:module:T2-M01" },
+          component: {
+            kind: "hashboard",
+            id: "mac:board-2",
+            owner: { kind: "module", id: "container:ct1-a:module:T2-M01" },
+          },
+          severity: "warning",
+          message: expect.stringMatching(/stack/i),
+        }),
+      ]),
+    );
+
+    for (const tank of map.containerMap!.tanks!) {
+      tank.modules![0].slots![0].hashboard!.health = { errors: [], warnings: [] };
+    }
+    expect(await adapter.getErrors()).toEqual([]);
+  });
+
+  test.each([
+    ["warning", { overTemperatureWarning: true }],
+    ["critical", { overTemperatureFault: true }],
+  ] as const)(
+    "scopes PSU %s details to the owning module and clears them on refresh",
+    async (severity, thermalFlags) => {
+      const map = (active: boolean): V2GetContainerMapResponse => ({
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [1, 2].map((module) => ({
+                id: module,
+                slots: [1, 2].map((position) => ({
+                  hashboard: {
+                    macAddress: `board-${module}-${position}`,
+                    moduleId: `T1-M0${module}`,
+                    health: {
+                      psuThermal: {
+                        thermalStateValid: true,
+                        thermalStateAgeMs: position * 10,
+                        overTemperatureWarning: false,
+                        overTemperatureFault: false,
+                        ...(module === 1 && active ? thermalFlags : {}),
+                      },
+                    },
+                  },
+                })),
+              })),
+            },
+          ],
+        },
+      });
+      const getContainerMap = vi
+        .fn()
+        .mockResolvedValueOnce({ data: map(true) })
+        .mockResolvedValueOnce({ data: map(false) });
+      const adapter = new MdkV2Adapter(client({ hashboardServiceGetContainerMap: getContainerMap }), {
+        deviceId: "ct1-a",
+      });
+
+      expect(await adapter.getErrors()).toEqual([
+        expect.objectContaining({
+          severity,
+          component: {
+            kind: "psu",
+            id: "container:ct1-a:module:T1-M01:psu:1",
+            owner: { kind: "module", id: "container:ct1-a:module:T1-M01" },
+          },
+          message: expect.stringMatching(/temperature/i),
+        }),
+      ]);
+      expect(await adapter.getErrors()).toEqual([]);
+    },
+  );
+
+  test("does not turn latched shutdown history or invalid PSU thermal state into active faults", async () => {
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+          data: {
+            containerMap: {
+              tanks: [
+                {
+                  id: 1,
+                  modules: [
+                    {
+                      id: 1,
+                      slots: [
+                        {
+                          hashboard: {
+                            macAddress: "board-1",
+                            moduleId: "T1-M01",
+                            health: {
+                              lastShutdownError: {
+                                cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE,
+                              },
+                              psuThermal: {
+                                thermalStateValid: false,
+                                overTemperatureFault: true,
+                                overTemperatureWarning: true,
+                              },
+                            },
+                          },
+                        },
+                        { hashboard: { macAddress: "board-2", moduleId: "T1-M01" } },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      }),
+      { deviceId: "ct1-a" },
+    );
+
+    expect(await adapter.getErrors()).toEqual([]);
+  });
+
+  test("uses the freshest shared PSU thermal state when an older board report still has a warning", async () => {
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+          data: {
+            containerMap: {
+              tanks: [
+                {
+                  id: 1,
+                  modules: [
+                    {
+                      id: 1,
+                      slots: [100, 10].map((age) => ({
+                        hashboard: {
+                          macAddress: `board-${age}`,
+                          moduleId: "T1-M01",
+                          health: {
+                            psuThermal: {
+                              thermalStateAgeMs: age,
+                              thermalStateValid: true,
+                              overTemperatureWarning: age === 100,
+                              overTemperatureFault: false,
+                            },
+                          },
+                        },
+                      })),
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      }),
+      { deviceId: "ct1-a" },
+    );
+
+    expect(await adapter.getErrors()).toEqual([]);
   });
 
   test("attributes requests while allowing an explicit caller actor to win", () => {
@@ -46,6 +276,27 @@ describe("MdkV2Adapter", () => {
     if (hardware.topology?.kind !== "container") throw new Error("expected container topology");
     expect(hardware.topology.deviceId).toBe("device:ct1-context");
     expect(hardware.topology.containerId).toBe("container:ct1-context");
+  });
+
+  test("uses the hardware context identity for subsequent component errors when the probe has no device ID", async () => {
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+          data: {
+            containerMap: {
+              tanks: [
+                { id: 1, modules: [{ id: 1, slots: [{ hashboard: { serial: "HB-1", health: { errors: [{}] } } }] }] },
+              ],
+            },
+          },
+        }),
+        miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: {} }),
+        telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
+      }),
+    );
+    const { hardware } = await adapter.getHardware({ deviceId: "device:context-ct1", profile: "ct1" });
+    const errors = await adapter.getErrors();
+    expect(errors[0].component).toEqual([...hardware.hashboards.values()][0].ref);
   });
 
   test("forwards scoped power and module-voltage writes with actor attribution", async () => {

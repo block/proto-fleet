@@ -20,6 +20,7 @@ import type {
   ModuleNode,
   TankNode,
 } from "@/protoOS/store/contract";
+import { moduleRouteValue, tankRouteValue } from "@/protoOS/topologyRouteParams";
 import { ArrowRight } from "@/shared/assets/icons";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
 
@@ -167,7 +168,7 @@ const TankModuleGridContent = ({ tank, topology, modules, telemetry, onViewModul
               <Link
                 key={board.id}
                 className="flex items-center gap-4 rounded-lg px-3 py-3 hover:bg-surface-5"
-                to={`${minerRoot}/diagnostics/${encodeURIComponent(board.identity.value)}`}
+                to={`${minerRoot}/tanks/${tankRouteValue(tank)}/modules/${moduleRouteValue(selected, tank.moduleIds.indexOf(selected.id) + 1)}/${encodeURIComponent(board.identity.value)}`}
                 onClick={() => setSelected(undefined)}
               >
                 <span aria-hidden="true" className="flex h-6 w-5 gap-0.5 rounded-xs border border-border-10 p-0.5">

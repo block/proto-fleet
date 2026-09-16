@@ -8,6 +8,7 @@ import {
   type MetricTelemetry,
   type PsuTelemetry,
   ROOT_MODULE_KEY,
+  type TelemetrySnapshot,
   type TelemetryState,
 } from "../contract";
 import type { MinerStore } from "../useMinerStore";
@@ -26,6 +27,10 @@ const metricFields = [
   "maximumTemperature",
   "inletTemperature",
   "outletTemperature",
+  "outletATemperature",
+  "outletBTemperature",
+  "tankALiquidLevel",
+  "tankBLiquidLevel",
   "averageAsicTemperature",
   "maximumAsicTemperature",
   "voltage",
@@ -38,8 +43,6 @@ const metricFields = [
   "outputCurrent",
   "outputPower",
   "ambientTemperature",
-  "outletATemperature",
-  "outletBTemperature",
   "dryCoolerInletTemperature",
   "averageTemperature",
   "hotspotTemperature",
@@ -60,8 +63,6 @@ const metricFields = [
   "heatRejectionInletPressure",
   "heatRejectionOutletPressure",
   "heatRejectionPressureDelta",
-  "tankALiquidLevel",
-  "tankBLiquidLevel",
   "current",
   "voltageAb",
   "voltageBc",
@@ -122,7 +123,7 @@ export interface TelemetrySlice extends TelemetryState {
   // per entity, independent of the caller's resource-key string. Not part of the
   // persisted/reset TelemetryState contract; cleared explicitly in clearAllData.
   lastAppliedRequestByEntity: Map<string, number>;
-  mergeTelemetry: (telemetry: TelemetryState, requestId?: number) => void;
+  mergeTelemetry: (telemetry: TelemetrySnapshot, requestId?: number) => void;
   updateHashboardTemperatures: (
     serial: string,
     inlet?: Measurement,
@@ -167,11 +168,46 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       const lastApplied = state.telemetry.lastAppliedRequestByEntity;
       const gate = (prefix: string): StalenessGate | undefined =>
         requestId === undefined ? undefined : { requestId, lastApplied, prefix };
+      const psus = new Map(incoming.psus);
+      // PSU inventory and readings come from the same successful module snapshot.
+      // Keep known hardware when data disappears, but clear its current readings.
+      for (const moduleId of incoming.modulePsus?.moduleIds ?? []) {
+        const module = state.hardware.topology?.modules.get(moduleId);
+        if (!module) continue;
+        const inventoryKey = `module-psus:${moduleId}`;
+        const reported = [...incoming.modulePsus!.hardware.values()].filter(
+          (psu) => psu.ref.owner.kind === "module" && psu.ref.owner.id === moduleId,
+        );
+        if (requestId !== undefined && requestId < (lastApplied.get(inventoryKey) ?? 0)) {
+          for (const psu of reported) psus.delete(psu.ref.id);
+          continue;
+        }
+        if (requestId !== undefined) lastApplied.set(inventoryKey, requestId);
+        for (const psu of reported) {
+          const id = psu.ref.id;
+          if (requestId !== undefined && requestId < (lastApplied.get(`psu:${id}`) ?? 0)) continue;
+          state.hardware.psus.set(id, psu);
+          if (!module.psuIds.includes(id)) module.psuIds.push(id);
+        }
+        for (const id of module.psuIds) {
+          const previous = state.telemetry.psus.get(id);
+          if (psus.has(id) || !previous) continue;
+          const cleared: PsuTelemetry = { componentId: id, health: "unknown" };
+          for (const field of metricFields) {
+            const metric = (previous as unknown as MetricContainer)[field] as MetricTelemetry | undefined;
+            if (metric?.latest)
+              (cleared as unknown as MetricContainer)[field] = {
+                latest: { ...metric.latest, value: null },
+              };
+          }
+          psus.set(id, cleared);
+        }
+      }
       incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
       mergeMap(state.telemetry.rollupsByEntity, incoming.rollupsByEntity, gate("rollup"));
       mergeMap(state.telemetry.hashboards, incoming.hashboards, gate("hashboard"));
       mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
-      mergeMap(state.telemetry.psus, incoming.psus, gate("psu"));
+      mergeMap(state.telemetry.psus, psus, gate("psu"));
       mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
       mergeMap(state.telemetry.plant, incoming.plant, gate("plant"));
       incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));

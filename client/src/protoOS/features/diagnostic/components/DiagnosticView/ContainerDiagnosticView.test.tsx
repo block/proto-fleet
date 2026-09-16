@@ -107,6 +107,11 @@ describe("Container diagnostics", () => {
     useMinerStore.getState().resetDeviceData();
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+    vi.mocked(useTelemetry).mockReturnValue({
+      pending: false,
+      error: undefined,
+      data: useMinerStore.getState().telemetry,
+    });
   });
 
   afterEach(() => {
@@ -157,6 +162,60 @@ describe("Container diagnostics", () => {
     expect(screen.getByText("Alarm").parentElement).toHaveTextContent(expected);
     expect(screen.queryByText("Armed")).not.toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Alarm" })).not.toBeInTheDocument();
+  });
+
+  test.each<Partial<PlantTelemetry>>([
+    { controls: [] },
+    { controls: [{ name: "another_control", enabled: true, stateKnown: true }] },
+    { controls: [{ name: "dry_cooler_auto", enabled: true, stateKnown: false }] },
+    { controls: [{ name: "dry_cooler_auto", stateKnown: true }] },
+    { setpoints: [] },
+    { setpoints: [{ name: "another_setpoint", value: 18 }] },
+  ])("disables cooler management for unsupported or unknown settings: %j", (reading) => {
+    hosting.adapter = {
+      setContainerControl: vi.fn(),
+      setContainerSetpoint: vi.fn(),
+    } as unknown as MinerAdapter;
+    const telemetry = createEmptyTelemetryState();
+    telemetry.plant.set(plantId, { componentId: plantId, ...reading });
+    useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
+    if (reading.controls) {
+      expect(screen.queryByText("Auto")).not.toBeInTheDocument();
+      expect(screen.queryByText(/target inlet temp/)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(hosting.adapter.setContainerControl).not.toHaveBeenCalled();
+  });
+
+  test("opens advertised manual mode without defaulting it to auto", () => {
+    hosting.adapter = { setContainerControl: vi.fn(), setContainerSetpoint: vi.fn() } as unknown as MinerAdapter;
+    const telemetry = createEmptyTelemetryState();
+    telemetry.plant.set(plantId, {
+      componentId: plantId,
+      controls: [{ name: "dry_cooler_auto", enabled: false, stateKnown: true }],
+    });
+    useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+    render(<ContainerDiagnosticView />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getByLabelText("Pump speed (RPM)")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Target °C")).not.toBeInTheDocument();
+    screen.getAllByRole("button", { name: "Save" }).forEach((button) => expect(button).toBeDisabled());
+  });
+
+  test("closes settings if advertised support disappears", () => {
+    hosting.adapter = { setContainerControl: vi.fn(), setContainerSetpoint: vi.fn() } as unknown as MinerAdapter;
+    render(<ContainerDiagnosticView />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    act(() => {
+      const telemetry = createEmptyTelemetryState();
+      telemetry.plant.set(plantId, { componentId: plantId, setpoints: [] });
+      useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
   });
 
   test("refreshes telemetry after saving settings", async () => {

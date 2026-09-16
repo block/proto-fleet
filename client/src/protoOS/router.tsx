@@ -188,26 +188,23 @@ export const routerConfig: CustomRouteObject[] = [
       title: "Tanks",
     },
   ),
-  {
-    ...createRoute(
-      "tanks/:tankId/modules/:moduleId",
-      <ContainerRoute>
-        <Outlet />
-      </ContainerRoute>,
-      {
-        title: "Home",
-        ContentLayout: KpiLayout,
-      },
-    ),
-    requiresAuth: false,
-    children: [
-      {
-        index: true,
-        element: <Hashrate />,
-      },
-      ...kpiRoutes,
-    ],
-  },
+  createRoute(
+    "tanks/:tankId/modules/:moduleId",
+    <ContainerRoute>
+      <ContainerTanks />
+    </ContainerRoute>,
+    { title: "Tanks" },
+  ),
+  createRoute(
+    "tanks/:tankId/modules/:moduleId/:serial",
+    <ContainerRoute>
+      <HashboardTemperature />
+    </ContainerRoute>,
+    {
+      title: "Hashboards",
+      fullscreen: true,
+    },
+  ),
   createRoute(
     "tanks",
     <ContainerRoute>

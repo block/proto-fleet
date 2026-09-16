@@ -21,6 +21,7 @@ import {
   V2PerformanceMode,
   V2PoolConnState,
 } from "./generated/generatedApi";
+import { normalizeModulePsu } from "./modulePsu";
 import {
   asAsicId,
   asComponentId,
@@ -46,6 +47,7 @@ import {
   type Measurement,
   type MetricTelemetry,
   type MetricUnit,
+  type MinerError,
   type MiningStatus,
   type MiningTarget,
   type ModuleId,
@@ -60,10 +62,13 @@ import {
   type SystemInfoData,
   type TankId,
   type TankNode,
+  type TelemetrySnapshot,
   type TelemetryState,
 } from "@/protoOS/store/contract";
 import type { HashboardHardwareData } from "@/protoOS/store/types";
+import { CONTAINER_HASHBOARD_COLUMNS } from "@/protoOS/store/utils/containerHashboardLayout";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
+import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
 
 export const CT1_COMMANDS: CommandCapabilities = {
   startStop: "supported",
@@ -87,6 +92,15 @@ const latest = <U extends Measurement["units"]>(value: number | undefined, units
   value === undefined ? undefined : { latest: { value, units } };
 const average = (values: number[]) =>
   values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
+
+const efficiencyMetric = (
+  power: number | undefined,
+  hashrate: number | undefined,
+  reported?: number,
+): MetricTelemetry => {
+  // Explicit null clears an earlier reading when a later snapshot lacks data.
+  return { latest: { value: efficiencyValue(power, hashrate, reported), units: "J/TH" } };
+};
 
 export const ct1DeviceId = (value: string | undefined) => asDeviceId(`device:${value || "ct1"}`);
 export const ct1ContainerId = (value: string | undefined) => asContainerId(`container:${value || "ct1"}`);
@@ -305,10 +319,7 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
   return {
     hashrate: metric(hashrate, "TH/s"),
     power: metric(power, "W"),
-    efficiency: metric(
-      hashrate !== undefined && hashrate > 0 && power !== undefined ? power / hashrate : undefined,
-      "J/TH",
-    ),
+    efficiency: efficiencyMetric(power, hashrate),
     temperature: metric(average(temps), "°C"),
     minimumTemperature: metric(temps.length ? Math.min(...temps) : undefined, "°C"),
     maximumTemperature: metric(temps.length ? Math.max(...temps) : undefined, "°C"),
@@ -354,12 +365,7 @@ const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
     : null,
   hashrate: latest(entry.board.health?.hashrate, "TH/s"),
   power: latest(entry.board.health?.power, "W"),
-  efficiency: latest(
-    entry.board.health?.hashrate && entry.board.health.power
-      ? entry.board.health.power / entry.board.health.hashrate
-      : undefined,
-    "J/TH",
-  ),
+  efficiency: efficiencyMetric(entry.board.health?.power, entry.board.health?.hashrate),
   temperature: latest(average(entry.board.health?.temperatures ?? []), "°C"),
   averageAsicTemperature: latest(entry.board.health?.averageAsicTemperatureC, "°C"),
 });
@@ -397,22 +403,28 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   };
   const plantId = asComponentId(`${containerId}:plant`);
   const plant = wire.plant;
+  // Missing or invalid sensors in a successful snapshot must clear the previous reading.
+  const tankReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
+    latest: { value: typeof value === "number" && Number.isFinite(value) ? value : null, units },
+  });
   addPlantComponent(plantId, "plant", "Plant", {
     componentId: plantId,
     operatingState: plant?.operatingState,
     powered: plant?.powered,
-    inletTemperature: latest(plant?.inletTemperatureC, "°C"),
+    inletTemperature: tankReading(plant?.inletTemperatureC, "°C"),
     outletTemperature: latest(plant?.outletTemperatureC, "°C"),
+    outletATemperature: tankReading(plant?.outletATemperatureC, "°C"),
+    outletBTemperature: tankReading(plant?.outletBTemperatureC, "°C"),
+    tankALiquidLevel: tankReading(plant?.tankALiquidLevelMm, "mm"),
+    tankBLiquidLevel: tankReading(plant?.tankBLiquidLevelMm, "mm"),
     ambientTemperature: latest(plant?.ambientTemperatureC, "°C"),
-    outletATemperature: latest(plant?.outletATemperatureC, "°C"),
-    outletBTemperature: latest(plant?.outletBTemperatureC, "°C"),
     dryCoolerInletTemperature: latest(plant?.dryCoolerInletTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
     facilityPower: latest(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
     pue: latest(plant?.pue, "ratio"),
-    flowRate: latest(plant?.flowRateLpm, "L/min"),
+    flowRate: tankReading(plant?.flowRateLpm, "L/min"),
     coolantPumpSpeed: latest(plant?.coolantPumpSpeedHz, "Hz"),
     pumpInletPressure: latest(plant?.pumpInletPressurePa, "Pa"),
     pumpOutletPressure: latest(plant?.pumpOutletPressurePa, "Pa"),
@@ -420,8 +432,6 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     heatRejectionInletPressure: latest(plant?.heatRejectionInletPressurePa, "Pa"),
     heatRejectionOutletPressure: latest(plant?.heatRejectionOutletPressurePa, "Pa"),
     heatRejectionPressureDelta: latest(plant?.heatRejectionPressureDiffPa, "Pa"),
-    tankALiquidLevel: latest(plant?.tankALiquidLevelMm, "mm"),
-    tankBLiquidLevel: latest(plant?.tankBLiquidLevelMm, "mm"),
     coolantPumpActive: plant?.coolantPumpActive,
     heatRejectionActive: plant?.heatRejectionActive,
     alarmActive: plant?.alarmActive,
@@ -539,7 +549,7 @@ export const toCanonicalContainer = (
   statusWire: V2GetMiningStatusResponse,
   telemetryWire: V2GetContainerHealthResponse,
   deviceIdValue: string,
-): { hardware: HardwareState; telemetry: TelemetryState } => {
+): { hardware: HardwareState; telemetry: TelemetrySnapshot } => {
   const normalizedDeviceId = ct1DeviceId(deviceIdValue);
   const containerId = ct1ContainerId(deviceIdValue);
   const boards = flattenBoards(mapWire ?? {}, containerId);
@@ -634,7 +644,18 @@ export const toCanonicalContainer = (
     plant: plant.hardware,
   };
 
-  const telemetry = createEmptyTelemetryState();
+  const telemetry: TelemetrySnapshot = createEmptyTelemetryState();
+  for (const [id, moduleBoards] of boardsByModule) {
+    const psu = normalizeModulePsu(
+      id,
+      moduleBoards.map((entry) => entry.board),
+    );
+    if (!psu) continue;
+    hardware.psus.set(psu.id, psu.hardware);
+    telemetry.psus.set(psu.id, psu.telemetry);
+    modules.get(id)?.psuIds.push(psu.id);
+  }
+  if (mapWire !== undefined) telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
   const timestampMs = Date.parse(telemetryWire.timestamp ?? "");
   telemetry.resourceByScope.set(
     asResourceKey(`telemetry:current:${containerId}`),
@@ -647,7 +668,7 @@ export const toCanonicalContainer = (
     ...boardSummary,
     hashrate: latest(statusWire.hashrate, "TH/s"),
     power: latest(statusWire.power, "W"),
-    efficiency: latest(statusWire.efficiency, "J/TH"),
+    efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
     temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
     miningStatus: miningStatus(statusWire.operatingState, statusWire.mining),
     boardCount: statusWire.totalBoards ?? boardSummary?.boardCount,
@@ -668,6 +689,52 @@ export const toCanonicalContainer = (
     telemetry.hashboards.set(entry.hashboardId, toHashboardTelemetry(entry));
   }
   return { hardware, telemetry };
+};
+
+/** Active health arrays are snapshots; lastShutdownError is latched history. */
+export const toCanonicalErrors = (wire: V2GetContainerMapResponse, deviceId: string): MinerError[] => {
+  const boards = flattenBoards(wire, ct1ContainerId(deviceId));
+  const errors: MinerError[] = [];
+  for (const entry of boards) {
+    const owner = { kind: "module" as const, id: entry.moduleId };
+    const component = { kind: "hashboard" as const, id: entry.hashboardId, owner };
+    for (const [severity, issues] of [
+      ["critical", entry.board.health?.errors],
+      ["warning", entry.board.health?.warnings],
+    ] as const) {
+      for (const [index, issue] of (issues ?? []).entries()) {
+        const code = issue.cause ?? "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR";
+        const cause = code
+          .replace(/^HASHBOARD_ERROR_CAUSE_/, "")
+          .replaceAll("_", " ")
+          .toLowerCase();
+        const details = [cause.charAt(0).toUpperCase() + cause.slice(1)];
+        if (issue.asic?.id !== undefined) details.push(`ASIC ${issue.asic.id}`);
+        if (issue.asic?.temperature !== undefined) details.push(`${issue.asic.temperature} °C`);
+        if (issue.asic?.voltage !== undefined) details.push(`${issue.asic.voltage} V`);
+        if (issue.asic?.voltageDomain) details.push(issue.asic.voltageDomain.replace(/^HASHBOARD_VOLTAGE_DOMAIN_/, ""));
+        if (issue.stack !== undefined) details.push(`Stack ${issue.stack} (firmware index)`);
+        // Firmware timestamps are not specified as wall-clock time by the API.
+        errors.push({
+          id: `${entry.hashboardId}:${severity}:${code}:${index}`,
+          code,
+          message: details.join(" · "),
+          owner,
+          component,
+          source: { kind: "hashboard", slot: entry.slot },
+          severity,
+        });
+      }
+    }
+  }
+  for (const [moduleId, entries] of groupBoards(boards, (entry) => entry.moduleId)) {
+    const psu = normalizeModulePsu(
+      moduleId,
+      entries.map((entry) => entry.board),
+    );
+    if (psu) errors.push(...psu.errors);
+  }
+  return errors;
 };
 
 export const toCanonicalContainerTelemetry = (
@@ -691,6 +758,22 @@ export const toCanonicalHashboards = (wire: V2GetContainerMapResponse): Hashboar
 export const toCanonicalHashboardStatus = (identifier: string, wire: V2GetHashboardASICsResponse): HashboardStatus => {
   const id = asHashboardId(identifier.includes(":") ? `mac:${identifier}` : `serial:${identifier}`);
   const positions = new Map((wire.layout?.entries ?? []).map((entry) => [entry.index, entry]));
+  // Some APIs report a stack as one long row. Wrap its display only; ASIC
+  // indices and the wire's electrical stack identities remain unchanged.
+  const entries = wire.layout?.entries ?? [];
+  const columns = CONTAINER_HASHBOARD_COLUMNS;
+  const rowsPerStack = Math.ceil((wire.layout?.asicsPerStack ?? columns) / columns);
+  const wrapStacks =
+    entries.some((entry) => (entry.x ?? 0) >= columns) ||
+    (rowsPerStack > 1 &&
+      entries.length > 0 &&
+      entries.every(
+        (entry) =>
+          entry.stackId !== undefined &&
+          entry.stackIndex !== undefined &&
+          entry.x === entry.stackIndex &&
+          entry.y === entry.stackId,
+      ));
   const asicIds: string[] = [];
   const asics: HashboardStatus["asics"] = [];
   const samples: AsicTelemetrySample[] = [];
@@ -703,8 +786,11 @@ export const toCanonicalHashboardStatus = (identifier: string, wire: V2GetHashbo
       id: normalizedId,
       hashboardSerial: identifier,
       index: asic.index,
-      row: position?.y,
-      column: position?.x,
+      row:
+        wrapStacks && position?.x !== undefined && position.y !== undefined
+          ? position.y * rowsPerStack + Math.floor(position.x / columns)
+          : position?.y,
+      column: wrapStacks && position?.x !== undefined ? position.x % columns : position?.x,
     });
     samples.push({
       asicId: normalizedId,

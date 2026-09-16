@@ -40,3 +40,16 @@ describe("CONTAINER_MODULE_LAYOUT", () => {
     expect(CONTAINER_MODULE_LAYOUT.rails.bottom?.left.reading).toBe("inlet");
   });
 });
+
+it.each([
+  { row: 10, column: 0, name: "A1" },
+  { row: 11, column: 0, name: "A52" },
+  { row: 11, column: 25, name: "A27" },
+])("keeps the bottom stack's cell and popover labels consistent: $name", ({ row, column, name }) => {
+  expect(CONTAINER_MODULE_LAYOUT.labelCell(asic({ row, column }), 312)).toBe(name);
+  expect(CONTAINER_MODULE_LAYOUT.labelDetail(asic({ row, column }))).toBe(name);
+});
+it.each([{ row: 0 }, { column: 0 }])("does not invent labels for partial positions: %o", (position) => {
+  expect(CONTAINER_MODULE_LAYOUT.labelCell(asic(position), 312)).toBe("");
+  expect(CONTAINER_MODULE_LAYOUT.labelDetail(asic(position))).toBe("");
+});

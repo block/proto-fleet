@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Modal from ".";
 
@@ -110,5 +110,66 @@ describe("Modal", () => {
     fireEvent.mouseDown(fixedFooter);
     fireEvent.click(fixedFooter);
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+});
+
+describe("Modal scroll title", () => {
+  let reportIntersection: (isIntersecting: boolean) => void;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+
+  beforeEach(() => {
+    observe.mockClear();
+    disconnect.mockClear();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: (entries: IntersectionObserverEntry[]) => void) {
+          reportIntersection = (isIntersecting) => callback([{ isIntersecting } as IntersectionObserverEntry]);
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps the compact title hidden at the top despite intersection boundary jitter", () => {
+    render(<Modal title="Miner status">Status content</Modal>);
+    for (const isIntersecting of [false, true, false]) {
+      act(() => reportIntersection(isIntersecting));
+      expect(screen.getAllByText("Miner status")).toHaveLength(1);
+    }
+  });
+
+  it("shows the compact title after scrolling past the large title and clears it immediately at the top", () => {
+    render(<Modal title="Miner status">Status content</Modal>);
+    const scroller = screen.getByTestId("modal");
+    fireEvent.scroll(scroller, { target: { scrollTop: 100 } });
+    act(() => reportIntersection(false));
+    expect(screen.getAllByText("Miner status")).toHaveLength(2);
+    // IntersectionObserver callbacks arrive asynchronously after a scroll event.
+    fireEvent.scroll(scroller, { target: { scrollTop: 0 } });
+    expect(screen.getAllByText("Miner status")).toHaveLength(1);
+    act(() => reportIntersection(false));
+    expect(screen.getAllByText("Miner status")).toHaveLength(1);
+  });
+
+  it("starts observing when a previously closed modal opens", () => {
+    const { rerender } = render(
+      <Modal title="Miner status" open={false}>
+        Status content
+      </Modal>,
+    );
+    expect(observe).not.toHaveBeenCalled();
+    rerender(
+      <Modal title="Miner status" open>
+        {" "}
+        Status content
+      </Modal>,
+    );
+    expect(observe).toHaveBeenCalledOnce();
+    act(() => reportIntersection(false));
+    expect(screen.getAllByText("Miner status")).toHaveLength(1);
   });
 });

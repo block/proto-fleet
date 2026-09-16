@@ -913,3 +913,22 @@ func doDelete(t *testing.T, srv *httptest.Server, path string, out any) int {
 	}
 	return resp.StatusCode
 }
+
+func TestModulePsuSnapshots(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var response containerMapResponse
+	getJSON(t, srv, "/api/v2/container/map", &response)
+	modules := response.ContainerMap.Tanks[0].Modules
+	first := modules[0].Slots[0].Hashboard
+	for _, slot := range modules[0].Slots {
+		if slot.Hashboard.PsuIdentity != first.PsuIdentity || slot.Hashboard.Health.PsuElectrical != first.Health.PsuElectrical {
+			t.Fatal("boards in a module must report the same PSU")
+		}
+	}
+	if first.PsuIdentity.Serial == modules[1].Slots[0].Hashboard.PsuIdentity.Serial {
+		t.Fatal("different modules must have distinct PSU identities")
+	}
+	if first.Health.PsuElectrical.InputPower <= 0 || !first.Health.PsuThermal.ThermalStateValid {
+		t.Fatal("expected live PSU power and valid thermal status")
+	}
+}

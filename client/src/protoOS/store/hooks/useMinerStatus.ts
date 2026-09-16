@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { type MinerError as NormalizedMinerError, ROOT_MODULE_KEY } from "../contract";
+import { type ComponentRef, type MinerError as NormalizedMinerError, ROOT_MODULE_KEY } from "../contract";
 import type { ErrorSource, MinerError } from "../types";
 import useMinerStore from "../useMinerStore";
+import { resolveComponentAddress } from "../utils/componentSelection";
 
 const selectOperationalStatus = (state: ReturnType<typeof useMinerStore.getState>) =>
   state.minerStatus.operationalByOwner.get(ROOT_MODULE_KEY);
@@ -212,14 +213,46 @@ export const useErrorsByComponent = (source: ErrorSource, slot: number): MinerEr
  * Returns all errors from the store
  */
 export const useErrors = (): MinerError[] => {
-  const errors = useMinerStore((state) => state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY));
-  return useMemo(() => (errors ?? []).map(toLegacyError), [errors]);
+  const errors = useDetailedErrors();
+  return useMemo(() => errors.map(toLegacyError), [errors]);
 };
 
 /**
  * Returns whether the miner has any issues
  */
 export const useHasIssues = (): boolean => {
-  const errors = useMinerStore((state) => state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY));
-  return (errors?.length ?? 0) > 0;
+  return useMinerStore((state) => [...state.minerStatus.errorsByOwner.values()].some((errors) => errors.length > 0));
+};
+
+/** Current detailed errors across every owner; preserve canonical component refs. */
+export const useDetailedErrors = () => {
+  const byOwner = useMinerStore((state) => state.minerStatus.errorsByOwner);
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(
+    () =>
+      [...byOwner.values()].flat().map((error) => {
+        if (error.component || !error.source) return error;
+        const component = resolveComponentAddress(
+          {
+            source: errorSource(error),
+            slot: error.source.slot,
+            moduleId: error.owner.kind === "module" ? error.owner.id : undefined,
+          },
+          hardware,
+        );
+        return component ? { ...error, component } : error;
+      }),
+    [byOwner, hardware],
+  );
+};
+
+export const useErrorsByRef = (component: ComponentRef | undefined) => {
+  const errors = useDetailedErrors();
+  return useMemo(
+    () =>
+      component
+        ? errors.filter((error) => error.component?.kind === component.kind && error.component.id === component.id)
+        : [],
+    [errors, component],
+  );
 };

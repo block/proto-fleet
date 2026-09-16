@@ -112,13 +112,13 @@ describe("ProtoOS router", () => {
     expect(router.state.location.pathname).toBe("/hashrate");
   });
 
-  test("allows containers to enter module KPI routes", async () => {
+  test("allows containers to enter module modal routes", async () => {
     mocks.systemInfo = { identity: { deviceType: "container" } };
     const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
 
     render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
     expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
   });
 
@@ -129,11 +129,11 @@ describe("ProtoOS router", () => {
 
     render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
     expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
   });
 
-  test("redirects rigs away from module KPI routes", async () => {
+  test("redirects rigs away from module modal routes", async () => {
     mocks.systemInfo = { identity: { deviceType: "rig" } };
     const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
 

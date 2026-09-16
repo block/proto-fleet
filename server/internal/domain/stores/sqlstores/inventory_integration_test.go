@@ -319,3 +319,64 @@ func insertInventoryTestSite(t *testing.T, db *sql.DB, orgID int64, name string)
 	`, orgID, name, fmt.Sprintf("inventory-store-%d-%s", orgID, name)).Scan(&id))
 	return id
 }
+
+// TestInventoryStoreSearchMatchesEveryFieldAndCountAgrees pins the search to
+// each field it advertises and proves List and Count route it identically, so
+// the pager's total can never describe a wider set than the searched rows.
+func TestInventoryStoreSearchMatchesEveryFieldAndCountAgrees(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLInventoryStore(db)
+	orgID := insertInventoryTestOrg(t, db, "search")
+	siteID := insertInventoryTestSite(t, db, orgID, "Search Yard")
+
+	create := func(params inventorymodels.CreateParams) int64 {
+		t.Helper()
+		params.OrgID = orgID
+		if params.Type == "" {
+			params.Type = "board"
+		}
+		part, err := store.Create(ctx, params)
+		require.NoError(t, err)
+		return part.ID
+	}
+	byName := create(inventorymodels.CreateParams{Name: "Hashboard marker-name"})
+	byType := create(inventorymodels.CreateParams{Name: "Typed part", Type: "marker-type"})
+	byManufacturer := create(inventorymodels.CreateParams{Name: "Branded part", Manufacturer: strPtr("Marker-Manufacturer")})
+	byPartNumber := create(inventorymodels.CreateParams{Name: "Numbered part", PartNumber: strPtr("PN-marker-part")})
+	byBin := create(inventorymodels.CreateParams{Name: "Binned part", BinLocation: strPtr("BIN-marker-bin")})
+	bySite := create(inventorymodels.CreateParams{Name: "Sited part", SiteID: &siteID})
+	literal := create(inventorymodels.CreateParams{Name: "100% wildcard_test"})
+	control := create(inventorymodels.CreateParams{Name: "Control part"})
+	all := []int64{byName, byType, byManufacturer, byPartNumber, byBin, bySite, literal, control}
+
+	cases := []struct {
+		name  string
+		query string
+		want  []int64
+	}{
+		{"name", "marker-name", []int64{byName}},
+		{"type", "marker-type", []int64{byType}},
+		{"manufacturer", "marker-manufacturer", []int64{byManufacturer}},
+		{"part number", "MARKER-PART", []int64{byPartNumber}},
+		{"bin location", "marker-bin", []int64{byBin}},
+		{"site name", "search yard", []int64{bySite}},
+		// Wildcards are literal: "%" and "_" must not match every row.
+		{"literal percent", "%", []int64{literal}},
+		{"literal underscore", "_", []int64{literal}},
+		{"surrounding whitespace is trimmed", "  marker-name  ", []int64{byName}},
+		{"no match", "no-such-part", nil},
+		{"blank search lists everything", " \t", all},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := inventorymodels.ListFilter{OrgID: orgID, SearchQuery: tc.query, Limit: 50}
+			parts, err := store.List(ctx, filter)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tc.want, inventoryPartIDs(parts))
+			count, err := store.Count(ctx, filter)
+			require.NoError(t, err)
+			assert.EqualValues(t, len(tc.want), count, "count must agree with the searched rows")
+		})
+	}
+}

@@ -1,4 +1,4 @@
-import type { LevelRollup, MetricTelemetry } from "@/protoOS/store/contract";
+import type { LevelRollup, MetricTelemetry, PlantTelemetry } from "@/protoOS/store/contract";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import { convertCtoF, formatEfficiencyOrDash, formatTempRange } from "@/shared/utils/telemetryFormat";
 
@@ -7,8 +7,31 @@ const latestValue = (metric: MetricTelemetry | undefined) => {
   return number !== undefined && number !== null && Number.isFinite(number) ? number : null;
 };
 
-const TankMetrics = ({ rollup, showCooling = false }: { rollup?: LevelRollup; showCooling?: boolean }) => {
+const TankMetrics = ({
+  rollup,
+  showCooling = false,
+  plant,
+  tankSlot,
+}: {
+  rollup?: LevelRollup;
+  showCooling?: boolean;
+  plant?: PlantTelemetry;
+  tankSlot?: number;
+}) => {
   const unit = useTemperatureUnit();
+  // CT1's numbered tanks subdivide two fluid volumes: A (left, 1–3) and B (right, 4–6).
+  const side = [1, 2, 3].includes(tankSlot ?? 0) ? "Left" : [4, 5, 6].includes(tankSlot ?? 0) ? "Right" : undefined;
+  const outlet = side === "Left" ? plant?.outletATemperature : side === "Right" ? plant?.outletBTemperature : undefined;
+  const fluidLevel = side === "Left" ? plant?.tankALiquidLevel : side === "Right" ? plant?.tankBLiquidLevel : undefined;
+  const coolingMetric = (label: string, metric: MetricTelemetry | undefined, units: string) => {
+    const value = latestValue(metric);
+    const converted = value !== null && units === "°C" && unit === "F" ? convertCtoF(value) : value;
+    return {
+      label,
+      text: converted === null ? "—" : `${converted.toFixed(1)} ${units === "°C" ? `°${unit}` : units}`,
+      note: value === null ? "Reading unavailable." : undefined,
+    };
+  };
   const hashrate = latestValue(rollup?.hashrate);
   const power = latestValue(rollup?.power);
   const min = latestValue(rollup?.minimumTemperature);
@@ -21,7 +44,7 @@ const TankMetrics = ({ rollup, showCooling = false }: { rollup?: LevelRollup; sh
     const converted = unit === "F" ? convertCtoF(average) : average;
     temperature = `${converted.toFixed(1)} °${unit}`;
   }
-  const metrics = [
+  const metrics: { label: string; text: string; note?: string }[] = [
     {
       label: "Hashrate",
       text: hashrate === null ? "—" : `${hashrate.toLocaleString(undefined, { maximumFractionDigits: 1 })} TH/s`,
@@ -29,19 +52,16 @@ const TankMetrics = ({ rollup, showCooling = false }: { rollup?: LevelRollup; sh
     {
       label: "Power",
       text: power === null ? "—" : `${(power / 1000).toFixed(1)} kW`,
-      note:
-        rollup?.powerCoverage?.kind === "hashboardOnly"
-          ? "Hashboard power only; excludes cooling and other plant loads."
-          : undefined,
     },
     { label: "Efficiency", text: formatEfficiencyOrDash(latestValue(rollup?.efficiency)) },
     { label: "Temperature", text: temperature },
     ...(showCooling
-      ? ["Flow", "Left tank inlet temperature", "Left tank outlet temperature", "Fluid level"].map((label) => ({
-          label,
-          text: "—",
-          note: "Reading unavailable.",
-        }))
+      ? [
+          coolingMetric("Flow", plant?.flowRate, "L/min"),
+          coolingMetric(`${side ? `${side} tank` : "Tank"} inlet temperature`, plant?.inletTemperature, "°C"),
+          coolingMetric(`${side ? `${side} tank` : "Tank"} outlet temperature`, outlet, "°C"),
+          coolingMetric("Fluid level", fluidLevel, "mm"),
+        ]
       : []),
   ];
   return (

@@ -49,6 +49,7 @@ const CriticalIconFrame = ({ children }: { children: ReactNode }) => (
 const ComponentStatusModalContent = ({
   summary,
   componentType,
+  health,
   errors,
   metrics,
   metadata,
@@ -60,12 +61,12 @@ const ComponentStatusModalContent = ({
   const icon = useMemo(() => {
     const iconElement = renderComponentIcon(componentType);
 
-    if (hasErrors) {
+    if (hasErrors || health === "fault") {
       return <CriticalIconFrame>{iconElement}</CriticalIconFrame>;
     }
 
-    return <DialogIcon intent="info">{iconElement}</DialogIcon>;
-  }, [componentType, hasErrors]);
+    return <DialogIcon intent={health === "degraded" ? "warning" : "info"}>{iconElement}</DialogIcon>;
+  }, [componentType, hasErrors, health]);
 
   // For single error: use error message as title, timestamp as subtitle, skip error rows
   // For multiple errors or no errors: use summary as title, show error rows

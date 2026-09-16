@@ -12,6 +12,7 @@ import type {
   OperationalStatus,
   PoolInfo,
   SystemInfoData,
+  TelemetrySnapshot,
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
@@ -207,7 +208,7 @@ export interface MinerAdapter {
     query: { lines: number; source?: SystemLogSource },
     params?: AdapterRequestOptions,
   ): Promise<SystemLogs | undefined>;
-  getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetryState>;
+  getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetrySnapshot>;
   getTimeSeries(request: TimeSeriesQuery, params?: AdapterRequestOptions): Promise<TelemetryState>;
   getCoolingStatus(params?: AdapterRequestOptions): Promise<{ mode: CoolingMode; fans: FanTelemetry[] }>;
   setCoolingMode(mode: CoolingMode, params?: AdapterRequestOptions): Promise<void>;

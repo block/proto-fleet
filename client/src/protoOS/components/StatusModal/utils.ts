@@ -1,14 +1,15 @@
 import { createElement } from "react";
 import type { ComponentHardware, ComponentTelemetry } from "./hooks";
-import { getComponentDisplayName } from "@/protoOS/hooks/status/useComponentDisplayName";
-import type { FanTelemetry, HashboardTelemetry, PsuTelemetry } from "@/protoOS/store/contract";
 import type {
-  ControlBoardHardwareData,
-  ErrorSource,
-  HashboardHardwareData,
+  ComponentRef,
+  ControlBoardHardware,
+  FanTelemetry,
+  HashboardHardware,
+  HashboardTelemetry,
   MinerError,
-  PsuHardwareData,
-} from "@/protoOS/store/types";
+  PsuHardware,
+  PsuTelemetry,
+} from "@/protoOS/store/contract";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
@@ -42,31 +43,6 @@ export const getComponentTitle = (type: ComponentType): string => {
 };
 
 /**
- * Maps error source to ComponentType
- */
-export function mapErrorSourceToComponentType(source: ErrorSource): ComponentType | null {
-  const mapping: Record<ErrorSource, ComponentType | null> = {
-    HASHBOARD: "hashboard",
-    PSU: "psu",
-    FAN: "fan",
-    RIG: "controlBoard",
-  };
-
-  return mapping[source] || null;
-}
-
-/**
- * Transforms MinerError to ErrorData format for shared/components/StatusModal
- */
-function transformMinerErrorToError(error: MinerError): ErrorData {
-  return {
-    componentName: getComponentDisplayName(error.source, error.slot),
-    message: error.message,
-    timestamp: error.timestamp,
-  };
-}
-
-/**
  * Get component metrics from telemetry data
  */
 function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry): ComponentMetric[] {
@@ -75,12 +51,12 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
   switch (type) {
     case "fan":
       if (telemetry) {
-        const rpm = (telemetry as FanTelemetry).rpm?.latest?.value || 0;
-        const pwm = (telemetry as FanTelemetry).speedPercent?.latest?.value || 0;
+        const rpm = (telemetry as FanTelemetry).rpm?.latest?.value;
+        const pwm = (telemetry as FanTelemetry).speedPercent?.latest?.value;
 
         metrics.push({
-          label: `${pwm}% PWM`,
-          value: `${rpm} RPM`,
+          label: pwm == null ? "PWM unavailable" : `${pwm}% PWM`,
+          value: rpm == null ? "—" : `${rpm} RPM`,
         });
       }
       break;
@@ -92,25 +68,25 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
           {
             label: "Input Power",
             value: createElement(PowerValue, {
-              value: psuTelemetry.inputPower?.latest?.value,
+              value: psuTelemetry.inputPower?.latest?.value ?? null,
             }),
           },
           {
             label: "Output Power",
             value: createElement(PowerValue, {
-              value: psuTelemetry.outputPower?.latest?.value,
+              value: psuTelemetry.outputPower?.latest?.value ?? null,
             }),
           },
           {
             label: "Average Temp",
             value: createElement(TemperatureValue, {
-              value: psuTelemetry.averageTemperature?.latest?.value,
+              value: psuTelemetry.averageTemperature?.latest?.value ?? null,
             }),
           },
           {
             label: "Max Temp",
             value: createElement(TemperatureValue, {
-              value: psuTelemetry.hotspotTemperature?.latest?.value,
+              value: psuTelemetry.hotspotTemperature?.latest?.value ?? null,
             }),
           },
         );
@@ -123,31 +99,31 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
           {
             label: "Hashrate",
             value: createElement(HashRateValue, {
-              value: (telemetry as HashboardTelemetry).hashrate?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).hashrate?.latest?.value ?? null,
             }),
           },
           {
             label: "Power",
             value: createElement(PowerValue, {
-              value: (telemetry as HashboardTelemetry).power?.latest?.value,
+              value: (telemetry as HashboardTelemetry).power?.latest?.value ?? null,
             }),
           },
           {
             label: "ASIC Avg Temp",
             value: createElement(TemperatureValue, {
-              value: (telemetry as HashboardTelemetry).averageAsicTemperature?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).averageAsicTemperature?.latest?.value ?? null,
             }),
           },
           {
             label: "ASIC High Temp",
             value: createElement(TemperatureValue, {
-              value: (telemetry as HashboardTelemetry).maximumAsicTemperature?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).maximumAsicTemperature?.latest?.value ?? null,
             }),
           },
           {
             label: "Efficiency",
             value: createElement(EfficiencyValue, {
-              value: (telemetry as HashboardTelemetry).efficiency?.latest?.value || 0,
+              value: (telemetry as HashboardTelemetry).efficiency?.latest?.value ?? null,
             }),
           },
         );
@@ -170,45 +146,41 @@ function getComponentMetadata(type: ComponentType, hardware: ComponentHardware):
     case "psu":
       metadata.serialNumber = {
         label: "Serial Number",
-        value: (hardware as PsuHardwareData).serial,
+        value: (hardware as PsuHardware).serialNumber,
       };
       metadata.model = {
         label: "Model",
-        value: (hardware as PsuHardwareData).model,
+        value: (hardware as PsuHardware).model,
       };
       metadata.firmwareVersion = {
         label: "Firmware Version",
-        value: (hardware as PsuHardwareData).firmware?.appVersion,
+        value: (hardware as PsuHardware).firmware?.application?.version,
       };
       break;
 
     case "hashboard":
       metadata.serialNumber = {
-        label: "Serial Number",
-        value: (hardware as HashboardHardwareData).serial,
+        label: (hardware as HashboardHardware).identity.kind === "mac" ? "MAC Address" : "Serial Number",
+        value: (hardware as HashboardHardware).identity.value,
       };
       metadata.model = {
         label: "Model",
-        value: (hardware as HashboardHardwareData).board,
+        value: (hardware as HashboardHardware).boardModel,
       };
       metadata.firmwareVersion = {
         label: "Firmware Version",
-        value: (hardware as HashboardHardwareData).firmware?.version,
+        value: (hardware as HashboardHardware).firmware?.version,
       };
       metadata.asicCount = {
         label: "ASIC Count",
-        value: (hardware as HashboardHardwareData).miningAsicCount,
-      };
-      metadata.slotLocation = {
-        label: "Slot Location",
-        value: (hardware as HashboardHardwareData).slot,
+        value: (hardware as HashboardHardware).miningAsicCount,
       };
       break;
 
     case "controlBoard":
       metadata.serialNumber = {
         label: "Serial Number",
-        value: (hardware as ControlBoardHardwareData).serial,
+        value: (hardware as ControlBoardHardware).serialNumber,
       };
       break;
   }
@@ -216,59 +188,50 @@ function getComponentMetadata(type: ComponentType, hardware: ComponentHardware):
   return metadata;
 }
 
-/**
- * Transforms miner errors into the format expected by StatusModal
- * Includes onClick handlers for navigating to component details
- * @param minerErrors - Array of miner errors from the store
- * @param onErrorClick - Optional callback when an error row is clicked
- */
+/** Error navigation carries the API-normalized identity, including its owner. */
 export function transformErrorsForModal(
-  minerErrors: MinerError[] = [],
-  onErrorClick?: (source: ErrorSource, slot?: number) => void,
+  errors: MinerError[],
+  name: (component: ComponentRef) => string,
+  onErrorClick?: (component: ComponentRef) => void,
 ): ErrorData[] {
-  return minerErrors.map((error) => ({
-    componentName: getComponentDisplayName(error.source, error.slot),
+  return errors.map((error) => ({
+    componentName: error.component ? name(error.component) : "Miner",
     message: error.message,
-    timestamp: error.timestamp,
-    onClick: onErrorClick ? () => onErrorClick(error.source, error.slot) : undefined,
+    timestamp: error.timestampMs === undefined ? undefined : error.timestampMs / 1000,
+    onClick: error.component && onErrorClick ? () => onErrorClick(error.component!) : undefined,
   }));
 }
 
-/**
- * Build complete props for ComponentStatusModal
- */
 export function buildComponentStatusProps(
-  source: ErrorSource,
-  slot: number | undefined,
+  component: ComponentRef,
+  name: string,
   errors: MinerError[],
   telemetry: ComponentTelemetry,
   hardware: ComponentHardware,
-): ComponentStatusModalProps | null {
-  const componentType = mapErrorSourceToComponentType(source);
-  if (!componentType) return null;
-
-  // Filter errors for this specific component
-  const componentErrors = errors.filter((error) => {
-    return error.source === source && error.slot === slot;
-  });
-
-  // Transform errors to Error format
-  const transformedErrors = componentErrors.map(transformMinerErrorToError);
-
-  // Generate summary text
-  const componentName = getComponentDisplayName(source, slot);
-  const errorCount = transformedErrors.length;
-  const summary =
-    errorCount === 0
-      ? componentName
-      : errorCount === 1
-        ? `${componentName} has an error`
-        : `${componentName} has ${errorCount} errors`;
-
+): ComponentStatusModalProps {
+  const componentType: ComponentType =
+    component.kind === "asic" || component.kind === "plant" ? "other" : component.kind;
+  const componentErrors = errors.filter(
+    (error) => error.component?.kind === component.kind && error.component.id === component.id,
+  );
+  const health = telemetry && "health" in telemetry ? telemetry.health : undefined;
+  const status =
+    health === "unknown"
+      ? "Status unknown"
+      : health === "offline"
+        ? "Offline"
+        : health === "fault"
+          ? "Fault"
+          : health === "degraded"
+            ? "Degraded"
+            : !telemetry
+              ? "Readings unavailable"
+              : undefined;
   return {
-    summary,
+    summary: status ? `${name} · ${status}` : name,
     componentType,
-    errors: transformedErrors,
+    health,
+    errors: transformErrorsForModal(componentErrors, () => name),
     metrics: getComponentMetrics(componentType, telemetry),
     metadata: getComponentMetadata(componentType, hardware),
   };

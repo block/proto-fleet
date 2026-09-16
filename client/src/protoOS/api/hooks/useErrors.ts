@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
-import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -10,14 +9,16 @@ import { usePoll } from "@/shared/hooks/usePoll";
 import { isAbortError } from "@/shared/utils/abort";
 
 type UseErrorsProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
+const useErrors = ({ enabled = true, poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
   const { adapter } = useMinerHosting();
   const { handleAuthErrors } = useAuthErrors();
-  const data = useMinerStore((state) => state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY));
+  const byOwner = useMinerStore((state) => state.minerStatus.errorsByOwner);
+  const data = useMemo(() => [...byOwner.values()].flat(), [byOwner]);
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
   const setErrors = useSetErrors();
@@ -27,7 +28,7 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
       if (!adapter) return;
 
       setPending(true);
-      const accept = beginStoreWrite("errors:module:root");
+      const accept = beginStoreWrite("errors:current");
       setError(undefined);
       return adapter
         .getErrors({ signal })
@@ -47,7 +48,7 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
     [adapter, handleAuthErrors, setErrors],
   );
 
-  usePoll({ fetchData, poll, pollIntervalMs });
+  usePoll({ fetchData, enabled, poll, pollIntervalMs });
 
   return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };

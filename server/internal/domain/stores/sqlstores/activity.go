@@ -219,7 +219,7 @@ func toListParams(f models.Filter) sqlc.ListActivityLogsParams {
 		EventTypes:         nilIfEmpty(f.EventTypes),
 		UserIds:            nilIfEmpty(f.UserIDs),
 		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
-		SearchPattern:      nullStringFromSearch(f.SearchText),
+		SearchPattern:      likeSearchPattern(f.SearchText),
 		StartTime:          nullTimeFromPtr(f.StartTime),
 		EndTime:            nullTimeFromPtr(f.EndTime),
 		CursorTime:         nullTimeFromPtr(cursorTime),
@@ -238,7 +238,7 @@ func toCountParams(f models.Filter) sqlc.CountActivityLogsParams {
 		EventTypes:         nilIfEmpty(f.EventTypes),
 		UserIds:            nilIfEmpty(f.UserIDs),
 		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
-		SearchPattern:      nullStringFromSearch(f.SearchText),
+		SearchPattern:      likeSearchPattern(f.SearchText),
 		StartTime:          nullTimeFromPtr(f.StartTime),
 		EndTime:            nullTimeFromPtr(f.EndTime),
 		SiteIds:            emptyIfNil(f.SiteIDs),
@@ -314,15 +314,6 @@ func nullTimeFromPtr(t *time.Time) sql.NullTime {
 		return sql.NullTime{}
 	}
 	return sql.NullTime{Time: *t, Valid: true}
-}
-
-var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-
-func nullStringFromSearch(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: "%" + likeEscaper.Replace(s) + "%", Valid: true}
 }
 
 func ptrFromNullString(ns sql.NullString) *string {

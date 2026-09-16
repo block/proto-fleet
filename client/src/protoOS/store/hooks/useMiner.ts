@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   asAsicId,
   asEntityKey,
+  type ComponentId,
   type HashboardId,
   type LevelRollup,
   type MetricTelemetry,
@@ -208,19 +209,32 @@ export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
 /**
  * Get combined PSU data combining hardware info + telemetry
  */
-export const useMinerPsu = (id: number): PsuData | null => {
-  const hardwareState = useMinerStore((state) => state.hardware);
-  const telemetry = useMinerStore((state) => state.telemetry.psus.get(getPsuId(id)));
+export const useMinerPsu = (slot: number): PsuData | null => useMinerPsuById(getPsuId(slot));
 
-  return useMemo(() => {
-    const hardware = hardwareState.getPsu(id);
-    if (!hardware) return null;
-
-    return {
-      ...hardware,
-      ...telemetry,
-    };
-  }, [hardwareState, id, telemetry]);
+export const useMinerPsuById = (id: ComponentId): PsuData | null => {
+  const hardware = useMinerStore((state) => state.hardware.psus.get(id));
+  const telemetry = useMinerStore((state) => state.telemetry.psus.get(id));
+  return useMemo(
+    () =>
+      hardware
+        ? {
+            id: hardware.slot ?? 1,
+            slot: hardware.slot,
+            serial: hardware.serialNumber,
+            manufacturer: hardware.manufacturer,
+            model: hardware.model,
+            hwRevision: hardware.hardwareRevision,
+            firmware: hardware.firmware
+              ? {
+                  appVersion: hardware.firmware.application?.version,
+                  bootloaderVersion: hardware.firmware.bootloader?.version,
+                }
+              : undefined,
+            ...telemetry,
+          }
+        : null,
+    [hardware, telemetry],
+  );
 };
 
 /**

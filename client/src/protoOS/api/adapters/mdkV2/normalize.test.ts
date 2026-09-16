@@ -330,11 +330,14 @@ describe("MDK v2 CT1 normalization", () => {
           facilityPowerW: 48,
           pue: 1.1,
           flowRateLpm: 12,
-          outletATemperatureC: 42,
           coolantPumpSpeedHz: 50,
           pumpInletPressurePa: 194_430,
-          tankALiquidLevelMm: 860,
           heatRejectionActive: true,
+          inletTemperatureC: 35,
+          outletATemperatureC: 48,
+          outletBTemperatureC: 42,
+          tankALiquidLevelMm: 480,
+          tankBLiquidLevelMm: 460,
         },
         controls: [{ name: "dry_cooler_auto", enabled: true, stateKnown: true }],
         setpoints: [{ name: "dry_cooler_auto_temp_c", value: 18, unit: "°C" }],
@@ -381,13 +384,16 @@ describe("MDK v2 CT1 normalization", () => {
       totalPower: { latest: { value: 45, units: "W" } },
       pue: { latest: { value: 1.1, units: "ratio" } },
       flowRate: { latest: { value: 12, units: "L/min" } },
-      outletATemperature: { latest: { value: 42, units: "°C" } },
       coolantPumpSpeed: { latest: { value: 50, units: "Hz" } },
       pumpInletPressure: { latest: { value: 194_430, units: "Pa" } },
-      tankALiquidLevel: { latest: { value: 860, units: "mm" } },
       heatRejectionActive: true,
       controls: [{ name: "dry_cooler_auto", enabled: true, stateKnown: true }],
       setpoints: [{ name: "dry_cooler_auto_temp_c", value: 18, unit: "°C" }],
+      inletTemperature: { latest: { value: 35, units: "°C" } },
+      outletATemperature: { latest: { value: 48, units: "°C" } },
+      outletBTemperature: { latest: { value: 42, units: "°C" } },
+      tankALiquidLevel: { latest: { value: 480, units: "mm" } },
+      tankBLiquidLevel: { latest: { value: 460, units: "mm" } },
     });
     expect(result.hardware.topology.container.fanIds).toEqual(["container:ct1-a:fan:dry-cooler-1"]);
     expect(result.telemetry.fans.get("container:ct1-a:fan:dry-cooler-1" as never)).toMatchObject({
@@ -403,6 +409,40 @@ describe("MDK v2 CT1 normalization", () => {
       totalPower: { latest: { value: 21, units: "W" } },
     });
   });
+
+  test.each([undefined, null, "", "12", false, Number.NaN, Infinity, 0])(
+    "normalizes optional plant sensors without inventing readings: %s",
+    (value) => {
+      // The generated client's static types do not validate device JSON at runtime.
+      const sensor = value as number | undefined;
+      const { telemetry } = toCanonicalContainer(
+        map,
+        {},
+        {
+          plant: {
+            flowRateLpm: sensor,
+            inletTemperatureC: sensor,
+            outletATemperatureC: sensor,
+            outletBTemperatureC: sensor,
+            tankALiquidLevelMm: sensor,
+            tankBLiquidLevelMm: sensor,
+          },
+        },
+        "ct1-a",
+      );
+      const plant = telemetry.plant.get("container:ct1-a:plant" as never)!;
+      for (const metric of [
+        plant.flowRate,
+        plant.inletTemperature,
+        plant.outletATemperature,
+        plant.outletBTemperature,
+        plant.tankALiquidLevel,
+        plant.tankBLiquidLevel,
+      ]) {
+        expect(metric?.latest?.value).toBe(value === 0 ? 0 : null);
+      }
+    },
+  );
 
   test("converts deci-Celsius, tenths of GH/s, millivolts, and basis points", () => {
     const status = toCanonicalHashboardStatus("26:B0:3F:F0:D7:92", {

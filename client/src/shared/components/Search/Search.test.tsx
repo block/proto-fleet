@@ -61,13 +61,19 @@ describe("Search", () => {
 
   it("clears on Escape in every variant", () => {
     const onChange = vi.fn();
-    render(<Search variant="toolbar" onChange={onChange} />);
+    const onEscape = vi.fn();
+    render(<Search variant="toolbar" onChange={onChange} onEscape={onEscape} />);
 
     fireEvent.change(searchBox(), { target: { value: "rack-7" } });
     fireEvent.keyDown(searchBox(), { key: "Escape" });
 
     expect(searchBox()).toHaveValue("");
     expect(onChange).toHaveBeenLastCalledWith("", "search");
+    // Reported after the clear so consumers can act on the emptied field.
+    expect(onEscape).toHaveBeenCalledOnce();
+    expect(onChange.mock.invocationCallOrder[onChange.mock.calls.length - 1]).toBeLessThan(
+      onEscape.mock.invocationCallOrder[0],
+    );
   });
 
   it("re-seeds the field when the caller supplies a new value", () => {
