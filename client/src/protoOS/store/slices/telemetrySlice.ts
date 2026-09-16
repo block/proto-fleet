@@ -6,6 +6,7 @@ import {
   type FanTelemetry,
   type Measurement,
   type MetricTelemetry,
+  type PlantTelemetry,
   type PsuTelemetry,
   ROOT_MODULE_KEY,
   type TelemetrySnapshot,
@@ -168,6 +169,33 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       const lastApplied = state.telemetry.lastAppliedRequestByEntity;
       const gate = (prefix: string): StalenessGate | undefined =>
         requestId === undefined ? undefined : { requestId, lastApplied, prefix };
+      const plant = new Map(incoming.plant);
+      if (incoming.containerPlant) {
+        const { containerId, hardware } = incoming.containerPlant;
+        const inventoryKey = `container-plant:${containerId}`;
+        if (requestId !== undefined && requestId < (lastApplied.get(inventoryKey) ?? 0)) {
+          // An older complete snapshot must not restore components or readings.
+          plant.clear();
+        } else {
+          if (requestId !== undefined) lastApplied.set(inventoryKey, requestId);
+          for (const [id, component] of hardware) state.hardware.plant.set(id, component);
+          for (const [id, component] of state.hardware.plant) {
+            if (component.ref.owner.kind !== "container" || component.ref.owner.id !== containerId || plant.has(id))
+              continue;
+            const previous = state.telemetry.plant.get(id);
+            if (!previous) continue;
+            const cleared: PlantTelemetry = { componentId: id, health: "unknown" };
+            for (const field of metricFields) {
+              const metric = (previous as unknown as MetricContainer)[field] as MetricTelemetry | undefined;
+              if (metric?.latest)
+                (cleared as unknown as MetricContainer)[field] = {
+                  latest: { ...metric.latest, value: null },
+                };
+            }
+            plant.set(id, cleared);
+          }
+        }
+      }
       const psus = new Map(incoming.psus);
       // PSU inventory and readings come from the same successful module snapshot.
       // Keep known hardware when data disappears, but clear its current readings.
@@ -209,7 +237,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
       mergeMap(state.telemetry.psus, psus, gate("psu"));
       mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
-      mergeMap(state.telemetry.plant, incoming.plant, gate("plant"));
+      mergeMap(state.telemetry.plant, plant, gate("plant"));
       incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));
       incoming.asicLoadByHashboard.forEach((value, key) => state.telemetry.asicLoadByHashboard.set(key, value));
     }),

@@ -1,19 +1,23 @@
-import { type ReactNode, Suspense } from "react";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { type ComponentType, type ReactNode, Suspense } from "react";
+import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { MinerAdapter } from "./api/adapters/types";
+import type { ContentLayoutProps } from "./components/ContentLayout/types";
 import { routerConfig } from "./router";
 
 const mocks = vi.hoisted(() => ({
   minerRoot: "",
   systemInfo: undefined as { identity: { deviceType: "container" | "rig" } } | undefined,
   systemInfoError: undefined as string | undefined,
+  adapter: {} as Pick<MinerAdapter, "getContainerHistory">,
 }));
 
 vi.mock("./routePrefetch", () => {
   const route = (label: string) => () => Promise.resolve({ default: () => <div>{label}</div> });
   return {
+    importContainerHome: () => Promise.resolve({ default: ({ tab }: { tab: string }) => <div>container {tab}</div> }),
     importContainerModules: route("modules"),
     importContainerTanks: route("tanks"),
     importDiagnosticView: route("diagnostics"),
@@ -38,8 +42,16 @@ vi.mock("./routePrefetch", () => {
 });
 
 vi.mock("@/protoOS/components/App", () => ({
-  default: ({ children }: { children: ReactNode }) => (
-    <Suspense fallback={<div>route loading</div>}>{children}</Suspense>
+  default: ({
+    children,
+    ContentLayout,
+  }: {
+    children: ReactNode;
+    ContentLayout?: ComponentType<ContentLayoutProps>;
+  }) => (
+    <Suspense fallback={<div>route loading</div>}>
+      {ContentLayout ? <ContentLayout>{children}</ContentLayout> : children}
+    </Suspense>
   ),
 }));
 
@@ -52,11 +64,23 @@ vi.mock("@/protoOS/components/ContentLayout/SettingsContentLayout", () => ({
 }));
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
-  useMinerHosting: () => ({ minerRoot: mocks.minerRoot }),
+  useMinerHosting: () => ({ minerRoot: mocks.minerRoot, adapter: mocks.adapter }),
 }));
 
 vi.mock("@/protoOS/features/kpis/components/KpiLayout", () => ({
-  default: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  default: () => (
+    <div data-testid="kpi-layout">
+      <Outlet />
+    </div>
+  ),
+}));
+
+vi.mock("@/protoOS/features/containerHome/ContainerHomeLayout", () => ({
+  default: () => (
+    <div data-testid="container-home-layout">
+      <Outlet />
+    </div>
+  ),
 }));
 
 vi.mock("@/protoOS/store", () => ({
@@ -73,6 +97,49 @@ describe("ProtoOS router", () => {
     mocks.minerRoot = "";
     mocks.systemInfo = undefined;
     mocks.systemInfoError = undefined;
+    mocks.adapter = { getContainerHistory: vi.fn() };
+  });
+
+  test.each([
+    ["/", "hashrate"],
+    ["/hashrate", "hashrate"],
+    ["/efficiency", "efficiency"],
+    ["/power-usage", "power usage"],
+    ["/temperature", "temperature"],
+  ])("keeps MDK v1 CUs on the KPI layout and page at %s", async (path, label) => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    // MDK v1 CUs identify as containers but omit the aggregate-history capability.
+    mocks.adapter = {};
+    const router = createMemoryRouter(routerConfig, { initialEntries: [path] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText(label)).toBeInTheDocument());
+    expect(screen.getByTestId("kpi-layout")).toBeInTheDocument();
+    expect(screen.queryByTestId("container-home-layout")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(path === "/" ? "/hashrate" : path);
+  });
+
+  test("renders Overview at the container index and keeps rig index redirects", async () => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    const container = createMemoryRouter(routerConfig, { initialEntries: ["/"] });
+    const view = render(<RouterProvider router={container} />);
+    await waitFor(() => expect(screen.getByText("container overview")).toBeInTheDocument());
+    expect(screen.getByTestId("container-home-layout")).toBeInTheDocument();
+    expect(container.state.location.pathname).toBe("/");
+    view.unmount();
+    mocks.systemInfo = { identity: { deviceType: "rig" } };
+    const rig = createMemoryRouter(routerConfig, { initialEntries: ["/"] });
+    render(<RouterProvider router={rig} />);
+    await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
+    expect(rig.state.location.pathname).toBe("/hashrate");
+  });
+
+  test("uses container Power while retaining container identity through transient errors", async () => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    mocks.systemInfoError = "Temporarily unavailable";
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/power-usage"] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText("container power")).toBeInTheDocument());
+    expect(screen.getByTestId("container-home-layout")).toBeInTheDocument();
   });
 
   test.each(["cooling", "authentication"])("redirects a container away from rig settings/%s", async (path) => {

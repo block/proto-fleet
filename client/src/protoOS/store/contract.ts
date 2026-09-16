@@ -445,6 +445,8 @@ export interface TelemetryState {
 
 /** A polling result may also discover hardware while reading component health. */
 export interface TelemetrySnapshot extends TelemetryState {
+  /** Complete plant observations for this container; omitted components have unavailable live readings. */
+  containerPlant?: { containerId: ContainerId; hardware: Map<ComponentId, PlantHardware> };
   /** Complete PSU observations for these modules; absence means readings are unavailable, not removal. */
   modulePsus?: { moduleIds: ModuleId[]; hardware: Map<ComponentId, PsuHardware> };
 }

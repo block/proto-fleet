@@ -3,6 +3,7 @@ import { ComponentType, lazy, ReactNode } from "react";
 import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject } from "react-router-dom";
 
 import {
+  importContainerHome,
   importContainerModules,
   importContainerTanks,
   importDiagnosticView,
@@ -29,6 +30,8 @@ import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScre
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import ContainerHomeLayout from "@/protoOS/features/containerHome/ContainerHomeLayout";
+import type { HomeTab } from "@/protoOS/features/containerHome/types";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
 import { useSystemInfo, useSystemInfoError } from "@/protoOS/store";
@@ -44,6 +47,7 @@ export type CustomRouteObject = RouteObject & {
 // import the tier arrays from there without a cycle through this file.
 
 const Hashrate = lazy(importHashrate);
+const ContainerHome = lazy(importContainerHome);
 const Efficiency = lazy(importEfficiency);
 const PowerUsage = lazy(importPowerUsage);
 const Temperature = lazy(importTemperature);
@@ -105,12 +109,19 @@ const ContainerRoute = ({ children }: { children: ReactNode }) => {
   );
 };
 
+const useSupportsContainerHome = () => {
+  const systemInfo = useSystemInfo();
+  const { adapter } = useMinerHosting();
+  return systemInfo?.identity.deviceType === "container" && typeof adapter?.getContainerHistory === "function";
+};
+
 const HomeIndexRoute = () => {
   const systemInfo = useSystemInfo();
   const systemInfoError = useSystemInfoError();
+  const supportsContainerHome = useSupportsContainerHome();
 
   if (systemInfo) {
-    return systemInfo.identity.deviceType === "container" ? <Hashrate /> : <Navigate to="hashrate" replace />;
+    return supportsContainerHome ? <ContainerHome tab="overview" /> : <Navigate to="hashrate" replace />;
   }
 
   if (systemInfoError) return <Navigate to="hashrate" replace />;
@@ -120,6 +131,24 @@ const HomeIndexRoute = () => {
       <ProgressCircular indeterminate />
     </div>
   );
+};
+
+const HomeContentLayout = () => {
+  const systemInfo = useSystemInfo();
+  const error = useSystemInfoError();
+  const supportsContainerHome = useSupportsContainerHome();
+  if (!systemInfo && !error)
+    return (
+      <div className="flex min-h-64 items-center justify-center">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  return supportsContainerHome ? <ContainerHomeLayout /> : <KpiLayout />;
+};
+
+const HomeMetricRoute = ({ tab, children }: { tab: HomeTab; children: ReactNode }) => {
+  const supportsContainerHome = useSupportsContainerHome();
+  return supportsContainerHome ? <ContainerHome tab={tab} /> : children;
 };
 
 // Helper to create route objects with App wrapper
@@ -149,19 +178,35 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
 const kpiRoutes: CustomRouteObject[] = [
   {
     path: "hashrate",
-    element: <Hashrate />,
+    element: (
+      <HomeMetricRoute tab="hashrate">
+        <Hashrate />
+      </HomeMetricRoute>
+    ),
   },
   {
     path: "efficiency",
-    element: <Efficiency />,
+    element: (
+      <HomeMetricRoute tab="efficiency">
+        <Efficiency />
+      </HomeMetricRoute>
+    ),
   },
   {
     path: "power-usage",
-    element: <PowerUsage />,
+    element: (
+      <HomeMetricRoute tab="power">
+        <PowerUsage />
+      </HomeMetricRoute>
+    ),
   },
   {
     path: "temperature",
-    element: <Temperature />,
+    element: (
+      <HomeMetricRoute tab="temperature">
+        <Temperature />
+      </HomeMetricRoute>
+    ),
   },
 ];
 
@@ -169,7 +214,7 @@ export const routerConfig: CustomRouteObject[] = [
   {
     ...createRoute("", <Outlet />, {
       title: "Home",
-      ContentLayout: KpiLayout,
+      ContentLayout: HomeContentLayout,
     }),
     requiresAuth: false,
     children: [
