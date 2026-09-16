@@ -29,7 +29,7 @@ describe("AppNavigationItems", () => {
     renderExpanded();
     const general = screen.getByText("General");
     const hardware = screen.getByText("Hardware");
-    const pools = screen.getByText("Pools");
+    const pools = screen.getAllByText("Pools")[1];
     expect(general.compareDocumentPosition(hardware) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(hardware.compareDocumentPosition(pools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("Authentication")).not.toBeInTheDocument();
@@ -68,6 +68,7 @@ describe("AppNavigationItems", () => {
 
     expect(screen.getByText("Tanks")).toBeInTheDocument();
     expect(screen.getByText("Modules")).toBeInTheDocument();
+    expect(screen.getByText("Pools")).toBeInTheDocument();
   });
 
   test("uses the container index route for Home in container mode", () => {
@@ -89,5 +90,6 @@ describe("AppNavigationItems", () => {
 
     expect(screen.queryByText("Tanks")).not.toBeInTheDocument();
     expect(screen.queryByText("Modules")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pools")).not.toBeInTheDocument();
   });
 });

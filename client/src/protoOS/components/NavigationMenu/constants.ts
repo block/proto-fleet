@@ -4,6 +4,7 @@ export const navigationItems = {
   diagnostics: "diagnostics",
   tanks: "tanks",
   modules: "modules",
+  pools: "pools",
   logs: "logs",
   miningPools: "settings/mining-pools",
   authentication: "settings/authentication",

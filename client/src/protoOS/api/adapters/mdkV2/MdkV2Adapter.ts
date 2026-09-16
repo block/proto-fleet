@@ -1,4 +1,5 @@
 import type { ContainerHistoryRequest } from "../containerHistory";
+import type { PoolHistoryRequest } from "../poolHistory";
 import type {
   AdapterProbeMatch,
   AdapterRequestOptions,
@@ -38,6 +39,7 @@ import {
   toCanonicalPools,
   toCanonicalSystemInfo,
 } from "./normalize";
+import { queryPoolHistory } from "./poolHistory";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
@@ -194,6 +196,10 @@ export class MdkV2Adapter implements MinerAdapter {
       this.client.poolServiceGetPoolDiagnostics(decorated),
     ]);
     return toCanonicalPools(pools.data, diagnostics.data);
+  }
+
+  getPoolHistory(request: PoolHistoryRequest, params: AdapterRequestOptions = {}) {
+    return queryPoolHistory(this.client, request, this.decorate(params));
   }
 
   async getPoolSettings(params: AdapterRequestOptions = {}) {

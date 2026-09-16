@@ -36,7 +36,8 @@ apply a small random variation so values look realistic.
 | GET | `/api/v2/mining/status` | aggregate hashrate/power/efficiency + per-state counts |
 | POST | `/api/v2/mining/start` · `/stop` | container-wide mining intent |
 | GET/PUT | `/api/v2/mining/target-power` | read/set miner-wide per-board power target |
-| GET | `/api/v2/pools` · `/pools/diagnostics` | configured pool and live connection state |
+| GET | `/api/v2/pools` · `/pools/diagnostics` | primary pool plus two standby backups and live connection state |
+| GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, up to seven days |
 | GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
 | GET | `/api/v2/telemetry/timeseries` | bucketed aggregate or identifier-scoped hashrate, power, or temperature |
 | GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
@@ -49,6 +50,13 @@ apply a small random variation so values look realistic.
 **Scopes.** The scoped write endpoints accept a `scope` of `identifiers`
 (MAC/serial) and/or `modules` (`{tank, module}` coordinates). An empty scope
 matches every board.
+
+**Pools demo.** Pool 1 (`Primary`) is active while any board is mining. Pools 2
+and 3 (`Backup 1` and `Backup 2`) remain ready on standby. Historical share
+fixtures provide 98 accepted / 2 rejected per minute for Primary, 9 accepted /
+1 rejected for Backup 1 (illustrating earlier failover activity), and observed
+zero shares for Backup 2. These deterministic samples do not reconstruct live
+mining or failover events; stopping mining changes diagnostics, not history.
 
 ## Usage
 

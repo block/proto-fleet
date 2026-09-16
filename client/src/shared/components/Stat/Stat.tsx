@@ -12,6 +12,7 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 const Stat = ({
   label,
   value,
+  preformatted = false,
   text,
   subtitle,
   tooltipContent,
@@ -82,7 +83,7 @@ const Stat = ({
             size === "small" && "text-heading-100",
           )}
         >
-          <span className={valueClassName}>{getDisplayValue(value)}</span> {units ? units : null}
+          <span className={valueClassName}>{preformatted ? value : getDisplayValue(value)}</span> {units ? units : null}
         </motion.div>
       )}
       {icon ? <div className="absolute top-0 right-0">{icon}</div> : null}
