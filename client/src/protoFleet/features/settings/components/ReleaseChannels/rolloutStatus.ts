@@ -130,6 +130,7 @@ export function batchLabel(rollout: Rollout): string {
 // One line describing how an update is paced, for stat lockups and confirms.
 export function pacingSummary(b: RolloutBehavior | undefined): string {
   if (!b || b.method === RolloutMethod.ALL_AT_ONCE || b.method === RolloutMethod.UNSPECIFIED) return "Single batch";
+  if (b.method === RolloutMethod.DELEGATED) return "Controlled externally";
   if (b.method === RolloutMethod.PILOT_THEN_CONTINUE) {
     return `Pilot batch of ${b.pilotSize.toLocaleString()}, then remaining`;
   }
@@ -397,6 +398,9 @@ export function modelUpdateStatus(
     if (activeRollout.state === RolloutState.STABILIZING_TELEMETRY) {
       return { label: `Waiting for telemetry, ${progress}`, tone: "active" };
     }
+    if (activeRollout.stage === RolloutStage.WAITING) {
+      return { label: "Waiting for the next batch", tone: "active" };
+    }
     return {
       label: isBatchStage(activeRollout)
         ? `${batchLabel(activeRollout)}: updating ${progress}`
@@ -408,7 +412,8 @@ export function modelUpdateStatus(
   if (group.minerCount === 0) return { label: "No miners", tone: "none" };
   const onTarget = group.onTargetCount;
   if (lastFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
-    return { label: `${group.minerCount - onTarget} failed to update`, tone: "attention" };
+    const failed = failedCount(lastFinished);
+    if (failed > 0) return { label: `${failed} failed to update`, tone: "attention" };
   }
   if (onTarget === group.minerCount) {
     const finished = lastFinished?.finishedAt ? shortDate(lastFinished.finishedAt) : "";

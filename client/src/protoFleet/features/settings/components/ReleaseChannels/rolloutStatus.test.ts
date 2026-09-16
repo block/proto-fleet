@@ -36,10 +36,14 @@ import {
 import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
+  RolloutBehaviorSchema,
+  RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutMethod,
   RolloutSchema,
   RolloutStage,
+  RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const rigGroup = canaryChannel.modelGroups[0];
@@ -84,6 +88,14 @@ describe("outcome and pacing labels", () => {
     expect(pacingSummary({ ...batchedAutoBehavior, reviewAfterEachBatch: false, waitBetweenBatchesSeconds: 900 })).toBe(
       "Batches of 2, 15m between batches",
     );
+  });
+
+  it("describes delegated pacing as external control rather than automatic batches", () => {
+    const behavior = create(RolloutBehaviorSchema, {
+      method: RolloutMethod.DELEGATED,
+      controllerTimeoutSeconds: 300,
+    });
+    expect(pacingSummary(behavior)).toBe("Controlled externally");
   });
 
   it("reads out the plan for the miners in scope", () => {
@@ -185,11 +197,66 @@ describe("channel and model status", () => {
     expect(modelUpdateStatus(settled, undefined, completedRigRollout).label).toMatch(/^Updated /);
     expect(modelUpdateStatus(rigGroup, undefined, undefined)).toEqual({ label: "2 of 6 on target", tone: "none" });
     expect(modelUpdateStatus(rigGroup, undefined, completedWithFailuresRigRollout)).toEqual({
-      label: "4 failed to update",
+      label: "1 failed to update",
       tone: "attention",
     });
     expect(modelUpdateStatus(canaryChannel.modelGroups[1], undefined, undefined)).toEqual({
       label: "No firmware assigned",
+      tone: "none",
+    });
+  });
+
+  it("distinguishes an inter-batch wait from updating while preserving pause precedence", () => {
+    const waiting = create(RolloutSchema, {
+      ...batchedRigRollout,
+      state: RolloutState.IN_PROGRESS,
+      stage: RolloutStage.WAITING,
+      behavior: create(RolloutBehaviorSchema, {
+        method: RolloutMethod.BATCHED,
+        batchSize: 2,
+        waitBetweenBatchesSeconds: 60,
+      }),
+      currentBatchCounts: create(RolloutDeviceCountsSchema, { done: 2 }),
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 4, queued: 2 }),
+    });
+    expect(modelUpdateStatus(rigGroup, waiting, undefined)).toEqual({
+      label: "Waiting for the next batch",
+      tone: "active",
+    });
+    expect(rolloutStageLabel(waiting)).toBe("Waiting for the next batch");
+    expect(modelUpdateStatus(rigGroup, { ...waiting, state: RolloutState.PAUSED }, undefined)).toEqual({
+      label: "Paused, 2 of 2",
+      tone: "none",
+    });
+    expect(
+      modelUpdateStatus(
+        rigGroup,
+        { ...waiting, currentBatchCounts: create(RolloutDeviceCountsSchema, { done: 1, failed: 1 }) },
+        undefined,
+      ),
+    ).toEqual({ label: "1 failed, 1 of 2 updated", tone: "attention" });
+  });
+
+  it("does not count skipped, excluded or newly joined off-target miners as failures", () => {
+    const finished = create(RolloutSchema, {
+      ...completedWithFailuresRigRollout,
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 2, failed: 1, skipped: 2, excluded: 1 }),
+    });
+    const grownGroup = { ...rigGroup, minerCount: 10, onTargetCount: 2 };
+    expect(modelUpdateStatus(grownGroup, undefined, finished)).toEqual({
+      label: "1 failed to update",
+      tone: "attention",
+    });
+    expect(modelUpdateStatus({ ...grownGroup, onTargetCount: 10 }, undefined, finished).label).toMatch(/^Updated /);
+  });
+
+  it("shows remaining off-target miners neutrally when the completed rollout only skipped them", () => {
+    const finished = create(RolloutSchema, {
+      ...completedRigRollout,
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 2, skipped: 4 }),
+    });
+    expect(modelUpdateStatus(rigGroup, undefined, finished)).toEqual({
+      label: "2 of 6 on target",
       tone: "none",
     });
   });

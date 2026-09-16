@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
-import type {
-  FirmwareAssignment,
-  PreviewReleaseChannelScopeResponse,
-  ReleaseChannel,
-  ReleaseChannelMiner,
-  ReleaseChannelModelGroup,
-  ReleaseChannelScope,
-  Rollout,
-  RolloutBehavior,
-  RolloutDevice,
+import {
+  type FirmwareAssignment,
+  type PreviewReleaseChannelScopeResponse,
+  type ReleaseChannel,
+  type ReleaseChannelMiner,
+  type ReleaseChannelModelGroup,
+  type ReleaseChannelScope,
+  type Rollout,
+  type RolloutBehavior,
+  type RolloutDevice,
+  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
-import { useAuthErrors } from "@/protoFleet/store";
+import {
+  useAuthErrors,
+  useFleetStore,
+  useIsAuthenticated,
+  useSessionGeneration,
+  useUsername,
+} from "@/protoFleet/store";
 
 // A channel as the UI works with it: the server's channel (scope included)
 // together with its manufacturer/model groups, which the API pages
@@ -40,6 +47,34 @@ async function drainPages<T>(fetchPage: (cursor: string) => Promise<{ items: T[]
     cursor = page.cursor;
   } while (cursor !== "");
   return all;
+}
+
+async function loadRolloutChanges(pollCursor: string): Promise<{ rollouts: Rollout[]; pollCursor: string }> {
+  let nextPollCursor = "";
+  const rollouts = await drainPages(async (cursor) => {
+    // Keep the preceding cycle's watermark fixed until every page succeeds.
+    const response = await rolloutClient.listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor });
+    nextPollCursor = response.pollCursor;
+    return { items: response.rollouts, cursor: response.cursor };
+  });
+  return { rollouts, pollCursor: nextPollCursor };
+}
+
+function mergeRollouts(previous: Rollout[], incoming: Rollout[]): Rollout[] {
+  const byId = new Map(previous.map((rollout) => [rollout.id, rollout]));
+  for (const rollout of incoming) {
+    const current = byId.get(rollout.id);
+    // Replays must not regress revisions. Equal revisions can still carry
+    // fresh live telemetry, which is not part of the revisioned header.
+    if (!current || rollout.revision >= current.revision) byId.set(rollout.id, rollout);
+  }
+  return [...byId.values()].sort((a, b) => {
+    const seconds = (b.createdAt?.seconds ?? 0n) - (a.createdAt?.seconds ?? 0n);
+    if (seconds !== 0n) return seconds > 0n ? 1 : -1;
+    const nanos = (b.createdAt?.nanos ?? 0) - (a.createdAt?.nanos ?? 0);
+    if (nanos !== 0) return nanos;
+    return a.id === b.id ? 0 : a.id < b.id ? 1 : -1;
+  });
 }
 
 // What an operator sets on a channel; the server resolves the scope and
@@ -94,60 +129,122 @@ async function loadChannel(channelId: bigint): Promise<ChannelView | undefined> 
 
 export function useReleaseChannels(): ReleaseChannelsApi {
   const { handleAuthErrors } = useAuthErrors();
-  const [channels, setChannels] = useState<ChannelView[]>([]);
-  const [rollouts, setRollouts] = useState<Rollout[]>([]);
-  const [minerNames, setMinerNames] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const sessionGeneration = useSessionGeneration();
+  const username = useUsername();
+  const isAuthenticated = useIsAuthenticated();
+  const authSessionIdentity = `${username}:${sessionGeneration}`;
+  const [snapshot, setSnapshot] = useState({
+    authSessionIdentity,
+    channels: [] as ChannelView[],
+    rollouts: [] as Rollout[],
+    minerNames: {} as Record<string, string>,
+    isLoading: true,
+  });
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const sessionRef = useRef<object | null>(null);
+  const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
 
-  const fetchState = useCallback(async () => {
-    try {
-      const [channelSummaries, allRollouts, miners] = await Promise.all([
-        drainPages((cursor) =>
+  const isCurrentSession = useCallback(() => {
+    const auth = useFleetStore.getState().auth;
+    return (
+      isAuthenticated &&
+      auth.isAuthenticated &&
+      auth.sessionGeneration === sessionGeneration &&
+      auth.username === username
+    );
+  }, [isAuthenticated, sessionGeneration, username]);
+
+  const fetchState = useCallback(
+    async (session: object) => {
+      const isCurrentRequest = () => sessionRef.current === session && isCurrentSession();
+      try {
+        const previous = rolloutSnapshotRef.current;
+        const [changes, activeRollouts, miners] = await Promise.all([
+          loadRolloutChanges(previous.pollCursor),
+          // Telemetry/evidence can change without a header revision. Refresh
+          // active rows separately; this work does not grow with history.
+          previous.pollCursor
+            ? drainPages((cursor) =>
+                rolloutClient
+                  .listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor, status: RolloutStatus.ACTIVE })
+                  .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
+              )
+            : Promise.resolve([] as Rollout[]),
+          drainPages((cursor) =>
+            fleetManagementClient
+              .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor })
+              .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+          ),
+        ]);
+        if (!isCurrentRequest()) return;
+        // Read channels after rollouts, so a newly created channel cannot be
+        // mistaken for a deletion when its rollout arrives in this cycle.
+        const channelSummaries = await drainPages((cursor) =>
           rolloutClient
             .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor })
             .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
-        ),
-        drainPages((cursor) =>
-          rolloutClient
-            .listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor })
-            .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
-        ),
-        drainPages((cursor) =>
-          fleetManagementClient
-            .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor })
-            .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
-        ),
-      ]);
-      // The list carries summaries; scope and groups come per channel.
-      const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
-      setChannels(views.filter((view): view is ChannelView => view !== undefined));
-      setRollouts(allRollouts);
-      setMinerNames(Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name])));
-    } catch (error) {
-      handleAuthErrors({ error });
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [handleAuthErrors]);
+        );
+        if (!isCurrentRequest()) return;
+        // The list carries summaries; scope and groups come per channel.
+        const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
+        if (!isCurrentRequest()) return;
+        const nextChannels = views.filter((view): view is ChannelView => view !== undefined);
+        const channelsById = new Map(nextChannels.map((channel) => [channel.id, channel]));
+        const allRollouts = mergeRollouts(previous.pollCursor ? previous.rollouts : [], [
+          ...changes.rollouts,
+          ...activeRollouts,
+        ])
+          // Channel deletion cascades to rollouts without a delta tombstone.
+          .filter((rollout) => channelsById.has(rollout.channelId))
+          .map((rollout) => ({ ...rollout, channelName: channelsById.get(rollout.channelId)!.name }));
+        // Commit the watermark with the complete UI snapshot. A failure in
+        // any list or channel detail must replay the same delta on retry.
+        rolloutSnapshotRef.current = { rollouts: allRollouts, pollCursor: changes.pollCursor };
+        setSnapshot({
+          authSessionIdentity,
+          channels: nextChannels,
+          rollouts: allRollouts,
+          minerNames: Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name])),
+          isLoading: false,
+        });
+      } catch (error) {
+        // A delayed 401 from the previous login must not log out its replacement.
+        if (!isCurrentRequest()) return;
+        setSnapshot((previous) =>
+          previous.authSessionIdentity === authSessionIdentity
+            ? { ...previous, isLoading: false }
+            : { authSessionIdentity, channels: [], rollouts: [], minerNames: {}, isLoading: false },
+        );
+        handleAuthErrors({ error });
+        throw error;
+      }
+    },
+    [authSessionIdentity, handleAuthErrors, isCurrentSession],
+  );
 
   const refresh = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session || !isCurrentSession()) return;
     // A mutation must read state fetched after it completed. Wait for any
     // older request (including a failed poll), then start a fresh one.
     while (inFlightRef.current) {
       await inFlightRef.current.catch(() => undefined);
+      if (sessionRef.current !== session || !isCurrentSession()) return;
     }
-    const request = fetchState();
+    const request = fetchState(session);
     inFlightRef.current = request;
     try {
       await request;
     } finally {
-      inFlightRef.current = null;
+      if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [fetchState]);
+  }, [fetchState, isCurrentSession]);
 
   useEffect(() => {
+    // A new login needs its own baseline and must not wait for old requests.
+    sessionRef.current = {};
+    inFlightRef.current = null;
+    rolloutSnapshotRef.current = { rollouts: [], pollCursor: "" };
     const poll = () => {
       // Timer ticks never queue work behind an existing refresh.
       if (inFlightRef.current) return;
@@ -155,7 +252,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     };
     poll();
     const timer = setInterval(poll, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      sessionRef.current = null;
+    };
   }, [refresh]);
 
   const createChannel = useCallback(
@@ -291,11 +391,12 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     [refresh],
   );
 
+  const hasCurrentSnapshot = isAuthenticated && snapshot.authSessionIdentity === authSessionIdentity;
   return {
-    channels,
-    rollouts,
-    minerNames,
-    isLoading,
+    channels: hasCurrentSnapshot ? snapshot.channels : [],
+    rollouts: hasCurrentSnapshot ? snapshot.rollouts : [],
+    minerNames: hasCurrentSnapshot ? snapshot.minerNames : {},
+    isLoading: isAuthenticated && (!hasCurrentSnapshot || snapshot.isLoading),
     refresh,
     createChannel,
     updateChannel,
