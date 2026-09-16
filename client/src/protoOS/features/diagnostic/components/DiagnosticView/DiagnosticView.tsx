@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import ComponentSection from "../ComponentSection";
 import ComponentSelector from "../ComponentSelector";
 import type { ComponentFilterType } from "../ComponentSelector/types";
@@ -14,6 +15,7 @@ import {
   useCoolingMode,
   useFanIds,
   useHashboardSerialsByBay,
+  useMinerStore,
   useModuleModel,
   usePsuIds,
   useSlotsPerBay,
@@ -173,7 +175,9 @@ export interface ControllerConfig {
 // "Control Board" sections. PSU cards reuse the real store-backed PsuStatusCard;
 // controller cards reuse ControlBoardStatusCard with per-controller props.
 export const OtherHardwareSection = ({ controllers }: { controllers?: ControllerConfig[] }) => {
-  const psuIds = usePsuIds();
+  // CT1 PSU slots are module-local: every module can have a PSU in slot 1.
+  // Use canonical IDs for both reconciliation and the module-aware card path.
+  const psuIds = useMinerStore(useShallow((state) => [...state.hardware.psus.keys()]));
   const controlBoard = useControlBoard();
 
   const controllerCards: ControllerConfig[] = controllers ?? (controlBoard ? [{ title: "Controller 1" }] : []);
@@ -181,8 +185,8 @@ export const OtherHardwareSection = ({ controllers }: { controllers?: Controller
   return (
     <ComponentSection title="Hardware">
       <div className="grid items-start gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
-        {psuIds.map((slot) => (
-          <PsuStatusCard key={`psu-${slot}`} slot={slot} showComponentIcon={false} />
+        {psuIds.map((id) => (
+          <PsuStatusCard key={id} componentId={id} showComponentIcon={false} />
         ))}
         {controllerCards.map((controller, index) => (
           <ControlBoardStatusCard

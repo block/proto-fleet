@@ -50,7 +50,9 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
   usePoll({
     fetchData,
-    params: hashboardSerialNumbers,
+    // Hydrating ASIC hardware rebuilds Diagnostics' serial array. Restart only
+    // when its contents change, or every response triggers another request.
+    params: JSON.stringify(hashboardSerialNumbers),
     poll,
   });
 
