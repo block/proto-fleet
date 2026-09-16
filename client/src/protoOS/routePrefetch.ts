@@ -20,6 +20,7 @@ export const importDiagnosticView = () =>
 export const importLogs = () => import("@/protoOS/pages/MinerLogs");
 export const importContainerTanks = () => import("@/protoOS/features/tanks");
 export const importContainerModules = () => import("@/protoOS/features/modules");
+export const importContainerHome = () => import("@/protoOS/features/containerHome/ContainerHomePage");
 export const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
 export const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
 export const importOnboardingVerify = () => import("@/protoOS/features/onboarding/components/Verify");
@@ -54,7 +55,11 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsCooling,
 ];
 
-export const containerRoutePrefetch: readonly RouteImporter[] = [importContainerTanks, importContainerModules];
+export const containerRoutePrefetch: readonly RouteImporter[] = [
+  importContainerHome,
+  importContainerTanks,
+  importContainerModules,
+];
 
 // Section tier for protoFleet — embeds this router under /miners/:id/*.
 // SingleMinerWrapper triggers this on mount so KPI tabs, Logs,

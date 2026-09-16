@@ -423,7 +423,7 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     dryCoolerInletTemperature: sensorReading(plant?.dryCoolerInletTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
-    facilityPower: latest(plant?.facilityPowerW, "W"),
+    facilityPower: sensorReading(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
     pue: latest(plant?.pue, "ratio"),
     flowRate: sensorReading(plant?.flowRateLpm, "L/min"),
@@ -484,7 +484,7 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
       componentId: id,
       health: faultedComponents.has(distribution.componentId) ? "fault" : "ok",
       activeFeedCount: distribution.activeFeedCount,
-      totalPower: latest(distribution.activePowerW, "W"),
+      totalPower: sensorReading(distribution.activePowerW, "W"),
       voltageAb: latest(distribution.voltageAbV, "V"),
       voltageBc: latest(distribution.voltageBcV, "V"),
       voltageCa: latest(distribution.voltageCaV, "V"),
@@ -664,6 +664,7 @@ export const toCanonicalContainer = (
     ready(Number.isNaN(timestampMs) ? Date.now() : timestampMs),
   );
   telemetry.plant = plant.telemetry;
+  telemetry.containerPlant = { containerId, hardware: plant.hardware };
   telemetry.fans = plant.fanTelemetry;
   const boardSummary = mapWire === undefined ? undefined : boardRollup(boards);
   const containerRollup: LevelRollup = {
