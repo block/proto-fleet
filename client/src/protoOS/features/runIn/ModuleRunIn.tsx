@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { attemptKey, readAttempt, type RunInAttempt } from "./attempt";
 import { parseDraft, toDraft, toRunInRequest } from "./defaults";
 import RunInForm from "./RunInForm";
 import { useRunInDefaults } from "./useRunInDefaults";
@@ -17,47 +18,71 @@ const validationErrorMessage = (error: unknown): string | undefined => {
 };
 
 const ModuleRunIn = ({ moduleId, label }: { moduleId: string; label: string }) => {
+  const { deviceId } = useRunInDefaults();
+  if (!deviceId) return null;
+  const storageKey = attemptKey(deviceId, moduleId);
+  return <ModuleRunInControl key={storageKey} moduleId={moduleId} label={label} storageKey={storageKey} />;
+};
+
+const ModuleRunInControl = ({
+  moduleId,
+  label,
+  storageKey,
+}: {
+  moduleId: string;
+  label: string;
+  storageKey: string;
+}) => {
   const { adapter } = useMinerHosting();
   const { defaults } = useRunInDefaults();
+  const [restored] = useState(() => readAttempt(storageKey));
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(() => toDraft(defaults));
+  const [draft, setDraft] = useState(() => toDraft(restored?.defaults ?? defaults));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [taskId, setTaskId] = useState<string>();
-  const attempt = useRef<{ config: string; taskId: string; uncertain: boolean } | undefined>(undefined);
+  const attempt = useRef<RunInAttempt | undefined>(restored);
   const inFlight = useRef(false);
 
   const start = async () => {
     if (!adapter?.startModuleRunIn || inFlight.current || taskId) return;
-    let request;
+    let currentAttempt;
     try {
-      request = toRunInRequest(parseDraft(draft));
+      currentAttempt = attempt.current;
+      if (!currentAttempt) {
+        const config = parseDraft(draft);
+        // Direct miners can use HTTP, where randomUUID is unavailable.
+        const taskId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) =>
+          value.toString(16).padStart(2, "0"),
+        ).join("");
+        currentAttempt = { defaults: config, taskId, uncertain: false };
+      }
+      // Persist before sending: navigation or reload can lose even the first response.
+      sessionStorage.setItem(storageKey, JSON.stringify(currentAttempt));
     } catch (error) {
       setError((error as Error).message);
       return;
     }
-    const config = JSON.stringify(request);
-    if (!attempt.current || attempt.current.config !== config) {
-      // Direct miners can use HTTP, where randomUUID is unavailable.
-      const taskId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) =>
-        value.toString(16).padStart(2, "0"),
-      ).join("");
-      attempt.current = { config, taskId, uncertain: false };
-    }
+    attempt.current = currentAttempt;
     inFlight.current = true;
     setPending(true);
     setError(undefined);
     try {
-      const result = await adapter.startModuleRunIn(moduleId, { ...request, taskId: attempt.current.taskId });
-      setTaskId(result.taskId ?? attempt.current.taskId);
+      const result = await adapter.startModuleRunIn(moduleId, {
+        ...toRunInRequest(currentAttempt.defaults),
+        taskId: currentAttempt.taskId,
+      });
+      sessionStorage.removeItem(storageKey);
+      setTaskId(result.taskId ?? currentAttempt.taskId);
     } catch (error) {
       const rejection = validationErrorMessage(error);
-      if (rejection && !attempt.current.uncertain) {
+      if (rejection && !currentAttempt.uncertain) {
+        sessionStorage.removeItem(storageKey);
         attempt.current = undefined;
         setError(rejection);
       } else {
         // A later rejection cannot resolve whether an earlier request was accepted.
-        attempt.current.uncertain = true;
+        currentAttempt.uncertain = true;
         setError("Could not confirm the run-in start. Try again to check the same request.");
       }
     } finally {

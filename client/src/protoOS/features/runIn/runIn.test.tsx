@@ -1,5 +1,6 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
+import { attemptKey } from "./attempt";
 import { parseDraft, toDraft, toRunInRequest, validateDefaults } from "./defaults";
 import ModuleRunIn from "./ModuleRunIn";
 import { useRunInDefaults } from "./useRunInDefaults";
@@ -20,6 +21,7 @@ const defaults = {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.restoreAllMocks();
   state.deviceId = "ct1-a";
   state.startModuleRunIn.mockReset().mockResolvedValue({ taskId: "task-1" });
@@ -163,4 +165,65 @@ test("a later rejection does not discard a task ID after an uncertain response",
   const [first, second, third] = state.startModuleRunIn.mock.calls;
   expect(second).toEqual(first);
   expect(third).toEqual(first);
+});
+
+test("an unresolved attempt survives remount with its original settings and task ID", async () => {
+  const hook = renderHook(useRunInDefaults);
+  act(() => hook.result.current.save(defaults));
+  state.startModuleRunIn.mockRejectedValueOnce(new Error("response lost"));
+  const moduleId = "container:ct1-a:module:T1-M02";
+  const view = render(<ModuleRunIn moduleId={moduleId} label="Module 2" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start run-in" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Try again");
+  const originalRequest = state.startModuleRunIn.mock.calls[0];
+  expect(sessionStorage.getItem(attemptKey("ct1-a", moduleId))).toContain(originalRequest[1].taskId);
+  view.unmount();
+  act(() => hook.result.current.save({ ...defaults, boardPowerTargetWatts: 1000 }));
+  render(<ModuleRunIn moduleId={moduleId} label="Module 2" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  expect(screen.getByLabelText("Power target per hashboard (W)")).toHaveValue("1200");
+  expect(screen.getByLabelText("Power target per hashboard (W)")).toBeDisabled();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start run-in" }));
+  expect(await screen.findByText("Task task-1")).toBeInTheDocument();
+  expect(state.startModuleRunIn.mock.calls[1]).toEqual(originalRequest);
+  expect(sessionStorage.getItem(attemptKey("ct1-a", moduleId))).toBeNull();
+});
+
+test("pending attempts remain scoped to their device and module when navigating", async () => {
+  const hook = renderHook(useRunInDefaults);
+  act(() => hook.result.current.save(defaults));
+  state.startModuleRunIn.mockImplementationOnce(() => new Promise(() => {}));
+  const view = render(<ModuleRunIn moduleId="module-1" label="Module 1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start run-in" }));
+  const first = state.startModuleRunIn.mock.calls[0];
+  view.rerender(<ModuleRunIn moduleId="module-2" label="Module 2" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  expect(screen.getByLabelText("Duration (minutes)")).toBeEnabled();
+  state.deviceId = "ct1-b";
+  view.rerender(<ModuleRunIn moduleId="module-1" label="Module 1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  expect(screen.getByLabelText("Duration (minutes)")).toHaveValue("");
+  expect(screen.getByLabelText("Duration (minutes)")).toBeEnabled();
+  state.deviceId = "ct1-a";
+  view.rerender(<ModuleRunIn moduleId="module-1" label="Module 1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  expect(screen.getByLabelText("Duration (minutes)")).toBeDisabled();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start run-in" }));
+  expect(await screen.findByText("Task task-1")).toBeInTheDocument();
+  expect(state.startModuleRunIn.mock.calls[1]).toEqual(first);
+});
+
+test("does not send a run-in when its recovery key cannot be saved", async () => {
+  const hook = renderHook(useRunInDefaults);
+  act(() => hook.result.current.save(defaults));
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Browser storage unavailable");
+  });
+  render(<ModuleRunIn moduleId="module-1" label="Module 1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Start run-in" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start run-in" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Browser storage unavailable");
+  expect(state.startModuleRunIn).not.toHaveBeenCalled();
 });
