@@ -732,11 +732,12 @@ type Device struct {
 }
 
 type DeviceFirmwareDeployment struct {
-	DeviceID         int64
-	FirmwareChecksum string
-	FirmwareVersion  string
-	RolloutID        sql.NullInt64
-	DeployedAt       time.Time
+	DeviceID             int64
+	FirmwareChecksum     string
+	FirmwareVersion      string
+	RolloutID            sql.NullInt64
+	DeployedAt           time.Time
+	LastCommandBatchUuid sql.NullString
 }
 
 type DeviceMetric struct {

@@ -12,9 +12,9 @@ import (
 
 func TestStaleProvenanceObservationPreservesInterveningDeployment(t *testing.T) {
 	for _, existing := range []bool{false, true} {
-		name := "initially absent"
+		name := "no prior deployment"
 		if existing {
-			name = "existing observation"
+			name = "prior deployment"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
@@ -38,7 +38,10 @@ func TestStaleProvenanceObservationPreservesInterveningDeployment(t *testing.T) 
 			observed, err := f.svc.listTargets(ctx, row.FirmwareRollout)
 			require.NoError(t, err)
 			require.Len(t, observed, 1)
-			require.Equal(t, existing, observed[0].LastDeployedAt.Valid)
+			// The successful command replaces either initial state with a
+			// durable completion marker before the engine can adopt it.
+			require.True(t, observed[0].LastDeployedAt.Valid)
+			require.Empty(t, observed[0].LastDeployedFirmwareChecksum)
 			require.True(t, observed[0].LastSentAt.Valid)
 			require.True(t, observed[0].LastDispatchSucceeded, "the stale observation qualifies for an attempted provenance write")
 			require.False(t, observed[0].VerifiedAt.Valid)
@@ -82,8 +85,8 @@ func TestStaleProvenanceObservationPreservesInterveningDeployment(t *testing.T) 
 				assert.Equal(t, savedAt, deployedAt)
 			}
 
-			// Resume A using the earlier target read. Its timestamp eligibility
-			// check passes on that stale read, but the atomic write must not.
+			// Resume A using the earlier completion-marker read. That read was
+			// eligible for adoption, but its stale CAS witness cannot replace B.
 			refreshed, err := f.svc.recordProvenance(ctx, row.FirmwareRollout, observed)
 			require.NoError(t, err)
 			assertNewerDeployment()

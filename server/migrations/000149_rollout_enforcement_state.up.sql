@@ -5,6 +5,13 @@ ALTER TABLE release_channel_firmware
     ADD COLUMN previous_firmware_checksum TEXT NOT NULL DEFAULT '',
     ADD COLUMN previous_firmware_version TEXT NOT NULL DEFAULT '';
 
+-- Completion serializes through this per-device row. Retain the exact latest
+-- command identity while provenance is invalidated and after it is adopted,
+-- so caller timestamps, clock changes and history pruning cannot revive an
+-- older command's artifact evidence. Missing command history fails closed.
+ALTER TABLE device_firmware_deployment
+    ADD COLUMN last_command_batch_uuid TEXT;
+
 WITH latest AS (
     SELECT DISTINCT ON (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), assignment_generation)
            channel_id, manufacturer, model, assignment_generation,

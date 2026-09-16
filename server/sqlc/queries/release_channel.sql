@@ -842,6 +842,10 @@ WHERE reservation.channel_id = sqlc.arg('channel_id')
 -- The prior deployed version distinguishes a version change from replacing an
 -- artifact with another that reports the same version; the latter requires the
 -- latest dispatch's successful command result before recording new provenance.
+-- Command completion serializes through the provenance row and retains its
+-- exact latest batch identity. That command must also have succeeded for the
+-- same immutable checksum: timestamps and historical file IDs cannot prove
+-- current artifact identity, and missing command history fails closed.
 -- Live health is evidence for the engine's
 -- next decision; the persisted columns (verified_at, halted_at, excluded_at)
 -- carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -871,6 +875,18 @@ SELECT rd.device_id,
              AND result.org_id = r.org_id
              AND result.device_id = rd.device_id
              AND result.status = 'SUCCESS'
+             AND EXISTS (
+                 SELECT 1
+                 FROM command_batch_log current_batch
+                 JOIN command_on_device_log current_result ON current_result.command_batch_log_id = current_batch.id
+                 WHERE current_batch.uuid = dep.last_command_batch_uuid
+                   AND (current_batch.organization_id = r.org_id OR current_batch.organization_id IS NULL)
+                   AND current_batch.type = 'FirmwareUpdate'
+                   AND current_batch.payload->>'firmware_checksum' = r.firmware_checksum
+                   AND current_result.device_id = rd.device_id
+                   AND current_result.org_id = r.org_id
+                   AND current_result.status = 'SUCCESS'
+             )
        ))::boolean AS last_dispatch_succeeded,
        rd.verified_at,
        rd.halted_at,

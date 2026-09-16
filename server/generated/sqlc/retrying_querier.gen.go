@@ -5238,6 +5238,18 @@ func (q *retryingQuerier) ListTakenDeviceSetLabels(ctx context.Context, arg List
 	return result, err
 }
 
+func (q *retryingQuerier) ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error) {
+	var result []FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "ListTerminalFirmwareRolloutsNeedingProvenance", func() error {
+		callResult, callErr := q.next.ListTerminalFirmwareRolloutsNeedingProvenance(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error) {
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {

@@ -33,9 +33,10 @@ const (
 	holdArtifactMissing = "Firmware file not uploaded"
 )
 
-// EnforceTick runs one enforcement pass: it starts rollouts for assignments
-// with mismatched members and drives every active rollout forward. Errors
-// are logged per rollout so one bad rollout cannot stall the others.
+// EnforceTick runs one enforcement pass: it observes completed commands from
+// terminal history, starts rollouts for assignments with mismatched members
+// and drives every active rollout forward. Errors are logged per rollout so
+// one bad rollout cannot stall the others.
 func (s *Service) EnforceTick(ctx context.Context) {
 	// Observe reservations even while every rollout is paused, at review, or
 	// terminal. Otherwise a recovery between active ticks could be missed.
@@ -48,6 +49,7 @@ func (s *Service) EnforceTick(ctx context.Context) {
 		slog.Error("rollout enforcement: release command reservations", "error", err)
 		return
 	}
+	s.reconcileCompletedDispatches(ctx)
 	s.startNeededRollouts(ctx)
 	active, err := s.store.GetQueries(ctx).ListActiveFirmwareRollouts(ctx)
 	if err != nil {
@@ -462,15 +464,32 @@ func (s *Service) excludeDepartedTargets(ctx context.Context, r sqlc.FirmwareRol
 // another artifact may report the same version, so queuing or failing the assigned
 // update cannot prove that artifact was installed, even when the pair is unchanged.
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
+	return s.recordDeploymentProvenance(ctx, r, targets, false)
+}
+
+// recordTerminalProvenance observes completed commands from retained rollout
+// history without reopening its lifecycle. Historical exclusions and halts do
+// not erase a command's result, but only a successful current dispatch can
+// establish its provenance; a version change by itself is insufficient.
+func (s *Service) recordTerminalProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
+	return s.recordDeploymentProvenance(ctx, r, targets, true)
+}
+
+func (s *Service) recordDeploymentProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target, terminal bool) ([]target, error) {
 	var deployed []int64
 	var expectedPresent []bool
 	var expectedDeployedAt []time.Time
 	var expectedChecksums []string
 	for _, t := range targets {
-		if !t.excluded() && !t.halted() && t.LastDispatchedAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
-			(t.LastDispatchSucceeded || (t.InScope.Valid && t.InScope.Bool && t.LastDeployedAt.Valid &&
+		// Completion leaves an empty, timestamped row even when no previous
+		// deployment exists. It invalidates stale observations atomically, but
+		// provides no prior-version evidence; only current successful dispatch
+		// evidence can replace that marker.
+		knownDeployment := t.LastDeployedAt.Valid && t.LastDeployedFirmwareChecksum != "" && t.LastDeployedFirmwareVersion != ""
+		if (terminal || (!t.excluded() && !t.halted())) && t.LastDispatchedAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
+			(t.LastDispatchSucceeded || (!terminal && t.InScope.Valid && t.InScope.Bool && knownDeployment &&
 				t.LastDeployedFirmwareVersion != r.FirmwareVersion)) &&
-			(!t.LastDeployedAt.Valid || !t.LastDeployedAt.Time.After(t.LastDispatchedAt.Time)) &&
+			(!t.LastDeployedAt.Valid || t.LastDeployedFirmwareChecksum == "" || !t.LastDeployedAt.Time.After(t.LastDispatchedAt.Time)) &&
 			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
 			deployed = append(deployed, t.DeviceID)
 			expectedPresent = append(expectedPresent, t.LastDeployedAt.Valid)

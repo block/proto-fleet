@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
@@ -53,16 +54,29 @@ func (f *fixture) finishQueuedBudgetCommand(t *testing.T, identifier, status str
 	t.Helper()
 	// The worker commits terminal queue status and the matching device result
 	// together. Pending/processing commands must not acquire a terminal result.
-	_, err := f.conn.ExecContext(t.Context(), `WITH finished AS (
-		UPDATE queue_message SET status = $1::queue_status_enum WHERE device_id = $2
-		RETURNING command_batch_log_uuid, device_id, status
-	)
-	INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, org_id)
-	SELECT DISTINCT batch.id, finished.device_id, finished.status::text::device_command_status_enum, batch.organization_id
-	FROM finished JOIN command_batch_log batch ON batch.uuid = finished.command_batch_log_uuid
-	WHERE finished.status IN ('SUCCESS', 'FAILED')
-	ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET status = EXCLUDED.status`, status, f.deviceIDs[identifier])
+	tx, err := f.conn.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(t.Context(), `UPDATE queue_message SET status = $1::queue_status_enum
+		WHERE device_id = $2 RETURNING command_batch_log_uuid`, status, f.deviceIDs[identifier])
+	require.NoError(t, err)
+	defer rows.Close()
+	var batches []string
+	for rows.Next() {
+		var batch string
+		require.NoError(t, rows.Scan(&batch))
+		batches = append(batches, batch)
+	}
+	require.NoError(t, rows.Err())
+	require.NoError(t, rows.Close())
+	if status == "SUCCESS" || status == "FAILED" {
+		for _, batch := range batches {
+			require.NoError(t, sqlc.New(tx).UpsertCommandOnDeviceLog(t.Context(), sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid: batch, DeviceID: f.deviceIDs[identifier], Status: sqlc.DeviceCommandStatusEnum(status), UpdatedAt: time.Now(),
+			}))
+		}
+	}
+	require.NoError(t, tx.Commit())
 }
 
 func TestOfflineBudgetRetainsLongRunningCommand(t *testing.T) {

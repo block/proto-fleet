@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/stretchr/testify/require"
@@ -22,11 +24,12 @@ func setModelTransition(t *testing.T, f *fixture, manufacturer, model string) {
 // the same durable batch identity the real dispatcher returns. Tests control
 // device outcomes separately from enqueueing and reported firmware versions.
 type auditedModelDispatcher struct {
-	t       *testing.T
-	f       *fixture
-	userID  int64
-	batchID int64
-	calls   int
+	t         *testing.T
+	f         *fixture
+	userID    int64
+	batchID   int64
+	batchUUID string
+	calls     int
 }
 
 func useAuditedModelDispatcher(t *testing.T, f *fixture) *auditedModelDispatcher {
@@ -43,6 +46,7 @@ func (d *auditedModelDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 	result, err := d.f.dispatcher.FirmwareUpdateArtifact(ctx, selector, checksum, metadata)
 	require.NoError(d.t, err)
 	result.BatchIdentifier = fmt.Sprintf("00000000-0000-0000-0000-%012d", d.calls)
+	d.batchUUID = result.BatchIdentifier
 	require.NoError(d.t, d.f.conn.QueryRowContext(ctx, `INSERT INTO command_batch_log
 		(uuid, type, created_by, status, devices_count, payload, organization_id)
 		VALUES ($1, 'FirmwareUpdate', $2, 'PROCESSING', $3, jsonb_build_object('firmware_checksum', $4::text), $5)
@@ -52,11 +56,9 @@ func (d *auditedModelDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 
 func (d *auditedModelDispatcher) finish(identifier, status string) {
 	d.t.Helper()
-	_, err := d.f.conn.ExecContext(d.t.Context(), `INSERT INTO command_on_device_log
-		(command_batch_log_id, device_id, status, org_id) VALUES ($1, $2, $3::device_command_status_enum, $4)
-		ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET status = EXCLUDED.status`,
-		d.batchID, d.f.deviceIDs[identifier], status, d.f.orgID)
-	require.NoError(d.t, err)
+	require.NoError(d.t, d.f.svc.store.GetQueries(d.t.Context()).UpsertCommandOnDeviceLog(d.t.Context(), sqlc.UpsertCommandOnDeviceLogParams{
+		Uuid: d.batchUUID, DeviceID: d.f.deviceIDs[identifier], Status: sqlc.DeviceCommandStatusEnum(status), UpdatedAt: time.Now(),
+	}))
 }
 
 func TestDispatchedModelTransitionStillRequiresSuccessfulUpdate(t *testing.T) {
@@ -225,7 +227,8 @@ func TestSameVersionModelTransitionRequiresSuccessfulDispatch(t *testing.T) {
 			// Existing artifact B and assigned artifact A report the same version.
 			// Discovery initially reports the old pair, then learns B's new pair
 			// after A was queued. Only A's successful result can establish A's
-			// provenance; its queue position or failure cannot rewrite B's record.
+			// provenance; queueing alone preserves B, while a failed installation
+			// invalidates B without proving that A was installed.
 			f.setReportedVersion(t, "miner-0", "2.0.0")
 			_, err := f.conn.ExecContext(t.Context(), `INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version)
 				VALUES ($1, $2, '2.0.0')`, f.deviceIDs["miner-0"], checksum1)
@@ -245,12 +248,16 @@ func TestSameVersionModelTransitionRequiresSuccessfulDispatch(t *testing.T) {
 			} else {
 				require.Equal(t, StatusActive, current.Status)
 				require.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
-				require.Equal(t, checksum1, current.Devices[0].LastDeployedFirmwareChecksum)
+				expectedChecksum := checksum1
+				if outcome == "FAILED" {
+					expectedChecksum = ""
+				}
+				require.Equal(t, expectedChecksum, current.Devices[0].LastDeployedFirmwareChecksum)
 				f.backdateSends(t)
 				f.svc.EnforceTick(t.Context())
 				failed := f.rollout(t, started.ID)
 				require.Equal(t, StatusCompletedWithFailures, failed.Status)
-				require.Equal(t, checksum1, failed.Devices[0].LastDeployedFirmwareChecksum)
+				require.Equal(t, expectedChecksum, failed.Devices[0].LastDeployedFirmwareChecksum)
 			}
 			require.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
 		})

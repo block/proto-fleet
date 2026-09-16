@@ -41,7 +41,7 @@ func TestMissingProvenanceRequiresSuccessfulDispatch(t *testing.T) {
 					assert.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
 					var deployments int
 					require.NoError(t, f.conn.QueryRowContext(t.Context(), `SELECT count(*) FROM device_firmware_deployment
-						WHERE device_id = $1`, f.deviceIDs["miner-0"]).Scan(&deployments))
+						WHERE device_id = $1 AND firmware_checksum <> ''`, f.deviceIDs["miner-0"]).Scan(&deployments))
 					assert.Zero(t, deployments, "pending or failed commands must not create artifact provenance")
 				}
 				assert.Equal(t, PhaseQueued, phaseOf(current, "miner-1"))

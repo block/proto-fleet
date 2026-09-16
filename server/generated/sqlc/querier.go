@@ -1171,6 +1171,10 @@ type Querier interface {
 	// The prior deployed version distinguishes a version change from replacing an
 	// artifact with another that reports the same version; the latter requires the
 	// latest dispatch's successful command result before recording new provenance.
+	// Command completion serializes through the provenance row and retains its
+	// exact latest batch identity. That command must also have succeeded for the
+	// same immutable checksum: timestamps and historical file IDs cannot prove
+	// current artifact identity, and missing command history fails closed.
 	// Live health is evidence for the engine's
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1357,6 +1361,13 @@ type Querier interface {
 	// create's duplicate check: uk_device_collection_org_type_label spans
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
+	// Cancellation and completion cannot revoke a firmware command already sent.
+	// Only load terminal rollouts whose retained dispatch and current completion
+	// witness both succeeded for the artifact, with a matching live report and
+	// provenance that could still be adopted. Resolve the current result directly
+	// by UUID; obsolete history and missing witnesses do not become candidates.
+	// The engine reloads the evidence under the rollout lock before adoption.
+	ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
@@ -2064,8 +2075,15 @@ type Querier interface {
 	// stays free of any rendering rules.
 	// batch × dev is a deliberate cross-join: both CTEs must return exactly one
 	// row for the INSERT to write. fk_command_on_device_log_device guarantees
-	// device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+	// the device argument exists, and device.discovered_device_id is NOT NULL, so dev
 	// always matches in practice.
+	// A terminal firmware attempt can replace the installed bytes even on failure
+	// (for example installation succeeds but reboot fails). Unknown/manual payloads
+	// must invalidate earlier managed identity too. Keep a timestamped empty row:
+	// its CAS witness prevents a concurrent stale observation from restoring old
+	// provenance after completion, including when no provenance existed before.
+	// The retained batch UUID identifies the latest serialized completion without
+	// relying on clocks from different workers to order command results.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.

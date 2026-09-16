@@ -772,6 +772,9 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("get active firmware rollout: %w", err)
 		}
+		if err := s.reconcileTerminalProvenance(ctx, row); err != nil {
+			return err
+		}
 		suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
 			OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
 		})
@@ -779,8 +782,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 			return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
 		}
 		if len(suppressed) == 0 {
-			fileID, _ := s.files.FindCachedFirmwareFileIDByChecksum(row.FirmwareChecksum)
-			view, err = s.rolloutView(ctx, row, channelName, fileID)
+			view, err = s.refreshView(ctx, orgID, rolloutID)
 			return err
 		}
 		members := make([]sqlc.ListReleaseChannelMismatchedMembersRow, len(suppressed))

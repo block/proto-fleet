@@ -35,7 +35,11 @@ func TestSameVersionProvenanceRequiresSuccessfulDispatch(t *testing.T) {
 			} else {
 				require.Equal(t, StageBatch, current.Stage, "an unfinished or failed update cannot release the pilot review gate")
 				require.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
-				require.Equal(t, checksum1, deviceOf(t, current, "miner-0").LastDeployedFirmwareChecksum)
+				if outcome == "FAILED" {
+					require.Empty(t, deviceOf(t, current, "miner-0").LastDeployedFirmwareChecksum, "a failed install may still have replaced the previous bytes")
+				} else {
+					require.Equal(t, checksum1, deviceOf(t, current, "miner-0").LastDeployedFirmwareChecksum)
+				}
 				require.Zero(t, f.rigGroup(t).OnTargetCount)
 			}
 			require.Equal(t, PhaseQueued, phaseOf(current, "miner-1"))

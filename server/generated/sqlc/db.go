@@ -1386,6 +1386,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listTakenDeviceSetLabelsStmt, err = db.PrepareContext(ctx, listTakenDeviceSetLabels); err != nil {
 		return nil, fmt.Errorf("error preparing query ListTakenDeviceSetLabels: %w", err)
 	}
+	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt, err = db.PrepareContext(ctx, listTerminalFirmwareRolloutsNeedingProvenance); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTerminalFirmwareRolloutsNeedingProvenance: %w", err)
+	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
@@ -4330,6 +4333,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listTakenDeviceSetLabelsStmt: %w", cerr)
 		}
 	}
+	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt != nil {
+		if cerr := q.listTerminalFirmwareRolloutsNeedingProvenanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTerminalFirmwareRolloutsNeedingProvenanceStmt: %w", cerr)
+		}
+	}
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
@@ -5938,6 +5946,7 @@ type Queries struct {
 	listSiteSlugsStmt                                            *sql.Stmt
 	listSitesStmt                                                *sql.Stmt
 	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
+	listTerminalFirmwareRolloutsNeedingProvenanceStmt            *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockActiveSuperAdminUsersStmt                                *sql.Stmt
 	lockAlertMaintenanceWindowOrgForWriteStmt                    *sql.Stmt
@@ -6621,6 +6630,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
 		listSitesStmt:                                                q.listSitesStmt,
 		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
+		listTerminalFirmwareRolloutsNeedingProvenanceStmt:            q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockActiveSuperAdminUsersStmt:                                q.lockActiveSuperAdminUsersStmt,
 		lockAlertMaintenanceWindowOrgForWriteStmt:                    q.lockAlertMaintenanceWindowOrgForWriteStmt,
