@@ -88,9 +88,11 @@ type ContainerState struct {
 	IPAddress string
 	StartTime time.Time
 
-	PerformanceMode  string
-	BalanceBays      bool
-	HashOnDisconnect bool
+	PerformanceMode    string
+	BalanceBays        bool
+	HashOnDisconnect   bool
+	ContainerControls  map[string]bool
+	ContainerSetpoints map[string]float64
 
 	Tanks   []*Tank
 	Modules []*Module // flattened, in tree order
@@ -168,9 +170,18 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 		IPAddress:       "127.0.0.1",
 		StartTime:       now,
 		PerformanceMode: "PERFORMANCE_MODE_MAXIMUM_HASHRATE",
-		boardsByMAC:     make(map[string]*Hashboard),
-		boardsBySerial:  make(map[string]*Hashboard),
-		modulesByID:     make(map[string]*Module),
+		ContainerControls: map[string]bool{
+			"air_conditioner_1": true,
+			"air_conditioner_2": true,
+			"coolant_pump":      true,
+			"dry_cooler":        true,
+			"dry_cooler_auto":   true,
+			"tank_led_light":    true,
+		},
+		ContainerSetpoints: map[string]float64{"dry_cooler_auto_temp_c": 18.3},
+		boardsByMAC:        make(map[string]*Hashboard),
+		boardsBySerial:     make(map[string]*Hashboard),
+		modulesByID:        make(map[string]*Module),
 	}
 
 	globalBoard := 0

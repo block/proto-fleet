@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,6 +66,27 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, out any
 		}
 	}
 	return resp.StatusCode
+}
+
+func TestContainerSetpointFloat32Bounds(t *testing.T) {
+	for _, value := range []float64{1e39, -1e39, math.MaxFloat32, -math.MaxFloat32} {
+		srv, state := newTestServer(t)
+		initial := state.ContainerSetpoints["dry_cooler_auto_temp_c"]
+		status := postJSON(t, srv, "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", setContainerSetpointRequest{Value: value}, nil)
+		wantStatus, wantValue := http.StatusOK, value
+		if math.Abs(value) > math.MaxFloat32 {
+			wantStatus, wantValue = http.StatusBadRequest, initial
+		}
+		if status != wantStatus {
+			t.Errorf("setpoint %g: status %d, want %d", value, status, wantStatus)
+		}
+		state.mu.RLock()
+		got := state.ContainerSetpoints["dry_cooler_auto_temp_c"]
+		state.mu.RUnlock()
+		if got != wantValue {
+			t.Errorf("setpoint %g: persisted %g, want %g", value, got, wantValue)
+		}
+	}
 }
 
 func TestTopology(t *testing.T) {
@@ -288,6 +310,67 @@ func TestContainerTelemetryPUE(t *testing.T) {
 	}
 	if len(resp.CoolingFans) == 0 || len(resp.PowerFeeds) == 0 || len(resp.PowerDistributions) == 0 {
 		t.Error("container telemetry should include fans, feeds, and power distributions")
+	}
+}
+
+func TestContainerCoolingActivityFollowsControls(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, tc := range []struct {
+		name   string
+		pump   bool
+		cooler bool
+	}{
+		{name: "both off"},
+		{name: "pump only", pump: true},
+		{name: "cooler only", cooler: true},
+		{name: "both on", pump: true, cooler: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for name, enabled := range map[string]bool{"coolant_pump": tc.pump, "dry_cooler": tc.cooler} {
+				if status := postJSON(t, srv, "/api/v2/power/container/controls/"+name, setContainerControlRequest{Enabled: enabled}, nil); status != http.StatusOK {
+					t.Fatalf("%s control status = %d, want 200", name, status)
+				}
+			}
+			var telemetry containerTelemetryResponse
+			getJSON(t, srv, "/api/v2/telemetry/container", &telemetry)
+			if telemetry.Plant.CoolantPumpActive != tc.pump {
+				t.Errorf("pump active = %t, want %t", telemetry.Plant.CoolantPumpActive, tc.pump)
+			}
+			if telemetry.Plant.HeatRejectionActive != tc.cooler {
+				t.Errorf("cooler active = %t, want %t", telemetry.Plant.HeatRejectionActive, tc.cooler)
+			}
+		})
+	}
+}
+
+func TestContainerDryCoolerSettingsPersistIntoTelemetry(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	var controlResponse setContainerControlResponse
+	if status := postJSON(t, srv, "/api/v2/power/container/controls/dry_cooler_auto", setContainerControlRequest{Enabled: false}, &controlResponse); status != http.StatusOK {
+		t.Fatalf("control status = %d, want 200", status)
+	}
+	if controlResponse.Control.Enabled || !controlResponse.Control.StateKnown {
+		t.Errorf("control response = %+v, want known and disabled", controlResponse.Control)
+	}
+
+	var setpointResponse setContainerSetpointResponse
+	if status := postJSON(t, srv, "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", setContainerSetpointRequest{Value: 19.5}, &setpointResponse); status != http.StatusOK {
+		t.Fatalf("setpoint status = %d, want 200", status)
+	}
+	if setpointResponse.Setpoint.Value != 19.5 {
+		t.Errorf("setpoint response = %+v, want 19.5", setpointResponse.Setpoint)
+	}
+
+	var telemetry containerTelemetryResponse
+	getJSON(t, srv, "/api/v2/telemetry/container", &telemetry)
+	if telemetry.Setpoints[0].Value != 19.5 {
+		t.Errorf("telemetry target = %f, want 19.5", telemetry.Setpoints[0].Value)
+	}
+	for _, control := range telemetry.Controls {
+		if control.Name == "dry_cooler_auto" && control.Enabled {
+			t.Error("telemetry dry_cooler_auto should remain disabled")
+		}
 	}
 }
 

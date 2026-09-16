@@ -287,15 +287,6 @@ export class MdkV2Adapter implements MinerAdapter {
     };
   }
 
-  async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
-    await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
-  }
-
-  async setContainerSetpoint(name: string, value: number, params: AdapterRequestOptions = {}) {
-    if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
-    await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
-  }
-
   private async containerState(deviceId: string, params: AdapterRequestOptions) {
     const decorated = this.decorate(params);
     const [map, status, telemetry] = await Promise.all([
@@ -363,6 +354,15 @@ export class MdkV2Adapter implements MinerAdapter {
       { moduleId: toWireModuleId(moduleId) },
       this.decorate(params),
     );
+  }
+
+  async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
+    await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
+  }
+
+  async setContainerSetpoint(name: string, value: number, params: AdapterRequestOptions = {}) {
+    if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
+    await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
   }
 
   async startModuleRunIn(moduleId: string, request: ModuleRunInRequest, params: AdapterRequestOptions = {}) {

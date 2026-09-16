@@ -8,11 +8,13 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
+import ContainerDiagnosticView from "./ContainerDiagnosticView";
 import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useHashboardStatus, useTelemetry } from "@/protoOS/api";
 import {
   useBayCount,
   useControlBoard,
   useCoolingMode,
+  useDeviceType,
   useFanIds,
   useHashboardSerialsByBay,
   useMinerStore,
@@ -203,7 +205,7 @@ export const OtherHardwareSection = ({ controllers }: { controllers?: Controller
 };
 OtherHardwareSection.displayName = "OtherHardwareSection";
 
-function DiagnosticView({ className }: DiagnosticViewProps) {
+function ModuleDiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["hashboard", "asic", "psu"] });
   const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
   const moduleModel = useModuleModel();
@@ -260,6 +262,11 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
       </div>
     </div>
   );
+}
+
+function DiagnosticView(props: DiagnosticViewProps) {
+  const deviceType = useDeviceType();
+  return deviceType === "container" ? <ContainerDiagnosticView {...props} /> : <ModuleDiagnosticView {...props} />;
 }
 
 export default DiagnosticView;

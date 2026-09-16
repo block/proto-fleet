@@ -411,26 +411,65 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   const plantId = asComponentId(`${containerId}:plant`);
   const plant = wire.plant;
   // Missing or invalid sensors in a successful snapshot must clear the previous reading.
-  const tankReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
+  const sensorReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
     latest: { value: typeof value === "number" && Number.isFinite(value) ? value : null, units },
   });
   addPlantComponent(plantId, "plant", "Plant", {
     componentId: plantId,
     operatingState: plant?.operatingState,
     powered: plant?.powered,
-    inletTemperature: tankReading(plant?.inletTemperatureC, "°C"),
+    inletTemperature: sensorReading(plant?.inletTemperatureC, "°C"),
     outletTemperature: latest(plant?.outletTemperatureC, "°C"),
-    outletATemperature: tankReading(plant?.outletATemperatureC, "°C"),
-    outletBTemperature: tankReading(plant?.outletBTemperatureC, "°C"),
-    tankALiquidLevel: tankReading(plant?.tankALiquidLevelMm, "mm"),
-    tankBLiquidLevel: tankReading(plant?.tankBLiquidLevelMm, "mm"),
-    ambientTemperature: latest(plant?.ambientTemperatureC, "°C"),
+    outletATemperature: sensorReading(plant?.outletATemperatureC, "°C"),
+    outletBTemperature: sensorReading(plant?.outletBTemperatureC, "°C"),
+    tankALiquidLevel: sensorReading(plant?.tankALiquidLevelMm, "mm"),
+    tankBLiquidLevel: sensorReading(plant?.tankBLiquidLevelMm, "mm"),
+    ambientTemperature: sensorReading(plant?.ambientTemperatureC, "°C"),
+    dryCoolerInletTemperature: sensorReading(plant?.dryCoolerInletTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
     facilityPower: latest(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
     pue: latest(plant?.pue, "ratio"),
-    flowRate: tankReading(plant?.flowRateLpm, "L/min"),
+    flowRate: sensorReading(plant?.flowRateLpm, "L/min"),
+    coolantPumpSpeed: sensorReading(plant?.coolantPumpSpeedHz, "Hz"),
+    pumpInletPressure: sensorReading(plant?.pumpInletPressurePa, "Pa"),
+    pumpOutletPressure: sensorReading(plant?.pumpOutletPressurePa, "Pa"),
+    pumpPressureDelta: sensorReading(plant?.pumpPressureDiffPa, "Pa"),
+    heatRejectionInletPressure: sensorReading(plant?.heatRejectionInletPressurePa, "Pa"),
+    heatRejectionOutletPressure: sensorReading(plant?.heatRejectionOutletPressurePa, "Pa"),
+    heatRejectionPressureDelta: sensorReading(plant?.heatRejectionPressureDiffPa, "Pa"),
+    coolantPumpActive: plant?.coolantPumpActive,
+    heatRejectionActive: plant?.heatRejectionActive,
+    alarmActive: plant?.alarmActive,
+    criticalAlarmActive: plant?.criticalAlarmActive,
+    buzzerActive: plant?.buzzerActive,
+    controls: (wire.controls ?? []).flatMap((control) =>
+      control.name
+        ? [
+            {
+              name: control.name,
+              description: control.description,
+              enabled: control.enabled,
+              stateKnown: control.stateKnown === true,
+            },
+          ]
+        : [],
+    ),
+    setpoints: (wire.setpoints ?? []).flatMap((setpoint) =>
+      setpoint.name
+        ? [
+            {
+              name: setpoint.name,
+              description: setpoint.description,
+              value: setpoint.value,
+              unit: setpoint.unit,
+              minimum: setpoint.min,
+              maximum: setpoint.max,
+            },
+          ]
+        : [],
+    ),
   });
   for (const phase of wire.phases ?? []) {
     if (!phase.phase) continue;

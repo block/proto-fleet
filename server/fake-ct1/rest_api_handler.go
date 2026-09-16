@@ -38,6 +38,8 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/container/map", h.handleContainerMap)
 	mux.HandleFunc("GET /api/v2/telemetry/container", h.handleContainerTelemetry)
 	mux.HandleFunc("GET /api/v2/telemetry/timeseries", h.handleTimeSeries)
+	mux.HandleFunc("POST /api/v2/power/container/controls/{name}", h.handleContainerControl)
+	mux.HandleFunc("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
 
 	// Mining status and global lifecycle.
 	mux.HandleFunc("GET /api/v2/mining/status", h.handleMiningStatus)
@@ -294,9 +296,39 @@ type containerTelemetryResponse struct {
 	Phases             []phaseTel          `json:"phases"`
 	Timestamp          time.Time           `json:"timestamp"`
 	Plant              plantTelemetry      `json:"plant"`
+	Controls           []containerControl  `json:"controls"`
+	Setpoints          []containerSetpoint `json:"setpoints"`
 	CoolingFans        []plantCoolingFan   `json:"coolingFans"`
 	PowerDistributions []powerDistribution `json:"powerDistributions"`
 	PowerFeeds         []powerFeed         `json:"powerFeeds"`
+}
+
+type containerControl struct {
+	Name       string `json:"name"`
+	Enabled    bool   `json:"enabled"`
+	StateKnown bool   `json:"stateKnown"`
+}
+
+type containerSetpoint struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+type setContainerControlRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type setContainerControlResponse struct {
+	Control containerControl `json:"control"`
+}
+
+type setContainerSetpointRequest struct {
+	Value float64 `json:"value"`
+}
+
+type setContainerSetpointResponse struct {
+	Setpoint containerSetpoint `json:"setpoint"`
 }
 
 type plantCoolingFan struct {
@@ -404,19 +436,31 @@ type phaseTel struct {
 }
 
 type plantTelemetry struct {
-	OperatingState      string  `json:"operatingState"`
-	Powered             bool    `json:"powered"`
-	InletTemperatureC   float64 `json:"inletTemperatureC"`
-	OutletTemperatureC  float64 `json:"outletTemperatureC"`
-	AmbientTemperatureC float64 `json:"ambientTemperatureC"`
-	CoolantPumpActive   bool    `json:"coolantPumpActive"`
-	HeatRejectionActive bool    `json:"heatRejectionActive"`
-	TotalPowerW         float64 `json:"totalPowerW"`
-	HeatRejectionPowerW float64 `json:"heatRejectionPowerW"`
-	FacilityPowerW      float64 `json:"facilityPowerW"`
-	PowerFactor         float64 `json:"powerFactor"`
-	PUE                 float64 `json:"pue"`
-	FlowRateLpm         float64 `json:"flowRateLpm"`
+	OperatingState                string  `json:"operatingState"`
+	Powered                       bool    `json:"powered"`
+	InletTemperatureC             float64 `json:"inletTemperatureC"`
+	OutletTemperatureC            float64 `json:"outletTemperatureC"`
+	OutletATemperatureC           float64 `json:"outletATemperatureC"`
+	OutletBTemperatureC           float64 `json:"outletBTemperatureC"`
+	AmbientTemperatureC           float64 `json:"ambientTemperatureC"`
+	CoolantPumpActive             bool    `json:"coolantPumpActive"`
+	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz"`
+	PumpInletPressurePa           float64 `json:"pumpInletPressurePa"`
+	PumpOutletPressurePa          float64 `json:"pumpOutletPressurePa"`
+	PumpPressureDiffPa            float64 `json:"pumpPressureDiffPa"`
+	HeatRejectionActive           bool    `json:"heatRejectionActive"`
+	HeatRejectionInletPressurePa  float64 `json:"heatRejectionInletPressurePa"`
+	HeatRejectionOutletPressurePa float64 `json:"heatRejectionOutletPressurePa"`
+	HeatRejectionPressureDiffPa   float64 `json:"heatRejectionPressureDiffPa"`
+	TankALiquidLevelMm            float64 `json:"tankALiquidLevelMm"`
+	TankBLiquidLevelMm            float64 `json:"tankBLiquidLevelMm"`
+	AlarmActive                   bool    `json:"alarmActive"`
+	TotalPowerW                   float64 `json:"totalPowerW"`
+	HeatRejectionPowerW           float64 `json:"heatRejectionPowerW"`
+	FacilityPowerW                float64 `json:"facilityPowerW"`
+	PowerFactor                   float64 `json:"powerFactor"`
+	PUE                           float64 `json:"pue"`
+	FlowRateLpm                   float64 `json:"flowRateLpm"`
 }
 
 type asicsResponse struct {
@@ -783,6 +827,19 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 	facility := totalPower * pue
 	heatRejection := facility - totalPower
 	now := time.Now()
+	coolingFans := make([]plantCoolingFan, 10)
+	for index := range coolingFans {
+		speed := 60.0
+		if index%3 != 2 {
+			speed = 85
+		}
+		coolingFans[index] = plantCoolingFan{
+			ComponentID: fmt.Sprintf("dry-cooler-fan-%d", index+1),
+			PowerW:      vary(450),
+			SpeedPct:    vary(speed),
+			AlarmActive: index == 3,
+		}
+	}
 
 	// Split IT load across three phases.
 	phaseW := facility / 3
@@ -833,24 +890,44 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 		Phases:    phases,
 		Timestamp: now,
 		Plant: plantTelemetry{
-			OperatingState:      plantState(mining),
-			Powered:             true,
-			InletTemperatureC:   vary(plantInletTempC),
-			OutletTemperatureC:  vary(plantOutletTempC),
-			AmbientTemperatureC: vary(plantAmbientTempC),
-			CoolantPumpActive:   true,
-			HeatRejectionActive: true,
-			TotalPowerW:         totalPower,
-			HeatRejectionPowerW: heatRejection,
-			FacilityPowerW:      facility,
-			PowerFactor:         0.99,
-			PUE:                 pue,
-			FlowRateLpm:         vary(1200),
+			OperatingState:                plantState(mining),
+			Powered:                       true,
+			InletTemperatureC:             vary(plantInletTempC),
+			OutletTemperatureC:            vary(plantOutletTempC),
+			OutletATemperatureC:           vary(plantOutletTempC),
+			OutletBTemperatureC:           vary(plantOutletTempC + 0.4),
+			AmbientTemperatureC:           vary(plantAmbientTempC),
+			CoolantPumpActive:             s.ContainerControls["coolant_pump"],
+			CoolantPumpSpeedHz:            vary(50),
+			PumpInletPressurePa:           vary(194_430),
+			PumpOutletPressurePa:          vary(293_710),
+			PumpPressureDiffPa:            vary(99_280),
+			HeatRejectionActive:           s.ContainerControls["dry_cooler"],
+			HeatRejectionInletPressurePa:  vary(194_430),
+			HeatRejectionOutletPressurePa: vary(293_710),
+			HeatRejectionPressureDiffPa:   vary(99_280),
+			TankALiquidLevelMm:            vary(860),
+			TankBLiquidLevelMm:            vary(870),
+			AlarmActive:                   false,
+			TotalPowerW:                   totalPower,
+			HeatRejectionPowerW:           heatRejection,
+			FacilityPowerW:                facility,
+			PowerFactor:                   0.99,
+			PUE:                           pue,
+			FlowRateLpm:                   vary(161.3),
 		},
-		CoolingFans: []plantCoolingFan{
-			{ComponentID: "dry-cooler-fan-1", PowerW: vary(450), SpeedPct: vary(72)},
-			{ComponentID: "dry-cooler-fan-2", PowerW: vary(450), SpeedPct: vary(72)},
+		Controls: []containerControl{
+			{Name: "air_conditioner_1", Enabled: s.ContainerControls["air_conditioner_1"], StateKnown: true},
+			{Name: "air_conditioner_2", Enabled: s.ContainerControls["air_conditioner_2"], StateKnown: true},
+			{Name: "coolant_pump", Enabled: s.ContainerControls["coolant_pump"], StateKnown: true},
+			{Name: "dry_cooler", Enabled: s.ContainerControls["dry_cooler"], StateKnown: true},
+			{Name: "dry_cooler_auto", Enabled: s.ContainerControls["dry_cooler_auto"], StateKnown: true},
+			{Name: "tank_led_light", Enabled: s.ContainerControls["tank_led_light"], StateKnown: true},
 		},
+		Setpoints: []containerSetpoint{{
+			Name: "dry_cooler_auto_temp_c", Value: s.ContainerSetpoints["dry_cooler_auto_temp_c"], Unit: "°C",
+		}},
+		CoolingFans: coolingFans,
 		PowerDistributions: []powerDistribution{{
 			ComponentID:     "pdu-main",
 			ActiveFeedCount: activeFeedCount,
@@ -860,6 +937,48 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 	}
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *RESTApiHandler) handleContainerControl(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	request := setContainerControlRequest{}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	h.state.mu.Lock()
+	if _, supported := h.state.ContainerControls[name]; !supported {
+		h.state.mu.Unlock()
+		writeError(w, http.StatusNotFound, "unknown container control")
+		return
+	}
+	h.state.ContainerControls[name] = request.Enabled
+	h.state.mu.Unlock()
+	writeJSON(w, http.StatusOK, setContainerControlResponse{Control: containerControl{
+		Name: name, Enabled: request.Enabled, StateKnown: true,
+	}})
+}
+
+func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	request := setContainerSetpointRequest{}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) || math.Abs(request.Value) > math.MaxFloat32 {
+		writeError(w, http.StatusBadRequest, "setpoint value must be a finite float32")
+		return
+	}
+	h.state.mu.Lock()
+	if _, supported := h.state.ContainerSetpoints[name]; !supported {
+		h.state.mu.Unlock()
+		writeError(w, http.StatusNotFound, "unknown container setpoint")
+		return
+	}
+	h.state.ContainerSetpoints[name] = request.Value
+	h.state.mu.Unlock()
+	writeJSON(w, http.StatusOK, setContainerSetpointResponse{Setpoint: containerSetpoint{
+		Name: name, Value: request.Value, Unit: "°C",
+	}})
 }
 
 func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request) {

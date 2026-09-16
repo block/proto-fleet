@@ -6,6 +6,11 @@ import PowerTargetPopover from "./PowerTargetPopover";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 const mockedUpdateMiningTarget = vi.fn();
+let mockDeviceType = "rig";
+
+vi.mock("@/protoOS/store", () => ({
+  useDeviceType: () => mockDeviceType,
+}));
 
 // Create mock return value that we can modify per test
 let mockReturnValue = {
@@ -33,6 +38,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  mockDeviceType = "rig";
   // Reset mock function
   mockedUpdateMiningTarget.mockClear();
 
@@ -50,6 +56,7 @@ beforeEach(() => {
 
 describe("Power Target Popover", () => {
   it("uses a custom CT1 target when the device reports no bounds or presets", async () => {
+    mockDeviceType = "container";
     mockReturnValue.defaultTarget = undefined;
     mockReturnValue.bounds = undefined;
     mockReturnValue.miningTarget = 400000;
@@ -68,6 +75,30 @@ describe("Power Target Popover", () => {
     await user.type(getByLabelText("Power target"), "410.5");
     await user.click(getByTestId("power-target-apply-button"));
     expect(apply).toHaveBeenCalledWith(expect.objectContaining({ valueWatts: 410500 }));
+  });
+
+  it.each(["0", "0.0001"])("rejects a CT1 target of %s kW without reported bounds", async (value) => {
+    mockDeviceType = "container";
+    mockReturnValue.defaultTarget = undefined;
+    mockReturnValue.bounds = undefined;
+    mockReturnValue.miningTarget = 0;
+    const apply = vi.fn();
+    const user = userEvent.setup();
+    const { getByLabelText, getByTestId, getByText } = render(
+      <PopoverProvider>
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={apply} />
+      </PopoverProvider>,
+    );
+    await user.click(getByTestId("power-target-apply-button"));
+    expect(apply).not.toHaveBeenCalled();
+    expect(getByText("Enter a valid power target.")).toBeInTheDocument();
+    await user.clear(getByLabelText("Power target"));
+    await user.type(getByLabelText("Power target"), value);
+    expect(getByTestId("power-target-apply-button")).toBeDisabled();
+    await user.clear(getByLabelText("Power target"));
+    await user.type(getByLabelText("Power target"), "0.001");
+    await user.click(getByTestId("power-target-apply-button"));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ valueWatts: 1 }));
   });
   it("renders the power target options correctly", () => {
     const { getByText } = render(
