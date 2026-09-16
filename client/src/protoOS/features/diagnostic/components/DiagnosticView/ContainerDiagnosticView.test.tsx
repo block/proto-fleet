@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
+import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
@@ -216,6 +217,40 @@ describe("Container diagnostics", () => {
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
+  });
+
+  test("clears cooling readings when a successful snapshot omits its sensors", () => {
+    const initial = toCanonicalContainer(
+      {},
+      {},
+      {
+        plant: {
+          coolantPumpSpeedHz: 50,
+          pumpInletPressurePa: 194_430,
+          pumpOutletPressurePa: 293_710,
+          heatRejectionInletPressurePa: 194_430,
+          heatRejectionOutletPressurePa: 293_710,
+        },
+      },
+      "ct1",
+    );
+    useMinerStore.getState().hardware.replaceHardware(initial.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(initial.telemetry);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
+    const labels = [
+      "Pump speed",
+      "Pump inlet pressure",
+      "Pump outlet pressure",
+      "Loop inlet pressure",
+      "Loop outlet pressure",
+    ];
+    for (const label of labels) expect(screen.getByText(label).nextElementSibling).not.toHaveTextContent("—");
+    act(() => {
+      useMinerStore.getState().telemetry.mergeTelemetry(toCanonicalContainer({}, {}, {}, "ct1").telemetry);
+    });
+    for (const label of labels) expect(screen.getByText(label).nextElementSibling).toHaveTextContent("—");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   test("refreshes telemetry after saving settings", async () => {
