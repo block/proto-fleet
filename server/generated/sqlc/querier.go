@@ -45,7 +45,7 @@ type Querier interface {
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
 	// Adds late joiners: unbatched, unordered (they sort last) and without a
-	// baseline, so they are judged on version and being online only. Miners
+	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
 	// Move a building to a different site (or to "unassigned" by passing
@@ -334,6 +334,11 @@ type Querier interface {
 	// push the building over its aisles×racks_per_aisle grid. Matches
 	// ListBuildingRacks' filter so the count and the list agree.
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
+	// Both preview counts use one snapshot of the mismatch rule above. A pending
+	// foreign command makes a member mismatched even when it reports the assigned
+	// version and provenance. Suppression excludes dispatch targets, but does not
+	// change whether a member matches the assignment.
+	CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error)
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
 	// Only unfinished work blocks deletion; completed tickets retain historical links.
 	CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error)
@@ -426,6 +431,11 @@ type Querier interface {
 	DeletePool(ctx context.Context, id int64) error
 	DeleteReleaseChannel(ctx context.Context, arg DeleteReleaseChannelParams) (int64, error)
 	DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error
+	// Offline targets keep an offline slot through their retained rollout target
+	// history, so a terminal command no longer needs its reservation row. A live
+	// command can also release after an observed offline/online cycle. Keep that
+	// observation until recovery, and discard fleet-deleted targets immediately.
+	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
 	// True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 	// A device paired to a fleet node is also paired-like (so it reads as paired in
@@ -493,9 +503,11 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
-	// Ends an active rollout as 'completed' or 'completed_with_failures'.
+	// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+	// Recheck the pause under the row lock so stale settled targets cannot complete
+	// work after the operator pauses it. Resuming permits a later tick to finish.
 	// Record the first terminal time after the header lock, bounded by the
-	// rollout's preceding lifecycle events, and clear any active pause.
+	// rollout's preceding lifecycle events.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
@@ -804,6 +816,10 @@ type Querier interface {
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
 	GetReleaseChannel(ctx context.Context, arg GetReleaseChannelParams) (ReleaseChannel, error)
 	GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
+	// Serialize assignment changes before reading any pair, including pairs with
+	// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+	// permits foreign-key checks by concurrent rollout/target inserts.
+	GetReleaseChannelForUpdate(ctx context.Context, arg GetReleaseChannelForUpdateParams) (ReleaseChannel, error)
 	// No row means the org has never chosen a channel; the service layer maps
 	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
 	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
@@ -1144,7 +1160,6 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
-	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
 	// status, latest telemetry within 15 minutes of this statement, open errors
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
@@ -1153,6 +1168,13 @@ type Querier interface {
 	// Existing targets remain tied to their paired device when firmware changes its
 	// reported manufacturer/model: the engine still verifies the update's outcome,
 	// but in_scope must be true before dispatching another compatible update.
+	// The prior deployed version distinguishes a version change from replacing an
+	// artifact with another that reports the same version; the latter requires the
+	// latest dispatch's successful command result before recording new provenance.
+	// Command completion serializes through the provenance row and retains its
+	// exact latest batch identity. That command must also have succeeded for the
+	// same immutable checksum: timestamps and historical file IDs cannot prove
+	// current artifact identity, and missing command history fails closed.
 	// Live health is evidence for the engine's
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1161,6 +1183,12 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
+	// Every historical target can hold an offline slot, regardless of phase or
+	// current membership. Actual command reservations persist until their command
+	// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+	// Fleet deletion releases both. UNION counts a device only once, including
+	// when it was targeted by several rollouts in this channel.
+	ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned. Incremental polls
 	// include the previous cycle's xmin and all later transaction IDs, allowing
@@ -1333,6 +1361,13 @@ type Querier interface {
 	// create's duplicate check: uk_device_collection_org_type_label spans
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
+	// Cancellation and completion cannot revoke a firmware command already sent.
+	// Only load terminal rollouts whose retained dispatch and current completion
+	// witness both succeeded for the artifact, with a matching live report and
+	// provenance that could still be adopted. Resolve the current result directly
+	// by UUID; obsolete history and missing witnesses do not become candidates.
+	// The engine reloads the evidence under the rollout lock before adoption.
+	ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
@@ -1506,6 +1541,12 @@ type Querier interface {
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)
+	// --- Rollout devices ---
+	// Once an outstanding command's target has been seen offline, its reservation
+	// becomes an offline slot. Returning online releases that slot even if command
+	// completion arrives later. This observation survives exclusion, cancellation,
+	// retries and completed rollout history.
+	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -2034,8 +2075,15 @@ type Querier interface {
 	// stays free of any rendering rules.
 	// batch × dev is a deliberate cross-join: both CTEs must return exactly one
 	// row for the INSERT to write. fk_command_on_device_log_device guarantees
-	// device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+	// the device argument exists, and device.discovered_device_id is NOT NULL, so dev
 	// always matches in practice.
+	// A terminal firmware attempt can replace the installed bytes even on failure
+	// (for example installation succeeds but reboot fails). Unknown/manual payloads
+	// must invalidate earlier managed identity too. Keep a timestamped empty row:
+	// its CAS witness prevents a concurrent stale observation from restoring old
+	// provenance after completion, including when no provenance existed before.
+	// The retained batch UUID identifies the latest serialized completion without
+	// relying on clocks from different workers to order command results.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
@@ -2077,7 +2125,9 @@ type Querier interface {
 	UpsertPermission(ctx context.Context, arg UpsertPermissionParams) (Permission, error)
 	// --- Firmware assignments ---
 	// Assigns an artifact to a pair and advances the pair's generation. The
-	// stored key keeps the case it was first written with.
+	// stored key keeps the case it was first written with. assigned_by is the
+	// owning user for enforcement commands, separate from the rollout's audit
+	// actor. Reconciliation and retries retain this assignment's owner.
 	UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
 }

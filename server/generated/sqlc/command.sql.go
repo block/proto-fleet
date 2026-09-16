@@ -317,7 +317,7 @@ func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, uuid string) (
 
 const upsertCommandOnDeviceLog = `-- name: UpsertCommandOnDeviceLog :exec
 WITH batch AS (
-    SELECT id FROM command_batch_log WHERE uuid = $4
+    SELECT id, uuid, type, organization_id FROM command_batch_log WHERE uuid = $1
 ),
 dev AS (
     SELECT
@@ -330,8 +330,8 @@ dev AS (
         d.mac_address   AS mac_address
     FROM device d
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    WHERE d.id = $1
-)
+    WHERE d.id = $2
+), recorded AS (
 INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
@@ -348,9 +348,9 @@ INSERT INTO command_on_device_log (
 )
 SELECT
   batch.id,
-  $1,
   $2,
   $3,
+  $4,
   $5,
   dev.org_id,
   dev.site_id,
@@ -364,13 +364,30 @@ ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
     updated_at = EXCLUDED.updated_at,
     error_info = EXCLUDED.error_info
+RETURNING command_batch_log_id, device_id, org_id, status
+)
+INSERT INTO device_firmware_deployment (
+    device_id, firmware_checksum, firmware_version, rollout_id, deployed_at, last_command_batch_uuid
+)
+SELECT recorded.device_id, '', '', NULL, clock_timestamp(), batch.uuid
+FROM recorded
+JOIN batch ON batch.id = recorded.command_batch_log_id
+WHERE batch.type = 'FirmwareUpdate'
+  AND recorded.status IN ('SUCCESS', 'FAILED')
+  AND (batch.organization_id IS NULL OR batch.organization_id = recorded.org_id)
+ON CONFLICT (device_id) DO UPDATE SET
+    firmware_checksum = '',
+    firmware_version = '',
+    rollout_id = NULL,
+    last_command_batch_uuid = EXCLUDED.last_command_batch_uuid,
+    deployed_at = GREATEST(clock_timestamp(), device_firmware_deployment.deployed_at + INTERVAL '1 microsecond')
 `
 
 type UpsertCommandOnDeviceLogParams struct {
+	Uuid      string
 	DeviceID  int64
 	Status    DeviceCommandStatusEnum
 	UpdatedAt time.Time
-	Uuid      string
 	ErrorInfo sql.NullString
 }
 
@@ -389,14 +406,21 @@ type UpsertCommandOnDeviceLogParams struct {
 // stays free of any rendering rules.
 // batch × dev is a deliberate cross-join: both CTEs must return exactly one
 // row for the INSERT to write. fk_command_on_device_log_device guarantees
-// device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+// the device argument exists, and device.discovered_device_id is NOT NULL, so dev
 // always matches in practice.
+// A terminal firmware attempt can replace the installed bytes even on failure
+// (for example installation succeeds but reboot fails). Unknown/manual payloads
+// must invalidate earlier managed identity too. Keep a timestamped empty row:
+// its CAS witness prevents a concurrent stale observation from restoring old
+// provenance after completion, including when no provenance existed before.
+// The retained batch UUID identifies the latest serialized completion without
+// relying on clocks from different workers to order command results.
 func (q *Queries) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	_, err := q.exec(ctx, q.upsertCommandOnDeviceLogStmt, upsertCommandOnDeviceLog,
+		arg.Uuid,
 		arg.DeviceID,
 		arg.Status,
 		arg.UpdatedAt,
-		arg.Uuid,
 		arg.ErrorInfo,
 	)
 	return err
