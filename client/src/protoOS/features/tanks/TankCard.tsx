@@ -24,6 +24,10 @@ const TankCard = memo(({ tank, topology, label, onViewModule }: Props) => {
   const { minerRoot } = useMinerHosting();
   const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(asEntityKey(tank.id)));
   const telemetry = useMinerStore((state) => state.telemetry.hashboards);
+  const plant = useMinerStore((state) => {
+    const plantId = topology.container.plantComponentIds.find((id) => state.hardware.plant.get(id)?.kind === "plant");
+    return plantId ? state.telemetry.plant.get(plantId) : undefined;
+  });
   const modules = useMemo(() => tankModules(tank, topology), [tank, topology]);
   const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
   const statuses = useMemo(() => {
@@ -74,7 +78,7 @@ const TankCard = memo(({ tank, topology, label, onViewModule }: Props) => {
       ) : null}
       <div className="rounded-2xl border border-border-5 bg-surface-base shadow-100">
         <div className="p-6 laptop:p-11">
-          <TankMetrics rollup={rollup} showCooling />
+          <TankMetrics rollup={rollup} showCooling plant={plant} tankSlot={tank.slot} />
         </div>
         <div className="grid gap-8 border-t border-border-5 p-6 laptop:p-11 desktop:grid-cols-[minmax(0,3fr)_minmax(240px,2fr)] desktop:gap-16">
           {modules.length ? (

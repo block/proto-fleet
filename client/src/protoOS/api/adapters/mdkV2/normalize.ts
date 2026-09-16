@@ -403,19 +403,27 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   };
   const plantId = asComponentId(`${containerId}:plant`);
   const plant = wire.plant;
+  // Missing or invalid sensors in a successful snapshot must clear the previous reading.
+  const tankReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
+    latest: { value: typeof value === "number" && Number.isFinite(value) ? value : null, units },
+  });
   addPlantComponent(plantId, "plant", "Plant", {
     componentId: plantId,
     operatingState: plant?.operatingState,
     powered: plant?.powered,
-    inletTemperature: latest(plant?.inletTemperatureC, "°C"),
+    inletTemperature: tankReading(plant?.inletTemperatureC, "°C"),
     outletTemperature: latest(plant?.outletTemperatureC, "°C"),
+    outletATemperature: tankReading(plant?.outletATemperatureC, "°C"),
+    outletBTemperature: tankReading(plant?.outletBTemperatureC, "°C"),
+    tankALiquidLevel: tankReading(plant?.tankALiquidLevelMm, "mm"),
+    tankBLiquidLevel: tankReading(plant?.tankBLiquidLevelMm, "mm"),
     ambientTemperature: latest(plant?.ambientTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
     facilityPower: latest(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
     pue: latest(plant?.pue, "ratio"),
-    flowRate: latest(plant?.flowRateLpm, "L/min"),
+    flowRate: tankReading(plant?.flowRateLpm, "L/min"),
   });
   for (const phase of wire.phases ?? []) {
     if (!phase.phase) continue;

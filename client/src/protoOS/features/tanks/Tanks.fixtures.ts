@@ -1,4 +1,5 @@
 import {
+  asComponentId,
   asContainerId,
   asDeviceId,
   asEntityKey,
@@ -25,8 +26,9 @@ const commands: CommandCapabilities = {
   passwordManagement: "unsupported",
 };
 
-export const tanksFixture = (tankCount = 2, moduleCount = 16) => {
+export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) => {
   const containerId = asContainerId("container:ct1");
+  const plantId = asComponentId(`${containerId}:plant`);
   const topology: ContainerTopology = {
     kind: "container",
     deviceId: asDeviceId("device:ct1"),
@@ -37,13 +39,24 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16) => {
       tankIds: [],
       controlBoardIds: [],
       fanIds: [],
-      plantComponentIds: [],
+      plantComponentIds: [plantId],
     },
     tanks: new Map(),
     modules: new Map(),
     hashboards: new Map(),
   };
   const telemetry = createEmptyTelemetryState();
+  if (cooling) {
+    telemetry.plant.set(plantId, {
+      componentId: plantId,
+      flowRate: { latest: { value: 1200, units: "L/min" } },
+      inletTemperature: { latest: { value: 35, units: "°C" } },
+      outletATemperature: { latest: { value: 48, units: "°C" } },
+      outletBTemperature: { latest: { value: 42, units: "°C" } },
+      tankALiquidLevel: { latest: { value: 480, units: "mm" } },
+      tankBLiquidLevel: { latest: { value: 460, units: "mm" } },
+    });
+  }
   const rollup: LevelRollup = {
     hashrate: { latest: { value: 24000, units: "TH/s" } },
     power: { latest: { value: 338400, units: "W" } },
@@ -124,7 +137,16 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16) => {
     asics: new Map(),
     psus: new Map(),
     fans: new Map(),
-    plant: new Map(),
+    plant: new Map([
+      [
+        plantId,
+        {
+          ref: { id: plantId, kind: "plant", owner: { kind: "container", id: containerId } },
+          kind: "plant",
+          name: "Plant",
+        },
+      ],
+    ]),
   };
   return { hardware, topology, telemetry };
 };
