@@ -11,13 +11,14 @@ const pool = {
   status: "Active",
   difficulty: 0,
   url: "stratum+tcp://pool.example:3333",
+  username: "ct1.primary-worker",
 };
 describe("Pools statistics view", () => {
   it("shows real zeros, unavailable metrics, correct status, and embedded configuration navigation", () => {
     render(
       <MemoryRouter>
         <PoolStatisticsView
-          pools={[pool, { ...pool, id: asPoolId("pool:2"), name: "Backup", status: "Idle" }]}
+          pools={[pool, { ...pool, id: asPoolId("pool:2"), name: "Backup", status: "Idle", username: undefined }]}
           history={{ byPool: { [pool.id]: { accepted: 0, rejected: 0, partial: false } }, unavailable: [] }}
           duration="24h"
           onDurationChange={vi.fn()}
@@ -30,6 +31,8 @@ describe("Pools statistics view", () => {
     expect(within(primary).getAllByText("0")).toHaveLength(3);
     expect(within(primary).getAllByText("—")).toHaveLength(5);
     expect(screen.getByText("Standby")).toBeInTheDocument();
+    expect(within(primary).getByText("Worker: ct1.primary-worker")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Backup" })).getByText("Worker: —")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Configure pools" })).toHaveAttribute(
       "href",
       "/miners/ct1/settings/mining-pools",

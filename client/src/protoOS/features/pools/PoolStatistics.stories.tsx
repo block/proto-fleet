@@ -9,6 +9,7 @@ const pools = ["Default pool", "Backup 1", "Backup 2"].map((name, index) => ({
   name,
   priority: index,
   url: "mine.ocean.xyz:3334",
+  username: `ct1.worker-${index + 1}`,
   status: index === 0 ? "Active" : "Idle",
   difficulty: 524_300,
 }));

@@ -50,7 +50,7 @@ export function normalizePoolHistory(
     if (bucket.reportingCoverage !== undefined && bucket.reportingCoverage < 1) partial = true;
   }
   if (!Number.isSafeInteger(accepted + rejected)) throw new Error("Pool share counts exceed safe precision");
-  if (!observed) return { partial: false };
+  if (!observed) return { partial };
   return {
     accepted,
     rejected,

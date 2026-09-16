@@ -55,6 +55,7 @@ func TestPermissionsFor(t *testing.T) {
 		{name: "CT1 dry cooler setpoint", method: http.MethodPost, proxyPath: "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", want: []string{authz.PermMinerSetCoolingMode}},
 		{name: "CT1 tank lights", method: http.MethodPost, proxyPath: "/api/v2/power/container/controls/tank_led_light", want: []string{authz.PermMinerBlinkLED}},
 		{name: "CT1 controls read", method: http.MethodGet, proxyPath: "/api/v2/power/container/controls", want: []string{authz.PermMinerRead}},
+		{name: "CT1 pool history read", method: http.MethodGet, proxyPath: "/api/v2/telemetry/shares/history", want: []string{authz.PermMinerRead}},
 		{
 			name:      "read endpoints require miner read",
 			method:    http.MethodGet,
@@ -695,6 +696,7 @@ func TestCT1SettingsPaths(t *testing.T) {
 	for _, endpoint := range []struct{ method, rest string }{
 		{http.MethodGet, "container/map"}, {http.MethodGet, "mining/status"},
 		{http.MethodGet, "telemetry/container"}, {http.MethodGet, "pools/diagnostics"},
+		{http.MethodGet, "telemetry/shares/history"},
 		{http.MethodGet, "hashboards/02:00:00:00:01:01/asics"},
 		{http.MethodPut, "mining/target-power"}, {http.MethodPost, "modules/T1-M01/run-in"},
 		{http.MethodPost, "power/container/controls/coolant_pump"},
@@ -709,6 +711,8 @@ func TestCT1SettingsPaths(t *testing.T) {
 	}
 	for _, endpoint := range []struct{ method, rest string }{
 		{http.MethodPut, "pools/1"}, {http.MethodPost, "pools"}, {http.MethodDelete, "pools/1"},
+		{http.MethodPost, "telemetry/shares/history"}, {http.MethodPut, "telemetry/shares/history"},
+		{http.MethodDelete, "telemetry/shares/history"}, {http.MethodGet, "telemetry/shares/history/extra"},
 		{http.MethodPost, "system/reboot"}, {http.MethodPost, "power/container/main-circuit-breaker"},
 		{http.MethodPost, "power/container/controls/unknown"},
 		{http.MethodDelete, "modules/T1-M01/run-in"}, {http.MethodPost, "modules/T1-M01/extra/run-in"},
@@ -721,6 +725,41 @@ func TestCT1SettingsPaths(t *testing.T) {
 				t.Fatalf("unexpectedly allowed %s %s", endpoint.method, endpoint.rest)
 			}
 		})
+	}
+}
+
+func TestForwardCT1PoolHistory(t *testing.T) {
+	const query = "poolId=2&grouping=SHARE_QUALITY_HISTORY_GROUPING_TOTAL&range.start=2026-09-16T00%3A00%3A00Z&range.end=2026-09-17T00%3A00%3A00Z&bucketSize=BUCKET_SIZE_15M"
+	const body = `{"buckets":[{"time":"2026-09-16T00:00:00Z","accepted":"9","rejected":"1","sampleCount":"1"}]}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/telemetry/shares/history" || r.URL.RawQuery != query {
+			t.Errorf("unexpected upstream request: %s %s", r.Method, r.URL)
+		}
+		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+			t.Error("caller credentials forwarded to CT1")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer upstream.Close()
+
+	h := newForwardTestHandler(t)
+	target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL}
+	src := httptest.NewRequest(http.MethodGet, "/miners/ct1/api/v2/telemetry/shares/history?"+query, nil)
+	src.Header.Set("Authorization", "Bearer fleet-token")
+	src.Header.Set("Cookie", "fleet_session=private")
+	path, ok := proxyPathFor("v2", src.Method, "telemetry/shares/history")
+	if !ok {
+		t.Fatal("pool history must be proxyable")
+	}
+	resp, err := h.forward(context.Background(), src, target, path, nil, requiresMinerAuthentication(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK || string(got) != body {
+		t.Fatalf("history response: status=%d body=%s error=%v", resp.StatusCode, got, err)
 	}
 }
 

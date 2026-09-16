@@ -104,6 +104,7 @@ function PoolSection({
             {status}
           </span>
         </div>
+        <p className="mt-2 text-300 break-all text-text-primary-50">Worker: {pool.username || "—"}</p>
       </div>
       <div className={clsx(active && "rounded-xl bg-core-primary-5 p-4 tablet:p-10")}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-6 desktop:grid-cols-4">

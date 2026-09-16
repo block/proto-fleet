@@ -8,7 +8,9 @@ type PoolCalloutInfo = {
 };
 
 const livePoolStatusPattern = /alive|active/i;
-const miningPoolsRoutePatterns = [
+const poolEmptyStateRoutePatterns = [
+  "/pools",
+  "/miners/:id/pools",
   `/settings/${settingsRouteMetadata.miningPools.path}`,
   `/miners/:id/settings/${settingsRouteMetadata.miningPools.path}`,
 ];
@@ -30,10 +32,10 @@ const hasConfiguredPools = (poolsInfo?: readonly PoolCalloutInfo[]) => {
   return poolsInfo?.some((pool) => !!pool?.url) ?? false;
 };
 
-const isMiningPoolsPath = (pathname: string) => {
+const hasPoolEmptyState = (pathname: string) => {
   const normalizedPathname = normalizePathname(pathname);
 
-  return miningPoolsRoutePatterns.some((path) =>
+  return poolEmptyStateRoutePatterns.some((path) =>
     matchPath({ path, caseSensitive: false, end: true }, normalizedPathname),
   );
 };
@@ -45,6 +47,6 @@ export const getNoPoolsCalloutState = (poolsInfo: readonly PoolCalloutInfo[] | u
   return {
     arePoolsConfigured,
     noPoolsLive,
-    shouldShowNoPoolsCallout: noPoolsLive && !(isMiningPoolsPath(pathname) && !arePoolsConfigured),
+    shouldShowNoPoolsCallout: noPoolsLive && !(hasPoolEmptyState(pathname) && !arePoolsConfigured),
   };
 };

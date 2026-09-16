@@ -12,6 +12,7 @@ test.describe("Container Pools", () => {
     const backup = page.getByRole("region", { name: "Backup 1", exact: true });
     const unused = page.getByRole("region", { name: "Backup 2", exact: true });
     await expect(primary.getByText("Active", { exact: true })).toBeVisible();
+    await expect(primary.getByText("Worker: fake-ct1", { exact: true })).toBeVisible();
     await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
     await expect(backup.getByText("Standby", { exact: true })).toBeVisible();
     await expect(backup.getByText("90.0%", { exact: true })).toBeVisible();
@@ -30,6 +31,17 @@ test.describe("Container Pools", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("link", { name: "Configure pools" }).click();
     await expect(page).toHaveURL(/\/settings\/mining-pools$/);
+  });
+
+  test("shows one empty state when no pools are configured", async ({ page }) => {
+    await page.route("**/api/v2/pools", async (route) => {
+      await route.fulfill({ json: { pools: [] } });
+    });
+    await page.goto("/pools");
+    await expect(page.getByText("No pools configured. Configure a pool to start mining.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Configure pools" })).toHaveCount(1);
+    await expect(page.getByText("No mining pools configured.", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add mining pools" })).toHaveCount(0);
   });
 
   test("keeps other pools usable when one history request fails", async ({ page }) => {

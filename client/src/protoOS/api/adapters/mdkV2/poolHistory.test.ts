@@ -56,6 +56,13 @@ describe("pool history", () => {
     expect(normalizePoolHistory({ buckets: [bucket(0, "9007199254740992", "0")] }, request).accepted).toBeUndefined();
   });
 
+  it.each([{ ...bucket(0, "0", "0"), sampleCount: "0" }, bucket(0, "invalid", "0")])(
+    "preserves partial coverage when no buckets are usable",
+    (unusable) => {
+      expect(normalizePoolHistory({ buckets: [unusable] }, request)).toEqual({ partial: true });
+    },
+  );
+
   it("filters each pool by stable ID and forwards request decoration and cancellation", async () => {
     const query = vi.fn().mockResolvedValue({ data: { buckets: [bucket(0, "9", "1")] } });
     const signal = new AbortController().signal;
