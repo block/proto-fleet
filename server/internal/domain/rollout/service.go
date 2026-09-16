@@ -549,7 +549,8 @@ func (s *Service) rejectOverlap(ctx context.Context, orgID int64, scope Scope, e
 	for _, c := range conflicts[:min(len(conflicts), PreviewListLimit)] {
 		parts = append(parts, fmt.Sprintf("%s (%d miners)", c.ChannelName, c.MinerCount))
 	}
-	return fleeterror.NewFailedPreconditionErrorf("scope overlaps release channel %s", strings.Join(parts, ", "))
+	return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonScopeOverlap},
+		"scope overlaps release channel %s", strings.Join(parts, ", "))
 }
 
 // resolveScope returns every matching conflict relation; preview limits apply

@@ -59,8 +59,12 @@ type Info struct {
 	// SessionID is only populated when AuthMethod == AuthMethodSession.
 	SessionID string
 
-	// APIKeyID is only populated when AuthMethod == AuthMethodAPIKey.
-	APIKeyID string
+	// API key fields are only populated when AuthMethod == AuthMethodAPIKey.
+	// APIKeyID is the public credential identifier; APIKeyDatabaseID and
+	// APIKeyName identify the persisted key for audit actors.
+	APIKeyID         string
+	APIKeyDatabaseID int64
+	APIKeyName       string
 
 	// Common fields, always populated regardless of auth method.
 	UserID         int64

@@ -383,6 +383,12 @@ func TestAuthInterceptor(t *testing.T) {
 		assert.NotZero(t, capturedInfo, "session info should have been captured")
 		assert.Equal(t, session.AuthMethodAPIKey, capturedInfo.AuthMethod)
 		assert.Equal(t, apiKey.KeyID, capturedInfo.APIKeyID)
+		persistedKey, err := serviceProvider.ApiKeyService.Validate(t.Context(), fullKey)
+		assert.NoError(t, err)
+		assert.NotZero(t, persistedKey.ID)
+		assert.Equal(t, persistedKey.ID, capturedInfo.APIKeyDatabaseID)
+		assert.Equal(t, apiKey.Name, capturedInfo.APIKeyName)
+		assert.Equal(t, "apikey:"+apiKey.KeyID, capturedInfo.CredentialID())
 		assert.Equal(t, "", capturedInfo.SessionID)
 		assert.Equal(t, testUser.Username, capturedInfo.Username)
 		assert.Equal(t, testUser.DatabaseID, capturedInfo.UserID)
@@ -432,6 +438,8 @@ func TestAuthInterceptor(t *testing.T) {
 		assert.Equal(t, testUser.OrganizationID, capturedInfo.OrganizationID)
 		assert.NotEqual(t, "", capturedInfo.Role)
 		assert.Equal(t, "", capturedInfo.APIKeyID)
+		assert.Equal(t, int64(0), capturedInfo.APIKeyDatabaseID)
+		assert.Equal(t, "", capturedInfo.APIKeyName)
 	})
 }
 
