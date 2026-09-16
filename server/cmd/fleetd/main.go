@@ -205,6 +205,7 @@ var reflectEnabledServices = []string{
 	instancev1connect.InstanceUpdateServiceName,
 	maintenancev1connect.MaintenanceServiceName,
 	inventoryv1connect.InventoryServiceName,
+	rolloutv1connect.RolloutServiceName,
 }
 
 func start(config *Config) (result error) {
