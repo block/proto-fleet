@@ -262,6 +262,14 @@ export class MdkV2Adapter implements MinerAdapter {
     );
   }
 
+  async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
+    await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
+  }
+
+  async setContainerSetpoint(name: string, value: number, params: AdapterRequestOptions = {}) {
+    await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
+  }
+
   async startModuleRunIn(moduleId: string, request: ModuleRunInRequest, params: AdapterRequestOptions = {}) {
     const { taskId, ...config } = request;
     const response = await this.client.runInServiceStartModuleRunIn(

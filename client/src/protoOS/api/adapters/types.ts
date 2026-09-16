@@ -189,6 +189,8 @@ export interface MinerAdapter {
   stopScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
   setModuleFixedVoltage?(moduleId: string, millivolts: number, params?: AdapterRequestOptions): Promise<void>;
   clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<void>;
+  setContainerControl?(name: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
+  setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,

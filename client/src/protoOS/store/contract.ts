@@ -364,6 +364,22 @@ export interface FanTelemetry {
   health?: HealthState;
 }
 
+export interface ContainerControlTelemetry {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  stateKnown: boolean;
+}
+
+export interface ContainerSetpointTelemetry {
+  name: string;
+  description?: string;
+  value?: number;
+  unit?: string;
+  minimum?: number;
+  maximum?: number;
+}
+
 export interface PlantTelemetry {
   componentId: ComponentId;
   operatingState?: string;
@@ -378,12 +394,20 @@ export interface PlantTelemetry {
   tankALiquidLevel?: MetricTelemetry;
   tankBLiquidLevel?: MetricTelemetry;
   ambientTemperature?: MetricTelemetry;
+  dryCoolerInletTemperature?: MetricTelemetry;
   totalPower?: MetricTelemetry;
   heatRejectionPower?: MetricTelemetry;
   facilityPower?: MetricTelemetry;
   powerFactor?: MetricTelemetry;
   pue?: MetricTelemetry;
   flowRate?: MetricTelemetry;
+  coolantPumpSpeed?: MetricTelemetry;
+  pumpInletPressure?: MetricTelemetry;
+  pumpOutletPressure?: MetricTelemetry;
+  pumpPressureDelta?: MetricTelemetry;
+  heatRejectionInletPressure?: MetricTelemetry;
+  heatRejectionOutletPressure?: MetricTelemetry;
+  heatRejectionPressureDelta?: MetricTelemetry;
   voltage?: MetricTelemetry;
   current?: MetricTelemetry;
   voltageAb?: MetricTelemetry;
@@ -393,6 +417,13 @@ export interface PlantTelemetry {
   currentB?: MetricTelemetry;
   currentC?: MetricTelemetry;
   activeEnergy?: MetricTelemetry;
+  coolantPumpActive?: boolean;
+  heatRejectionActive?: boolean;
+  alarmActive?: boolean;
+  criticalAlarmActive?: boolean;
+  buzzerActive?: boolean;
+  controls?: ContainerControlTelemetry[];
+  setpoints?: ContainerSetpointTelemetry[];
 }
 
 export type CoolingMode = "unknown" | "off" | "automatic" | "manual";
