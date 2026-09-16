@@ -17,6 +17,7 @@ type poolShareBucket struct {
 type poolShareHistoryResponse struct {
 	Buckets  []poolShareBucket `json:"buckets"`
 	Grouping string            `json:"grouping"`
+	Source   string            `json:"source"`
 }
 
 // handlePoolShareHistory supplies deterministic demonstration history for the
@@ -43,17 +44,18 @@ func (h *RESTApiHandler) handlePoolShareHistory(w http.ResponseWriter, r *http.R
 	start, startErr := time.Parse(time.RFC3339Nano, query.Get("range.start"))
 	end, endErr := time.Parse(time.RFC3339Nano, query.Get("range.end"))
 	interval := map[string]time.Duration{
-		"BUCKET_SIZE_1M":  time.Minute,
-		"BUCKET_SIZE_5M":  5 * time.Minute,
-		"BUCKET_SIZE_15M": 15 * time.Minute,
-		"BUCKET_SIZE_1H":  time.Hour,
-		"BUCKET_SIZE_1D":  24 * time.Hour,
+		"BUCKET_SIZE_1H": time.Hour,
+		"BUCKET_SIZE_1D": 24 * time.Hour,
 	}[query.Get("bucketSize")]
 	if startErr != nil || endErr != nil || !end.After(start) || interval == 0 || end.Sub(start) > 7*24*time.Hour {
 		writeError(w, http.StatusBadRequest, "invalid share history range or interval (maximum seven days)")
 		return
 	}
-	response := poolShareHistoryResponse{Buckets: []poolShareBucket{}, Grouping: query.Get("grouping")}
+	if !start.Equal(start.Truncate(interval)) || !end.Equal(end.Truncate(interval)) {
+		writeError(w, http.StatusBadRequest, "share history range must align to hour/day bucket boundaries")
+		return
+	}
+	response := poolShareHistoryResponse{Buckets: []poolShareBucket{}, Grouping: query.Get("grouping"), Source: "HISTORY_SOURCE_HOURLY"}
 	for at := start; at.Before(end); at = at.Add(interval) {
 		minutes := int64(min(interval, end.Sub(at)) / time.Minute)
 		response.Buckets = append(response.Buckets, poolShareBucket{

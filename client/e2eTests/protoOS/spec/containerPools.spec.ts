@@ -26,6 +26,9 @@ test.describe("Container Pools", () => {
     await page.getByRole("button", { name: "48h", exact: true }).click();
     const query = new URL((await historyRequest).url()).searchParams;
     expect(Date.parse(query.get("range.end")!) - Date.parse(query.get("range.start")!)).toBe(48 * 3_600_000);
+    expect(query.get("bucketSize")).toBe("BUCKET_SIZE_1H");
+    expect(Date.parse(query.get("range.start")!) % 3_600_000).toBe(0);
+    expect(Date.parse(query.get("range.end")!) % 3_600_000).toBe(0);
     await expect(page.getByRole("button", { name: "48h", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(primary.getByText("282.2K", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -57,5 +60,25 @@ test.describe("Container Pools", () => {
     await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("98.0%");
     await expect(page.getByRole("region", { name: "Backup 2" }).getByText("0", { exact: true })).toHaveCount(2);
     await expect(page.getByRole("link", { name: "Configure pools" })).toBeVisible();
+  });
+
+  test("retains history through a total outage and clears the warning after recovery", async ({ page }) => {
+    await page.clock.install();
+    await page.goto("/pools");
+    const primary = page.getByRole("region", { name: "Primary", exact: true });
+    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    let outage = true;
+    await page.route("**/api/v2/telemetry/shares/history?**", async (route) => {
+      if (outage) await route.fulfill({ status: 503, json: { message: "Unavailable" } });
+      else await route.continue();
+    });
+    await page.clock.fastForward(31_000);
+    await expect(page.getByRole("alert")).toContainText("out of date");
+    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    await expect(page.getByText("Share history unavailable.")).toHaveCount(0);
+    outage = false;
+    await page.clock.fastForward(31_000);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
   });
 });

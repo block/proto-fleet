@@ -9,10 +9,8 @@ import type { MdkV2Client } from "./MdkV2Adapter";
 import { isAbortError } from "@/shared/utils/abort";
 
 const bucketSizes: Record<number, TelemetryServiceQueryShareQualityHistoryParams["bucketSize"]> = {
-  60_000: "BUCKET_SIZE_1M",
-  300_000: "BUCKET_SIZE_5M",
-  900_000: "BUCKET_SIZE_15M",
   3_600_000: "BUCKET_SIZE_1H",
+  86_400_000: "BUCKET_SIZE_1D",
 };
 
 const count = (value: string | undefined) => {
@@ -36,6 +34,7 @@ export function normalizePoolHistory(
     const time = Date.parse(bucket.time ?? "");
     // Only count buckets inside the requested half-open window, once each.
     if (!Number.isFinite(time) || time < start || time >= end) continue;
+    if (time % request.intervalMs !== 0) throw new Error("Unaligned pool history bucket");
     if (times.has(time)) throw new Error("Duplicate pool history bucket");
     times.add(time);
     const yes = count(bucket.accepted);
@@ -55,7 +54,10 @@ export function normalizePoolHistory(
     accepted,
     rejected,
     acceptanceRate: accepted + rejected > 0 ? accepted / (accepted + rejected) : undefined,
-    partial: partial || observed < Math.ceil((end - start) / request.intervalMs),
+    // Frigate's indefinite share-history endpoint accepts only aligned hourly
+    // or daily requests and aggregates its retained hourly rows into that grid.
+    // Its shared HistorySource enum does not imply mixed resolution here.
+    partial: partial || observed < (end - start) / request.intervalMs,
   };
 }
 
@@ -67,41 +69,57 @@ export async function queryPoolHistory(
   const start = Date.parse(request.startTime);
   const end = Date.parse(request.endTime);
   const bucketSize = bucketSizes[request.intervalMs];
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || !bucketSize)
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    end <= start ||
+    !bucketSize ||
+    start % request.intervalMs !== 0 ||
+    end % request.intervalMs !== 0
+  )
     throw new Error("Invalid pool history range or interval");
   const byPool: PoolHistoryResult["byPool"] = {};
   const unavailable: PoolHistoryResult["unavailable"] = [];
-  await mapWithConcurrency(
-    [...new Set(request.poolIds)],
-    3,
-    async (id) => {
-      const wireId = id.replace(/^pool:/, "");
-      const poolId = /^\d+$/.test(wireId) ? Number(wireId) : NaN;
-      // The history filter is int32, although configured IDs are int64 strings.
-      if (!Number.isInteger(poolId) || poolId <= 0 || poolId > 2_147_483_647) {
-        unavailable.push(id);
+  let fatal: { error: unknown } | undefined;
+  let transientFailure = false;
+  await mapWithConcurrency([...new Set(request.poolIds)], 3, async (id) => {
+    // Stop starting work after an auth failure, but drain the requests already
+    // in flight before rejecting so a token-refresh retry cannot overlap them.
+    if (fatal || params.signal?.aborted) return;
+    const wireId = id.replace(/^pool:/, "");
+    const poolId = /^\d+$/.test(wireId) ? Number(wireId) : NaN;
+    // The history filter is int32, although configured IDs are int64 strings.
+    if (!Number.isInteger(poolId) || poolId <= 0 || poolId > 2_147_483_647) {
+      unavailable.push(id);
+      return;
+    }
+    try {
+      const { data } = await client.telemetryServiceQueryShareQualityHistory(
+        {
+          "range.start": request.startTime,
+          "range.end": request.endTime,
+          bucketSize,
+          // Explicit filtering avoids joining statistics by mutable/nonunique pool names.
+          poolId,
+          grouping: "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
+        },
+        params,
+      );
+      byPool[id] = normalizePoolHistory(data, request);
+    } catch (error) {
+      const status = (error as { status?: number })?.status;
+      if (params.signal?.aborted || isAbortError(error) || status === 401 || status === 403) {
+        fatal ??= { error };
         return;
       }
-      try {
-        const { data } = await client.telemetryServiceQueryShareQualityHistory(
-          {
-            "range.start": request.startTime,
-            "range.end": request.endTime,
-            bucketSize,
-            // Explicit filtering avoids joining statistics by mutable/nonunique pool names.
-            poolId,
-            grouping: "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
-          },
-          params,
-        );
-        byPool[id] = normalizePoolHistory(data, request);
-      } catch (error) {
-        const status = (error as { status?: number })?.status;
-        if (params.signal?.aborted || isAbortError(error) || status === 401 || status === 403) throw error;
-        unavailable.push(id);
-      }
-    },
-    params.signal ?? undefined,
-  );
+      if (status !== 404 && status !== 405 && status !== 501) transientFailure = true;
+      unavailable.push(id);
+    }
+  });
+  params.signal?.throwIfAborted();
+  if (fatal) throw fatal.error;
+  // Unsupported firmware/IDs stay unavailable. An outage must reach the hook's
+  // error path so it retains the last successful snapshot and labels it stale.
+  if (transientFailure && Object.keys(byPool).length === 0) throw new Error("Could not refresh any pool history");
   return { byPool, unavailable };
 }

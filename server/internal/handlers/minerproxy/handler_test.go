@@ -729,7 +729,7 @@ func TestCT1SettingsPaths(t *testing.T) {
 }
 
 func TestForwardCT1PoolHistory(t *testing.T) {
-	const query = "poolId=2&grouping=SHARE_QUALITY_HISTORY_GROUPING_TOTAL&range.start=2026-09-16T00%3A00%3A00Z&range.end=2026-09-17T00%3A00%3A00Z&bucketSize=BUCKET_SIZE_15M"
+	const query = "poolId=2&grouping=SHARE_QUALITY_HISTORY_GROUPING_TOTAL&range.start=2026-09-16T00%3A00%3A00Z&range.end=2026-09-17T00%3A00%3A00Z&bucketSize=BUCKET_SIZE_1H"
 	const body = `{"buckets":[{"time":"2026-09-16T00:00:00Z","accepted":"9","rejected":"1","sampleCount":"1"}]}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/telemetry/shares/history" || r.URL.RawQuery != query {

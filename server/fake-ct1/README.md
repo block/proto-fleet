@@ -37,7 +37,7 @@ apply a small random variation so values look realistic.
 | POST | `/api/v2/mining/start` · `/stop` | container-wide mining intent |
 | GET/PUT | `/api/v2/mining/target-power` | read/set miner-wide per-board power target |
 | GET | `/api/v2/pools` · `/pools/diagnostics` | primary pool plus two standby backups and live connection state |
-| GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, up to seven days |
+| GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
 | GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
 | GET | `/api/v2/telemetry/timeseries` | bucketed aggregate or identifier-scoped hashrate, power, or temperature |
 | GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
@@ -57,6 +57,12 @@ fixtures provide 98 accepted / 2 rejected per minute for Primary, 9 accepted /
 1 rejected for Backup 1 (illustrating earlier failover activity), and observed
 zero shares for Backup 2. These deterministic samples do not reconstruct live
 mining or failover events; stopping mining changes diagnostics, not history.
+
+Share-history range validation follows Frigate's
+[`validateIndefiniteHistoryRange`](https://github.com/btc-mining/frigate/blob/5225b5fa64f8d81d95329dcd5bbd6b9c70005198/pkg/api/telemetry_service.go):
+only one-hour or one-day buckets with aligned start/end timestamps are accepted.
+The response reports `HISTORY_SOURCE_HOURLY`; the retained hourly data is
+aggregated onto the requested grid, not returned at a mixed resolution.
 
 ## Usage
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type PoolDuration, usePoolStatistics } from "./usePoolStatistics";
 import type { PoolHistoryResult } from "@/protoOS/api/adapters/poolHistory";
 import { asPoolId } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const mocks = vi.hoisted(() => ({ adapter: { getPools: vi.fn(), getPoolHistory: vi.fn() } }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
@@ -25,7 +26,8 @@ describe("pool statistics lifecycle", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
     vi.resetAllMocks();
-    mocks.adapter.getPools.mockResolvedValue([{ id: asPoolId("pool:1"), name: "Primary", priority: 0 }]);
+    useMinerStore.getState().resetDeviceData();
+    useMinerStore.getState().pools.setPoolsInfo([{ id: asPoolId("pool:1"), name: "Primary", priority: 0 }]);
   });
   afterEach(() => vi.useRealTimers());
 
@@ -41,6 +43,52 @@ describe("pool statistics lifecycle", () => {
     await act(async () => {});
     const query = mocks.adapter.getPoolHistory.mock.calls[0][0];
     expect(Date.parse(query.endTime) - Date.parse(query.startTime)).toBe(hours * 3_600_000);
+    expect(query.intervalMs).toBe(3_600_000);
+    expect(Date.parse(query.startTime) % 3_600_000).toBe(0);
+    expect(Date.parse(query.endTime) % 3_600_000).toBe(0);
+    expect(mocks.adapter.getPools).not.toHaveBeenCalled();
+  });
+
+  it("waits for shared pools and updates live diagnostics without restarting history", async () => {
+    useMinerStore.getState().pools.setPoolsInfo(undefined);
+    const pending = deferred();
+    mocks.adapter.getPoolHistory.mockReturnValue(pending.promise);
+    const { result } = renderHook(() => usePoolStatistics("1h"));
+    await act(async () => {});
+    expect(result.current.pending).toBe(true);
+    expect(mocks.adapter.getPoolHistory).not.toHaveBeenCalled();
+    const pool = { id: asPoolId("pool:1"), name: "Primary", priority: 0, status: "Active" };
+    await act(async () => useMinerStore.getState().pools.setPoolsInfo([pool]));
+    const signal = mocks.adapter.getPoolHistory.mock.calls[0][1].signal;
+    await act(async () => useMinerStore.getState().pools.setPoolsInfo([{ ...pool, status: "Idle" }]));
+    expect(result.current.pools?.[0].status).toBe("Idle");
+    expect(signal.aborted).toBe(false);
+    expect(mocks.adapter.getPoolHistory).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(history(10)));
+    expect(result.current.history).toEqual(history(10));
+    expect(mocks.adapter.getPools).not.toHaveBeenCalled();
+  });
+
+  it("cancels old pool selections and miner snapshots", async () => {
+    const pending = deferred();
+    mocks.adapter.getPoolHistory.mockReturnValue(pending.promise);
+    const { result, rerender } = renderHook(() => usePoolStatistics("1h"));
+    await act(async () => {});
+    const firstSignal = mocks.adapter.getPoolHistory.mock.calls[0][1].signal;
+    await act(async () => useMinerStore.getState().pools.setPoolsInfo([{ id: asPoolId("pool:2"), priority: 0 }]));
+    expect(firstSignal.aborted).toBe(true);
+    expect(mocks.adapter.getPoolHistory.mock.calls[1][0].poolIds).toEqual(["pool:2"]);
+    const secondSignal = mocks.adapter.getPoolHistory.mock.calls[1][1].signal;
+    mocks.adapter = { getPools: vi.fn(), getPoolHistory: vi.fn().mockResolvedValue(history(99)) };
+    act(() => useMinerStore.getState().resetDeviceData());
+    rerender();
+    expect(secondSignal.aborted).toBe(true);
+    expect(result.current.pools).toBeUndefined();
+    await act(async () => pending.resolve(history(10)));
+    expect(result.current.history).toBeUndefined();
+    expect(mocks.adapter.getPoolHistory).not.toHaveBeenCalled();
+    await act(async () => useMinerStore.getState().pools.setPoolsInfo([{ id: asPoolId("pool:1"), priority: 0 }]));
+    expect(result.current.history).toEqual(history(99));
   });
 
   it("aborts old ranges, ignores late responses, and stops polling on unmount", async () => {
