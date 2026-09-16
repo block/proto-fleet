@@ -76,27 +76,38 @@ func (s *Service) EnforceTick(ctx context.Context) {
 }
 
 // prepareRollout reconciles membership, provenance and convergence together,
-// so this logical change advances the rollout's revision once.
+// so this logical change advances the rollout's revision once. A terminal
+// rollout returns nil: a stale active-row scan must not rewrite its history.
 func (s *Service) prepareRollout(ctx context.Context, r sqlc.FirmwareRollout) ([]target, error) {
 	var targets []target
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		var err error
-		targets, err = s.syncMembership(ctx, r)
+		targets = nil
+		if _, err := s.store.GetQueries(ctx).GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: r.ChannelID, OrgID: r.OrgID}); err != nil {
+			return channelLookupError(r.ChannelID, err)
+		}
+		current, _, err := s.lockRollout(ctx, r.OrgID, r.ID, 0)
 		if err != nil {
 			return err
 		}
-		targets, err = s.recordProvenance(ctx, r, targets)
+		if current.Status != StatusActive {
+			return nil
+		}
+		targets, err = s.syncMembership(ctx, current)
 		if err != nil {
 			return err
 		}
-		targets, err = s.recordConvergence(ctx, r, targets)
+		targets, err = s.recordProvenance(ctx, current, targets)
+		if err != nil {
+			return err
+		}
+		targets, err = s.recordConvergence(ctx, current, targets)
+		if err == nil && targets == nil {
+			targets = []target{}
+		}
 		return err
 	})
 	if err != nil {
 		return nil, err
-	}
-	if targets == nil {
-		targets = []target{}
 	}
 	return targets, nil
 }
@@ -199,7 +210,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 			if err != nil || r == nil {
 				return err
 			}
-			s.logRolloutEvent(ctx, *r, "", EventRolloutStarted, true, map[string]any{"reconciliation": true})
+			s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, true, map[string]any{"reconciliation": true})
 			return nil
 		})
 		if err != nil {
@@ -218,90 +229,118 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 	if r.PausedAt.Valid {
 		return nil
 	}
-	scope := reviewScope(r, targets)
-	behavior := behaviorFromRollout(r)
-
-	// A current-batch target that drifted or returned to scope must converge
-	// again before its review or between-batch wait can proceed. Re-entering
-	// the batch also restarts stabilization after it verifies again.
-	if (r.Stage == StageAwaitingReview || r.Stage == StageWaiting) && !allSettled(scope, r) {
-		if err := s.transition(ctx, &r, r.Stage, StageBatch, nil); err != nil {
+	// Dispatch owns its non-retryable transaction and refreshes targets under
+	// lock. Preparation is only a hint about whether a send may be needed.
+	if (r.Stage == StageBatch || r.Stage == StageRest) && !allSettled(reviewScope(r, targets), r) {
+		halted, err := s.dispatchUpdates(ctx, r)
+		if err != nil || halted == 0 {
 			return err
 		}
 	}
+	reopened, err := s.advanceRolloutProgress(ctx, r, channelName)
+	if err != nil || reopened == nil {
+		return err
+	}
+	// Drift reopening a review/wait stage can dispatch in the same tick,
+	// after the progress transaction commits and releases its header lock.
+	halted, err := s.dispatchUpdates(ctx, *reopened)
+	if err != nil || halted == 0 {
+		return err
+	}
+	_, err = s.advanceRolloutProgress(ctx, *reopened, channelName)
+	return err
+}
 
-	// Stages that update miners: dispatch first, and if that failed the last
-	// outstanding miner, fall through to settle the stage in the same tick.
-	if r.Stage == StageBatch || r.Stage == StageRest {
+// advanceRolloutProgress serializes settlement with retry, cancellation and
+// preparation. Every decision uses fresh targets while holding the header lock;
+// an old all-settled snapshot cannot finish or advance newly queued work.
+// It returns a reopened batch that may need dispatch outside this transaction.
+func (s *Service) advanceRolloutProgress(ctx context.Context, observed sqlc.FirmwareRollout, channelName string) (*sqlc.FirmwareRollout, error) {
+	var reopened *sqlc.FirmwareRollout
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		reopened = nil
+		r, _, err := s.lockRollout(ctx, observed.OrgID, observed.ID, 0)
+		if err != nil {
+			return err
+		}
+		if r.Status != StatusActive || r.PausedAt.Valid {
+			return nil
+		}
+		if r.Stage != observed.Stage || r.CurrentBatch != observed.CurrentBatch ||
+			!r.StageChangedAt.Equal(observed.StageChangedAt) || r.StagePausedMicroseconds != observed.StagePausedMicroseconds {
+			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonNotAtGate}, "rollout %d changed or was paused before its stage could advance", r.ID)
+		}
+		targets, err := s.listTargets(ctx, r)
+		if err != nil {
+			return err
+		}
+		scope := reviewScope(r, targets)
 		if !allSettled(scope, r) {
-			halted, err := s.dispatchUpdates(ctx, r)
-			if err != nil || halted == 0 {
-				return err
+			if r.Stage == StageAwaitingReview || r.Stage == StageWaiting {
+				if err := s.transition(ctx, &r, r.Stage, StageBatch, nil); err != nil {
+					return err
+				}
+				reopened = &r
 			}
-			targets, err = s.listTargets(ctx, r)
-			if err != nil {
-				return err
+			return nil
+		}
+		behavior := behaviorFromRollout(r)
+		switch r.Stage {
+		case StageBatch:
+			if behavior.gatesAfterBatch() {
+				return s.transition(ctx, &r, StageBatch, StageAwaitingReview, func() {
+					s.logRolloutEvent(ctx, r, channelName, EventRolloutReviewReady, true, map[string]any{
+						"batch": r.CurrentBatch + 1, "batch_count": r.BatchCount,
+					})
+				})
 			}
-			if scope = reviewScope(r, targets); !allSettled(scope, r) {
+			if behavior.WaitBetweenBatchesSeconds > 0 {
+				return s.transition(ctx, &r, StageBatch, StageWaiting, nil)
+			}
+			return s.advance(ctx, &r, StageBatch, nil)
+
+		case StageAwaitingReview:
+			if !r.BehaviorSnapshot.AutoContinue {
 				return nil
 			}
-		}
-	}
+			ev := s.evaluate(r, scope)
+			if !ev.ReadyToAdvance {
+				return nil
+			}
+			if err := s.advance(ctx, &r, StageAwaitingReview, nil); err != nil {
+				return err
+			}
+			extra := map[string]any{"auto_continued": true}
+			if ev.HashrateChangePercent != nil {
+				extra["hashrate_change_percent"] = *ev.HashrateChangePercent
+			}
+			s.logRolloutEvent(ctx, r, channelName, EventRolloutContinued, true, extra)
+			return nil
 
-	switch r.Stage {
-	case StageBatch:
-		if behavior.gatesAfterBatch() {
-			return s.transition(ctx, &r, StageBatch, StageAwaitingReview, func() {
-				s.logRolloutEvent(ctx, r, channelName, EventRolloutReviewReady, true, map[string]any{
-					"batch": r.CurrentBatch + 1, "batch_count": r.BatchCount,
-				})
-			})
-		}
-		if behavior.WaitBetweenBatchesSeconds > 0 {
-			return s.transition(ctx, &r, StageBatch, StageWaiting, nil)
-		}
-		return s.advance(ctx, &r, StageBatch, nil)
+		case StageWaiting:
+			wait := time.Duration(behavior.WaitBetweenBatchesSeconds) * time.Second
+			if s.stageElapsed(r) < wait {
+				return nil
+			}
+			return s.advance(ctx, &r, StageWaiting, nil)
 
-	case StageAwaitingReview:
-		if !r.BehaviorSnapshot.AutoContinue {
+		default:
+			status, event := StatusCompleted, EventRolloutCompleted
+			if anyFailed(scope) {
+				status, event = StatusCompletedWithFailures, EventRolloutCompletedWithFailures
+			}
+			n, err := s.store.GetQueries(ctx).FinishFirmwareRollout(ctx, sqlc.FinishFirmwareRolloutParams{RolloutID: r.ID, Status: status})
+			if err != nil {
+				return fleeterror.NewInternalErrorf("finish rollout: %w", err)
+			}
+			if n > 0 {
+				r.Status = status
+				s.logRolloutEvent(ctx, r, channelName, event, true, map[string]any{"failed": countFailed(scope)})
+			}
 			return nil
 		}
-		ev := s.evaluate(r, scope)
-		if !ev.ReadyToAdvance {
-			return nil
-		}
-		if err := s.advance(ctx, &r, StageAwaitingReview, nil); err != nil {
-			return err
-		}
-		extra := map[string]any{"auto_continued": true}
-		if ev.HashrateChangePercent != nil {
-			extra["hashrate_change_percent"] = *ev.HashrateChangePercent
-		}
-		s.logRolloutEvent(ctx, r, channelName, EventRolloutContinued, true, extra)
-		return nil
-
-	case StageWaiting:
-		wait := time.Duration(behavior.WaitBetweenBatchesSeconds) * time.Second
-		if s.stageElapsed(r) < wait {
-			return nil
-		}
-		return s.advance(ctx, &r, StageWaiting, nil)
-
-	default:
-		status, event := StatusCompleted, EventRolloutCompleted
-		if anyFailed(scope) {
-			status, event = StatusCompletedWithFailures, EventRolloutCompletedWithFailures
-		}
-		n, err := s.store.GetQueries(ctx).FinishFirmwareRollout(ctx, sqlc.FinishFirmwareRolloutParams{RolloutID: r.ID, Status: status})
-		if err != nil {
-			return fleeterror.NewInternalErrorf("finish rollout: %w", err)
-		}
-		if n > 0 {
-			r.Status = status
-			s.logRolloutEvent(ctx, r, channelName, event, true, map[string]any{"failed": countFailed(scope)})
-		}
-		return nil
-	}
+	})
+	return reopened, err
 }
 
 // transition moves a rollout between stages of the same batch (batch ->
@@ -418,10 +457,10 @@ func (s *Service) excludeDepartedTargets(ctx context.Context, r sqlc.FirmwareRol
 // command still outstanding waits: its report predates that command. The write
 // compares the observed provenance atomically so a stale read cannot replace a
 // concurrent deployment. Returns refreshed targets after attempting the write.
-// Replacing same-version provenance or accepting a reported pair change also
-// requires the exact dispatch's durable successful result: another artifact may
-// report the same version, so queuing or failing the assigned update cannot
-// prove that artifact was installed, even when the pair is unchanged.
+// Establishing missing provenance, replacing same-version provenance or accepting
+// a reported pair change requires the exact dispatch's durable successful result:
+// another artifact may report the same version, so queuing or failing the assigned
+// update cannot prove that artifact was installed, even when the pair is unchanged.
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var deployed []int64
 	var expectedPresent []bool
@@ -429,7 +468,7 @@ func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, 
 	var expectedChecksums []string
 	for _, t := range targets {
 		if !t.excluded() && !t.halted() && t.LastDispatchedAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
-			(t.LastDispatchSucceeded || (t.InScope.Valid && t.InScope.Bool &&
+			(t.LastDispatchSucceeded || (t.InScope.Valid && t.InScope.Bool && t.LastDeployedAt.Valid &&
 				t.LastDeployedFirmwareVersion != r.FirmwareVersion)) &&
 			(!t.LastDeployedAt.Valid || !t.LastDeployedAt.Time.After(t.LastDispatchedAt.Time)) &&
 			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {

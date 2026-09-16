@@ -3,9 +3,11 @@ package rollout
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
 
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -30,10 +32,14 @@ func (d *ownerAuditDispatcher) FirmwareUpdateArtifact(ctx context.Context, selec
 	require.NoError(d.t, err)
 	require.Equal(d.t, session.ActorRolloutEnforcement, info.Actor)
 	batchID := id.GenerateID()
-	_, err = sqlc.New(d.f.conn).CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+	payload, err := json.Marshal(map[string]string{"firmware_checksum": checksum})
+	require.NoError(d.t, err)
+	q := sqlc.New(d.f.conn)
+	_, err = q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 		Uuid: batchID, Type: "FirmwareUpdate", CreatedBy: info.UserID,
 		CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING,
 		DevicesCount:   int32(len(selector.GetIncludeDevices().GetDeviceIdentifiers())), // #nosec G115 -- bounded test fleet
+		Payload:        pqtype.NullRawMessage{RawMessage: payload, Valid: true},
 		OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
 	})
 	if err != nil {
@@ -42,6 +48,14 @@ func (d *ownerAuditDispatcher) FirmwareUpdateArtifact(ctx context.Context, selec
 	result, err := d.f.dispatcher.FirmwareUpdateArtifact(ctx, selector, checksum, metadata)
 	if result != nil {
 		result.BatchIdentifier = batchID
+	}
+	if err == nil && result != nil {
+		for _, identifier := range result.DispatchedDeviceIdentifiers {
+			require.NoError(d.t, q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
+				DeviceID: d.f.deviceIDs[identifier], Status: sqlc.DeviceCommandStatusEnumSUCCESS,
+				UpdatedAt: time.Now(), Uuid: batchID,
+			}))
+		}
 	}
 	return result, err
 }

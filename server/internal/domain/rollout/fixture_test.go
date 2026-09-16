@@ -132,7 +132,10 @@ type fixture struct {
 
 // newFixture provisions an org and miners named miner-0..n-1 (Proto Rig,
 // firmware 1.0.0, status ACTIVE, hashing 100 H/s). The service clock is
-// frozen and advanced with advanceClock. Call channel to create a channel.
+// frozen and advanced with advanceClock. Its dispatcher records successful
+// command execution immediately; tests still control the subsequent telemetry.
+// Use an explicit controlled dispatcher to test pending or failed commands.
+// Call channel to create a channel.
 func newFixture(t *testing.T, minerCount int) *fixture {
 	t.Helper()
 	if testing.Short() || os.Getenv("DB_PASSWORD") == "" {
@@ -147,6 +150,10 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 		VALUES ('rollout-test-org', 'Rollout test org')
 		RETURNING id
 	`).Scan(&orgID))
+	var ownerID int64
+	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO "user" (user_id, username, password_hash)
+		VALUES ('rollout-test-operator', 'rollout-test-operator', 'test') RETURNING id`).Scan(&ownerID))
+	require.EqualValues(t, testActor.ID, ownerID)
 
 	f := &fixture{
 		conn:       conn,
@@ -161,7 +168,7 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 		f.addMiner(t, fmt.Sprintf("miner-%d", i), "Rig")
 	}
 	queries := sqlstores.NewSQLConnectionManager(conn)
-	f.svc = NewService(&queries, sqlstores.NewSQLTransactor(conn), f.dispatcher, f.files, f.activity)
+	f.svc = NewService(&queries, sqlstores.NewSQLTransactor(conn), &successfulFixtureDispatcher{f: f}, f.files, f.activity)
 	f.svc.now = func() time.Time { return f.clock }
 	return f
 }

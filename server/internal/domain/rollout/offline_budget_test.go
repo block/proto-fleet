@@ -30,7 +30,9 @@ func (d *queuedBudgetDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 	if err != nil {
 		return nil, err
 	}
-	result.BatchIdentifier = fmt.Sprintf("00000000-0000-0000-0000-%012d", len(d.f.dispatcher.sent))
+	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, sqlc.BatchStatusEnumPENDING); err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(map[string]string{"firmware_checksum": checksum})
 	if err != nil {
 		return nil, fmt.Errorf("marshal queued firmware payload: %w", err)
@@ -49,7 +51,17 @@ func (d *queuedBudgetDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 
 func (f *fixture) finishQueuedBudgetCommand(t *testing.T, identifier, status string) {
 	t.Helper()
-	_, err := f.conn.ExecContext(t.Context(), `UPDATE queue_message SET status = $1::queue_status_enum WHERE device_id = $2`, status, f.deviceIDs[identifier])
+	// The worker commits terminal queue status and the matching device result
+	// together. Pending/processing commands must not acquire a terminal result.
+	_, err := f.conn.ExecContext(t.Context(), `WITH finished AS (
+		UPDATE queue_message SET status = $1::queue_status_enum WHERE device_id = $2
+		RETURNING command_batch_log_uuid, device_id, status
+	)
+	INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, org_id)
+	SELECT DISTINCT batch.id, finished.device_id, finished.status::text::device_command_status_enum, batch.organization_id
+	FROM finished JOIN command_batch_log batch ON batch.uuid = finished.command_batch_log_uuid
+	WHERE finished.status IN ('SUCCESS', 'FAILED')
+	ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET status = EXCLUDED.status`, status, f.deviceIDs[identifier])
 	require.NoError(t, err)
 }
 
@@ -134,6 +146,16 @@ func TestTerminalRolloutKeepsReservationUntilRelease(t *testing.T) {
 			f.files.artifacts["fw-other"] = files.FirmwareArtifact{
 				FileID: "fw-other", Checksum: checksum1,
 				Metadata: files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Other", FirmwareVersion: "3.0.0"},
+			}
+			if end == "completed" {
+				// A known prior deployment lets the reported version transition
+				// prove convergence while the own command remains pending. Its
+				// reservation must still survive the completed rollout.
+				f.setReportedVersion(t, "miner-0", "1.5.0")
+				_, err := f.conn.ExecContext(t.Context(), `INSERT INTO device_firmware_deployment
+					(device_id, firmware_checksum, firmware_version, deployed_at)
+					VALUES ($1, $2, '1.5.0', now() - INTERVAL '1 hour')`, f.deviceIDs["miner-0"], checksum1)
+				require.NoError(t, err)
 			}
 			f.channel(t, Behavior{Method: MethodAllAtOnce, MaxConcurrentOffline: 1}, f.allMiners()...)
 			started := f.apply(t, "fw-2")
