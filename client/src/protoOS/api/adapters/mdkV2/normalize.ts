@@ -418,6 +418,8 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     tankALiquidLevel: sensorReading(plant?.tankALiquidLevelMm, "mm"),
     tankBLiquidLevel: sensorReading(plant?.tankBLiquidLevelMm, "mm"),
     ambientTemperature: sensorReading(plant?.ambientTemperatureC, "°C"),
+    insideAmbientTemperature: sensorReading(plant?.insideAmbientTemperatureC, "°C"),
+    outsideAmbientTemperature: sensorReading(plant?.outsideAmbientTemperatureC ?? plant?.ambientTemperatureC, "°C"),
     dryCoolerInletTemperature: sensorReading(plant?.dryCoolerInletTemperatureC, "°C"),
     totalPower: latest(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
@@ -668,6 +670,9 @@ export const toCanonicalContainer = (
     ...boardSummary,
     hashrate: latest(statusWire.hashrate, "TH/s"),
     power: latest(statusWire.power, "W"),
+    // Firmware mining power replaces the board sum, so its coverage cannot
+    // inherit the hashboard-only metadata from boardSummary.
+    powerCoverage: { kind: "unknown", includesNonHashboardLoads: false, methods: ["firmwareAggregate"] },
     efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
     temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
     miningStatus: miningStatus(statusWire.operatingState, statusWire.mining),
