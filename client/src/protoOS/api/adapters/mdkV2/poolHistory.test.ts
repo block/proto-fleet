@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PoolHistoryRequest } from "../poolHistory";
 import { V2HistorySource } from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
@@ -20,6 +20,8 @@ const bucket = (hour: number, accepted: string, rejected: string) => ({
 });
 
 describe("pool history", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("recognizes complete retained hourly history and actual missing hours", () => {
     const day = { ...request, endTime: "2026-09-17T00:00:00Z" };
     const buckets = Array.from({ length: 24 }, (_, hour) => bucket(hour, "9", "1"));
@@ -58,7 +60,9 @@ describe("pool history", () => {
   });
 
   it("distinguishes no observations from a reported zero and flags missing coverage", () => {
-    expect(normalizePoolHistory({ buckets: [] }, request)).toEqual({ partial: false });
+    expect(normalizePoolHistory({ buckets: [] }, request)).toEqual({ partial: true });
+    expect(normalizePoolHistory({}, request)).toEqual({ partial: true });
+    expect(normalizePoolHistory({ buckets: [bucket(2, "9", "1")] }, request)).toEqual({ partial: true });
     expect(normalizePoolHistory({ buckets: [bucket(0, "0", "0"), bucket(1, "0", "0")] }, request)).toEqual({
       accepted: 0,
       rejected: 0,
@@ -151,6 +155,50 @@ describe("pool history", () => {
       {},
     );
     expect(result).toEqual({ byPool: {}, unavailable: request.poolIds });
+  });
+
+  describe("generated HTTP transport", () => {
+    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test" });
+
+    it.each([
+      [404, 5],
+      [405, 12],
+      [501, 12],
+    ])("classifies HTTP %s as unavailable with an RPC error body", async (status, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code, message: "Unsupported" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it.each([
+      [401, 16],
+      [403, 7],
+    ])("preserves HTTP %s and the parsed RPC body for authentication handling", async (status, code) => {
+      const body = { code, message: "Access denied" };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json(body, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toMatchObject({ status, error: body });
+    });
+
+    it("classifies an unsupported non-JSON response by HTTP status", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("Not found", { status: 404 })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it("rejects total outages with RPC error bodies", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: 14, message: "Unavailable" }, { status: 503 })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toThrow("Could not refresh any pool history");
+    });
   });
 
   it("drains siblings and skips queued requests before an auth retry", async () => {

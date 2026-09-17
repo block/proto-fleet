@@ -78,4 +78,21 @@ describe("Pools statistics view", () => {
     );
     expect(screen.getByText(/No pools configured/)).toBeInTheDocument();
   });
+
+  it("labels missing observations without presenting them as zero shares", () => {
+    render(
+      <MemoryRouter>
+        <PoolStatisticsView
+          pools={[{ ...pool, difficulty: undefined }]}
+          history={{ byPool: { [pool.id]: { partial: true } }, unavailable: [] }}
+          duration="24h"
+          onDurationChange={vi.fn()}
+          configureHref="/settings/mining-pools"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Partial share history for this period.")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(screen.getByRole("img")).toHaveAccessibleName("Share proportions unavailable");
+  });
 });
