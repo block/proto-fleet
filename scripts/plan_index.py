@@ -31,6 +31,9 @@ DISPLAY_ORDER = {
     "completed": 4,
     "cancelled": 5,
 }
+PLAN_FILENAME_PATTERN = re.compile(
+    r"\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*-(?:tdd|prd|plan)\.md"
+)
 
 
 class PlanIndexError(ValueError):
@@ -59,6 +62,13 @@ def _unquote(value: str) -> str:
     return value
 
 
+def _validate_plan_filename(path: Path) -> None:
+    if not PLAN_FILENAME_PATTERN.fullmatch(path.name):
+        raise PlanIndexError(
+            f"{path}: filename must match YYYY-MM-DD-<slug>-<tdd|prd|plan>.md"
+        )
+
+
 def parse_plan(path: Path, plans_dir: Path) -> Plan:
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0] != "---":
@@ -70,10 +80,20 @@ def parse_plan(path: Path, plans_dir: Path) -> Plan:
 
     metadata: dict[str, str] = {}
     for line in lines[1:end]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line[0].isspace():
+            raise PlanIndexError(
+                f"{path}: indented or nested frontmatter is not supported"
+            )
         if ":" not in line:
             continue
         key, value = line.split(":", 1)
-        metadata[key.strip()] = _unquote(value.strip())
+        key = key.strip()
+        if key in metadata:
+            raise PlanIndexError(f"{path}: duplicate frontmatter key {key!r}")
+        metadata[key] = _unquote(value.strip())
 
     missing = [
         key for key in ("title", "date", "status", "type") if not metadata.get(key)
@@ -134,7 +154,13 @@ def parse_plan(path: Path, plans_dir: Path) -> Plan:
 
 
 def load_plans(plans_dir: Path) -> list[Plan]:
-    paths = sorted(path for path in plans_dir.rglob("*.md") if path.name != "README.md")
+    index_path = plans_dir / "README.md"
+    paths = []
+    for path in sorted(plans_dir.rglob("*")):
+        if not path.is_file() or path == index_path:
+            continue
+        _validate_plan_filename(path)
+        paths.append(path)
     return [parse_plan(path, plans_dir) for path in paths]
 
 

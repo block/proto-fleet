@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +20,13 @@ class PlanIndexTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def run_main(self, *args: str) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = plan_index.main(list(args))
+        return result, stdout.getvalue(), stderr.getvalue()
 
     def write_plan(
         self,
@@ -118,6 +127,49 @@ class PlanIndexTest(unittest.TestCase):
 
         self.assertTrue(nested_path.exists())
 
+    def test_rejects_non_markdown_plan_file(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="draft")
+        invalid_path = path.rename(path.with_suffix(".mdx"))
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "filename must match"):
+            plan_index.load_plans(self.plans_dir)
+
+        self.assertTrue(invalid_path.exists())
+
+    def test_rejects_nested_readme(self) -> None:
+        nested_dir = self.plans_dir / "old"
+        nested_dir.mkdir()
+        (nested_dir / "README.md").write_text(
+            "# Not the plan index\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "filename must match"):
+            plan_index.load_plans(self.plans_dir)
+
+    def test_rejects_duplicate_frontmatter_key(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="completed")
+        contents = path.read_text(encoding="utf-8")
+        path.write_text(
+            contents.replace("status: completed", "status: completed\nstatus: draft"),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "duplicate.*status"):
+            plan_index.parse_plan(path, self.plans_dir)
+
+    def test_rejects_indented_nested_frontmatter(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="completed")
+        contents = path.read_text(encoding="utf-8")
+        path.write_text(
+            contents.replace(
+                "status: completed", "metadata:\n  status: draft\nstatus: completed"
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "indented"):
+            plan_index.parse_plan(path, self.plans_dir)
+
     def test_decodes_escaped_double_quoted_title(self) -> None:
         path = self.write_plan(
             "2026-09-17-escaped-title-plan.md",
@@ -128,6 +180,33 @@ class PlanIndexTest(unittest.TestCase):
         plan = plan_index.parse_plan(path, self.plans_dir)
 
         self.assertEqual(plan.title, 'Use "fast" mode at C:\\fleet')
+
+    def test_cli_check_and_write_lifecycle(self) -> None:
+        self.write_plan("2026-09-17-example-plan.md", status="draft")
+
+        result, _, stderr = self.run_main("--check", "--root", str(self.root))
+        self.assertEqual(result, 1)
+        self.assertIn("plan index is stale", stderr)
+
+        result, stdout, _ = self.run_main("--write", "--root", str(self.root))
+        self.assertEqual(result, 0)
+        self.assertIn("updated", stdout)
+
+        result, stdout, _ = self.run_main("--check", "--root", str(self.root))
+        self.assertEqual(result, 0)
+        self.assertIn("plan index is current", stdout)
+
+        index_path = self.plans_dir / "README.md"
+        index_path.write_text("stale\n", encoding="utf-8")
+
+        result, _, stderr = self.run_main("--check", "--root", str(self.root))
+        self.assertEqual(result, 1)
+        self.assertIn("plan index is stale", stderr)
+
+        result, _, _ = self.run_main("--write", "--root", str(self.root))
+        self.assertEqual(result, 0)
+        result, _, _ = self.run_main("--check", "--root", str(self.root))
+        self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":
