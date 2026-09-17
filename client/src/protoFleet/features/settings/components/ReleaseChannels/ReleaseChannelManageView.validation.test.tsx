@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { manageViewProps } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import RolloutControls from "./RolloutControls";
 import {
@@ -11,7 +12,6 @@ import {
   RolloutBehaviorSchema,
   RolloutMethod,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import type { ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("./ScopeEditor", () => ({ default: () => null }));
 vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn(), STATUSES: { success: "success", error: "error" } }));
@@ -33,10 +33,10 @@ const healthyBehavior = () =>
   });
 
 function renderView(behavior = healthyBehavior()) {
-  const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(undefined);
-  const onApply = vi.fn().mockResolvedValue(undefined);
+  const props = manageViewProps();
   render(
     <ReleaseChannelManageView
+      {...props}
       channel={{
         ...create(ReleaseChannelSchema, { id: 1n, name: "Production", behavior }),
         modelGroups: [
@@ -51,18 +51,10 @@ function renderView(behavior = healthyBehavior()) {
           }),
         ],
       }}
-      rollouts={[]}
-      firmwareFiles={[]}
-      minerNames={{}}
-      previewScope={vi.fn()}
-      listChannelMiners={vi.fn()}
-      listRolloutDevices={vi.fn()}
-      onSave={onSave}
-      onApply={onApply}
     />,
   );
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed production" } });
-  return { onSave, onApply };
+  return { onSave: props.onSave, onApply: props.onApply };
 }
 
 describe("release channel numeric safeguards", () => {

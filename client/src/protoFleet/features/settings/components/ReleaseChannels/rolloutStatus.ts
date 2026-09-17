@@ -493,6 +493,26 @@ export const pairKey = (pair: { manufacturer: string; model: string }): string =
 export const assignmentKey = (pair: { manufacturer: string; model: string; assignmentGeneration: bigint }): string =>
   JSON.stringify([pairKey(pair), pair.assignmentGeneration.toString()]);
 
+export const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout): string =>
+  `${channelId.toString()}:${assignmentKey(pair)}`;
+
+// Completion history follows finish time, independently of creation order.
+// Canceled runs do not replace an assignment's completed outcome.
+export function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollout> {
+  const latest = new Map<string, Rollout>();
+  for (const rollout of rollouts) {
+    const finished =
+      rollout.status === RolloutStatus.COMPLETED || rollout.status === RolloutStatus.COMPLETED_WITH_FAILURES;
+    if (!finished || !rollout.finishedAt) continue;
+    const key = channelAssignmentKey(rollout.channelId, rollout);
+    const current = latest.get(key);
+    if (!current?.finishedAt || timestampMs(rollout.finishedAt) > timestampMs(current.finishedAt)) {
+      latest.set(key, rollout);
+    }
+  }
+  return latest;
+}
+
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.firmwareVersion === "") return "—";
   const behind = group.reportedVersions.filter((version) => version !== group.firmwareVersion);

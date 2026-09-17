@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import { useChannelHistory } from "./useChannelHistory";
-import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { useRefreshingRead } from "./useRefreshingRead";
+import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
@@ -62,16 +63,15 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   const sessionGeneration = useSessionGeneration();
   const username = useUsername();
   const authSessionIdentity = JSON.stringify([username, sessionGeneration, isAuthenticated]);
-  const [firmwareCatalog, setFirmwareCatalog] = useState({
-    authSessionIdentity,
-    files: null as FirmwareFileInfo[] | null,
-    error: null as string | null,
-    isLoading: true,
+  const firmwareCatalog = useRefreshingRead({
+    read: listFirmwareFiles,
+    enabled: isAuthenticated,
+    errorMessage: "Failed to load firmware files",
+    timeoutMs: FIRMWARE_REQUEST_TIMEOUT_MS,
+    timeoutMessage: "The firmware file request timed out. Please retry.",
   });
-  const refreshFirmwareRef = useRef<(() => void) | null>(null);
-  const currentCatalog =
-    isAuthenticated && firmwareCatalog.authSessionIdentity === authSessionIdentity ? firmwareCatalog : undefined;
-  const firmwareFiles = currentCatalog?.files ?? [];
+  const { refresh: refreshFirmware } = firmwareCatalog;
+  const firmwareFiles = firmwareCatalog.data ?? [];
   const [view, setView] = useState<View>(() =>
     initialManagedChannelId !== null ? { kind: "manage", channelId: initialManagedChannelId } : { kind: "list" },
   );
@@ -150,63 +150,9 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    let canceled = false;
-    let controller: AbortController | null = null;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const isCurrentSession = () => {
-      const auth = useFleetStore.getState().auth;
-      return (
-        !canceled && auth.isAuthenticated && auth.sessionGeneration === sessionGeneration && auth.username === username
-      );
-    };
-    const load = () => {
-      if (controller || !isCurrentSession()) return false;
-      controller = new AbortController();
-      const requestController = controller;
-      timeout = setTimeout(
-        () => requestController.abort(new Error("The firmware file request timed out. Please retry.")),
-        FIRMWARE_REQUEST_TIMEOUT_MS,
-      );
-      listFirmwareFiles(requestController.signal)
-        .then((files) => {
-          if (isCurrentSession()) setFirmwareCatalog({ authSessionIdentity, files, error: null, isLoading: false });
-        })
-        .catch((error: unknown) => {
-          if (!isCurrentSession()) return;
-          setFirmwareCatalog((previous) => ({
-            authSessionIdentity,
-            files: previous.authSessionIdentity === authSessionIdentity ? previous.files : null,
-            error: error instanceof Error && error.message ? error.message : "Failed to load firmware files",
-            isLoading: false,
-          }));
-        })
-        .finally(() => {
-          clearTimeout(timeout);
-          controller = null;
-        });
-      return true;
-    };
-    const refresh = () => {
-      if (load()) {
-        setFirmwareCatalog((previous) => ({
-          authSessionIdentity,
-          files: previous.authSessionIdentity === authSessionIdentity ? previous.files : null,
-          error: previous.authSessionIdentity === authSessionIdentity ? previous.error : null,
-          isLoading: true,
-        }));
-      }
-    };
-    refreshFirmwareRef.current = refresh;
-    load();
-    const interval = setInterval(refresh, FIRMWARE_REFRESH_INTERVAL_MS);
-    return () => {
-      canceled = true;
-      clearInterval(interval);
-      clearTimeout(timeout);
-      controller?.abort();
-      refreshFirmwareRef.current = null;
-    };
-  }, [authSessionIdentity, isAuthenticated, listFirmwareFiles, sessionGeneration, username]);
+    const interval = setInterval(refreshFirmware, FIRMWARE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [authSessionIdentity, isAuthenticated, refreshFirmware]);
 
   const handleDelete = async () => {
     if (!channelToDelete || !tryAcquireWrite()) return;
@@ -307,23 +253,23 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         />
       ) : null}
 
-      {currentCatalog?.error ? (
-        <div role="alert" aria-busy={currentCatalog.isLoading}>
+      {firmwareCatalog.error ? (
+        <div role="alert" aria-busy={firmwareCatalog.isLoading}>
           <Callout
             intent={intents.warning}
             prefixIcon={<Alert />}
-            title={currentCatalog.files === null ? "Couldn't load firmware files" : "Firmware files may be out of date"}
+            title={firmwareCatalog.data === null ? "Couldn't load firmware files" : "Firmware files may be out of date"}
             subtitle={
-              currentCatalog.files === null
-                ? currentCatalog.error
-                : `${currentCatalog.error} Showing the last loaded firmware files.`
+              firmwareCatalog.data === null
+                ? firmwareCatalog.error
+                : `${firmwareCatalog.error} Showing the last loaded firmware files.`
             }
-            buttonText={currentCatalog.isLoading ? "Retrying..." : "Retry"}
-            buttonOnClick={() => refreshFirmwareRef.current?.()}
+            buttonText={firmwareCatalog.isLoading ? "Retrying..." : "Retry"}
+            buttonOnClick={refreshFirmware}
             testId="release-channel-firmware-load-error"
           />
         </div>
-      ) : isAuthenticated && !currentCatalog?.files ? (
+      ) : isAuthenticated && !firmwareCatalog.data ? (
         <p className="text-200 text-text-primary-70">Loading firmware files...</p>
       ) : null}
 

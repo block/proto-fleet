@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 
-import { gatesAfterBatch, planReadout } from "./behaviorUtils";
+import { planReadout } from "./behaviorUtils";
 import {
   activeRigRollout,
   batchedAutoBehavior,
@@ -18,11 +19,13 @@ import {
 } from "./ReleaseChannels.fixtures";
 import {
   activeRolloutForGroup,
+  channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
   evidenceScopeLabel,
   failedDevices,
   hasUnavailableAssignedFirmware,
+  lastFinishedByChannelAssignment,
   metricDisplay,
   modelFirmwareLabel,
   modelUpdateStatus,
@@ -53,6 +56,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 
 describe("release channel target keys", () => {
   it("isolates missing identity halves from each other and from observed controls", () => {
@@ -98,6 +102,40 @@ describe("active rollout identity", () => {
 });
 
 describe("current assignment completion status", () => {
+  it("indexes by finish time regardless of creation/input order and isolates channel and assignment history", () => {
+    const olderFinish = create(RolloutSchema, {
+      ...completedRigRollout,
+      id: 10n,
+      createdAt: timestampFromMs(2000),
+      finishedAt: timestampFromMs(3000),
+    });
+    const laterFinish = create(RolloutSchema, {
+      ...olderFinish,
+      id: 11n,
+      manufacturer: " proto ",
+      model: " rig ",
+      createdAt: timestampFromMs(1000),
+      finishedAt: timestampFromMs(4000),
+      status: RolloutStatus.COMPLETED_WITH_FAILURES,
+    });
+    const otherChannel = { ...olderFinish, id: 12n, channelId: 99n };
+    const otherAssignment = { ...olderFinish, id: 13n, assignmentGeneration: 99n };
+    const canceled = {
+      ...laterFinish,
+      id: 14n,
+      status: RolloutStatus.CANCELED,
+      finishedAt: timestampFromMs(5000),
+    };
+    const rows = [olderFinish, laterFinish, otherChannel, otherAssignment, canceled, activeRigRollout];
+    for (const input of [rows, [...rows].reverse()]) {
+      const latest = lastFinishedByChannelAssignment(input);
+      expect(latest.size).toBe(3);
+      expect(latest.get(channelAssignmentKey(olderFinish.channelId, olderFinish))).toBe(laterFinish);
+      expect(latest.get(channelAssignmentKey(otherChannel.channelId, otherChannel))).toBe(otherChannel);
+      expect(latest.get(channelAssignmentKey(otherAssignment.channelId, otherAssignment))).toBe(otherAssignment);
+    }
+  });
+
   it("does not carry an old assignment's failures into the current assignment", () => {
     expect(
       modelUpdateStatus({ ...rigGroup, assignmentGeneration: 2n }, undefined, completedWithFailuresRigRollout),

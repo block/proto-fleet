@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { manageViewProps } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { canaryChannel } from "./ReleaseChannels.fixtures";
 import {
@@ -49,15 +50,10 @@ function renderManage(
   previewScope = vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
 ) {
   const props = {
+    ...manageViewProps(),
     channel,
-    rollouts: [],
-    firmwareFiles: [],
-    minerNames: {},
     previewScope,
-    listChannelMiners: vi.fn().mockResolvedValue([]),
-    listRolloutDevices: vi.fn().mockResolvedValue([]),
     onSave,
-    onApply: vi.fn().mockResolvedValue(undefined),
   };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
   return {

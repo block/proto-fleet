@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { manageViewProps } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { ReleaseChannelModelGroupSchema, ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -67,21 +68,9 @@ describe("firmware assignment request limit", () => {
         firmware_version: version,
       })),
     );
-    const onApply = vi.fn().mockResolvedValue(undefined);
-    const onSave = vi.fn().mockResolvedValue(undefined);
-    render(
-      <ReleaseChannelManageView
-        channel={channel}
-        rollouts={[]}
-        firmwareFiles={firmwareFiles}
-        minerNames={{}}
-        previewScope={vi.fn()}
-        listChannelMiners={vi.fn()}
-        listRolloutDevices={vi.fn()}
-        onSave={onSave}
-        onApply={onApply}
-      />,
-    );
+    const props = manageViewProps();
+    const { onApply, onSave } = props;
+    render(<ReleaseChannelManageView {...props} channel={channel} firmwareFiles={firmwareFiles} />);
     for (let index = 0; index < 100; index += 1) {
       fireEvent.change(screen.getByTestId(`channel-firmware-select-Model-${index}`), {
         target: { value: `new-${index}` },

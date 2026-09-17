@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred } from "./__tests__/helpers";
 import { useChannelHistory } from "./useChannelHistory";
 import { type Rollout, RolloutSchema, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
@@ -17,15 +18,7 @@ afterEach(() => {
   useFleetStore.setState({ auth: initialAuth });
 });
 const flush = () => act(async () => {});
-function pendingHistory() {
-  let resolve!: (rows: Rollout[]) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<Rollout[]>((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
+const pendingHistory = deferred<Rollout[]>;
 const historical = create(RolloutSchema, {
   id: 10n,
   channelId: 1n,

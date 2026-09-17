@@ -2,10 +2,10 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred, releaseChannelsApi } from "./__tests__/helpers";
 import { canaryChannel, firmwareFiles, productionChannel } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTab from "./ReleaseChannelsTab";
 import {
-  PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelSchema,
   type Rollout,
   RolloutSchema,
@@ -30,39 +30,8 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   MinerSelectionModal: () => null,
 }));
 
-const apiFor = (): ReleaseChannelsApi => ({
-  channels: [canaryChannel],
-  rollouts: [],
-  minerNames: {},
-  isLoading: false,
-  hasLoaded: true,
-  error: null,
-  refresh: vi.fn().mockResolvedValue(undefined),
-  createChannel: vi.fn().mockResolvedValue(undefined),
-  updateChannel: vi.fn().mockResolvedValue(undefined),
-  deleteChannel: vi.fn().mockResolvedValue(undefined),
-  previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
-  listChannelMiners: vi.fn().mockResolvedValue([]),
-  listRolloutDevices: vi.fn().mockResolvedValue([]),
-  listChannelRollouts: vi.fn().mockResolvedValue([]),
-  applyFirmware: vi.fn().mockResolvedValue([]),
-  rollbackFirmware: vi.fn().mockResolvedValue([]),
-  continueRollout: vi.fn().mockResolvedValue(undefined),
-  pauseRollout: vi.fn().mockResolvedValue(undefined),
-  resumeRollout: vi.fn().mockResolvedValue(undefined),
-  cancelRollout: vi.fn().mockResolvedValue(undefined),
-  retryFailedDevices: vi.fn().mockResolvedValue(undefined),
-});
-
-function deferredCatalog() {
-  let resolve!: (files: FirmwareFileInfo[]) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<FirmwareFileInfo[]>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+const apiFor = (): ReleaseChannelsApi => ({ ...releaseChannelsApi(), channels: [canaryChannel] });
+const deferredCatalog = deferred<FirmwareFileInfo[]>;
 
 const initialAuth = useFleetStore.getState().auth;
 const flush = () => act(async () => {});
@@ -86,15 +55,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function deferredWrite() {
-  let resolve!: () => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+const deferredWrite = deferred<void>;
 
 const deleteConfirm = () =>
   within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Delete channel" });
@@ -117,15 +78,7 @@ describe("release channel history on demand", () => {
     });
     return { api, historical };
   };
-  const pendingHistory = () => {
-    let resolve!: (rows: Rollout[]) => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<Rollout[]>((yes, no) => {
-      resolve = yes;
-      reject = no;
-    });
-    return { promise, resolve, reject };
-  };
+  const pendingHistory = deferred<Rollout[]>;
 
   it("loads old outcomes only after expansion and retains them across core polls and reopens", async () => {
     const { api, historical } = historyApi();

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred } from "./__tests__/helpers";
 import ModelMinersModal from "./ModelMinersModal";
 import { activeRigRollout, canaryChannel } from "./ReleaseChannels.fixtures";
 import {
@@ -16,16 +17,6 @@ import { useFleetStore } from "@/protoFleet/store";
 
 const initialAuth = useFleetStore.getState().auth;
 afterEach(() => useFleetStore.setState({ auth: initialAuth }));
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
 
 const miner = create(ReleaseChannelMinerSchema, { deviceIdentifier: "rig-1", firmwareVersion: "1.0.0" });
 const device = create(RolloutDeviceSchema, {

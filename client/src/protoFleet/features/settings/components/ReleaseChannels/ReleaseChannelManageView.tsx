@@ -1,16 +1,17 @@
 import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
-import { defaultBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
+import { behaviorForComparison, defaultBehavior, rebaseBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
 import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
 import RolloutControls from "./RolloutControls";
 import {
   activeRolloutForGroup,
-  assignmentKey,
+  channelAssignmentKey,
   hasUnavailableAssignedFirmware,
   isPaused,
+  lastFinishedByChannelAssignment,
   pacingSummary,
   pairKey,
   pairLabel,
@@ -29,12 +30,10 @@ import {
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
   type Rollout,
-  RolloutAutomationThresholdsSchema,
   type RolloutBehavior,
   RolloutBehaviorSchema,
   type RolloutDevice,
   RolloutMethod,
-  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
@@ -116,76 +115,6 @@ function Section({ title, subtext, children }: { title: string; subtext?: string
 // Observed groups retain spelling and whitespace for their rows and miner reads.
 // Firmware assignments and rollout joins instead use the normalized pairKey.
 const observedPairKey = (group: ReleaseChannelModelGroup): string => JSON.stringify([group.manufacturer, group.model]);
-
-function behaviorForComparison(behavior: RolloutBehavior): RolloutBehavior {
-  const effective = rolloutBehaviorForRequest(behavior);
-  // The server omits empty thresholds. Explicit zero limits remain meaningful.
-  if (
-    effective.thresholds &&
-    equals(RolloutAutomationThresholdsSchema, effective.thresholds, create(RolloutAutomationThresholdsSchema))
-  ) {
-    effective.thresholds = undefined;
-  }
-  return effective;
-}
-
-// Carry remote changes into untouched fields without overwriting local edits,
-// including inactive values that request normalization intentionally omits.
-function rebaseBehavior(draft: RolloutBehavior, previous: RolloutBehavior, incoming: RolloutBehavior): RolloutBehavior {
-  if (equals(RolloutBehaviorSchema, previous, incoming)) return draft;
-  const keepLocal = <T,>(local: T, base: T, remote: T): T => (Object.is(local, base) ? remote : local);
-  const thresholds = create(RolloutAutomationThresholdsSchema);
-  for (const field of [
-    "maxHashrateDropPercent",
-    "maxEfficiencyIncreasePercent",
-    "maxTemperatureIncreaseCelsius",
-    "maxNewErrors",
-    "minSampleCoveragePercent",
-  ] as const) {
-    thresholds[field] = keepLocal(
-      draft.thresholds?.[field],
-      previous.thresholds?.[field],
-      incoming.thresholds?.[field],
-    );
-  }
-  return create(RolloutBehaviorSchema, {
-    method: keepLocal(draft.method, previous.method, incoming.method),
-    order: keepLocal(draft.order, previous.order, incoming.order),
-    batchSize: keepLocal(draft.batchSize, previous.batchSize, incoming.batchSize),
-    pilotSize: keepLocal(draft.pilotSize, previous.pilotSize, incoming.pilotSize),
-    waitBetweenBatchesSeconds: keepLocal(
-      draft.waitBetweenBatchesSeconds,
-      previous.waitBetweenBatchesSeconds,
-      incoming.waitBetweenBatchesSeconds,
-    ),
-    reviewAfterEachBatch: keepLocal(
-      draft.reviewAfterEachBatch,
-      previous.reviewAfterEachBatch,
-      incoming.reviewAfterEachBatch,
-    ),
-    autoContinueOnHealthyTelemetry: keepLocal(
-      draft.autoContinueOnHealthyTelemetry,
-      previous.autoContinueOnHealthyTelemetry,
-      incoming.autoContinueOnHealthyTelemetry,
-    ),
-    stabilizationSeconds: keepLocal(
-      draft.stabilizationSeconds,
-      previous.stabilizationSeconds,
-      incoming.stabilizationSeconds,
-    ),
-    maxConcurrentOffline: keepLocal(
-      draft.maxConcurrentOffline,
-      previous.maxConcurrentOffline,
-      incoming.maxConcurrentOffline,
-    ),
-    controllerTimeoutSeconds: keepLocal(
-      draft.controllerTimeoutSeconds,
-      previous.controllerTimeoutSeconds,
-      incoming.controllerTimeoutSeconds,
-    ),
-    thresholds,
-  });
-}
 
 interface FirmwarePickerCellProps {
   group: ReleaseChannelModelGroup;
@@ -606,11 +535,7 @@ const ReleaseChannelManageView = ({
     }
   };
 
-  const lastFinishedByPair = new Map<string, Rollout>();
-  for (const r of channelRollouts) {
-    if (r.status !== RolloutStatus.COMPLETED && r.status !== RolloutStatus.COMPLETED_WITH_FAILURES) continue;
-    if (!lastFinishedByPair.has(assignmentKey(r))) lastFinishedByPair.set(assignmentKey(r), r); // rollouts arrive newest first
-  }
+  const lastFinished = lastFinishedByChannelAssignment(channelRollouts);
 
   return (
     <div
@@ -764,7 +689,7 @@ const ReleaseChannelManageView = ({
                             historyState={historyState}
                             group={group}
                             activeRollout={activeRollout}
-                            lastFinished={lastFinishedByPair.get(assignmentKey(group))}
+                            lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
                           />
                         )}
                       </td>

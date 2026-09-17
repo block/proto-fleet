@@ -1,14 +1,14 @@
-import { create } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 
 import { methodHelpText, methodLabels, orderLabels } from "./rolloutStatus";
 import {
-  type RolloutAutomationThresholds,
   RolloutAutomationThresholdsSchema,
   type RolloutBehavior,
   RolloutBehaviorSchema,
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch, hasSampledLimit, rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 
 // Behavior a new channel starts with: a single batch, least efficient first,
 // no ceiling on miners offline. Batch sizing and thresholds carry sensible
@@ -33,19 +33,56 @@ export const orderOptions = [RolloutOrder.LEAST_EFFICIENT_FIRST, RolloutOrder.RA
   label: orderLabels[order],
 }));
 
-export const isPacedMethod = (method: RolloutMethod): boolean =>
-  method === RolloutMethod.BATCHED || method === RolloutMethod.PILOT_THEN_CONTINUE;
+export function behaviorForComparison(behavior: RolloutBehavior): RolloutBehavior {
+  const effective = rolloutBehaviorForRequest(behavior);
+  // The server omits empty thresholds. Explicit zero limits remain meaningful.
+  if (
+    effective.thresholds &&
+    equals(RolloutAutomationThresholdsSchema, effective.thresholds, create(RolloutAutomationThresholdsSchema))
+  )
+    effective.thresholds = undefined;
+  return effective;
+}
 
-// Whether a finished batch holds for review (and so whether auto-continue
-// and its thresholds apply).
-export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>
-  behavior.method === RolloutMethod.PILOT_THEN_CONTINUE ||
-  (behavior.method === RolloutMethod.BATCHED && behavior.reviewAfterEachBatch);
+const scalarBehaviorFields = [
+  "method",
+  "order",
+  "batchSize",
+  "pilotSize",
+  "waitBetweenBatchesSeconds",
+  "reviewAfterEachBatch",
+  "autoContinueOnHealthyTelemetry",
+  "stabilizationSeconds",
+  "maxConcurrentOffline",
+  "controllerTimeoutSeconds",
+] as const;
 
-export const hasSampledLimit = (thresholds: RolloutAutomationThresholds | undefined): boolean =>
-  thresholds?.maxHashrateDropPercent !== undefined ||
-  thresholds?.maxEfficiencyIncreasePercent !== undefined ||
-  thresholds?.maxTemperatureIncreaseCelsius !== undefined;
+// Rebase untouched fields, including retained inactive values and NaN drafts.
+export function rebaseBehavior(
+  draft: RolloutBehavior,
+  previous: RolloutBehavior,
+  incoming: RolloutBehavior,
+): RolloutBehavior {
+  if (equals(RolloutBehaviorSchema, previous, incoming)) return draft;
+  const thresholds = create(RolloutAutomationThresholdsSchema);
+  const merged: RolloutBehavior = { ...draft, thresholds };
+  const rebaseScalar = <K extends (typeof scalarBehaviorFields)[number]>(field: K) => {
+    if (Object.is(draft[field], previous[field])) merged[field] = incoming[field];
+  };
+  scalarBehaviorFields.forEach(rebaseScalar);
+  for (const field of [
+    "maxHashrateDropPercent",
+    "maxEfficiencyIncreasePercent",
+    "maxTemperatureIncreaseCelsius",
+    "maxNewErrors",
+    "minSampleCoveragePercent",
+  ] as const) {
+    thresholds[field] = Object.is(draft.thresholds?.[field], previous.thresholds?.[field])
+      ? incoming.thresholds?.[field]
+      : draft.thresholds?.[field];
+  }
+  return merged;
+}
 
 export type RolloutNumericField =
   | "batchSize"

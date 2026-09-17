@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 
 import { RolloutBehaviorSchema, RolloutMethod, RolloutOrder } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
-import { gatesAfterBatch } from "@/protoFleet/features/settings/components/ReleaseChannels/behaviorUtils";
+import { gatesAfterBatch, rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 
 describe("rolloutBehaviorForRequest", () => {
   it("keeps pilot automation but drops hidden batch, wait and controller settings", () => {

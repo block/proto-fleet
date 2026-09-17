@@ -62,6 +62,13 @@ const ScopeEditor = ({
   const canReadRacks = useHasPermission("rack:read");
   const canReadMiners = useHasPermission("miner:read");
   const canSelectTargets = canReadSites || canReadRacks || canReadMiners;
+  const selectionButtons = [
+    ["site", "Sites", scope.siteIds.length, canReadSites],
+    ["building", "Buildings", scope.buildingIds.length, canReadSites],
+    ["rack", "Racks", scope.rackIds.length, canReadRacks],
+    ["group", "Groups", scope.groupIds.length, canReadRacks],
+    ["miner", "Miners", scope.deviceIdentifiers.length, canReadMiners],
+  ] as const;
   const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const request = useMemo(
@@ -118,46 +125,17 @@ const ScopeEditor = ({
   return (
     <div className="flex flex-col gap-3" data-testid="scope-editor">
       <div className="grid">
-        {canReadSites ? (
-          <TargetSelectButton
-            label="Sites"
-            value={getTargetButtonLabel(scope.siteIds.length, "site")}
-            disabled={disabled}
-            onClick={() => setOpenModal("site")}
-          />
-        ) : null}
-        {canReadSites ? (
-          <TargetSelectButton
-            label="Buildings"
-            value={getTargetButtonLabel(scope.buildingIds.length, "building")}
-            disabled={disabled}
-            onClick={() => setOpenModal("building")}
-          />
-        ) : null}
-        {canReadRacks ? (
-          <TargetSelectButton
-            label="Racks"
-            value={getTargetButtonLabel(scope.rackIds.length, "rack")}
-            disabled={disabled}
-            onClick={() => setOpenModal("rack")}
-          />
-        ) : null}
-        {canReadRacks ? (
-          <TargetSelectButton
-            label="Groups"
-            value={getTargetButtonLabel(scope.groupIds.length, "group")}
-            disabled={disabled}
-            onClick={() => setOpenModal("group")}
-          />
-        ) : null}
-        {canReadMiners ? (
-          <TargetSelectButton
-            label="Miners"
-            value={getTargetButtonLabel(scope.deviceIdentifiers.length, "miner")}
-            disabled={disabled}
-            onClick={() => setOpenModal("miner")}
-          />
-        ) : null}
+        {selectionButtons.map(([kind, label, count, permitted]) =>
+          permitted ? (
+            <TargetSelectButton
+              key={kind}
+              label={label}
+              value={getTargetButtonLabel(count, kind)}
+              disabled={disabled}
+              onClick={() => setOpenModal(kind)}
+            />
+          ) : null,
+        )}
       </div>
 
       <ScopePreview

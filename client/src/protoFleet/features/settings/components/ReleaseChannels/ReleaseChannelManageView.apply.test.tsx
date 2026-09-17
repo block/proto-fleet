@@ -3,9 +3,9 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred, manageViewProps } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
-  PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
   type Rollout,
@@ -70,30 +70,16 @@ const started = (model = "Rig", version = "next-server") =>
     firmwareVersion: version,
   });
 
-function deferred() {
-  let resolve!: (result: Rollout[]) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<Rollout[]>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
 function renderManage(channel = channelFor(), hasRefreshError = false) {
   const onApply = vi
     .fn<(channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>>()
     .mockResolvedValue([started()]);
   const onSave = vi.fn().mockResolvedValue(undefined);
   let props: ComponentProps<typeof ReleaseChannelManageView> = {
+    ...manageViewProps(),
     channel,
     hasRefreshError,
-    rollouts: [],
     firmwareFiles,
-    minerNames: {},
-    previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
-    listChannelMiners: vi.fn().mockResolvedValue([]),
-    listRolloutDevices: vi.fn().mockResolvedValue([]),
     onSave,
     onApply,
   };
@@ -336,7 +322,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
     async (newer) => {
       const channel = channelFor();
       const { onApply, update } = renderManage(channel);
-      const write = deferred();
+      const write = deferred<Rollout[]>();
       onApply.mockReturnValueOnce(write.promise);
       chooseFile("next");
       await startApply();
@@ -353,7 +339,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
 
   it("preserves unavailable newer choices and their recovery guard after Apply succeeds", async () => {
     const { onApply, update } = renderManage(channelFor(), true);
-    const write = deferred();
+    const write = deferred<Rollout[]>();
     onApply.mockReturnValueOnce(write.promise);
     chooseFile("next");
     await startApply();
@@ -400,7 +386,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
     const { onApply, update } = renderManage(channel, true);
     chooseFile("next");
     await startApply();
-    const write = deferred();
+    const write = deferred<Rollout[]>();
     onApply.mockReturnValueOnce(write.promise);
     chooseFile("second-next", "Other");
     await startApply();

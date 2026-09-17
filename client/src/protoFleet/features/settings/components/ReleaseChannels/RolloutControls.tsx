@@ -2,9 +2,6 @@ import { type ReactElement, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import {
-  gatesAfterBatch,
-  hasSampledLimit,
-  isPacedMethod,
   methodOptions,
   orderOptions,
   planReadout,
@@ -20,9 +17,19 @@ import {
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch, hasSampledLimit, isPacedMethod } from "@/protoFleet/api/rolloutBehavior";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
+
+type ThresholdNumberField = Extract<RolloutNumericField, keyof RolloutAutomationThresholds>;
+type BehaviorNumberField = Exclude<RolloutNumericField, ThresholdNumberField>;
+const maximumInputs = [
+  ["maxHashrateDropPercent", "max-hashrate-drop", "Max hashrate drop (%)"],
+  ["maxEfficiencyIncreasePercent", "max-efficiency-increase", "Max efficiency increase (%)"],
+  ["maxTemperatureIncreaseCelsius", "max-temp-increase", "Max temp increase (°C)"],
+  ["maxNewErrors", "max-errors", "Max errors"],
+] as const;
 
 const parseNumberDraft = (text: string, optional: boolean, scale: number): number | undefined => {
   const trimmed = text.trim();
@@ -101,6 +108,10 @@ const RolloutControls = ({
       onNumberChange(value);
     },
   });
+  const behaviorInput = (field: BehaviorNumberField, scale = 1) =>
+    numericInput(field, behavior[field], (value) => update({ [field]: value ?? 0 }), false, scale);
+  const thresholdInput = (field: ThresholdNumberField) =>
+    numericInput(field, thresholds[field], (value) => updateThresholds({ [field]: value }), true);
   const availableMethods =
     allowDelegated || behavior.method === RolloutMethod.DELEGATED
       ? [
@@ -147,28 +158,17 @@ const RolloutControls = ({
             <Input
               id="pilot-size"
               label="Pilot batch size (miners)"
-              {...numericInput("pilotSize", behavior.pilotSize, (value) => update({ pilotSize: value ?? 0 }))}
+              {...behaviorInput("pilotSize")}
               disabled={disabled}
             />
           ) : (
-            <Input
-              id="batch-size"
-              label="Batch size (miners)"
-              {...numericInput("batchSize", behavior.batchSize, (value) => update({ batchSize: value ?? 0 }))}
-              disabled={disabled}
-            />
+            <Input id="batch-size" label="Batch size (miners)" {...behaviorInput("batchSize")} disabled={disabled} />
           )}
           {batched && !behavior.reviewAfterEachBatch ? (
             <Input
               id="wait-between-batches"
               label="Wait between batches (minutes)"
-              {...numericInput(
-                "waitBetweenBatchesSeconds",
-                behavior.waitBetweenBatchesSeconds,
-                (value) => update({ waitBetweenBatchesSeconds: value ?? 0 }),
-                false,
-                60,
-              )}
+              {...behaviorInput("waitBetweenBatchesSeconds", 60)}
               disabled={disabled}
             />
           ) : null}
@@ -229,61 +229,15 @@ const RolloutControls = ({
                 below hold, and telemetry has settled. Leave a maximum empty to skip that check.
               </p>
               <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
-                <Input
-                  id="max-hashrate-drop"
-                  label="Max hashrate drop (%)"
-                  {...numericInput(
-                    "maxHashrateDropPercent",
-                    thresholds.maxHashrateDropPercent,
-                    (value) => updateThresholds({ maxHashrateDropPercent: value }),
-                    true,
-                  )}
-                  disabled={disabled}
-                />
-                <Input
-                  id="max-efficiency-increase"
-                  label="Max efficiency increase (%)"
-                  {...numericInput(
-                    "maxEfficiencyIncreasePercent",
-                    thresholds.maxEfficiencyIncreasePercent,
-                    (value) => updateThresholds({ maxEfficiencyIncreasePercent: value }),
-                    true,
-                  )}
-                  disabled={disabled}
-                />
-                <Input
-                  id="max-temp-increase"
-                  label="Max temp increase (°C)"
-                  {...numericInput(
-                    "maxTemperatureIncreaseCelsius",
-                    thresholds.maxTemperatureIncreaseCelsius,
-                    (value) => updateThresholds({ maxTemperatureIncreaseCelsius: value }),
-                    true,
-                  )}
-                  disabled={disabled}
-                />
-                <Input
-                  id="max-errors"
-                  label="Max errors"
-                  {...numericInput(
-                    "maxNewErrors",
-                    thresholds.maxNewErrors,
-                    (value) => updateThresholds({ maxNewErrors: value }),
-                    true,
-                  )}
-                  disabled={disabled}
-                />
+                {maximumInputs.map(([field, id, label]) => (
+                  <Input key={field} id={id} label={label} {...thresholdInput(field)} disabled={disabled} />
+                ))}
                 {hasSampledLimit(thresholds) ? (
                   <div className="flex flex-col gap-2">
                     <Input
                       id="min-sample-coverage"
                       label="Min sample coverage (%)"
-                      {...numericInput(
-                        "minSampleCoveragePercent",
-                        thresholds.minSampleCoveragePercent,
-                        (value) => updateThresholds({ minSampleCoveragePercent: value }),
-                        true,
-                      )}
+                      {...thresholdInput("minSampleCoveragePercent")}
                       disabled={disabled}
                     />
                     <p className="text-200 text-text-primary-70">
@@ -295,13 +249,7 @@ const RolloutControls = ({
                 <Input
                   id="stabilization-minutes"
                   label="Wait for telemetry (minutes)"
-                  {...numericInput(
-                    "stabilizationSeconds",
-                    behavior.stabilizationSeconds,
-                    (value) => update({ stabilizationSeconds: value ?? 0 }),
-                    false,
-                    60,
-                  )}
+                  {...behaviorInput("stabilizationSeconds", 60)}
                   disabled={disabled}
                 />
               </div>
@@ -313,9 +261,7 @@ const RolloutControls = ({
       <Input
         id="max-concurrent-offline"
         label="Max miners offline at once (0 for no limit)"
-        {...numericInput("maxConcurrentOffline", behavior.maxConcurrentOffline, (value) =>
-          update({ maxConcurrentOffline: value ?? 0 }),
-        )}
+        {...behaviorInput("maxConcurrentOffline")}
         disabled={disabled}
       />
     </div>

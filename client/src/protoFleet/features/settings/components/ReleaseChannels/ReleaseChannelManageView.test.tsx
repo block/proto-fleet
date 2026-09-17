@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred, manageViewProps } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { activeRigRollout, canaryChannel, gatedRigRollout } from "./ReleaseChannels.fixtures";
@@ -80,16 +81,12 @@ function renderManage(
     }),
   );
   const props = {
+    ...manageViewProps(),
     channel,
     hasRefreshError,
-    rollouts: [],
     firmwareFiles,
-    minerNames: {},
     previewScope,
-    listChannelMiners: vi.fn().mockResolvedValue([]),
-    listRolloutDevices: vi.fn().mockResolvedValue([]),
     onSave,
-    onApply: vi.fn().mockResolvedValue(undefined),
   };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
   return {
@@ -132,15 +129,7 @@ const replacementFile: FirmwareFileInfo = {
   firmware_version: "1.4.4",
 };
 
-function deferredWrite() {
-  let resolve!: () => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+const deferredWrite = deferred<void>;
 
 describe("release channel active sizing validation", () => {
   beforeEach(() => {
@@ -250,19 +239,13 @@ describe("release channel active rollout identity", () => {
     };
     const channel = { ...originalChannel, modelGroups: [group] };
     const props = {
+      ...manageViewProps(),
       channel: originalChannel,
       rollouts: [gatedRigRollout],
-      firmwareFiles: [],
-      minerNames: {},
-      previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
-      listChannelMiners: vi.fn().mockResolvedValue([]),
-      listRolloutDevices: vi.fn().mockResolvedValue([]),
-      onSave: vi.fn().mockResolvedValue(undefined),
-      onApply: vi.fn().mockResolvedValue(undefined),
     };
     props.listRolloutDevices.mockImplementationOnce(
-      (_id: bigint, signal: AbortSignal) =>
-        new Promise<never[]>((resolve) => signal.addEventListener("abort", () => resolve([]), { once: true })),
+      (_id, signal) =>
+        new Promise<never[]>((resolve) => signal!.addEventListener("abort", () => resolve([]), { once: true })),
     );
     const { rerender } = render(<ReleaseChannelManageView {...props} />);
     expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Review needed");
@@ -1356,15 +1339,7 @@ describe("new release channel scope verification", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: choice }));
   };
-  const pendingPreview = () => {
-    let resolve!: (value: PreviewReleaseChannelScopeResponse) => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<PreviewReleaseChannelScopeResponse>((yes, no) => {
-      resolve = yes;
-      reject = no;
-    });
-    return { promise, resolve, reject };
-  };
+  const pendingPreview = deferred<PreviewReleaseChannelScopeResponse>;
   const cleanPreview = () => create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 1 });
 
   test("waits through debounce and pending resolution before creating a nonempty channel", async () => {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import Firmware from "./Firmware";
+import { releaseChannelsApi as apiFor, deferred } from "./ReleaseChannels/__tests__/helpers";
 import { canaryChannel } from "./ReleaseChannels/ReleaseChannels.fixtures";
 import { ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
@@ -33,30 +34,6 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   GroupSelectionModal: () => null,
   MinerSelectionModal: () => null,
 }));
-
-const apiFor = () => ({
-  channels: [],
-  rollouts: [],
-  minerNames: {},
-  isLoading: false,
-  hasLoaded: true,
-  error: null,
-  refresh: vi.fn().mockResolvedValue(undefined),
-  createChannel: vi.fn().mockResolvedValue(undefined),
-  updateChannel: vi.fn().mockResolvedValue(undefined),
-  deleteChannel: vi.fn().mockResolvedValue(undefined),
-  previewScope: vi.fn().mockResolvedValue({ conflicts: [] }),
-  listChannelMiners: vi.fn().mockResolvedValue([]),
-  listChannelRollouts: vi.fn().mockResolvedValue([]),
-  listRolloutDevices: vi.fn().mockResolvedValue([]),
-  applyFirmware: vi.fn().mockResolvedValue([]),
-  rollbackFirmware: vi.fn().mockResolvedValue([]),
-  continueRollout: vi.fn().mockResolvedValue(undefined),
-  pauseRollout: vi.fn().mockResolvedValue(undefined),
-  resumeRollout: vi.fn().mockResolvedValue(undefined),
-  cancelRollout: vi.fn().mockResolvedValue(undefined),
-  retryFailedDevices: vi.fn().mockResolvedValue(undefined),
-});
 
 const page = (tab = "release-channels") => (
   <MemoryRouter initialEntries={[`/settings/firmware?tab=${tab}`]}>
@@ -168,12 +145,8 @@ describe("release-channel load errors", () => {
 
   it("does not offer to resave an unchanged committed update while its refresh has failed", async () => {
     const api = { ...apiFor(), channels: [canaryChannel] };
-    let finishUpdate!: () => void;
-    api.updateChannel.mockReturnValue(
-      new Promise<void>((resolve) => {
-        finishUpdate = resolve;
-      }),
-    );
+    const update = deferred<undefined>();
+    api.updateChannel.mockReturnValue(update.promise);
     mockUseReleaseChannels.mockReturnValue(api);
     const { rerender } = render(page());
     fireEvent.click(screen.getByTestId("manage-channel-Canary"));
@@ -182,7 +155,7 @@ describe("release-channel load errors", () => {
 
     mockUseReleaseChannels.mockReturnValue({ ...api, error: new Error("Refresh failed") });
     rerender(page());
-    await act(async () => finishUpdate());
+    await act(async () => update.resolve(undefined));
 
     expect(screen.getByRole("alert")).toHaveTextContent("may be out of date");
     expect(screen.getByLabelText("Name")).toHaveValue("Saved name");

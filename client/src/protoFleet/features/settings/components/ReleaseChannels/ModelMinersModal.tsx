@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
+import { useRefreshingRead } from "./useRefreshingRead";
 import {
   type ReleaseChannelMiner,
   type ReleaseChannelModelGroup,
@@ -9,7 +10,6 @@ import {
   type RolloutDevice,
   RolloutDevicePhase,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { useFleetStore, useIsAuthenticated, useSessionGeneration, useUsername } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -47,147 +47,47 @@ const ModelMinersModal = ({
   onClose,
 }: ModelMinersModalProps) => {
   const activeRolloutId = activeRollout?.id;
-  const username = useUsername();
-  const sessionGeneration = useSessionGeneration();
-  const isAuthenticated = useIsAuthenticated();
-  const context = useMemo(
-    () => ({
-      channelId,
-      manufacturer: group.manufacturer,
-      model: group.model,
-      activeRolloutId,
-      listChannelMiners,
-      listRolloutDevices,
-      username,
-      sessionGeneration,
-      isAuthenticated,
-    }),
-    [
-      channelId,
-      group.manufacturer,
-      group.model,
-      activeRolloutId,
-      listChannelMiners,
-      listRolloutDevices,
-      username,
-      sessionGeneration,
-      isAuthenticated,
-    ],
-  );
-  const refreshRef = useRef<(() => void) | null>(null);
-  const cancelRef = useRef<(() => void) | null>(null);
-  const [snapshot, setSnapshot] = useState({
-    context,
-    isLoading: true,
-    miners: null as ReleaseChannelMiner[] | null,
-    devices: [] as RolloutDevice[],
-    error: null as string | null,
-  });
-  useEffect(() => {
-    let cancelled = false;
-    let running = false;
-    let queued = false;
-    let controller: AbortController | null = null;
-    const isCurrent = () => {
-      const auth = useFleetStore.getState().auth;
-      return (
-        !cancelled &&
-        auth.username === context.username &&
-        auth.sessionGeneration === context.sessionGeneration &&
-        auth.isAuthenticated === context.isAuthenticated
-      );
-    };
-    const refresh = () => {
-      if (!isCurrent()) return;
-      if (running) {
-        queued = true;
-        return;
-      }
-      running = true;
-      controller = new AbortController();
-      const { signal } = controller;
-      setSnapshot((previous) => ({
-        ...(previous.context === context ? previous : { context, miners: null, devices: [], error: null }),
-        isLoading: true,
-      }));
-      // A failed list must not release the scan while the other paginated
-      // list is still running. Publish only a complete pair of results.
-      void Promise.allSettled([
-        context.listChannelMiners(context.channelId, context.manufacturer, context.model, signal),
-        context.activeRolloutId !== undefined
-          ? context.listRolloutDevices(context.activeRolloutId, signal)
+  const { manufacturer, model } = group;
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      // Drain both branches before releasing the scan, including when one fails.
+      const [members, progress] = await Promise.allSettled([
+        listChannelMiners(channelId, manufacturer, model, signal),
+        activeRolloutId !== undefined
+          ? listRolloutDevices(activeRolloutId, signal)
           : Promise.resolve<RolloutDevice[]>([]),
-      ]).then(([members, progress]) => {
-        if (!isCurrent()) return;
-        if (members.status === "fulfilled" && progress.status === "fulfilled") {
-          // Empty identities mean "unknown" in model groups but wildcard in
-          // the list request. Narrow the complete result to this raw pair.
-          const miners =
-            context.manufacturer === "" || context.model === ""
-              ? members.value.filter(
-                  (miner) => miner.manufacturer === context.manufacturer && miner.model === context.model,
-                )
-              : members.value;
-          setSnapshot({ context, isLoading: false, miners, devices: progress.value, error: null });
-        } else {
-          const error: unknown =
-            members.status === "rejected"
-              ? members.reason
-              : progress.status === "rejected"
-                ? progress.reason
-                : undefined;
-          setSnapshot((previous) => ({
-            ...previous,
-            isLoading: false,
-            error: error instanceof Error && error.message ? error.message : "The request failed. Try again.",
-          }));
-        }
-        running = false;
-        controller = null;
-        if (queued) {
-          queued = false;
-          refresh();
-        }
-      });
-    };
-    refreshRef.current = refresh;
-    const cancel = () => {
-      cancelled = true;
-      queued = false;
-      controller?.abort();
-    };
-    cancelRef.current = cancel;
-    return () => {
-      cancel();
-      refreshRef.current = null;
-      cancelRef.current = null;
-    };
-  }, [context]);
-
-  useEffect(() => {
-    // Polls request a refresh without invalidating the current scan. Any
-    // number of polls while busy becomes one trailing scan, so long reads
-    // can finish and update the table without accumulating parallel work.
-    refreshRef.current?.();
-  }, [context, group, activeRollout]);
-
-  // Do not display the preceding model's data under a new context, even in the
-  // render before its request settles. Publish both lists together.
-  const current = snapshot.context === context ? snapshot : undefined;
-  const miners = current?.miners ?? null;
-  const isLoading = current?.isLoading ?? true;
-  const error = current?.error;
+      ]);
+      if (members.status === "rejected") throw members.reason;
+      if (progress.status === "rejected") throw progress.reason;
+      // Empty observed identities are wildcard filters in the API. Narrow the
+      // complete response back to the raw model group being displayed.
+      const miners =
+        manufacturer === "" || model === ""
+          ? members.value.filter((miner) => miner.manufacturer === manufacturer && miner.model === model)
+          : members.value;
+      return { miners, devices: progress.value };
+    },
+    [channelId, manufacturer, model, activeRolloutId, listChannelMiners, listRolloutDevices],
+  );
+  const refreshKey = useMemo(() => ({ group, activeRollout }), [group, activeRollout]);
+  const { data, isLoading, error, refresh, cancel } = useRefreshingRead({
+    read,
+    refreshKey,
+    trailingRefresh: true,
+    errorMessage: "The request failed. Try again.",
+  });
+  const miners = data?.miners ?? null;
 
   const phases = useMemo(() => {
     const byIdentifier: Record<string, RolloutDevicePhase> = {};
-    for (const device of current?.devices ?? []) {
+    for (const device of data?.devices ?? []) {
       byIdentifier[device.deviceIdentifier] = device.phase;
     }
     return byIdentifier;
-  }, [current?.devices]);
+  }, [data?.devices]);
 
   const handleClose = () => {
-    cancelRef.current?.();
+    cancel();
     onClose();
   };
 
@@ -209,7 +109,7 @@ const ModelMinersModal = ({
             subtitle={miners === null ? error : `${error} Showing the last loaded data.`}
             buttonText={isLoading ? "Retrying..." : "Retry"}
             buttonOnClick={() => {
-              if (!isLoading) refreshRef.current?.();
+              if (!isLoading) refresh();
             }}
           />
         </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { mergeRollouts } from "@/protoFleet/api/rolloutSnapshots";
 import { useFleetStore, useIsAuthenticated, useSessionGeneration, useUsername } from "@/protoFleet/store";
 
 export type ChannelHistoryState = { status: "loading" | "ready" | "error"; error?: string };
@@ -109,20 +109,6 @@ export function useChannelHistory({
     snapshot.identity === identity && snapshot.loader === listChannelRollouts ? snapshot.entries : undefined;
   const states = new Map<bigint, ChannelHistoryState>(currentEntries);
   for (const id of requested) if (!states.has(id)) states.set(id, { status: "loading" });
-  const merged = new Map<bigint, Rollout>();
-  for (const entry of currentEntries?.values() ?? []) {
-    for (const rollout of entry.rollouts ?? []) {
-      const previous = merged.get(rollout.id);
-      if (!previous || rollout.revision > previous.revision) merged.set(rollout.id, rollout);
-    }
-  }
-  for (const rollout of rollouts) {
-    const previous = merged.get(rollout.id);
-    if (!previous || rollout.revision >= previous.revision) merged.set(rollout.id, rollout);
-  }
-  const mergedRollouts = [...merged.values()].sort((a, b) => {
-    const byCreated = (b.createdAt ? timestampMs(b.createdAt) : 0) - (a.createdAt ? timestampMs(a.createdAt) : 0);
-    return byCreated || (a.id === b.id ? 0 : a.id < b.id ? 1 : -1);
-  });
-  return { rollouts: mergedRollouts, states, retry };
+  const history = [...(currentEntries?.values() ?? [])].flatMap((entry) => entry.rollouts ?? []);
+  return { rollouts: mergeRollouts(history, rollouts), states, retry };
 }

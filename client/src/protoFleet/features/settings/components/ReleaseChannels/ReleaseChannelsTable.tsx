@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import { ModelStatusCell, StatusCell } from "./channelStatus";
 import {
   activeRolloutForGroup,
-  assignmentKey,
+  channelAssignmentKey,
   channelUpdateStatus,
   hasUnavailableAssignedFirmware,
+  lastFinishedByChannelAssignment,
   modelFirmwareLabel,
   pairKey,
   pairLabel,
 } from "./rolloutStatus";
 import type { ChannelHistoryState } from "./useChannelHistory";
 import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -55,26 +54,6 @@ const channelColTitles: ColTitles<ChannelColumn> = {
   status: "Update status",
   actions: "",
 };
-
-const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout) =>
-  `${channelId.toString()}:${assignmentKey(pair)}`;
-
-// Newest finished (completed or completed with failures) rollout per
-// (channel, model, assignment generation), for "Updated <date>" and "N failed" cells.
-function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollout> {
-  const latest = new Map<string, Rollout>();
-  for (const rollout of rollouts) {
-    const finished =
-      rollout.status === RolloutStatus.COMPLETED || rollout.status === RolloutStatus.COMPLETED_WITH_FAILURES;
-    if (!finished || !rollout.finishedAt) continue;
-    const key = channelAssignmentKey(rollout.channelId, rollout);
-    const current = latest.get(key);
-    if (!current?.finishedAt || timestampMs(rollout.finishedAt) > timestampMs(current.finishedAt)) {
-      latest.set(key, rollout);
-    }
-  }
-  return latest;
-}
 
 // The release channels overview on the shared List: one disclosure row per
 // channel with aggregate counts, and per-model rows carrying firmware targets

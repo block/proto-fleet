@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import { deferred } from "./__tests__/helpers";
 import ScopeEditor from "./ScopeEditor";
 import {
   type PreviewReleaseChannelScopeResponse,
@@ -81,15 +82,7 @@ describe("release-channel scope preview cancellation", () => {
   afterEach(() => vi.useRealTimers());
 
   const tick = (ms = 300) => act(async () => vi.advanceTimersByTimeAsync(ms));
-  const deferredPreview = () => {
-    let resolve!: (value: PreviewReleaseChannelScopeResponse) => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<PreviewReleaseChannelScopeResponse>((yes, no) => {
-      resolve = yes;
-      reject = no;
-    });
-    return { promise, resolve, reject };
-  };
+  const deferredPreview = deferred<PreviewReleaseChannelScopeResponse>;
 
   it("cancels obsolete debounce timers without starting requests", async () => {
     const preview = vi.fn();

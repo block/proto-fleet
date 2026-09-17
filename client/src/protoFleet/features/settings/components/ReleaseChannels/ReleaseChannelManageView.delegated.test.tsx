@@ -2,15 +2,15 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { manageViewProps } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
-  PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelSchema,
   RolloutBehaviorSchema,
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
+import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   SiteSelectionModal: () => null,
@@ -39,21 +39,9 @@ const delegatedChannel = (order = RolloutOrder.RANDOM): ChannelView => ({
 });
 
 function renderManage(channel?: ChannelView) {
-  const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(undefined);
-  render(
-    <ReleaseChannelManageView
-      channel={channel}
-      rollouts={[]}
-      firmwareFiles={[]}
-      minerNames={{}}
-      previewScope={vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema))}
-      listChannelMiners={vi.fn().mockResolvedValue([])}
-      listRolloutDevices={vi.fn().mockResolvedValue([])}
-      onSave={onSave}
-      onApply={vi.fn().mockResolvedValue(undefined)}
-    />,
-  );
-  return onSave;
+  const props = manageViewProps();
+  render(<ReleaseChannelManageView {...props} channel={channel} />);
+  return props.onSave;
 }
 
 function chooseMethod(label: string) {

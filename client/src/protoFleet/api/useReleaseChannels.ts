@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
@@ -15,6 +15,7 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
+import { mergeRollouts } from "@/protoFleet/api/rolloutSnapshots";
 import {
   useAuthErrors,
   useFleetStore,
@@ -136,23 +137,6 @@ async function loadRolloutChanges(
     checkCurrent,
   );
   return { rollouts, pollCursor: nextPollCursor };
-}
-
-function mergeRollouts(previous: Rollout[], incoming: Rollout[]): Rollout[] {
-  const byId = new Map(previous.map((rollout) => [rollout.id, rollout]));
-  for (const rollout of incoming) {
-    const current = byId.get(rollout.id);
-    // Replays must not regress revisions. Equal revisions can still carry
-    // fresh live telemetry, which is not part of the revisioned header.
-    if (!current || rollout.revision >= current.revision) byId.set(rollout.id, rollout);
-  }
-  return [...byId.values()].sort((a, b) => {
-    const seconds = (b.createdAt?.seconds ?? 0n) - (a.createdAt?.seconds ?? 0n);
-    if (seconds !== 0n) return seconds > 0n ? 1 : -1;
-    const nanos = (b.createdAt?.nanos ?? 0) - (a.createdAt?.nanos ?? 0);
-    if (nanos !== 0) return nanos;
-    return a.id === b.id ? 0 : a.id < b.id ? 1 : -1;
-  });
 }
 
 function rolloutControlRequest(rolloutId: bigint, expectedRevision: bigint) {
@@ -508,47 +492,42 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     [handleAuthErrors, isCurrentSession],
   );
 
-  const refreshAfterMutation = useCallback(async () => {
-    // The write has already committed. Report a follow-up read failure via
-    // error state and retry on the next poll, without inviting a duplicate write.
-    await refresh().catch(() => undefined);
-  }, [refresh]);
+  const mutate = useCallback(
+    async <T>(request: () => Promise<T>): Promise<T> => {
+      const response = await withAuthErrors(request);
+      // The write committed. Keep read failures in polling error state instead
+      // of inviting a duplicate write; always return the acknowledged response.
+      await refresh().catch(() => undefined);
+      return response;
+    },
+    [refresh, withAuthErrors],
+  );
 
   const createChannel = useCallback(
-    async (draft: ReleaseChannelDraft) => {
-      const resp = await withAuthErrors(() =>
-        rolloutClient.createReleaseChannel({
-          ...draft,
-          behavior: rolloutBehaviorForRequest(draft.behavior),
-        }),
-      );
-      await refreshAfterMutation();
-      return resp.channel;
-    },
-    [refreshAfterMutation, withAuthErrors],
+    (draft: ReleaseChannelDraft) =>
+      mutate(() =>
+        rolloutClient.createReleaseChannel({ ...draft, behavior: rolloutBehaviorForRequest(draft.behavior) }),
+      ).then((response) => response.channel),
+    [mutate],
   );
 
   const updateChannel = useCallback(
-    async (channelId: bigint, draft: ReleaseChannelDraft) => {
-      const resp = await withAuthErrors(() =>
+    (channelId: bigint, draft: ReleaseChannelDraft) =>
+      mutate(() =>
         rolloutClient.updateReleaseChannel({
           channelId,
           ...draft,
           behavior: rolloutBehaviorForRequest(draft.behavior),
         }),
-      );
-      await refreshAfterMutation();
-      return resp.channel;
-    },
-    [refreshAfterMutation, withAuthErrors],
+      ).then((response) => response.channel),
+    [mutate],
   );
 
   const deleteChannel = useCallback(
     async (channelId: bigint) => {
-      await withAuthErrors(() => rolloutClient.deleteReleaseChannel({ channelId }));
-      await refreshAfterMutation();
+      await mutate(() => rolloutClient.deleteReleaseChannel({ channelId }));
     },
-    [refreshAfterMutation, withAuthErrors],
+    [mutate],
   );
 
   const previewScope = useCallback(
@@ -639,78 +618,52 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const applyFirmware = useCallback(
-    async (channelId: bigint, assignments: AssignmentDraft[]) => {
-      const resp = await withAuthErrors(() =>
+    (channelId: bigint, assignments: AssignmentDraft[]) =>
+      mutate(() =>
         rolloutClient.applyReleaseChannelFirmware({
           channelId,
-          assignments: assignments.map((a) => ({
-            manufacturer: a.manufacturer,
-            model: a.model,
-            firmwareFileId: a.firmwareFileId,
+          assignments: assignments.map(({ manufacturer, model, firmwareFileId }) => ({
+            manufacturer,
+            model,
+            firmwareFileId,
           })),
         }),
-      );
-      await refreshAfterMutation();
-      return resp.startedRollouts;
-    },
-    [refreshAfterMutation, withAuthErrors],
+      ).then((response) => response.startedRollouts),
+    [mutate],
   );
 
   const rollbackFirmware = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
       const request = rolloutControlRequest(rolloutId, expectedRevision);
-      const resp = await withAuthErrors(() => rolloutClient.rollbackReleaseChannelFirmware(request));
-      await refreshAfterMutation();
-      return resp.startedRollouts;
+      const response = await mutate(() => rolloutClient.rollbackReleaseChannelFirmware(request));
+      return response.startedRollouts;
     },
-    [refreshAfterMutation, withAuthErrors],
-  );
-
-  const continueRollout = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const request = rolloutControlRequest(rolloutId, expectedRevision);
-      await withAuthErrors(() => rolloutClient.continueRollout(request));
-      await refreshAfterMutation();
-    },
-    [refreshAfterMutation, withAuthErrors],
-  );
-
-  const pauseRollout = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const request = rolloutControlRequest(rolloutId, expectedRevision);
-      await withAuthErrors(() => rolloutClient.pauseRollout(request));
-      await refreshAfterMutation();
-    },
-    [refreshAfterMutation, withAuthErrors],
-  );
-
-  const resumeRollout = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const request = rolloutControlRequest(rolloutId, expectedRevision);
-      await withAuthErrors(() => rolloutClient.resumeRollout(request));
-      await refreshAfterMutation();
-    },
-    [refreshAfterMutation, withAuthErrors],
-  );
-
-  const cancelRollout = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const request = rolloutControlRequest(rolloutId, expectedRevision);
-      await withAuthErrors(() => rolloutClient.cancelRollout(request));
-      await refreshAfterMutation();
-    },
-    [refreshAfterMutation, withAuthErrors],
+    [mutate],
   );
 
   const retryFailedDevices = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
       const request = rolloutControlRequest(rolloutId, expectedRevision);
-      const resp = await withAuthErrors(() => rolloutClient.retryFailedRolloutDevices(request));
-      await refreshAfterMutation();
-      return resp.rollout;
+      const response = await mutate(() => rolloutClient.retryFailedRolloutDevices(request));
+      return response.rollout;
     },
-    [refreshAfterMutation, withAuthErrors],
+    [mutate],
   );
+
+  const controls = useMemo(() => {
+    const control =
+      (request: (input: ReturnType<typeof rolloutControlRequest>) => Promise<unknown>) =>
+      async (rolloutId: bigint, expectedRevision: bigint) => {
+        const input = rolloutControlRequest(rolloutId, expectedRevision);
+        await mutate(() => request(input));
+      };
+    return {
+      continueRollout: control((input) => rolloutClient.continueRollout(input)),
+      pauseRollout: control((input) => rolloutClient.pauseRollout(input)),
+      resumeRollout: control((input) => rolloutClient.resumeRollout(input)),
+      cancelRollout: control((input) => rolloutClient.cancelRollout(input)),
+    };
+  }, [mutate]);
 
   const hasCurrentSnapshot = isAuthenticated && snapshot.authSessionIdentity === authSessionIdentity;
   return {
@@ -730,10 +683,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     listRolloutDevices,
     applyFirmware,
     rollbackFirmware,
-    continueRollout,
-    pauseRollout,
-    resumeRollout,
-    cancelRollout,
+    ...controls,
     retryFailedDevices,
   };
 }
