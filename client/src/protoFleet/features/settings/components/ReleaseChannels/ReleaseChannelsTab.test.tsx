@@ -270,34 +270,36 @@ describe("acknowledged channel writes", () => {
     const api = { ...apiFor(), channels: [canaryChannel, productionChannel] };
     const deleted = deferredWrite();
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     fireEvent.click(screen.getByTestId("delete-channel"));
     fireEvent.click(deleteConfirm());
     const failed = { ...api, error: new Error("Refresh failed") };
-    rerender(<ReleaseChannelsTab api={failed} initialManagedChannelId={canaryChannel.id} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={failed} initialManagedChannelId={canaryChannel.id} />);
     await act(async () => deleted.resolve());
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     expect(screen.getByTestId("manage-channel-Production")).toBeInTheDocument();
     // An unrelated successful-looking render still contains the deleted row.
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [...api.channels] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("manage-channel-Production"));
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
-    rerender(<ReleaseChannelsTab api={{ ...failed, channels: [...api.channels] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...failed, channels: [...api.channels] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
     expect(api.deleteChannel).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
 
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [productionChannel] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [productionChannel] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
     expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [] }} />);
     expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
     expect(screen.getByText("No release channels")).toBeInTheDocument();
   });
@@ -312,16 +314,16 @@ describe("acknowledged channel writes", () => {
         await committed.promise;
         return created;
       });
-      const { rerender } = render(<ReleaseChannelsTab api={api} />);
+      const { rerender } = render(<ReleaseChannelsTab {...historyActions} api={api} />);
       await flush();
       fireEvent.click(screen.getByTestId("create-release-channel"));
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: created.name } });
       fireEvent.click(screen.getByTestId("save-channel"));
       // An older poll finishes while the mutation's own follow-up read is pending.
       const olderSnapshot = [...api.channels];
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: olderSnapshot }} />);
       const failed = { ...api, channels: olderSnapshot, error: new Error("Refresh failed") };
-      rerender(<ReleaseChannelsTab api={failed} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={failed} />);
       await act(async () => committed.resolve());
       expect(screen.getByText("Channel details will appear after a successful refresh.")).toBeInTheDocument();
       fireEvent.click(screen.getByTestId("back-to-channels"));
@@ -333,18 +335,23 @@ describe("acknowledged channel writes", () => {
       expect(api.createChannel).toHaveBeenCalledOnce();
 
       // Clearing an error without a newer snapshot does not confirm the create.
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: olderSnapshot }} />);
       expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
       const retry = deferredWrite();
       api.refresh = vi.fn().mockReturnValue(retry.promise);
-      rerender(<ReleaseChannelsTab api={{ ...failed, refresh: api.refresh }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...failed, refresh: api.refresh }} />);
       fireEvent.click(screen.getByRole("button", { name: "Refresh channel list" }));
       fireEvent.click(screen.getByRole("button", { name: "Refreshing..." }));
       expect(api.refresh).toHaveBeenCalledOnce();
       await act(async () => retry.reject(new Error("Still unavailable")));
       expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
 
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }} />);
+      rerender(
+        <ReleaseChannelsTab
+          {...historyActions}
+          api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }}
+        />,
+      );
       expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
       if (screen.queryByTestId("back-to-channels")) fireEvent.click(screen.getByTestId("back-to-channels"));
       await flush();
@@ -357,13 +364,15 @@ describe("acknowledged channel writes", () => {
 
   it("does not carry a deleted-channel acknowledgement into a replacement session", async () => {
     const api = apiFor();
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     act(() => useFleetStore.setState({ auth: { ...useFleetStore.getState().auth, sessionGeneration: 2 } }));
-    rerender(<ReleaseChannelsTab api={api} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     expect(screen.getByTestId("channel-row-Canary")).toBeInTheDocument();
     expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
@@ -380,7 +389,7 @@ describe("acknowledged channel writes", () => {
         return created;
       });
       api.deleteChannel = vi.fn().mockReturnValue(committed.promise);
-      render(<ReleaseChannelsTab api={api} />);
+      render(<ReleaseChannelsTab {...historyActions} api={api} />);
       await flush();
       if (operation === "create") {
         fireEvent.click(screen.getByTestId("create-release-channel"));
