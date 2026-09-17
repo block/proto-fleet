@@ -176,6 +176,24 @@ const RolloutControls = ({
       ) : null}
       {readout ? <p className="text-200 text-text-primary-50">{readout}</p> : null}
 
+      {behavior.method === RolloutMethod.DELEGATED ? (
+        <div className="flex flex-col gap-2">
+          <dl>
+            <dt className="text-200 text-text-primary-70">Controller timeout</dt>
+            <dd className="text-200">
+              {behavior.controllerTimeoutSeconds === 0
+                ? "Never times out"
+                : `${behavior.controllerTimeoutSeconds} ${behavior.controllerTimeoutSeconds === 1 ? "second" : "seconds"}`}
+            </dd>
+          </dl>
+          <p className="text-200 text-text-primary-70">
+            {behavior.controllerTimeoutSeconds === 0
+              ? "Updates can wait indefinitely for controller action."
+              : "While waiting for the controller, updates pause after this interval without controller action."}
+          </p>
+        </div>
+      ) : null}
+
       {batched ? (
         <Switch
           id="review-after-each-batch"

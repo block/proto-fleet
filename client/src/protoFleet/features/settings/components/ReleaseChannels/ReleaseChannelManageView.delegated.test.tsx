@@ -163,11 +163,14 @@ describe("existing delegated release channels", () => {
   it("keeps Save blocked after reverting an unsaved switch to external control", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
+    expect(screen.getByText("120 seconds")).toBeVisible();
     chooseMethod("Multiple batches");
+    expect(screen.queryByText("Controller timeout")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     chooseMethod("Controlled externally");
 
+    expect(screen.getByText("120 seconds")).toBeVisible();
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
     expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-channel")).toBeDisabled();

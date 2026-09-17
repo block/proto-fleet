@@ -41,6 +41,53 @@ function renderControls(initial = reviewedBehavior()) {
 
 afterEach(cleanup);
 
+describe("delegated controller timeout", () => {
+  it.each([
+    [0, "Never times out"],
+    [1, "1 second"],
+    [125, "125 seconds"],
+  ] as const)("shows the saved %s-second timeout read-only", (controllerTimeoutSeconds, expected) => {
+    render(
+      <RolloutControls
+        behavior={create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED, controllerTimeoutSeconds })}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Controller timeout")).toBeVisible();
+    expect(screen.getByText(expected)).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: /controller timeout/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        controllerTimeoutSeconds === 0
+          ? "Updates can wait indefinitely for controller action."
+          : "While waiting for the controller, updates pause after this interval without controller action.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("reflects refreshed timeouts and hides retained values for other methods", () => {
+    const onChange = vi.fn();
+    const behavior = create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED, controllerTimeoutSeconds: 125 });
+    const { rerender } = render(<RolloutControls behavior={behavior} onChange={onChange} />);
+    rerender(
+      <RolloutControls
+        behavior={create(RolloutBehaviorSchema, { ...behavior, controllerTimeoutSeconds: 0 })}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByText("Never times out")).toBeVisible();
+    expect(screen.queryByText("125 seconds")).not.toBeInTheDocument();
+    rerender(
+      <RolloutControls
+        behavior={create(RolloutBehaviorSchema, { ...behavior, method: RolloutMethod.ALL_AT_ONCE })}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.queryByText("Controller timeout")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("sample coverage controls", () => {
   it("shows the saved coverage and preserves fractional edits in the request", () => {
     const current = renderControls();
