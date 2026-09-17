@@ -1,7 +1,14 @@
 import type { ReactElement } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import { gatesAfterBatch, isPacedMethod, methodOptions, orderOptions, planReadout } from "./behaviorUtils";
+import {
+  gatesAfterBatch,
+  isPacedMethod,
+  methodOptions,
+  orderOptions,
+  planReadout,
+  rolloutSizeError,
+} from "./behaviorUtils";
 import { methodHelpText } from "./rolloutStatus";
 import {
   type RolloutAutomationThresholds,
@@ -53,6 +60,7 @@ const RolloutControls = ({
   const pilot = behavior.method === RolloutMethod.PILOT_THEN_CONTINUE;
   const gates = gatesAfterBatch(behavior);
   const readout = planReadout(behavior, inScopeCount);
+  const sizeError = rolloutSizeError(behavior);
 
   return (
     <div className="flex flex-col gap-4" data-testid="rollout-controls">
@@ -93,6 +101,7 @@ const RolloutControls = ({
               type="number"
               initValue={behavior.pilotSize}
               onChange={(value) => update({ pilotSize: parseInt0(value) })}
+              error={sizeError}
               disabled={disabled}
             />
           ) : (
@@ -102,6 +111,7 @@ const RolloutControls = ({
               type="number"
               initValue={behavior.batchSize}
               onChange={(value) => update({ batchSize: parseInt0(value) })}
+              error={sizeError}
               disabled={disabled}
             />
           )}

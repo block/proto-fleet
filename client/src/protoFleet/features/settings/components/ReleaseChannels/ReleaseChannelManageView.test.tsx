@@ -124,6 +124,70 @@ function deferredWrite() {
   return { promise, resolve, reject };
 }
 
+describe("release channel active sizing validation", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  test.each([
+    ["Multiple batches", "Batch size (miners)", "batchSize", ""],
+    ["Multiple batches", "Batch size (miners)", "batchSize", "0"],
+    ["Multiple batches", "Batch size (miners)", "batchSize", "-1"],
+    ["Pilot batch, then remaining", "Pilot batch size (miners)", "pilotSize", ""],
+    ["Pilot batch, then remaining", "Pilot batch size (miners)", "pilotSize", "0"],
+    ["Pilot batch, then remaining", "Pilot batch size (miners)", "pilotSize", "-1"],
+  ] as const)(
+    "blocks %s with active size %s/%s=%s, then recovers or switches methods",
+    async (method, label, field, invalidValue) => {
+      const { onSave } = renderManage(existingChannel());
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
+      const chooseMethod = (name: string) => {
+        fireEvent.click(screen.getByTestId("rollout-method"));
+        fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${name}`) }));
+      };
+      chooseMethod(method);
+      fireEvent.change(screen.getByLabelText(label), { target: { value: invalidValue } });
+      expect(screen.getByLabelText(label)).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByText("Enter at least 1 miner.")).toBeVisible();
+      const save = screen.getByTestId("save-channel");
+      expect(save).toBeDisabled();
+      fireEvent.click(save);
+      expect(onSave).not.toHaveBeenCalled();
+      chooseMethod(method === "Multiple batches" ? "Pilot batch, then remaining" : "Multiple batches");
+      expect(save).toBeEnabled();
+      chooseMethod("Single batch");
+      expect(save).toBeEnabled();
+      chooseMethod(method);
+      expect(save).toBeDisabled();
+      fireEvent.change(screen.getByLabelText(label), { target: { value: "1" } });
+      expect(screen.getByLabelText(label)).not.toHaveAttribute("aria-invalid");
+      expect(save).toBeEnabled();
+      await act(async () => fireEvent.click(save));
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ behavior: expect.objectContaining({ [field]: 1 }) }),
+      );
+    },
+  );
+
+  test("allows firmware Apply to use saved settings when an unsaved active size is invalid", async () => {
+    const { onSave, onApply } = renderManage(assignedChannel());
+    fireEvent.click(screen.getByTestId("rollout-method"));
+    fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
+    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "0" } });
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: single batch.");
+    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Unsaved channel changes");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
 describe("release channel pacing guidance", () => {
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
@@ -413,7 +477,100 @@ describe("release channel firmware assignments", () => {
     updateFirmwareFiles([]);
     expect(picker).toHaveTextContent("Firmware details unavailable");
     expect(picker).not.toHaveTextContent("No firmware");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+    expect(screen.getByText(/Selected firmware is unavailable for this model/)).toBeInTheDocument();
+  });
+
+  test.each(["deleted", "retargeted"])(
+    "blocks the whole staged update when a selected file is %s, then recovers after reselection",
+    async (change) => {
+      const channel = existingChannel();
+      channel.modelGroups = ["Rig", "Other"].map((model) =>
+        create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+      );
+      const otherFile = { ...replacementFile, id: "other-file", target_model: "Other" };
+      const recoveredFile = { ...replacementFile, id: "new-rig-file", firmware_version: "1.4.5" };
+      const { onApply, onSave, updateFirmwareFiles } = renderManage(channel, undefined, false, [
+        replacementFile,
+        otherFile,
+      ]);
+      for (const model of ["Rig", "Other"]) {
+        fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
+        fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
+      }
+      const apply = screen.getByTestId("apply-firmware-changes");
+      fireEvent.click(apply);
+      const start = screen.getByRole("button", { name: "Start update" });
+      expect(start).toBeEnabled();
+
+      updateFirmwareFiles([
+        otherFile,
+        recoveredFile,
+        ...(change === "retargeted" ? [{ ...replacementFile, target_model: "Other" }] : []),
+      ]);
+      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("Firmware details unavailable");
+      expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent(
+        "Choose valid firmware for every changed model or discard the pending changes.",
+      );
+      expect(apply).toBeDisabled();
+      expect(start).toBeDisabled();
+      fireEvent.click(start);
+      expect(onApply).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Independent settings change" } });
+      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      expect(onSave).toHaveBeenCalledOnce();
+      expect(start).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      fireEvent.click(screen.getByRole("option", { name: /1.4.5/ }));
+      expect(apply).toBeEnabled();
+      expect(start).toBeEnabled();
+      await act(async () => fireEvent.click(start));
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+        { manufacturer: "Proto", model: "Rig", firmwareFileId: "new-rig-file" },
+        { manufacturer: "Proto", model: "Other", firmwareFileId: "other-file" },
+      ]);
+    },
+  );
+
+  test("retains each unassigned model's staged choice after all selected files disappear and allows discard", () => {
+    const channel = existingChannel();
+    channel.modelGroups = ["Rig", "Other"].map((model) =>
+      create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+    );
+    const { onApply, updateFirmwareFiles } = renderManage(channel, undefined, false, [
+      replacementFile,
+      { ...replacementFile, id: "other-file", target_model: "Other" },
+    ]);
+    for (const model of ["Rig", "Other"]) {
+      fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
+      fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
+    }
+    updateFirmwareFiles([]);
+    expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Selected firmware is unavailable for this model/)).not.toBeInTheDocument();
+    for (const model of ["Rig", "Other"]) {
+      expect(screen.getByTestId(`channel-firmware-select-${model}`)).toHaveTextContent("No firmware");
+    }
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  test("accepts catalog target spelling changes that retain the canonical model", async () => {
+    const { onApply, updateFirmwareFiles } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    updateFirmwareFiles([{ ...replacementFile, target_manufacturer: " PROTO ", target_model: " rig " }]);
+    expect(screen.queryByText(/Selected firmware is unavailable for this model/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: " PROTO ", model: " rig ", firmwareFileId: "replacement" },
+    ]);
   });
 
   test.each(["assign", "clear"])(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
@@ -7,13 +7,18 @@ import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import { useFleetStore, useIsAuthenticated, useSessionGeneration, useUsername } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const RELEASE_CHANNELS_DESCRIPTION =
   "Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically, paced by the channel's update behavior.";
+
+const FIRMWARE_REFRESH_INTERVAL_MS = 30_000;
+const FIRMWARE_REQUEST_TIMEOUT_MS = 30_000;
 
 // Which surface the tab shows: the channels table, a channel's manage
 // view, or the create form.
@@ -45,7 +50,20 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     applyFirmware,
   } = api;
   const { listFirmwareFiles } = useFirmwareApi();
-  const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
+  const isAuthenticated = useIsAuthenticated();
+  const sessionGeneration = useSessionGeneration();
+  const username = useUsername();
+  const authSessionIdentity = JSON.stringify([username, sessionGeneration]);
+  const [firmwareCatalog, setFirmwareCatalog] = useState({
+    authSessionIdentity,
+    files: null as FirmwareFileInfo[] | null,
+    error: null as string | null,
+    isLoading: true,
+  });
+  const refreshFirmwareRef = useRef<(() => void) | null>(null);
+  const currentCatalog =
+    isAuthenticated && firmwareCatalog.authSessionIdentity === authSessionIdentity ? firmwareCatalog : undefined;
+  const firmwareFiles = currentCatalog?.files ?? [];
   const [view, setView] = useState<View>(() =>
     initialManagedChannelId !== null ? { kind: "manage", channelId: initialManagedChannelId } : { kind: "list" },
   );
@@ -53,12 +71,64 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    listFirmwareFiles()
-      .then(setFirmwareFiles)
-      .catch((error) => {
-        pushToast({ message: error?.message || "Failed to load firmware files", status: STATUSES.error });
-      });
-  }, [listFirmwareFiles]);
+    if (!isAuthenticated) return;
+    let canceled = false;
+    let controller: AbortController | null = null;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const isCurrentSession = () => {
+      const auth = useFleetStore.getState().auth;
+      return (
+        !canceled && auth.isAuthenticated && auth.sessionGeneration === sessionGeneration && auth.username === username
+      );
+    };
+    const load = () => {
+      if (controller || !isCurrentSession()) return false;
+      controller = new AbortController();
+      const requestController = controller;
+      timeout = setTimeout(
+        () => requestController.abort(new Error("The firmware file request timed out. Please retry.")),
+        FIRMWARE_REQUEST_TIMEOUT_MS,
+      );
+      listFirmwareFiles(requestController.signal)
+        .then((files) => {
+          if (isCurrentSession()) setFirmwareCatalog({ authSessionIdentity, files, error: null, isLoading: false });
+        })
+        .catch((error: unknown) => {
+          if (!isCurrentSession()) return;
+          setFirmwareCatalog((previous) => ({
+            authSessionIdentity,
+            files: previous.authSessionIdentity === authSessionIdentity ? previous.files : null,
+            error: error instanceof Error && error.message ? error.message : "Failed to load firmware files",
+            isLoading: false,
+          }));
+        })
+        .finally(() => {
+          clearTimeout(timeout);
+          controller = null;
+        });
+      return true;
+    };
+    const refresh = () => {
+      if (load()) {
+        setFirmwareCatalog((previous) => ({
+          authSessionIdentity,
+          files: previous.authSessionIdentity === authSessionIdentity ? previous.files : null,
+          error: previous.authSessionIdentity === authSessionIdentity ? previous.error : null,
+          isLoading: true,
+        }));
+      }
+    };
+    refreshFirmwareRef.current = refresh;
+    load();
+    const interval = setInterval(refresh, FIRMWARE_REFRESH_INTERVAL_MS);
+    return () => {
+      canceled = true;
+      clearInterval(interval);
+      clearTimeout(timeout);
+      controller?.abort();
+      refreshFirmwareRef.current = null;
+    };
+  }, [authSessionIdentity, isAuthenticated, listFirmwareFiles, sessionGeneration, username]);
 
   const handleDelete = () => {
     if (!channelToDelete) return;
@@ -84,6 +154,26 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   return (
     <div className="flex flex-col gap-6">
       <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
+
+      {currentCatalog?.error ? (
+        <div role="alert" aria-busy={currentCatalog.isLoading}>
+          <Callout
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title={currentCatalog.files === null ? "Couldn't load firmware files" : "Firmware files may be out of date"}
+            subtitle={
+              currentCatalog.files === null
+                ? currentCatalog.error
+                : `${currentCatalog.error} Showing the last loaded firmware files.`
+            }
+            buttonText={currentCatalog.isLoading ? "Retrying..." : "Retry"}
+            buttonOnClick={() => refreshFirmwareRef.current?.()}
+            testId="release-channel-firmware-load-error"
+          />
+        </div>
+      ) : isAuthenticated && !currentCatalog?.files ? (
+        <p className="text-200 text-text-primary-70">Loading firmware files...</p>
+      ) : null}
 
       {showBack ? (
         <button

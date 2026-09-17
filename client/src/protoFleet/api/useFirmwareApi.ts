@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
-import { useLogout } from "@/protoFleet/store";
+import { useFleetStore, useLogout } from "@/protoFleet/store";
 
 export { computeSha256 } from "@/protoFleet/utils/crypto";
 
@@ -214,12 +214,28 @@ export const useFirmwareApi = () => {
 
   const listFirmwareFiles = useCallback(
     async (signal?: AbortSignal): Promise<FirmwareFileInfo[]> => {
+      const { username, sessionGeneration, isAuthenticated } = useFleetStore.getState().auth;
+      const assertCurrentRequest = () => {
+        if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+        const auth = useFleetStore.getState().auth;
+        if (
+          auth.username !== username ||
+          auth.sessionGeneration !== sessionGeneration ||
+          auth.isAuthenticated !== isAuthenticated
+        ) {
+          throw new Error("Your session changed. Refresh the page before trying again.");
+        }
+      };
+      assertCurrentRequest();
       const response = await fetch(`${API_BASE}/files`, {
         method: "GET",
         credentials: "include",
         signal,
       });
 
+      // A response from an abandoned read must not log out a replacement login
+      // or publish its catalog, even if the transport has already received it.
+      assertCurrentRequest();
       if (response.status === 401) {
         logout();
         throw new Error("Session expired. Please log in again.");
@@ -230,10 +246,12 @@ export const useFirmwareApi = () => {
           response,
           `Failed to list firmware files: ${response.status} ${response.statusText}`,
         );
+        assertCurrentRequest();
         throw new Error(message);
       }
 
       const data = await response.json();
+      assertCurrentRequest();
       return (data.files ?? []) as FirmwareFileInfo[];
     },
     [logout],

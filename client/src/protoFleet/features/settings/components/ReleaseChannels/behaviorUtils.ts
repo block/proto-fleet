@@ -35,6 +35,18 @@ export const orderOptions = [RolloutOrder.LEAST_EFFICIENT_FIRST, RolloutOrder.RA
 export const isPacedMethod = (method: RolloutMethod): boolean =>
   method === RolloutMethod.BATCHED || method === RolloutMethod.PILOT_THEN_CONTINUE;
 
+// Only the selected method's size is sent to the server. Retained values
+// for hidden fields must not prevent saving another method.
+export const rolloutSizeError = (behavior: RolloutBehavior): string | undefined => {
+  const size =
+    behavior.method === RolloutMethod.BATCHED
+      ? behavior.batchSize
+      : behavior.method === RolloutMethod.PILOT_THEN_CONTINUE
+        ? behavior.pilotSize
+        : undefined;
+  return size !== undefined && size < 1 ? "Enter at least 1 miner." : undefined;
+};
+
 // Whether a finished batch holds for review (and so whether auto-continue
 // and its thresholds apply).
 export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>

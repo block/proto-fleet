@@ -1,0 +1,131 @@
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+
+import { defaultBehavior } from "./behaviorUtils";
+import ReleaseChannelManageView from "./ReleaseChannelManageView";
+import { ReleaseChannelModelGroupSchema, ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
+
+// Exercise real management state and writes at the API's 100-pair boundary;
+// the picker portal and scope-preview behavior have their own component tests.
+vi.mock("./ScopeEditor", () => ({ default: () => null }));
+vi.mock("./FirmwarePickerButton", () => ({
+  default: ({
+    options,
+    value,
+    onChange,
+    testId,
+  }: {
+    options: { value: string; label: string }[];
+    value: string | null;
+    onChange: (value: string) => void;
+    testId: string;
+  }) => (
+    <select data-testid={testId} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn(), STATUSES: { success: "success", error: "error" } }));
+
+describe("firmware assignment request limit", () => {
+  test("blocks 101 canonical changes atomically, preserves edits, and allows a reverted set of 100", async () => {
+    const groups = Array.from({ length: 101 }, (_, index) =>
+      create(ReleaseChannelModelGroupSchema, {
+        manufacturer: "Proto",
+        model: `Model-${index}`,
+        minerCount: 1,
+        firmwareFileId: `old-${index}`,
+        firmwareAvailable: true,
+        firmwareChecksum: "a".repeat(64),
+        firmwareVersion: "1.0",
+        firmwareTargetManufacturer: "Proto",
+        firmwareTargetModel: `Model-${index}`,
+        assignmentGeneration: 1n,
+      }),
+    );
+    const channel: ChannelView = {
+      ...create(ReleaseChannelSchema, { id: 1n, name: "Large channel", behavior: defaultBehavior() }),
+      modelGroups: [
+        ...groups,
+        create(ReleaseChannelModelGroupSchema, { ...groups[0], manufacturer: " PROTO ", model: " model-0 " }),
+      ],
+    };
+    const firmwareFiles = groups.flatMap((group, index) =>
+      ["old", "new"].map((version) => ({
+        id: `${version}-${index}`,
+        filename: `${version}-${index}.swu`,
+        size: 1,
+        uploaded_at: "2026-09-17T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: group.model,
+        firmware_version: version,
+      })),
+    );
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ReleaseChannelManageView
+        channel={channel}
+        rollouts={[]}
+        firmwareFiles={firmwareFiles}
+        minerNames={{}}
+        previewScope={vi.fn()}
+        listChannelMiners={vi.fn()}
+        listRolloutDevices={vi.fn()}
+        onSave={onSave}
+        onApply={onApply}
+      />,
+    );
+    for (let index = 0; index < 100; index += 1) {
+      fireEvent.change(screen.getByTestId(`channel-firmware-select-Model-${index}`), {
+        target: { value: `new-${index}` },
+      });
+    }
+    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
+    const aliasPicker = screen.getByTestId("channel-firmware-select- model-0 ", { normalizer: (value) => value });
+    expect(aliasPicker).toHaveValue("new-0");
+    fireEvent.change(aliasPicker, { target: { value: "old-0" } });
+    expect(screen.getByText(/99 firmware changes pending/)).toBeInTheDocument();
+    fireEvent.change(aliasPicker, { target: { value: "" } });
+    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
+    const apply = screen.getByTestId("apply-firmware-changes");
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    const start = screen.getByRole("button", { name: "Start update" });
+    expect(start).toBeEnabled();
+
+    fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "new-100" } });
+    expect(screen.getByText(/101 firmware changes pending/)).toBeInTheDocument();
+    expect(apply).toBeDisabled();
+    expect(start).toBeDisabled();
+    expect(screen.getAllByText(/Apply up to 100 model changes at a time/)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+    fireEvent.click(start);
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(screen.getByText(/101 firmware changes pending/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "old-100" } });
+    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.queryByText(/Apply up to 100 model changes at a time/)).not.toBeInTheDocument();
+    expect(start).toBeEnabled();
+    await act(async () => fireEvent.click(start));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(
+      1n,
+      groups.slice(0, 100).map((group, index) => ({
+        manufacturer: "Proto",
+        model: group.model,
+        firmwareFileId: index === 0 ? "" : `new-${index}`,
+      })),
+    );
+  }, 15_000);
+});

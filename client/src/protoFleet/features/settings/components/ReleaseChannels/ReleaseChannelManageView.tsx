@@ -1,7 +1,7 @@
 import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
-import { defaultBehavior } from "./behaviorUtils";
+import { defaultBehavior, rolloutSizeError } from "./behaviorUtils";
 import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
@@ -41,6 +41,10 @@ import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Textarea from "@/shared/components/Textarea";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+const MAX_FIRMWARE_ASSIGNMENTS = 100;
+const assignmentLimitMessage =
+  "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
 
 // Attention pill with a pulsing dot, shown while an update is ongoing.
 const UpdateActivePill = ({ count, testId }: { count: number; testId?: string }) => (
@@ -85,6 +89,7 @@ interface FirmwarePickerCellProps {
   group: ReleaseChannelModelGroup;
   firmwareFiles: FirmwareFileInfo[];
   stagedFileId: string | undefined;
+  invalidSelection: boolean;
   onStageFirmware: (group: ReleaseChannelModelGroup, fileId: string) => void;
 }
 
@@ -95,7 +100,13 @@ const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelM
   return key === null ? [] : firmwareFiles.filter((f) => minerTargetKey(f.target_manufacturer, f.target_model) === key);
 };
 
-const FirmwarePickerCell = ({ group, firmwareFiles, stagedFileId, onStageFirmware }: FirmwarePickerCellProps) => {
+const FirmwarePickerCell = ({
+  group,
+  firmwareFiles,
+  stagedFileId,
+  invalidSelection,
+  onStageFirmware,
+}: FirmwarePickerCellProps) => {
   const options = useMemo(
     () => [
       { value: "", label: "No firmware" },
@@ -111,17 +122,26 @@ const FirmwarePickerCell = ({ group, firmwareFiles, stagedFileId, onStageFirmwar
   // Keep that state distinct from an explicitly staged clear (the empty string).
   const value = stagedFileId ?? (group.firmwareFileId || (group.firmwareChecksum ? null : ""));
   const unresolvedLabel =
-    stagedFileId === undefined || stagedFileId === group.firmwareFileId ? group.firmwareVersion : undefined;
+    !invalidSelection && (stagedFileId === undefined || stagedFileId === group.firmwareFileId)
+      ? group.firmwareVersion
+      : undefined;
 
   return (
-    <FirmwarePickerButton
-      label={`Firmware for ${pairLabel(group)}`}
-      options={options}
-      value={value}
-      unresolvedLabel={unresolvedLabel}
-      onChange={(value) => onStageFirmware(group, value)}
-      testId={`channel-firmware-select-${group.model}`}
-    />
+    <div className="grid gap-1">
+      <FirmwarePickerButton
+        label={`Firmware for ${pairLabel(group)}`}
+        options={options}
+        value={value}
+        unresolvedLabel={unresolvedLabel}
+        onChange={(value) => onStageFirmware(group, value)}
+        testId={`channel-firmware-select-${group.model}`}
+      />
+      {invalidSelection ? (
+        <p role="alert" className="text-200 text-intent-critical-fill">
+          Selected firmware is unavailable for this model. Choose another version or discard the pending changes.
+        </p>
+      ) : null}
+    </div>
   );
 };
 
@@ -200,7 +220,12 @@ const ReleaseChannelManageView = ({
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
   const isWriting = isSaving || isApplying;
-  const canSave = dirty && name.trim() !== "" && (channel !== undefined || !hasConflicts) && !isWriting;
+  const canSave =
+    dirty &&
+    name.trim() !== "" &&
+    !rolloutSizeError(behavior) &&
+    (channel !== undefined || !hasConflicts) &&
+    !isWriting;
 
   const handleSave = async () => {
     if (writeInFlightRef.current || !canSave) return;
@@ -236,31 +261,35 @@ const ReleaseChannelManageView = ({
   const minersGroup =
     minersPair !== null ? modelGroups.find((group) => observedPairKey(group) === minersPair) : undefined;
 
-  const stagedValue = (group: ReleaseChannelModelGroup): string =>
-    staged[pairKey(group)] !== undefined ? staged[pairKey(group)] : group.firmwareFileId;
-
-  // An assignment names the canonical pair: the chosen file's target keys, or
-  // the current assignment's when clearing.
-  const assignmentFor = (group: ReleaseChannelModelGroup): AssignmentDraft => {
-    const fileId = stagedValue(group);
-    const file = firmwareFiles.find((f) => f.id === fileId);
-    return {
-      manufacturer: file?.target_manufacturer ?? group.firmwareTargetManufacturer,
-      model: file?.target_model ?? group.firmwareTargetModel,
-      firmwareFileId: fileId,
-    };
-  };
-
   const dirtyAssignmentsByPair = new Map<string, AssignmentDraft>();
+  const invalidSelections = new Set<string>();
   for (const group of modelGroups) {
-    const fileId = staged[pairKey(group)];
+    const key = pairKey(group);
+    const fileId = staged[key];
     if (fileId !== undefined && (fileId !== group.firmwareFileId || (fileId === "" && group.firmwareChecksum !== ""))) {
-      const assignment = assignmentFor(group);
+      const file = firmwareFiles.find((candidate) => candidate.id === fileId);
+      const targetKey = minerTargetKey(group.manufacturer, group.model);
+      const matchingFile =
+        file && targetKey !== null && minerTargetKey(file.target_manufacturer, file.target_model) === targetKey
+          ? file
+          : undefined;
+      if (fileId !== "" && !matchingFile) invalidSelections.add(key);
+      // A catalog refresh must not retarget or collapse pending changes.
+      // Keep invalid choices under the observed model until corrected; the
+      // whole Apply remains blocked. Clears use the saved assignment's pair.
+      const assignment = {
+        manufacturer:
+          fileId === "" ? group.firmwareTargetManufacturer : (matchingFile?.target_manufacturer ?? group.manufacturer),
+        model: fileId === "" ? group.firmwareTargetModel : (matchingFile?.target_model ?? group.model),
+        firmwareFileId: fileId,
+      };
       // Several observed spellings can share one canonical assignment.
-      dirtyAssignmentsByPair.set(pairKey(assignment), assignment);
+      dirtyAssignmentsByPair.set(key, assignment);
     }
   }
   const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
+  const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
+  const canApply = dirtyAssignments.length > 0 && !exceedsAssignmentLimit && invalidSelections.size === 0 && !isWriting;
 
   // Human-readable version for a staged file id, for the dialog summary.
   const versionLabel = (fileId: string): string => {
@@ -270,7 +299,7 @@ const ReleaseChannelManageView = ({
   };
 
   const handleApply = async () => {
-    if (writeInFlightRef.current || !channel || dirtyAssignments.length === 0) return;
+    if (writeInFlightRef.current || !channel || !canApply) return;
     writeInFlightRef.current = true;
     setIsApplying(true);
     try {
@@ -413,6 +442,7 @@ const ReleaseChannelManageView = ({
                           group={group}
                           firmwareFiles={firmwareFiles}
                           stagedFileId={staged[pairKey(group)]}
+                          invalidSelection={invalidSelections.has(pairKey(group))}
                           onStageFirmware={(g, fileId) => setStaged((prev) => ({ ...prev, [pairKey(g)]: fileId }))}
                         />
                       </td>
@@ -467,12 +497,15 @@ const ReleaseChannelManageView = ({
 
           {dirtyAssignments.length > 0 ? (
             <div className="flex items-center justify-between gap-4 rounded-lg bg-intent-warning-10 px-4 py-3">
-              <span className="text-300 text-text-primary">
-                {dirtyAssignments.length === 1
-                  ? "1 firmware change pending"
-                  : `${dirtyAssignments.length} firmware changes pending`}
-                {" — applying starts an update per model."}
-              </span>
+              <div className="grid gap-1 text-300 text-text-primary">
+                <span>
+                  {dirtyAssignments.length === 1
+                    ? "1 firmware change pending"
+                    : `${dirtyAssignments.length} firmware changes pending`}
+                  {" — applying starts an update per model."}
+                </span>
+                {exceedsAssignmentLimit ? <p role="alert">{assignmentLimitMessage}</p> : null}
+              </div>
               <div className="flex shrink-0 gap-2">
                 <Button
                   variant={variants.secondary}
@@ -485,9 +518,9 @@ const ReleaseChannelManageView = ({
                   variant={variants.primary}
                   size={sizes.compact}
                   text="Apply changes"
-                  disabled={isWriting}
+                  disabled={!canApply}
                   onClick={() => {
-                    if (!writeInFlightRef.current) setShowApplyDialog(true);
+                    if (!writeInFlightRef.current && canApply) setShowApplyDialog(true);
                   }}
                   testId="apply-firmware-changes"
                 />
@@ -530,11 +563,21 @@ const ReleaseChannelManageView = ({
               text: "Start update",
               variant: variants.primary,
               onClick: handleApply,
-              disabled: isWriting || dirtyAssignments.length === 0,
+              disabled: !canApply,
               loading: isApplying,
             },
           ]}
         >
+          {invalidSelections.size > 0 ? (
+            <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
+              Choose valid firmware for every changed model or discard the pending changes.
+            </p>
+          ) : null}
+          {exceedsAssignmentLimit ? (
+            <p role="alert" className="mb-3 text-200 text-text-primary">
+              {assignmentLimitMessage}
+            </p>
+          ) : null}
           <div>
             {dirtyAssignments.map((assignment) => (
               <div
