@@ -3,6 +3,18 @@ set -euo pipefail
 
 lefthook validate
 
+lefthook_config="$(lefthook dump --format json)"
+for job in plugin-proto-lint plugin-antminer-lint; do
+  for shared_path in server/go.mod server/go.sum 'server/sdk/**'; do
+    if ! jq -e --arg job "$job" --arg path "$shared_path" \
+      '."changed-checks".commands[$job].glob | index($path)' \
+      <<<"$lefthook_config" >/dev/null; then
+      echo "$job does not run for shared dependency: $shared_path" >&2
+      exit 1
+    fi
+  done
+done
+
 diff -u \
   <(find .claude/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort) \
   <(find .agents/skills -mindepth 1 -maxdepth 1 -type l -exec basename {} \; | sort)

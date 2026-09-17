@@ -388,6 +388,7 @@ _client-init force="false":
   if [ -n "${COREPACK_NPM_REGISTRY:-}" ]; then
     registry_args+=(--registry "$COREPACK_NPM_REGISTRY")
   fi
+  rm -f "$STAMP"
   (cd client && npm clean-install "${registry_args[@]}")
   mkdir -p "$(dirname "$STAMP")"
   printf '%s\n' "$WANT_HASH" > "$STAMP"
