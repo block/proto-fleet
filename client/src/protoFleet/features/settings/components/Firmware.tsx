@@ -369,8 +369,8 @@ const firmwareTabs = [
 ];
 
 // The active tab lives in the `tab` search param so other surfaces can
-// deep-link straight to the release channels view. Channels and updates are
-// polled here, above the tabs, so one poll can feed every surface on the page.
+// deep-link straight to the release channels view. The active-updates monitor
+// consumes channel data on both tabs, so one page-owned poll feeds both views.
 const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;

@@ -73,7 +73,7 @@ describe("release-channel load errors", () => {
     expect(pushToast).not.toHaveBeenCalled();
   });
 
-  it("mounts channel polling only while the Release channels tab is open", async () => {
+  it("keeps one polling owner for the active-update monitor across both tabs", async () => {
     const api = { ...apiFor(), hasLoaded: false, error: new Error("Request failed") };
     const mounted = vi.fn();
     const stopped = vi.fn();
@@ -87,20 +87,21 @@ describe("release-channel load errors", () => {
     const { unmount } = render(page("files"));
 
     await screen.findByText("No firmware files uploaded");
-    expect(mockUseReleaseChannels).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
-    await waitFor(() => expect(mounted).toHaveBeenCalledOnce());
+    expect(mounted).toHaveBeenCalledOnce();
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load release channels and update status");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(api.refresh).toHaveBeenCalledOnce());
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Files" }));
-    await waitFor(() => expect(stopped).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
-    await waitFor(() => expect(mounted).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("No firmware files uploaded")).not.toBeInTheDocument());
+    expect(mounted).toHaveBeenCalledOnce();
+    expect(stopped).not.toHaveBeenCalled();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Files" }));
+    await screen.findByText("No firmware files uploaded");
+    expect(mounted).toHaveBeenCalledOnce();
+    expect(stopped).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load release channels and update status");
     unmount();
-    expect(stopped).toHaveBeenCalledTimes(2);
+    expect(stopped).toHaveBeenCalledOnce();
   });
 
   it("handles a rejected manual retry without duplicate requests or failure toasts", async () => {
