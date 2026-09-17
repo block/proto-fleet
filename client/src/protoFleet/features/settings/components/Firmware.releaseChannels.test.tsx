@@ -47,6 +47,7 @@ const apiFor = () => ({
   deleteChannel: vi.fn().mockResolvedValue(undefined),
   previewScope: vi.fn().mockResolvedValue({ conflicts: [] }),
   listChannelMiners: vi.fn().mockResolvedValue([]),
+  listChannelRollouts: vi.fn().mockResolvedValue([]),
   listRolloutDevices: vi.fn().mockResolvedValue([]),
   applyFirmware: vi.fn().mockResolvedValue([]),
   rollbackFirmware: vi.fn().mockResolvedValue([]),

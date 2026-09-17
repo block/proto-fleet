@@ -1,6 +1,7 @@
 import clsx from "clsx";
 
-import { modelUpdateStatus, type UpdateStatus, type UpdateTone } from "./rolloutStatus";
+import { hasUnavailableAssignedFirmware, modelUpdateStatus, type UpdateStatus, type UpdateTone } from "./rolloutStatus";
+import type { ChannelHistoryState } from "./useChannelHistory";
 import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 // Status language shared between the release channels overview table and
@@ -40,13 +41,39 @@ export const StatusCell = ({
   </span>
 );
 
+function modelStatusWithHistory(
+  group: ReleaseChannelModelGroup,
+  activeRollout: Rollout | undefined,
+  lastFinished: Rollout | undefined,
+  historyState?: ChannelHistoryState,
+): UpdateStatus {
+  if (
+    historyState &&
+    historyState.status !== "ready" &&
+    !activeRollout &&
+    group.activeRolloutId === 0n &&
+    !hasUnavailableAssignedFirmware(group) &&
+    group.firmwareVersion !== "" &&
+    group.minerCount > 0
+  ) {
+    return historyState.status === "error"
+      ? { label: "Update history unavailable", tone: "attention" }
+      : { label: "Loading update history", tone: "none" };
+  }
+  return modelUpdateStatus(group, activeRollout, lastFinished);
+}
+
 export const ModelStatusCell = ({
   group,
   activeRollout,
   lastFinished,
+  historyState,
+  testId,
 }: {
   group: ReleaseChannelModelGroup;
   activeRollout?: Rollout;
   // Most recent finished rollout for this model group, for "Updated <date>".
   lastFinished?: Rollout;
-}) => <StatusCell status={modelUpdateStatus(group, activeRollout, lastFinished)} />;
+  historyState?: ChannelHistoryState;
+  testId?: string;
+}) => <StatusCell status={modelStatusWithHistory(group, activeRollout, lastFinished, historyState)} testId={testId} />;

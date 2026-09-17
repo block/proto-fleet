@@ -21,6 +21,7 @@ import {
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
 import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
+import type { ChannelHistoryState } from "./useChannelHistory";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelMiner,
@@ -270,6 +271,7 @@ interface ReleaseChannelManageViewProps {
   channel?: ChannelView;
   hasRefreshError?: boolean;
   rollouts: Rollout[];
+  historyState?: ChannelHistoryState;
   firmwareFiles: FirmwareFileInfo[];
   minerNames: Record<string, string>;
   previewScope: (
@@ -297,6 +299,7 @@ const ReleaseChannelManageView = ({
   channel,
   hasRefreshError = false,
   rollouts,
+  historyState,
   firmwareFiles,
   minerNames,
   previewScope,
@@ -758,6 +761,7 @@ const ReleaseChannelManageView = ({
                           <span className="text-text-primary-50">Refreshing update status</span>
                         ) : (
                           <ModelStatusCell
+                            historyState={historyState}
                             group={group}
                             activeRollout={activeRollout}
                             lastFinished={lastFinishedByPair.get(assignmentKey(group))}

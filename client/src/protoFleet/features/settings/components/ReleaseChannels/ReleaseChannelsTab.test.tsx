@@ -7,6 +7,9 @@ import ReleaseChannelsTab from "./ReleaseChannelsTab";
 import {
   PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelSchema,
+  type Rollout,
+  RolloutSchema,
+  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
@@ -41,6 +44,7 @@ const apiFor = (): ReleaseChannelsApi => ({
   previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
   listChannelMiners: vi.fn().mockResolvedValue([]),
   listRolloutDevices: vi.fn().mockResolvedValue([]),
+  listChannelRollouts: vi.fn().mockResolvedValue([]),
   applyFirmware: vi.fn().mockResolvedValue([]),
   rollbackFirmware: vi.fn().mockResolvedValue([]),
   continueRollout: vi.fn().mockResolvedValue(undefined),
@@ -94,6 +98,106 @@ function deferredWrite() {
 
 const deleteConfirm = () =>
   within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Delete channel" });
+
+describe("release channel history on demand", () => {
+  const historyApi = () => {
+    const api = apiFor();
+    const group = { ...canaryChannel.modelGroups[0], activeRolloutId: 0n, onTargetCount: 0 };
+    api.channels = [{ ...canaryChannel, modelGroups: [group] }];
+    const historical = create(RolloutSchema, {
+      id: 100n,
+      channelId: canaryChannel.id,
+      manufacturer: group.manufacturer,
+      model: group.model,
+      assignmentGeneration: group.assignmentGeneration,
+      revision: 1n,
+      status: RolloutStatus.COMPLETED_WITH_FAILURES,
+      finishedAt: { seconds: 1n },
+      deviceCounts: { failed: 2 },
+    });
+    return { api, historical };
+  };
+  const pendingHistory = () => {
+    let resolve!: (rows: Rollout[]) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<Rollout[]>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+
+  it("loads old outcomes only after expansion and retains them across core polls and reopens", async () => {
+    const { api, historical } = historyApi();
+    const pending = pendingHistory();
+    vi.mocked(api.listChannelRollouts).mockReturnValueOnce(pending.promise);
+    const { rerender } = render(<ReleaseChannelsTab api={api} />);
+    await flush();
+    expect(api.listChannelRollouts).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
+    expect(api.listChannelRollouts).toHaveBeenCalledExactlyOnceWith(canaryChannel.id, expect.any(AbortSignal));
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("Loading update history");
+    await act(async () => pending.resolve([historical]));
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
+    rerender(<ReleaseChannelsTab api={{ ...api, rollouts: [] }} />);
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
+    fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
+    fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
+    await flush();
+    expect(api.listChannelRollouts).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
+    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+    await flush();
+    expect(api.listChannelRollouts).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("2 failed to update");
+  });
+
+  it("cancels collapsed and closed manage requests and ignores their late failures", async () => {
+    const { api } = historyApi();
+    const expanded = pendingHistory();
+    const managed = pendingHistory();
+    vi.mocked(api.listChannelRollouts).mockReturnValueOnce(expanded.promise).mockReturnValueOnce(managed.promise);
+    render(<ReleaseChannelsTab api={api} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
+    const expandedSignal = vi.mocked(api.listChannelRollouts).mock.calls[0][1]!;
+    fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
+    expect(expandedSignal.aborted).toBe(true);
+    await act(async () => expanded.reject(new Error("Closed expansion failed")));
+    expect(screen.queryByTestId(`channel-history-error-${canaryChannel.id}`)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+    expect(api.listChannelRollouts).toHaveBeenCalledTimes(2);
+    const managedSignal = vi.mocked(api.listChannelRollouts).mock.calls[1][1]!;
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Loading update history");
+    fireEvent.click(screen.getByTestId("back-to-channels"));
+    expect(managedSignal.aborted).toBe(true);
+    await act(async () => managed.reject(new Error("Closed management failed")));
+    expect(screen.queryByText(/Closed management failed/)).not.toBeInTheDocument();
+    expect(api.listChannelRollouts).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps settings writable after a history failure and recovers through a separate retry", async () => {
+    const { api, historical } = historyApi();
+    vi.mocked(api.listChannelRollouts)
+      .mockRejectedValueOnce(new Error("History service unavailable"))
+      .mockResolvedValueOnce([historical]);
+    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Update history unavailable");
+    expect(screen.getByTestId(`channel-history-error-${canaryChannel.id}`)).toHaveTextContent(
+      "History service unavailable",
+    );
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Updated channel" } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(api.updateChannel).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Retry update history" }));
+    await flush();
+    expect(api.listChannelRollouts).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId(`channel-history-error-${canaryChannel.id}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("2 failed to update");
+  });
+});
 
 describe("release channel deletion coordination", () => {
   it("blocks Delete during Save and its follow-up read, including actions before a rerender", async () => {

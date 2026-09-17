@@ -1,18 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
-import { StatusCell } from "./channelStatus";
+import { ModelStatusCell, StatusCell } from "./channelStatus";
 import {
   activeRolloutForGroup,
   assignmentKey,
   channelUpdateStatus,
   hasUnavailableAssignedFirmware,
   modelFirmwareLabel,
-  modelUpdateStatus,
   pairKey,
   pairLabel,
 } from "./rolloutStatus";
+import type { ChannelHistoryState } from "./useChannelHistory";
 import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
@@ -26,6 +26,8 @@ interface ReleaseChannelsTableProps {
   rollouts: Rollout[];
   onCreate: () => void;
   onManage: (channel: ChannelView) => void;
+  onExpandedChannelIdsChange?: (ids: bigint[]) => void;
+  historyStates?: ReadonlyMap<bigint, ChannelHistoryState>;
 }
 
 interface ChannelRow {
@@ -77,8 +79,21 @@ function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollo
 // The release channels overview on the shared List: one disclosure row per
 // channel with aggregate counts, and per-model rows carrying firmware targets
 // and update state.
-const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: ReleaseChannelsTableProps) => {
+const ReleaseChannelsTable = ({
+  channels,
+  rollouts,
+  onCreate,
+  onManage,
+  onExpandedChannelIdsChange,
+  historyStates,
+}: ReleaseChannelsTableProps) => {
   const [expandedChannelIds, setExpandedChannelIds] = useState(() => new Set<string>());
+  useEffect(() => {
+    onExpandedChannelIdsChange?.(
+      channels.filter((channel) => expandedChannelIds.has(channel.id.toString())).map((channel) => channel.id),
+    );
+  }, [channels, expandedChannelIds, onExpandedChannelIdsChange]);
+  useEffect(() => () => onExpandedChannelIdsChange?.([]), [onExpandedChannelIdsChange]);
 
   const rolloutsById = useMemo(() => new Map(rollouts.map((rollout) => [rollout.id, rollout])), [rollouts]);
   const lastFinished = useMemo(() => lastFinishedByChannelAssignment(rollouts), [rollouts]);
@@ -187,12 +202,11 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
         row.kind === "channel" ? (
           <StatusCell status={channelStatus(row.channel)} emphasized testId={`channel-status-${row.channel.name}`} />
         ) : (
-          <StatusCell
-            status={modelUpdateStatus(
-              row.group,
-              activeRolloutForGroup(row.channel.id, row.group, rolloutsById),
-              lastFinished.get(channelAssignmentKey(row.channel.id, row.group)),
-            )}
+          <ModelStatusCell
+            group={row.group}
+            activeRollout={activeRolloutForGroup(row.channel.id, row.group, rolloutsById)}
+            lastFinished={lastFinished.get(channelAssignmentKey(row.channel.id, row.group))}
+            historyState={historyStates ? (historyStates.get(row.channel.id) ?? { status: "loading" }) : undefined}
             testId={`model-status-${row.channel.name}-${row.group.model}`}
           />
         ),

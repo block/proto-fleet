@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
+import { useChannelHistory } from "./useChannelHistory";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
@@ -53,6 +54,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     previewScope,
     listChannelMiners,
     listRolloutDevices,
+    listChannelRollouts,
     applyFirmware,
   } = api;
   const { listFirmwareFiles } = useFirmwareApi();
@@ -73,6 +75,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   const [view, setView] = useState<View>(() =>
     initialManagedChannelId !== null ? { kind: "manage", channelId: initialManagedChannelId } : { kind: "list" },
   );
+  const [expandedChannelIds, setExpandedChannelIds] = useState<bigint[]>([]);
   const [acknowledgedWrites, setAcknowledgedWrites] = useState<AcknowledgedWrites>({
     authSessionIdentity,
     created: null,
@@ -258,10 +261,35 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
       setView(pendingCreate ? { kind: "manage", channelId: pendingCreate.id } : { kind: "create" });
     }
   };
+  const historyChannelIds =
+    !hasLoaded || view.kind === "create" || awaitingCreatedChannel
+      ? []
+      : managedChannel
+        ? [managedChannel.id]
+        : expandedChannelIds.filter((id) => visibleChannels.some((channel) => channel.id === id));
+  const history = useChannelHistory({ channelIds: historyChannelIds, rollouts, listChannelRollouts });
 
   return (
     <div className="flex flex-col gap-6">
       <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
+
+      {historyChannelIds.map((id) => {
+        const state = history.states.get(id);
+        if (state?.status !== "error") return null;
+        const name = visibleChannels.find((channel) => channel.id === id)?.name ?? "this channel";
+        return (
+          <Callout
+            key={id.toString()}
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title={`Couldn't load update history for ${name}`}
+            subtitle={state.error}
+            buttonText="Retry update history"
+            buttonOnClick={() => history.retry(id)}
+            testId={`channel-history-error-${id}`}
+          />
+        );
+      })}
 
       {hasPendingWrites ? (
         <Callout
@@ -348,7 +376,8 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           channel={managedChannel}
           writeLock={writeLock}
           hasRefreshError={error !== null}
-          rollouts={rollouts}
+          rollouts={history.rollouts}
+          historyState={history.states.get(managedChannel.id) ?? { status: "loading" }}
           firmwareFiles={firmwareFiles}
           minerNames={minerNames}
           previewScope={previewScope}
@@ -387,7 +416,9 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
       ) : (
         <ReleaseChannelsTable
           channels={visibleChannels}
-          rollouts={rollouts}
+          rollouts={history.rollouts}
+          historyStates={history.states}
+          onExpandedChannelIdsChange={setExpandedChannelIds}
           onCreate={openCreate}
           onManage={(channel) => {
             if (!writeInFlightRef.current) setView({ kind: "manage", channelId: channel.id });
