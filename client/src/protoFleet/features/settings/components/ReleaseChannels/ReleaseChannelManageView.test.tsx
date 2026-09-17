@@ -124,6 +124,80 @@ function deferredWrite() {
   return { promise, resolve, reject };
 }
 
+describe("release channel pacing guidance", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  test.each([
+    [RolloutMethod.BATCHED, "~2 batches of 10 across 20 miners"],
+    [RolloutMethod.PILOT_THEN_CONTINUE, "Pilot batch of 3, then 17 remaining"],
+    [RolloutMethod.ALL_AT_ONCE, "20 miners in a single batch"],
+  ] as const)("does not combine models into a scope-wide schedule for method %s", (method, aggregatePlan) => {
+    const channel = assignedChannel();
+    channel.minerCount = 20;
+    channel.behavior = create(RolloutBehaviorSchema, { method, batchSize: 10, pilotSize: 3 });
+    channel.modelGroups = [
+      create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], minerCount: 10 }),
+      create(ReleaseChannelModelGroupSchema, { manufacturer: "Bitmain", model: "S21", minerCount: 10 }),
+    ];
+    renderManage(channel);
+    const controls = screen.getByTestId("rollout-controls");
+    expect(controls).not.toHaveTextContent(aggregatePlan);
+    expect(
+      screen.getByText(
+        "Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel.",
+      ),
+    ).toBeInTheDocument();
+    if (method === RolloutMethod.BATCHED) expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(10);
+    if (method === RolloutMethod.PILOT_THEN_CONTINUE)
+      expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue(3);
+
+    // Staging only a clear must not turn the whole scope into a predicted update.
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
+    expect(controls).not.toHaveTextContent(aggregatePlan);
+  });
+
+  test("keeps scope counts visible without treating one model or a draft preview as rollout targets", async () => {
+    const channel = assignedChannel();
+    channel.minerCount = 10;
+    channel.behavior = create(RolloutBehaviorSchema, { method: RolloutMethod.BATCHED, batchSize: 5 });
+    channel.modelGroups = [
+      create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], minerCount: 6, onTargetCount: 6 }),
+      create(ReleaseChannelModelGroupSchema, {
+        ...channel.modelGroups[0],
+        manufacturer: " PROTO ",
+        model: " rig ",
+        minerCount: 4,
+        onTargetCount: 4,
+      }),
+    ];
+    const { previewScope } = renderManage(channel);
+    const controls = screen.getByTestId("rollout-controls");
+    expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
+    previewScope.mockResolvedValue(
+      create(PreviewReleaseChannelScopeResponseSchema, {
+        minerCount: 60,
+        modelCount: 2,
+        models: [
+          { manufacturer: "Proto", model: "Rig", minerCount: 30 },
+          { manufacturer: "Bitmain", model: "S21", minerCount: 30 },
+        ],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
+    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 60 miners"));
+    expect(controls).not.toHaveTextContent("~12 batches of 5 across 60 miners");
+    expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(5);
+  });
+});
+
 describe("release channel write ordering", () => {
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));

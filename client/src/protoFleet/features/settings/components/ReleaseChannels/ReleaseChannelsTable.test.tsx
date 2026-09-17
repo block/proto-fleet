@@ -2,11 +2,67 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { canaryChannel } from "./ReleaseChannels.fixtures";
+import { activeRigRollout, canaryChannel, gatedRigRollout, pausedRigRollout } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import { ReleaseChannelModelGroupSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("release channel update summary", () => {
+  const rawRigGroups = [
+    { manufacturer: "Proto", model: "Rig" },
+    { manufacturer: "proto", model: "rig" },
+    { manufacturer: " Proto ", model: " Rig " },
+  ].map((pair) => create(ReleaseChannelModelGroupSchema, { ...pair, minerCount: 1 }));
+
+  it.each([
+    { rollout: activeRigRollout, label: "1 updating" },
+    { rollout: pausedRigRollout, label: "1 updating, 1 paused" },
+    { rollout: gatedRigRollout, label: "1 updating, 1 needs attention" },
+  ])("counts raw model variants as one update: $label", ({ rollout, label }) => {
+    render(
+      <ReleaseChannelsTable
+        channels={[{ ...canaryChannel, modelGroups: rawRigGroups }]}
+        rollouts={[rollout]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("channel-status-Canary").textContent).toBe(label);
+  });
+
+  it("counts distinct updates independently when each has raw model variants", () => {
+    const pairs = [
+      { manufacturer: "Proto", model: "Rig" },
+      { manufacturer: "Proto", model: "Rig 2" },
+      { manufacturer: "Bitmain", model: "S21" },
+    ];
+    const modelGroups = pairs.flatMap((pair) => [
+      create(ReleaseChannelModelGroupSchema, { ...pair, minerCount: 1 }),
+      create(ReleaseChannelModelGroupSchema, {
+        manufacturer: ` ${pair.manufacturer.toLowerCase()} `,
+        model: ` ${pair.model.toLowerCase()} `,
+        minerCount: 1,
+      }),
+    ]);
+    render(
+      <ReleaseChannelsTable
+        channels={[{ ...canaryChannel, modelGroups }]}
+        rollouts={[
+          { ...activeRigRollout, ...pairs[0] },
+          { ...pausedRigRollout, ...pairs[1] },
+          { ...gatedRigRollout, ...pairs[2] },
+          { ...activeRigRollout, id: 100n, channelId: 2n },
+        ]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("channel-status-Canary").textContent).toBe("3 updating, 1 needs attention, 1 paused");
+  });
+});
 
 describe("release channel model row identity", () => {
   it.each([

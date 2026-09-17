@@ -113,9 +113,10 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
     });
   };
 
+  // Raw model variants share a canonical rollout, which contributes only once.
   const channelActiveRollouts = (channel: ChannelView): Rollout[] =>
-    channel.modelGroups
-      .map((group) => activeByChannelPair.get(channelPairKey(channel.id, group)))
+    [...new Set(channel.modelGroups.map((group) => channelPairKey(channel.id, group)))]
+      .map((key) => activeByChannelPair.get(key))
       .filter((rollout): rollout is Rollout => rollout !== undefined);
 
   const colConfig: ColConfig<ChannelTableRow, string, ChannelColumn> = {

@@ -289,7 +289,6 @@ const ReleaseChannelManageView = ({
     }
   };
 
-  const inScopeCount = preview?.minerCount ?? channel?.minerCount ?? 0;
   const lastFinishedByPair = new Map<string, Rollout>();
   for (const r of channelRollouts) {
     if (r.status !== RolloutStatus.COMPLETED && r.status !== RolloutStatus.COMPLETED_WITH_FAILURES) continue;
@@ -368,8 +367,11 @@ const ReleaseChannelManageView = ({
         />
       </Section>
 
-      <Section title="Update behavior" subtext="How firmware updates are paced across the selected miners.">
-        <RolloutControls behavior={behavior} onChange={setBehavior} inScopeCount={inScopeCount} />
+      <Section
+        title="Update behavior"
+        subtext="Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel."
+      >
+        <RolloutControls behavior={behavior} onChange={setBehavior} />
       </Section>
 
       {channel ? (
