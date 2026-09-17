@@ -54,6 +54,8 @@ function apiFor(rollout: Rollout) {
     rollouts: [rollout],
     minerNames: {},
     isLoading: false,
+    hasLoaded: true,
+    error: null,
     refresh: vi.fn().mockResolvedValue(undefined),
     createChannel: vi.fn().mockResolvedValue(undefined),
     updateChannel: vi.fn().mockResolvedValue(undefined),
