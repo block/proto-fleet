@@ -59,6 +59,7 @@ describe("Container tanks page", () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     useMinerStore.getState().resetDeviceData();
     useMinerStore.getState().ui.setTemperatureUnit("C");
+    useMinerStore.getState().ui.setFlowUnit("L/min");
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
   });
@@ -71,6 +72,7 @@ describe("Container tanks page", () => {
     expect(tank.getByText("338.4 kW")).toBeInTheDocument();
     expect(tank.getByText("14.1 J/TH")).toBeInTheDocument();
     expect(tank.getAllByText("—")).toHaveLength(4);
+    expect(screen.queryByText(/reading unavailable/i)).not.toBeInTheDocument();
     expect(tank.getByText("Healthy").parentElement).toHaveTextContent("14 modules");
     expect(tank.getByText("Needs attention").parentElement).toHaveTextContent("1 module");
     expect(tank.getByText("Offline").parentElement).toHaveTextContent("1 module");
@@ -94,6 +96,9 @@ describe("Container tanks page", () => {
     }
 
     act(() => useMinerStore.getState().ui.setTemperatureUnit("F"));
+    act(() => useMinerStore.getState().ui.setFlowUnit("GPM"));
+    expect(screen.getAllByText("317.0 GPM")).toHaveLength(6);
+    expect(screen.queryByText("1200.0 L/min")).not.toBeInTheDocument();
     expect(screen.getAllByText("95.0 °F")).toHaveLength(6);
     expect(screen.getAllByText("118.4 °F")).toHaveLength(3);
     expect(screen.getAllByText("107.6 °F")).toHaveLength(3);

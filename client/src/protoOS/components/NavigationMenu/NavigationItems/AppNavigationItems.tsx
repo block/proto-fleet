@@ -43,7 +43,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   return (
     <>
       <NavigationItem id={homeNavigationItem} text="Home" onClick={handleClick} pageName={pageName} />
-      <NavigationItem id={navigationItems.diagnostics} text="Diagnostics" onClick={handleClick} pageName={pageName} />
+      <NavigationItem id={navigationItems.systems} text="Systems" onClick={handleClick} pageName={pageName} />
       {deviceType === "container" ? (
         <>
           <NavigationItem id={navigationItems.tanks} text="Tanks" onClick={handleClick} pageName={pageName} />

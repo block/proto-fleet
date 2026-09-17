@@ -15,7 +15,7 @@ const diagnosticsSections: DiagnosticsSection[] = [
   { filterLabel: "Control Board", sectionTestIdName: "Control Board", expectedCardCount: 1 },
 ];
 
-test.describe("Diagnostics", () => {
+test.describe("Systems", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
     await commonSteps.authenticateAsAdmin();

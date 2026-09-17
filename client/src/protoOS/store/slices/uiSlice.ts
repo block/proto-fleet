@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { MinerStore } from "../useMinerStore";
-import type { AuthAction, TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
+import type { AuthAction, FlowUnit, TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
 import { Duration, durations } from "@/shared/components/DurationSelector";
 
 // =============================================================================
@@ -22,6 +22,7 @@ export interface UISlice {
   theme: Theme;
   deviceTheme: ThemeColor | undefined; // OS theme preference
   temperatureUnit: TemperatureUnit;
+  flowUnit: FlowUnit;
 
   // Dialog State
   wakeDialog: WakeDialog;
@@ -43,6 +44,7 @@ export interface UISlice {
   setTheme: (theme: Theme) => void;
   setDeviceTheme: (theme: ThemeColor) => void;
   setTemperatureUnit: (unit: TemperatureUnit) => void;
+  setFlowUnit: (unit: FlowUnit) => void;
 
   // Dialog Actions
   showWakeDialog: (onConfirm: () => void, onClose: () => void) => void;
@@ -70,6 +72,7 @@ export const createUISlice: StateCreator<MinerStore, [["zustand/immer", never]],
   theme: "system",
   deviceTheme: undefined,
   temperatureUnit: "C",
+  flowUnit: "GPM",
 
   // Dialog Initial State
   wakeDialog: {
@@ -121,6 +124,11 @@ export const createUISlice: StateCreator<MinerStore, [["zustand/immer", never]],
   setTemperatureUnit: (unit) =>
     set((state) => {
       state.ui.temperatureUnit = unit;
+    }),
+
+  setFlowUnit: (unit) =>
+    set((state) => {
+      state.ui.flowUnit = unit;
     }),
 
   // Dialog Actions

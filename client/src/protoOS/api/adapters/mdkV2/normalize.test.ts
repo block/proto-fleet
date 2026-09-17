@@ -149,6 +149,44 @@ describe("MDK v2 CT1 normalization", () => {
     });
   });
 
+  test.each([
+    { readings: [60, 80, 100], expected: 80 },
+    { readings: [0, 80, undefined], expected: 40 },
+    { readings: [undefined, Number.NaN, Infinity], expected: null },
+    { readings: [60, null, "80"], expected: 60 },
+  ])("rolls up only available ASIC averages within each tank: $readings", ({ readings, expected }) => {
+    const board = (id: string, temperature: unknown) => ({
+      macAddress: id,
+      health: { temperatures: [20, 30], averageAsicTemperatureC: temperature as number | undefined },
+    });
+    const { telemetry } = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [
+                { id: 1, slots: readings.slice(0, 2).map((value, i) => ({ hashboard: board(`a-${i}`, value) })) },
+                { id: 2, slots: [{ hashboard: board("b", readings[2]) }] },
+              ],
+            },
+            { id: 2, modules: [{ id: 1, slots: [{ hashboard: board("c", 120) }] }] },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    expect(telemetry.rollupsByEntity.get("container:ct1-a:tank:1" as never)).toMatchObject({
+      temperature: { latest: { value: 25, units: "°C" } },
+      averageAsicTemperature: { latest: { value: expected, units: "°C" } },
+    });
+    expect(telemetry.rollupsByEntity.get("container:ct1-a:tank:2" as never)?.averageAsicTemperature).toEqual({
+      latest: { value: 120, units: "°C" },
+    });
+  });
+
   test("missing board measurements clear old rollups rather than becoming zero or retaining stale values", () => {
     const populated = toCanonicalContainer(map, {}, {}, "ct1-a");
     const empty = toCanonicalContainer(
@@ -169,6 +207,7 @@ describe("MDK v2 CT1 normalization", () => {
       power: { latest: { value: null } },
       minimumTemperature: { latest: { value: null } },
       maximumTemperature: { latest: { value: null } },
+      averageAsicTemperature: { latest: { value: null } },
     });
   });
 
@@ -434,6 +473,8 @@ describe("MDK v2 CT1 normalization", () => {
           plant: {
             flowRateLpm: sensor,
             inletTemperatureC: sensor,
+            outletTemperatureC: sensor,
+            totalPowerW: sensor,
             outletATemperatureC: sensor,
             outletBTemperatureC: sensor,
             tankALiquidLevelMm: sensor,
@@ -455,6 +496,8 @@ describe("MDK v2 CT1 normalization", () => {
       for (const metric of [
         plant.flowRate,
         plant.inletTemperature,
+        plant.outletTemperature,
+        plant.totalPower,
         plant.outletATemperature,
         plant.outletBTemperature,
         plant.tankALiquidLevel,

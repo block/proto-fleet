@@ -55,7 +55,7 @@ test.each(["T1-M1-HB1", "T1-M2-HB1"])("validates and polls a nested module board
   if (!valid) expect(screen.getByRole("status")).toHaveTextContent("Hashboard not found in this module");
 });
 
-test.each(["/diagnostics", "/temperature", "/miners/ct1/diagnostics"])(
+test.each(["/systems", "/temperature", "/miners/ct1/systems"])(
   "loads only the selected CT1 hashboard at %s",
   (root) => {
     showPage(root);
@@ -68,6 +68,6 @@ test.each(["/diagnostics", "/temperature", "/miners/ct1/diagnostics"])(
 
 test("loads rig ASICs lazily for the selected board", () => {
   mocks.adapterId = "mdk-v1";
-  showPage("/diagnostics");
+  showPage("/systems");
   expect(mocks.hashboardStatus).toHaveBeenCalledWith({ hashboardSerialNumbers: ["HB-1"], poll: false });
 });

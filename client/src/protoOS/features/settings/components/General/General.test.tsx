@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import General from "./General";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useSystemInfo } from "@/protoOS/store";
+import { useSetFlowUnit, useSystemInfo } from "@/protoOS/store";
 import { AUTH_ACTIONS } from "@/protoOS/store/types";
 
 const { mockCheckAccess, mockSetPausedAuthAction, mockState } = vi.hoisted(() => ({
@@ -46,6 +46,8 @@ vi.mock("@/protoOS/store", () => ({
   useSetTheme: vi.fn(() => vi.fn()),
   useSystemInfo: vi.fn(() => ({ identity: { productName: "Rig Alpha" }, operatingSystem: { version: "1.2.3" } })),
   useTemperatureUnit: vi.fn(() => "C"),
+  useFlowUnit: vi.fn(() => "GPM"),
+  useSetFlowUnit: vi.fn(() => vi.fn()),
   useTheme: vi.fn(() => "dark"),
 }));
 
@@ -75,6 +77,7 @@ describe("General system-tag flow", () => {
     expect(mockSetPausedAuthAction).toHaveBeenCalledWith(AUTH_ACTIONS.systemTag);
     expect(mockCheckAccess).toHaveBeenCalledTimes(1);
     expect(queryByTestId("tag-edit-modal")).not.toBeInTheDocument();
+    expect(queryByTestId("flow-button")).not.toBeInTheDocument();
   });
 
   test("fleet-hosted mode opens the edit modal directly without the auth gate", () => {
@@ -99,7 +102,9 @@ describe("General system-tag flow", () => {
       },
       operatingSystem: { version: "2.0.0" },
     } as never);
-    const { getByText, getByTestId, queryByTestId } = render(<General />);
+    const setFlowUnit = vi.fn();
+    vi.mocked(useSetFlowUnit).mockReturnValue(setFlowUnit);
+    const { getByText, getByTestId, queryByTestId, getByRole, queryByRole } = render(<General />);
     expect(getByText("Container ID")).toBeInTheDocument();
     expect(getByText("CT1-01")).toBeInTheDocument();
     expect(getByText("192.168.1.100")).toBeInTheDocument();
@@ -111,5 +116,13 @@ describe("General system-tag flow", () => {
     expect(queryByTestId("rig-product-image")).not.toBeInTheDocument();
     expect(queryByTestId("edit-details-button")).not.toBeInTheDocument();
     expect(queryByTestId("add-miner-id")).not.toBeInTheDocument();
+    expect(getByTestId("flow-button")).toHaveTextContent("Gallons per minute");
+    fireEvent.click(getByTestId("flow-button"));
+    expect(getByRole("dialog", { name: "Flow" })).toBeInTheDocument();
+    expect(getByText("US gallons per minute (GPM)")).toBeInTheDocument();
+    fireEvent.click(getByText("Liters per minute (L/min)"));
+    expect(setFlowUnit).toHaveBeenCalledWith("L/min");
+    fireEvent.click(getByRole("button", { name: "Done" }));
+    expect(queryByRole("dialog", { name: "Flow" })).not.toBeInTheDocument();
   });
 });

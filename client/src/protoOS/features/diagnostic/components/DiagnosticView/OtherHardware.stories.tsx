@@ -1,21 +1,9 @@
-// Container-module "Other hardware" section stories.
-//
-// Frame 2 groups the PSU and controllers under a single "Other hardware"
-// section (vs the rig's separate "PSU" and "Control Board" sections). These
-// stories render the REAL production components:
-//   - PsuStatusCard        → seeded from the store (in/out voltage + power,
-//                            avg/high temp, warning on error)
-//   - ControlBoardStatusCard → one card per controller (Latency + CPU capacity)
-//
-// Live latency and a second controller are backend gaps for container
-// modules (tracked in PLANS/PROTO_CONTAINERS_UX_PLAN.md), so the controller
-// values here are seeded to preview the full two-controller design — the same
-// prototype-first approach used for the hashboard grid.
+// Module PSU hardware. The shared container controllers are tracked separately in #88.
 import { type ReactNode, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { type ControllerConfig, OtherHardwareSection } from "./DiagnosticView";
+import { OtherHardwareSection } from "./DiagnosticView";
 import { asDeviceId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
@@ -65,10 +53,6 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       hotspotTemperature: { latest: { value: 55.0, units: "°C" }, timeSeries: series("°C") },
     });
 
-    // A control board so the production single-controller fallback would also
-    // resolve; stories still pass explicit `controllers` to show both.
-    store.hardware.setControlBoard({ serial: "CU1-CB-0001", boardId: "1" });
-
     // Clear the seeded module (and its Proto flag) so sibling rig stories start clean.
     return () => {
       useMinerStore.getState().resetDeviceData();
@@ -95,24 +79,15 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// Two controllers: Controller 1 healthy, Controller 2 warm with a warning —
-// exercises Latency + CPU capacity and the warning (Alert) icon.
-const CONTROLLERS: ControllerConfig[] = [
-  { title: "Controller 1", latency: 2.3, cpuCapacity: 41.0 },
-  { title: "Controller 2", latency: 18.6, cpuCapacity: 92.4, hasWarning: true },
-];
-
-// The section framed in the real Diagnostics page chrome (page title + the
-// grouped "Other hardware" ComponentSection with PSU + two controller cards).
 export const Default: Story = {
   render: () => (
     <div className="min-h-screen bg-surface-base p-8">
       <div className="mx-auto max-w-[1100px]">
         {/* Mirror of DiagnosticView's page header */}
         <div className="flex flex-col items-start gap-3 pb-6 tablet:flex-row tablet:items-center">
-          <div className="grow text-heading-300">Diagnostics</div>
+          <div className="grow text-heading-300">Systems</div>
         </div>
-        <OtherHardwareSection controllers={CONTROLLERS} />
+        <OtherHardwareSection />
       </div>
     </div>
   ),

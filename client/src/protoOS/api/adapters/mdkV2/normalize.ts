@@ -317,6 +317,10 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     return total;
   };
   const temps = boards.flatMap(({ board }) => board.health?.temperatures ?? []).filter(Number.isFinite);
+  const asicTemps = boards.flatMap(({ board }) => {
+    const value = board.health?.averageAsicTemperatureC;
+    return typeof value === "number" && Number.isFinite(value) ? [value] : [];
+  });
   const hashrate = sum(({ board }) => board.health?.hashrate);
   const power = sum(({ board }) => board.health?.power);
   const boardHealth = boards.map(({ board }) => healthState(board));
@@ -328,6 +332,7 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     power: metric(power, "W"),
     efficiency: efficiencyMetric(power, hashrate),
     temperature: metric(average(temps), "°C"),
+    averageAsicTemperature: metric(average(asicTemps), "°C"),
     minimumTemperature: metric(temps.length ? Math.min(...temps) : undefined, "°C"),
     maximumTemperature: metric(temps.length ? Math.max(...temps) : undefined, "°C"),
     miningStatus: onlineBoardCount === 0 ? "stopped" : onlineBoardCount === boards.length ? "mining" : "degradedMining",
@@ -419,7 +424,7 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     operatingState: plant?.operatingState,
     powered: plant?.powered,
     inletTemperature: sensorReading(plant?.inletTemperatureC, "°C"),
-    outletTemperature: latest(plant?.outletTemperatureC, "°C"),
+    outletTemperature: sensorReading(plant?.outletTemperatureC, "°C"),
     outletATemperature: sensorReading(plant?.outletATemperatureC, "°C"),
     outletBTemperature: sensorReading(plant?.outletBTemperatureC, "°C"),
     tankALiquidLevel: sensorReading(plant?.tankALiquidLevelMm, "mm"),
@@ -428,7 +433,7 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     insideAmbientTemperature: sensorReading(plant?.insideAmbientTemperatureC, "°C"),
     outsideAmbientTemperature: sensorReading(plant?.outsideAmbientTemperatureC ?? plant?.ambientTemperatureC, "°C"),
     dryCoolerInletTemperature: sensorReading(plant?.dryCoolerInletTemperatureC, "°C"),
-    totalPower: latest(plant?.totalPowerW, "W"),
+    totalPower: sensorReading(plant?.totalPowerW, "W"),
     heatRejectionPower: latest(plant?.heatRejectionPowerW, "W"),
     facilityPower: sensorReading(plant?.facilityPowerW, "W"),
     powerFactor: latest(plant?.powerFactor, "ratio"),
@@ -528,7 +533,7 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     fanTelemetry.set(id, {
       componentId: id,
       power: latest(fan.powerW, "W"),
-      speedPercent: latest(fan.speedPercent, "%"),
+      speedPercent: sensorReading(fan.speedPercent, "%"),
       health: fan.alarmActive || faultedComponents.has(fan.componentId) ? "fault" : "ok",
     });
   }

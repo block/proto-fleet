@@ -235,12 +235,12 @@ export const routerConfig: CustomRouteObject[] = [
     calloutTopSpacing: true,
     ContentLayout: FullScreenContentLayout,
   }),
-  createRoute("diagnostics", <DiagnosticView />, {
-    title: "Diagnostics",
+  createRoute("systems", <DiagnosticView />, {
+    title: "Systems",
     hideErrors: true,
   }),
-  createRoute("diagnostics/:serial", <HashboardTemperature />, {
-    title: "Diagnostics",
+  createRoute("systems/:serial", <HashboardTemperature />, {
+    title: "Systems",
     fullscreen: true,
   }),
   createRoute(

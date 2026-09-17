@@ -160,44 +160,18 @@ const ControlBoardSection = () => {
 };
 ControlBoardSection.displayName = "ControlBoardSection";
 
-// A single controller card's display values. Live latency and a second
-// controller are backend gaps for container modules (tracked in the
-// containers plan), so the production path derives one controller from the
-// store and omits latency. Stories pass an explicit `controllers` array to
-// preview the full two-controller design (latency, distinct CPU, warnings).
-export interface ControllerConfig {
-  title: string;
-  latency?: number;
-  cpuCapacity?: number;
-  hasWarning?: boolean;
-}
-
-// Container modules group the PSU and controllers under a single "Other
-// hardware" section (Frame 2), instead of the rig's separate "PSU" and
-// "Control Board" sections. PSU cards reuse the real store-backed PsuStatusCard;
-// controller cards reuse ControlBoardStatusCard with per-controller props.
-export const OtherHardwareSection = ({ controllers }: { controllers?: ControllerConfig[] }) => {
+// CT1 controllers belong to the container HA pair, not to individual modules.
+// Controller inventory and latency API work is tracked in GitHub issue #88.
+export const OtherHardwareSection = () => {
   // CT1 PSU slots are module-local: every module can have a PSU in slot 1.
   // Use canonical IDs for both reconciliation and the module-aware card path.
   const psuIds = useMinerStore(useShallow((state) => [...state.hardware.psus.keys()]));
-  const controlBoard = useControlBoard();
-
-  const controllerCards: ControllerConfig[] = controllers ?? (controlBoard ? [{ title: "Controller 1" }] : []);
 
   return (
     <ComponentSection title="Hardware">
       <div className="grid items-start gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
         {psuIds.map((id) => (
           <PsuStatusCard key={id} componentId={id} showComponentIcon={false} />
-        ))}
-        {controllerCards.map((controller, index) => (
-          <ControlBoardStatusCard
-            key={`controller-${index}`}
-            title={controller.title}
-            latency={controller.latency}
-            cpuCapacity={controller.cpuCapacity}
-            hasWarning={controller.hasWarning}
-          />
         ))}
       </div>
     </ComponentSection>
@@ -214,14 +188,10 @@ function ModuleDiagnosticView({ className }: DiagnosticViewProps) {
     return selectedComponent === "all" || selectedComponent === component;
   };
 
-  // Container modules combine PSU + controllers into one "Other hardware"
-  // section; it stays visible under the "PSUs" or "Control Board" filters.
-  const shouldShowOtherHardware = shouldShowComponent("psus") || shouldShowComponent("controlBoard");
-
   return (
     <div className={`w-full space-y-6 ${className || ""}`}>
       <div className="flex flex-col items-start gap-3 pb-6 tablet:flex-row tablet:items-center">
-        <div className="grow text-heading-300">Diagnostics</div>
+        <div className="grow text-heading-300">Systems</div>
         <ComponentSelector selectedComponent={selectedComponent} onSelect={setSelectedComponent} />
       </div>
 
@@ -239,7 +209,7 @@ function ModuleDiagnosticView({ className }: DiagnosticViewProps) {
         ) : null}
 
         {moduleModel === "ct1" ? (
-          shouldShowOtherHardware ? (
+          shouldShowComponent("psus") ? (
             <ErrorBoundary>
               <OtherHardwareSection />
             </ErrorBoundary>

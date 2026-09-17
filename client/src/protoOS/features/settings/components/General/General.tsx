@@ -10,9 +10,11 @@ import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckFo
 import {
   useAccessToken,
   useDismissedLoginModal,
+  useFlowUnit,
   useIsProtoRig,
   usePausedAuthAction,
   useSetDismissedLoginModal,
+  useSetFlowUnit,
   useSetPausedAuthAction,
   useSetTemperatureUnit,
   useSetTheme,
@@ -26,17 +28,20 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Picture from "@/shared/components/Picture";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
+import { FlowUnitsSwitcher, TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] = useState(false);
+  const [showFlowUnitsSwitcher, setShowFlowUnitsSwitcher] = useState(false);
   const [showMinerSystemTagEditModal, setShowMinerSystemTagEditModal] = useState(false);
   const theme = useTheme();
   const setTheme = useSetTheme();
   const temperatureUnit = useTemperatureUnit();
   const setTemperatureUnit = useSetTemperatureUnit();
+  const flowUnit = useFlowUnit();
+  const setFlowUnit = useSetFlowUnit();
 
   const systemInfo = useSystemInfo();
   const isContainer = systemInfo?.identity.deviceType === "container";
@@ -208,6 +213,25 @@ const General = () => {
             />
           ) : null}
         </Row>
+        {isContainer ? (
+          <Row className="flex justify-between">
+            <h4 className="text-emphasis-300">Flow</h4>
+            <Button
+              variant={variants.textOnly}
+              onClick={() => setShowFlowUnitsSwitcher(true)}
+              textColor="text-intent-warning-fill"
+              text={flowUnit === "GPM" ? "Gallons per minute" : "Liters per minute"}
+              testId="flow-button"
+            />
+            {showFlowUnitsSwitcher ? (
+              <FlowUnitsSwitcher
+                onClickDone={() => setShowFlowUnitsSwitcher(false)}
+                flowUnit={flowUnit}
+                setFlowUnit={setFlowUnit}
+              />
+            ) : null}
+          </Row>
+        ) : null}
       </div>
       <MinerSystemTagEditModal
         open={showMinerSystemTagEditModal}
