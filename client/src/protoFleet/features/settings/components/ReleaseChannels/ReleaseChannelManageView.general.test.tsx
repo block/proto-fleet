@@ -96,7 +96,7 @@ describe("release channel name and description validation", () => {
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear assignments" })));
 
     expect(onApply).toHaveBeenCalledOnce();
     expect(onSave).not.toHaveBeenCalled();

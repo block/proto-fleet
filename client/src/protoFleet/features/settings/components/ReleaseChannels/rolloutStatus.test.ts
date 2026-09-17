@@ -22,6 +22,7 @@ import {
   deviceCounts,
   evidenceScopeLabel,
   failedDevices,
+  hasUnavailableAssignedFirmware,
   metricDisplay,
   modelFirmwareLabel,
   modelUpdateStatus,
@@ -336,6 +337,40 @@ describe("device counts and progress", () => {
 });
 
 describe("channel and model status", () => {
+  it("distinguishes an unavailable assignment from an unassigned or available model", () => {
+    expect(hasUnavailableAssignedFirmware({ ...rigGroup, firmwareAvailable: false, firmwareFileId: "" })).toBe(true);
+    expect(hasUnavailableAssignedFirmware(rigGroup)).toBe(false);
+    expect(hasUnavailableAssignedFirmware(canaryChannel.modelGroups[1])).toBe(false);
+  });
+
+  it.each([
+    { name: "active", rollout: activeRigRollout },
+    { name: "paused", rollout: pausedRigRollout },
+    { name: "reviewing", rollout: gatedRigRollout },
+    { name: "settled", rollout: undefined },
+  ])("surfaces unavailable assigned firmware for a $name model", ({ rollout }) => {
+    const group = {
+      ...rigGroup,
+      firmwareFileId: "",
+      firmwareAvailable: false,
+      onTargetCount: rigGroup.minerCount,
+    };
+    expect(modelUpdateStatus(group, rollout, completedRigRollout)).toEqual({
+      label: "Assigned firmware unavailable",
+      tone: "attention",
+    });
+  });
+
+  it("surfaces an unavailable assignment even before its current rollout summary arrives", () => {
+    expect(
+      modelUpdateStatus(
+        { ...rigGroup, activeRolloutId: 99n, firmwareAvailable: false, firmwareFileId: "" },
+        undefined,
+        undefined,
+      ),
+    ).toEqual({ label: "Assigned firmware unavailable", tone: "attention" });
+  });
+
   it("describes the model's active update", () => {
     expect(modelUpdateStatus(rigGroup, activeRigRollout, undefined)).toEqual({
       label: "Updating, 2 of 6",

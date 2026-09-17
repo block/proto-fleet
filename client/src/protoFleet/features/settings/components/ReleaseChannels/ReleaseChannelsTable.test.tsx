@@ -22,6 +22,77 @@ import {
 
 afterEach(() => vi.restoreAllMocks());
 
+describe("release channel firmware availability", () => {
+  it.each([false, true])("shows unavailable assignments with an active update: %s", (active) => {
+    const group = {
+      ...canaryChannel.modelGroups[0],
+      firmwareAvailable: false,
+      firmwareFileId: "",
+      activeRolloutId: active ? activeRigRollout.id : 0n,
+      assignmentGeneration: activeRigRollout.assignmentGeneration,
+      onTargetCount: canaryChannel.modelGroups[0].minerCount,
+    };
+    const channel = { ...canaryChannel, modelGroups: [group, canaryChannel.modelGroups[1]] };
+    const props = { channels: [channel], rollouts: [activeRigRollout], onCreate: vi.fn(), onManage: vi.fn() };
+    const { rerender } = render(<ReleaseChannelsTable {...props} />);
+    expect(screen.getByTestId("channel-status-Canary").textContent).toBe(
+      active ? "1 firmware assignment unavailable; 1 updating" : "1 firmware assignment unavailable",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+    const row = screen.getByTestId("model-row-Canary-Rig").closest("tr")!;
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(group.firmwareVersion);
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^Assigned firmware unavailable$/);
+    expect(screen.getByTestId(`model-status-Canary-${canaryChannel.modelGroups[1].model}`)).toHaveTextContent(
+      /^No firmware assigned$/,
+    );
+
+    // The same payload may become available under a different upload ID.
+    rerender(
+      <ReleaseChannelsTable
+        {...props}
+        channels={[
+          {
+            ...channel,
+            modelGroups: [{ ...group, firmwareAvailable: true, firmwareFileId: "restored-upload" }],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("channel-status-Canary").textContent).toBe(active ? "1 updating" : "No active updates");
+    expect(screen.getByTestId("model-status-Canary-Rig").textContent).toBe(active ? "Updating, 2 of 6" : "Up to date");
+  });
+
+  it("counts unavailable canonical assignments once even when another rollout summary is still loading", () => {
+    const unavailable = {
+      ...canaryChannel.modelGroups[0],
+      firmwareAvailable: false,
+      firmwareFileId: "",
+      activeRolloutId: 0n,
+    };
+    render(
+      <ReleaseChannelsTable
+        channels={[
+          {
+            ...canaryChannel,
+            modelGroups: [
+              { ...canaryChannel.modelGroups[0], model: "Waiting", activeRolloutId: 99n },
+              unavailable,
+              { ...unavailable, manufacturer: " proto ", model: " rig " },
+              { ...unavailable, model: "Other", firmwareTargetModel: "Other" },
+            ],
+          },
+        ]}
+        rollouts={[]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("channel-status-Canary").textContent).toBe(
+      "2 firmware assignments unavailable; Refreshing update status",
+    );
+  });
+});
+
 describe("release channel current assignment history", () => {
   it.each([
     { finished: completedRigRollout, onTargetCount: 6, label: "Up to date" },

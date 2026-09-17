@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -97,7 +97,7 @@ describe("firmware assignment request limit", () => {
     const apply = screen.getByTestId("apply-firmware-changes");
     expect(apply).toBeEnabled();
     fireEvent.click(apply);
-    const start = screen.getByRole("button", { name: "Start update" });
+    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" });
     expect(start).toBeEnabled();
 
     fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "new-100" } });

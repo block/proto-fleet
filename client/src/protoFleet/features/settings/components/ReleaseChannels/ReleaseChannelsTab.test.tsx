@@ -144,7 +144,9 @@ describe("release channel deletion coordination", () => {
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     fireEvent.click(screen.getByTestId("delete-channel"));
-    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Start update" });
+    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
+      name: "Clear assignments",
+    });
     const confirm = deleteConfirm();
     act(() => {
       start.click();
@@ -172,7 +174,9 @@ describe("release channel deletion coordination", () => {
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     fireEvent.click(screen.getByTestId("delete-channel"));
     const save = screen.getByTestId("save-channel");
-    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Start update" });
+    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
+      name: "Clear assignments",
+    });
     const confirm = deleteConfirm();
     const cancel = within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Cancel" });
     act(() => {

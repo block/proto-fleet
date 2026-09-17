@@ -9,6 +9,7 @@ import RolloutControls from "./RolloutControls";
 import {
   activeRolloutForGroup,
   assignmentKey,
+  hasUnavailableAssignedFirmware,
   isPaused,
   pacingSummary,
   pairKey,
@@ -239,6 +240,12 @@ const FirmwarePickerCell = ({
         onChange={(value) => onStageFirmware(group, value)}
         testId={`channel-firmware-select-${group.model}`}
       />
+      {!acknowledgedAssignment && hasUnavailableAssignedFirmware(group) ? (
+        <p role="alert" className="text-200 text-intent-critical-fill">
+          Assigned firmware is unavailable. Updates waiting for this file cannot proceed. Restore the file with the same
+          checksum, or apply another version or “No firmware”.
+        </p>
+      ) : null}
       {selectionError || targetError ? (
         <p role="alert" className="text-200 text-intent-critical-fill">
           {selectionError || targetError}
@@ -481,16 +488,36 @@ const ReleaseChannelManageView = ({
     }
   }
   const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
+  const assignmentCount = dirtyAssignments.filter((assignment) => assignment.firmwareFileId !== "").length;
+  const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
   const savedMethodDelegated = savedSettings?.behavior?.method === RolloutMethod.DELEGATED;
-  const delegatedApplyBlocked =
-    savedMethodDelegated && dirtyAssignments.some((assignment) => assignment.firmwareFileId !== "");
+  const delegatedApplyBlocked = savedMethodDelegated && assignmentCount > 0;
   const canApply =
     dirtyAssignments.length > 0 &&
     !delegatedApplyBlocked &&
     !exceedsAssignmentLimit &&
     invalidSelections.size === 0 &&
     !isWriting;
+
+  const applyTitle =
+    clearCount === 0
+      ? "Start firmware update?"
+      : assignmentCount === 0
+        ? "Clear firmware assignments?"
+        : "Apply firmware changes?";
+  const applyButtonText =
+    clearCount === 0 ? "Start update" : assignmentCount === 0 ? "Clear assignments" : "Apply changes";
+  const applySummary = [
+    assignmentCount > 0
+      ? `Assign firmware for ${assignmentCount} ${assignmentCount === 1 ? "model" : "models"} in ${channel?.name}. Updates start where needed. Pacing: ${pacingSummary(savedSettings?.behavior).toLowerCase()}.`
+      : "",
+    clearCount > 0
+      ? `Clear firmware assignments for ${clearCount} ${clearCount === 1 ? "model" : "models"} in ${channel?.name}. Clearing stops enforcement and cancels remaining updates for these models; updates already dispatched may finish.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   // Human-readable version for a staged file id, for the dialog summary.
   const versionLabel = (fileId: string): string => {
@@ -648,7 +675,7 @@ const ReleaseChannelManageView = ({
       {channel ? (
         <Section
           title="Firmware"
-          subtext="Assigned firmware is enforced: miners not on the assigned version are updated."
+          subtext="Miners not on the assigned version are updated when the assigned firmware file is available."
         >
           {delegatedApplyBlocked ? (
             <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
@@ -757,7 +784,6 @@ const ReleaseChannelManageView = ({
                   {dirtyAssignments.length === 1
                     ? "1 firmware change pending"
                     : `${dirtyAssignments.length} firmware changes pending`}
-                  {" — applying starts an update per model."}
                 </span>
                 {exceedsAssignmentLimit ? <p role="alert">{assignmentLimitMessage}</p> : null}
               </div>
@@ -801,8 +827,8 @@ const ReleaseChannelManageView = ({
       {channel ? (
         <Dialog
           open={showApplyDialog}
-          title="Start firmware update?"
-          subtitle={`One update starts per changed model in ${channel.name}. Pacing: ${pacingSummary(savedSettings?.behavior).toLowerCase()}.`}
+          title={applyTitle}
+          subtitle={applySummary}
           testId="apply-firmware-dialog"
           onDismiss={() => {
             if (!isApplying) setShowApplyDialog(false);
@@ -815,7 +841,7 @@ const ReleaseChannelManageView = ({
               disabled: isApplying,
             },
             {
-              text: "Start update",
+              text: applyButtonText,
               variant: variants.primary,
               onClick: handleApply,
               disabled: !canApply,
@@ -851,7 +877,7 @@ const ReleaseChannelManageView = ({
           </div>
           {dirty ? (
             <p className="mt-3 text-200 text-text-primary-70">
-              Unsaved channel changes are not applied to this update. Save the channel first to use them.
+              Unsaved channel changes are not applied with these firmware changes. Save the channel first to use them.
             </p>
           ) : null}
         </Dialog>

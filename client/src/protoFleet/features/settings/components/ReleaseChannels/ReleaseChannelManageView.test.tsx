@@ -216,13 +216,13 @@ describe("release channel active sizing validation", () => {
   );
 
   test("allows firmware Apply to use saved settings when an unsaved active size is invalid", async () => {
-    const { onSave, onApply } = renderManage(assignedChannel());
+    const { onSave, onApply } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "0" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
-    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: single batch.");
     expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Unsaved channel changes");
@@ -376,9 +376,9 @@ describe("release channel write ordering", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  const stageClear = () => {
+  const stageReplacement = () => {
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
-    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
   };
 
   const chooseBatches = (batchSize: string) => {
@@ -391,9 +391,9 @@ describe("release channel write ordering", () => {
     const channel = assignedChannel();
     const write = deferredWrite();
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValueOnce(write.promise);
-    const { updateChannel, onApply } = renderManage(channel, onSave);
+    const { updateChannel, onApply } = renderManage(channel, onSave, false, [replacementFile]);
     chooseBatches("3");
-    stageClear();
+    stageReplacement();
     const save = screen.getByTestId("save-channel");
     const apply = screen.getByTestId("apply-firmware-changes");
     fireEvent.click(save);
@@ -441,8 +441,8 @@ describe("release channel write ordering", () => {
       .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
       .mockResolvedValue(undefined)
       .mockReturnValueOnce(write.promise);
-    const { onApply } = renderManage(channel, onSave, true);
-    stageClear();
+    const { onApply } = renderManage(channel, onSave, true, [replacementFile]);
+    stageReplacement();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     chooseBatches("7");
     const save = screen.getByTestId("save-channel");
@@ -463,14 +463,16 @@ describe("release channel write ordering", () => {
     expect(start).toBeEnabled();
     expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: batches of 7, back to back.");
     await act(async () => fireEvent.click(start));
-    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "" }]);
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
+    ]);
   });
 
   test.each(["success", "failure"])("blocks settings saves until an in-flight apply ends in %s", async (outcome) => {
-    const { onApply, onSave } = renderManage(assignedChannel());
+    const { onApply, onSave } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
     const write = deferredWrite();
     onApply.mockReturnValueOnce(write.promise);
-    stageClear();
+    stageReplacement();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     const save = screen.getByTestId("save-channel");
@@ -527,7 +529,7 @@ describe("release channel firmware assignments", () => {
     expect(picker).toHaveTextContent("No firmware");
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("no firmware");
-    fireEvent.click(screen.getByRole("button", { name: "Start update" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear assignments" }));
     await waitFor(() =>
       expect(onApply).toHaveBeenCalledExactlyOnceWith(channel.id, [
         { manufacturer: "Proto", model: "Rig", firmwareFileId: "" },
@@ -838,7 +840,7 @@ describe("release channel firmware assignments", () => {
     fireEvent.click(screen.getByTestId("channel-firmware-select- rig ", { normalizer: (text) => text }));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear assignments" })));
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "" }]);
   });
 
@@ -857,7 +859,9 @@ describe("release channel firmware assignments", () => {
       fireEvent.click(screen.getByTestId("channel-firmware-select-Other"));
       fireEvent.click(screen.getByRole("option", { name: /2\.0\.0/ }));
       fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-      const start = screen.getByRole("button", { name: "Start update" });
+      const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
+        name: change === "saved clear target" ? "Apply changes" : "Start update",
+      });
       expect(start).toBeEnabled();
 
       if (change === "catalog target") {
@@ -879,9 +883,11 @@ describe("release channel firmware assignments", () => {
       expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
       expect(start).toBeDisabled();
       const row = screen.getByTestId("model-group-Rig");
-      expect(within(row).getByRole("alert")).toHaveTextContent(
-        change === "catalog target" ? "Selected firmware is unavailable" : "Correct the target identity or discard",
-      );
+      expect(
+        within(row).getByText(
+          change === "catalog target" ? /Selected firmware is unavailable/ : /Correct the target identity or discard/,
+        ),
+      ).toHaveAttribute("role", "alert");
       fireEvent.click(start);
       expect(onApply).not.toHaveBeenCalled();
 
@@ -922,7 +928,7 @@ describe("release channel firmware assignments", () => {
       );
       expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
       fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-      fireEvent.click(screen.getByRole("button", { name: "Start update" }));
+      fireEvent.click(screen.getByRole("button", { name: action === "clear" ? "Clear assignments" : "Start update" }));
       await waitFor(() =>
         expect(onApply).toHaveBeenCalledExactlyOnceWith(channel.id, [
           { manufacturer: "Proto", model: "Rig", firmwareFileId: action === "clear" ? "" : "replacement" },

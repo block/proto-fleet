@@ -7,8 +7,10 @@ import {
   activeRolloutForGroup,
   assignmentKey,
   channelUpdateStatus,
+  hasUnavailableAssignedFirmware,
   modelFirmwareLabel,
   modelUpdateStatus,
+  pairKey,
   pairLabel,
 } from "./rolloutStatus";
 import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -112,12 +114,23 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
   // Raw model variants share a canonical rollout, which contributes only once.
   const channelStatus = (channel: ChannelView) => {
     const active = new Map<bigint, Rollout>();
+    const unavailableAssignments = new Set<string>();
+    let refreshing = false;
     for (const group of channel.modelGroups) {
+      if (hasUnavailableAssignedFirmware(group)) unavailableAssignments.add(pairKey(group));
       const rollout = activeRolloutForGroup(channel.id, group, rolloutsById);
-      if (group.activeRolloutId > 0n && !rollout) return { label: "Refreshing update status", tone: "active" as const };
+      if (group.activeRolloutId > 0n && !rollout) refreshing = true;
       if (rollout) active.set(rollout.id, rollout);
     }
-    return channelUpdateStatus([...active.values()]);
+    const status = refreshing
+      ? { label: "Refreshing update status", tone: "active" as const }
+      : channelUpdateStatus([...active.values()]);
+    if (unavailableAssignments.size === 0) return status;
+    const unavailable = `${unavailableAssignments.size} firmware ${unavailableAssignments.size === 1 ? "assignment" : "assignments"} unavailable`;
+    return {
+      label: refreshing || active.size > 0 ? `${unavailable}; ${status.label}` : unavailable,
+      tone: "attention" as const,
+    };
   };
 
   const colConfig: ColConfig<ChannelTableRow, string, ChannelColumn> = {

@@ -63,7 +63,9 @@ const FirmwarePickerContent = ({ label, options, value, assignment, onChange, te
           position={positions["bottom right"]}
           className="!w-auto !space-y-0 !rounded-xl border border-border-5 !bg-surface-elevated-base !p-0 !shadow-300 !backdrop-blur-none"
           closePopover={() => setOpen(false)}
-          closeIgnoreSelectors={[`[data-testid='${testId}']`]}
+          closeShouldIgnore={(event) =>
+            event.target instanceof Node && Boolean(triggerRef.current?.contains(event.target))
+          }
         >
           <div
             role="listbox"

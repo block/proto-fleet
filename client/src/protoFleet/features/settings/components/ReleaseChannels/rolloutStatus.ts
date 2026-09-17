@@ -384,6 +384,11 @@ export interface UpdateStatus {
   tone: UpdateTone;
 }
 
+// An unavailable upload does not clear the checksum-backed assignment. Use
+// the server's availability hint rather than a separately fetched file catalog.
+export const hasUnavailableAssignedFirmware = (group: ReleaseChannelModelGroup): boolean =>
+  group.firmwareChecksum !== "" && !group.firmwareAvailable;
+
 // Summary and model-group pages are separate reads. The group's active ID is
 // authoritative; another active rollout for its pair may belong to an older scan.
 export function activeRolloutForGroup(
@@ -418,6 +423,7 @@ export function modelUpdateStatus(
   activeRollout: Rollout | undefined,
   lastFinished: Rollout | undefined,
 ): UpdateStatus {
+  if (hasUnavailableAssignedFirmware(group)) return { label: "Assigned firmware unavailable", tone: "attention" };
   if (activeRollout) {
     const counts = scopeCounts(activeRollout);
     const progress = `${counts.updated} of ${counts.total}`;

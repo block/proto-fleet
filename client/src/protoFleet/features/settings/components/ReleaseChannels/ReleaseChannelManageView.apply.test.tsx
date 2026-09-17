@@ -117,15 +117,88 @@ function chooseMethod(label: string) {
   fireEvent.click(screen.getByTestId("rollout-method"));
   fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${label}`) }));
 }
-async function startApply() {
+async function startApply(button = "Start update") {
   fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: button })));
 }
 
 beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("firmware assignment confirmation", () => {
+  it.each([RolloutMethod.ALL_AT_ONCE, RolloutMethod.DELEGATED])(
+    "describes a clear without promising an update for method %s",
+    async (method) => {
+      const { onApply } = renderManage(channelFor(method));
+      chooseFile("");
+      expect(screen.getByText("1 firmware change pending")).not.toHaveTextContent("starts an update");
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      const dialog = screen.getByTestId("apply-firmware-dialog");
+      expect(dialog).toHaveTextContent("Clear firmware assignments?");
+      expect(dialog).toHaveTextContent("Clear firmware assignments for 1 model in Production.");
+      expect(dialog).toHaveTextContent("Clearing stops enforcement and cancels remaining updates");
+      expect(dialog).toHaveTextContent("updates already dispatched may finish");
+      expect(dialog).not.toHaveTextContent("Pacing:");
+      expect(within(dialog).queryByRole("button", { name: "Start update" })).not.toBeInTheDocument();
+      await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Clear assignments" })));
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+        { manufacturer: "Proto", model: "Rig", firmwareFileId: "" },
+      ]);
+    },
+  );
+
+  it("describes both operations for mixed firmware changes", async () => {
+    const channel = channelFor();
+    channel.modelGroups.push(group("Other", "second-old"));
+    const { onApply } = renderManage(channel);
+    chooseFile("next");
+    chooseFile("", "Other");
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(dialog).toHaveTextContent("Apply firmware changes?");
+    expect(dialog).toHaveTextContent("Assign firmware for 1 model in Production.");
+    expect(dialog).toHaveTextContent("Updates start where needed.");
+    expect(dialog).toHaveTextContent("Clear firmware assignments for 1 model in Production.");
+    expect(dialog).toHaveTextContent("Pacing: single batch.");
+    expect(dialog).toHaveTextContent("updates already dispatched may finish");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
+      { manufacturer: "Proto", model: "Other", firmwareFileId: "" },
+    ]);
+  });
+});
+
+describe("unavailable assigned firmware", () => {
+  it("uses server availability and recovers when the saved artifact returns", () => {
+    const channel = channelFor();
+    const { update } = renderManage(channel);
+    update({ firmwareFiles: [] });
+    expect(screen.queryByText(/Assigned firmware is unavailable\./)).not.toBeInTheDocument();
+    update({ channel: { ...channel, modelGroups: [{ ...group(), firmwareFileId: "", firmwareAvailable: false }] } });
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("old-saved");
+    expect(screen.getByText(/Assigned firmware is unavailable\./)).toHaveTextContent("same checksum");
+    expect(screen.getByText("Assigned firmware unavailable")).toBeVisible();
+    update({ channel: { ...channel } });
+    expect(screen.queryByText(/Assigned firmware is unavailable\./)).not.toBeInTheDocument();
+    expect(screen.getByText("Up to date")).toBeVisible();
+  });
+
+  it.each(["next", ""])("keeps the warning until replacement %s is acknowledged", async (id) => {
+    const channel = channelFor();
+    channel.modelGroups[0] = { ...group(), firmwareFileId: "", firmwareAvailable: false };
+    const { update } = renderManage(channel, true);
+    chooseFile(id);
+    expect(screen.getByText(/Assigned firmware is unavailable\./)).toBeVisible();
+    await startApply(id === "" ? "Clear assignments" : "Start update");
+    expect(screen.queryByText(/Assigned firmware is unavailable\./)).not.toBeInTheDocument();
+    expect(screen.getByText("Refreshing update status")).toBeVisible();
+    update({ channel: { ...channel }, hasRefreshError: false });
+    expect(screen.getByText(/Assigned firmware is unavailable\./)).toBeVisible();
+  });
+});
 
 describe("firmware Apply with saved delegated behavior", () => {
   it("requires saving a supported method before starting firmware, including after a failed refresh", async () => {
@@ -159,7 +232,7 @@ describe("firmware Apply with saved delegated behavior", () => {
     chooseFile("");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     expect(screen.queryByTestId("delegated-apply-unavailable")).not.toBeInTheDocument();
-    await startApply();
+    await startApply("Clear assignments");
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
       { manufacturer: "Proto", model: "Rig", firmwareFileId: "" },
       { manufacturer: "Proto", model: "Other", firmwareFileId: "" },
@@ -247,7 +320,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
     const { onApply } = renderManage(channelFor(), true);
     onApply.mockResolvedValue([]);
     chooseFile("");
-    await startApply();
+    await startApply("Clear assignments");
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
     chooseFile("");
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
