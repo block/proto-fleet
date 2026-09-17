@@ -190,7 +190,7 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
   minerNames: Record<string, string>;
   // Per-miner progress is paged by the server; the miners drill-down
   // fetches it on demand.
-  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onClose: () => void;
 }
 

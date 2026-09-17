@@ -69,7 +69,7 @@ describe("rollout evidence scope", () => {
     expect(await screen.findByText("batch-one")).toBeInTheDocument();
     expect(screen.getByText("batch-two")).toBeInTheDocument();
     expect(screen.getByText("late-joiner")).toBeInTheDocument();
-    expect(listRolloutDevices).toHaveBeenCalledExactlyOnceWith(restRollout.id);
+    expect(listRolloutDevices).toHaveBeenCalledExactlyOnceWith(restRollout.id, expect.any(AbortSignal));
   });
 
   it("identifies the current batch while a staged rollout is waiting between batches", async () => {

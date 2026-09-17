@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { type ReactElement, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -10,8 +10,11 @@ import {
   type MetricKind,
   scopeDevices,
 } from "./rolloutStatus";
+import { useRefreshingRead } from "./useRefreshingRead";
 import { type Rollout, type RolloutDevice, RolloutDevicePhase } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
+import Callout, { intents } from "@/shared/components/Callout";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
@@ -166,7 +169,7 @@ interface RolloutMinersModalProps {
   rollout: Rollout;
   // deviceIdentifier -> display name.
   minerNames: Record<string, string>;
-  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   initialFilter?: RolloutMinerFilter;
   onClose: () => void;
 }
@@ -184,23 +187,27 @@ const RolloutMinersModal = ({
   onClose,
 }: RolloutMinersModalProps) => {
   const [filter, setFilter] = useState<RolloutMinerFilter>(initialFilter);
-  const [devices, setDevices] = useState<RolloutDevice[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    listRolloutDevices(rollout.id)
-      .then((next) => {
-        if (!cancelled) setDevices(next);
-      })
-      .catch(() => {
-        if (!cancelled) setDevices((current) => current ?? []);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `rollout` is a new object on every poll; refetching on it keeps the
-    // table live.
-  }, [rollout, listRolloutDevices]);
+  const read = useCallback(
+    (signal: AbortSignal) => listRolloutDevices(rollout.id, signal),
+    [rollout.id, listRolloutDevices],
+  );
+  const {
+    data: devices,
+    isLoading,
+    error,
+    refresh,
+    cancel,
+  } = useRefreshingRead({
+    read,
+    refreshKey: rollout,
+    trailingRefresh: true,
+    errorMessage: "The request failed. Try again.",
+  });
+  const handleClose = () => {
+    cancel();
+    onClose();
+  };
+  const unavailableMessage = isLoading ? "Loading miners…" : "Miner details unavailable.";
 
   const rows = useMemo<MinerRow[]>(
     () =>
@@ -216,7 +223,7 @@ const RolloutMinersModal = ({
   const evidenceCount = scopeDevices(rollout, devices ?? []).length;
   const summary =
     devices === null
-      ? "Loading miners…"
+      ? unavailableMessage
       : filter === "failed"
         ? `${failedCount.toLocaleString()} ${failedCount === 1 ? "miner" : "miners"} failed to update`
         : `${rows.length.toLocaleString()} miners in this update${
@@ -253,16 +260,30 @@ const RolloutMinersModal = ({
   return (
     <Modal
       open
-      onDismiss={onClose}
+      onDismiss={handleClose}
       title="Miners in firmware update"
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
       divider={false}
       testId="rollout-miners-modal"
-      buttons={[{ text: "Done", variant: "primary", onClick: onClose, dismissModalOnClick: false }]}
+      buttons={[{ text: "Done", variant: "primary", onClick: handleClose, dismissModalOnClick: false }]}
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4" aria-busy={isLoading}>
+        {error ? (
+          <div role="alert" aria-busy={isLoading}>
+            <Callout
+              intent={intents.warning}
+              prefixIcon={<Alert />}
+              title={devices === null ? "Couldn't load miners" : "Miner details may be out of date"}
+              subtitle={devices === null ? error : `${error} Showing the last loaded data.`}
+              buttonText={isLoading ? "Retrying..." : "Retry"}
+              buttonOnClick={() => {
+                if (!isLoading) refresh();
+              }}
+            />
+          </div>
+        ) : null}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <SegmentedControl
             segments={[
@@ -288,7 +309,7 @@ const RolloutMinersModal = ({
           stickyFirstColumn={false}
           emptyStateRow={
             <div className="py-10 text-center text-300 text-text-primary-70">
-              {devices === null ? "Loading miners…" : filter === "failed" ? "No miners failed." : "No miners to show."}
+              {devices === null ? unavailableMessage : filter === "failed" ? "No miners failed." : "No miners to show."}
             </div>
           }
         />
