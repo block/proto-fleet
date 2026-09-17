@@ -2,6 +2,7 @@
 set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
+PACKAGED_RELEASE_REPOSITORY="block/proto-fleet"
 HA_BUNDLE_PATH="/var/tmp/proto-fleet-ha-host.json"
 unset HA_DD_API_KEY_CAPTURED
 DOWNLOAD_DIR=""
@@ -216,6 +217,7 @@ parse_compose_env_value() {
 compose_env_last_value() {
   local env_file="$1"
   local key="$2"
+  local unique="${3:-false}"
   local line normalized parsed found=false
   local assignment_re="^${key}[[:space:]]*([=:])(.*)$"
   local malformed_re="^${key}([[:space:]]|$)"
@@ -231,6 +233,7 @@ compose_env_last_value() {
         ;;
     esac
     if [[ "$normalized" =~ $assignment_re ]]; then
+      [ "$unique" != true ] || [ "$found" != true ] || return 2
       parsed=$(parse_compose_env_value "${BASH_REMATCH[2]}") || return 2
       found=true
     elif [[ "$normalized" =~ $malformed_re ]]; then
@@ -772,14 +775,14 @@ guard_selected_install_when_sudo_blocked() {
     echo "   The root Docker daemon could not be inspected because sudo requires authorization." >&2
     echo "   Re-run the installer as root before any deployment files are replaced:" >&2
     echo "" >&2
-    echo "     curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${quoted_version}" >&2
+    echo "     Save this installer locally and run: sudo bash install.sh ${quoted_version}" >&2
     return 1
   fi
 
   echo "" >&2
   echo "   (Note: sudo required authorization, so we couldn't check whether a" >&2
   echo "    root-managed fleet install also exists. If one might, re-run as root:" >&2
-  echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${quoted_version})" >&2
+  echo "      Save this installer locally and run: sudo bash install.sh ${quoted_version})" >&2
 }
 
 # Keep the privileged bootstrap payload inside the private, checksum-verified
@@ -1001,6 +1004,34 @@ verify_existing_updater_ownership_with() {
     echo "   Relocation is not supported; uninstall the existing deployment before installing elsewhere." >&2
     return 1
   fi
+  local contents repository base status pin
+  contents=$(${privilege[@]+"${privilege[@]}"} cat "$UPDATER_ENV_PATH") || return 1
+  if repository=$(release_source_assignment "$contents" PROTO_FLEET_RELEASE_REPOSITORY); then
+    validate_release_repository "$repository" || return 1
+  else
+    status=$?
+    [ "$status" = 1 ] || return 1
+    repository="block/proto-fleet"
+  fi
+  if [ "$repository" != "${RELEASE_REPOSITORY:-$PACKAGED_RELEASE_REPOSITORY}" ]; then
+    echo "Error: host updater repository conflicts with the selected installation; source changes are not supported." >&2
+    return 1
+  fi
+  if base=$(release_source_assignment "$contents" PROTO_FLEET_DOWNLOAD_BASE_URL); then
+    [ "$base" = "https://github.com/$repository/releases/download" ] || {
+      echo "Error: host updater download URL conflicts with its release repository." >&2; return 1;
+    }
+  else
+    status=$?
+    [ "$status" = 1 ] || return 1
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -e "$UPDATER_STATE_DIR/release-repository"; then
+    pin=$(${privilege[@]+"${privilege[@]}"} cat "$UPDATER_STATE_DIR/release-repository") || return 1
+    [ "$pin" = "$repository" ] || {
+      echo "Error: host updater persisted source conflicts with its configuration." >&2; return 1;
+    }
+  fi
+  return 0
 }
 
 backup_existing_updater_artifacts_with() {
@@ -1402,6 +1433,7 @@ write_updater_environment_file() {
   {
     printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
     printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
+    printf 'PROTO_FLEET_RELEASE_REPOSITORY="%s"\n' "${RELEASE_REPOSITORY:-$PACKAGED_RELEASE_REPOSITORY}"
     printf 'PROTO_FLEET_UPDATER_STATE_DIR="%s"\n' "$UPDATER_STATE_DIR"
     printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="%s"\n' "$escaped_socket"
     printf 'PROTO_FLEET_UPDATER_BINARY_PATH="%s"\n' "$UPDATER_BINARY_PATH"
@@ -1617,6 +1649,111 @@ run_ha_install() {
   run_fleet_ha "$fleet_ha" install </dev/tty
 }
 
+validate_release_repository() {
+  local repository="$1"
+  [[ "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] \
+    && [[ "$repository" != *-/* ]] && [[ "$repository" != *..* ]]
+}
+
+release_source_assignment() {
+  local contents="$1" key="$2" line value found=0
+  local assignment_re="^[[:space:]]*${key}[[:space:]]*=(.*)$"
+  local malformed_re="^[[:space:]]*(export[[:space:]]+)?${key}([[:space:]:=]|$)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ "$line" =~ $assignment_re ]]; then
+      [ "$found" = 0 ] || return 2
+      value=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
+      found=1
+    elif [[ "$line" =~ $malformed_re ]]; then
+      return 2
+    fi
+  done <<< "$contents"
+  [ "$found" = 1 ] || return 1
+  printf '%s' "$value"
+}
+
+# Parse data only: never source configuration or release metadata as shell.
+release_repository_from_metadata() {
+  local contents="$1" repository
+  repository=$(printf '%s\n' "$contents" | awk '
+    /^[[:space:]]*release_repository/ {
+      count++
+      if ($0 !~ /^release_repository: /) exit 2
+      sub(/^release_repository: /, "")
+      value=$0
+    }
+    END { if (count > 1) exit 2; if (count == 0) print "block/proto-fleet"; else print value }
+  ') || return 1
+  validate_release_repository "$repository" || return 1
+  printf '%s' "$repository"
+}
+
+resolve_install_release_repository() {
+  local root="$1" installed="" value status metadata
+  RELEASE_REPOSITORY="$PACKAGED_RELEASE_REPOSITORY"
+  validate_release_repository "$RELEASE_REPOSITORY" || {
+    echo "Error: release repository must be a valid GitHub owner/repo value." >&2
+    return 1
+  }
+  if [ -e "$root/deployment/docker-compose.yaml" ]; then
+    metadata=""
+    if [ -e "$root/deployment/version.txt" ]; then
+      metadata=$(cat "$root/deployment/version.txt") || return 1
+    fi
+    installed=$(release_repository_from_metadata "$metadata") || {
+      echo "Error: invalid installed release_repository metadata." >&2
+      return 1
+    }
+    if [ "$installed" != "$RELEASE_REPOSITORY" ]; then
+      echo "Error: installed release repository conflicts with this packaged installer; use the installer from the installation's publishing repository." >&2
+      return 1
+    fi
+  fi
+  # Fresh installs may already have a preseeded .env but no Compose marker.
+  if value=$(compose_env_last_value "$root/deployment/.env" PROTO_FLEET_RELEASE_REPOSITORY true); then
+    [ "$value" = "$RELEASE_REPOSITORY" ] || {
+      echo "Error: persisted release repository conflicts with this packaged installer." >&2
+      return 1
+    }
+  else
+    status=$?
+    [ "$status" = 1 ] || { echo "Error: unreadable or malformed release source configuration." >&2; return 1; }
+  fi
+  GITHUB_RELEASES_URL="https://github.com/$RELEASE_REPOSITORY/releases"
+}
+
+# Function to determine default installation directory based on OS.
+# When invoked under sudo on Linux, prefer the invoking user's home over
+# /root — fleet is normally installed under the user account, and falling
+# back to /root/proto-fleet would silently miss the user's on-disk install.
+get_default_install_dir() {
+  local os_type
+  os_type=$(uname -s)
+
+  if [ "$os_type" = "Darwin" ]; then
+    echo "$HOME/Applications/ProtoFleet"
+    return
+  fi
+
+  if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    # `|| true` neutralizes set -e / pipefail so a missing getent or failed
+    # NSS lookup falls through to $HOME instead of aborting.
+    local sudo_home
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
+    if [ -n "$sudo_home" ]; then
+      echo "$sudo_home/proto-fleet"
+      return
+    fi
+    # SUDO_USER set but resolution failed — warn so the operator knows the
+    # default below is /root, not their home. Direct >&2 because this
+    # function's stdout is captured by the `$(...)` caller.
+    echo "⚠️  SUDO_USER='$SUDO_USER' set but home lookup returned empty;" >&2
+    echo "    default install dir will fall back to \$HOME ($HOME/proto-fleet)." >&2
+  fi
+
+  echo "$HOME/proto-fleet"
+}
+
 # END INSTALLER TESTABLE HELPERS
 
 # Function to extract files to the installation directory and cd to it
@@ -1671,7 +1808,7 @@ EOF
 resolve_latest_version() {
   local latest_release_url effective_url curl_stderr
 
-  latest_release_url="https://github.com/block/proto-fleet/releases/latest"
+  latest_release_url="https://github.com/${RELEASE_REPOSITORY}/releases/latest"
   echo "🛰  Determining latest version from ${latest_release_url}" >&2
 
   curl_stderr=$(mktemp)
@@ -1684,7 +1821,8 @@ resolve_latest_version() {
   fi
   rm -f "${curl_stderr}"
 
-  if [[ "${effective_url}" =~ /releases/tag/([^/?#]+)/?$ ]]; then
+  if [[ "$effective_url" == "https://github.com/$RELEASE_REPOSITORY/releases/tag/"* ]] \
+    && [[ "${effective_url}" =~ /releases/tag/([^/?#]+)/?$ ]]; then
     echo "${BASH_REMATCH[1]}"
     return 0
   fi
@@ -1697,7 +1835,7 @@ resolve_latest_version() {
 resolve_latest_nightly_version() {
   local nightly_channel_url nightly_version curl_stderr
 
-  nightly_channel_url="https://raw.githubusercontent.com/block/proto-fleet/nightly-channel/latest.txt"
+  nightly_channel_url="https://raw.githubusercontent.com/${RELEASE_REPOSITORY}/nightly-channel/latest.txt"
   echo "🛰  Determining latest nightly version from ${nightly_channel_url}" >&2
 
   curl_stderr=$(mktemp)
@@ -1818,9 +1956,124 @@ if [ "$HA_INSTALL" = "1" ]; then
   capture_ha_datadog_api_key
 fi
 
-check_page_size
+# Locate the installation and resolve its source before making release requests.
+if [ "$HA_INSTALL" = "1" ]; then
+  INSTALL_DIR="/opt/proto-fleet"
+else
+  echo "🔍 Checking for previous ProtoFleet installations via Docker..."
+  # An explicit target controls the destination, not the Docker ownership
+  # boundary. Always probe both daemon contexts before replacing files so
+  # --install-dir cannot bypass the root-daemon mismatch guard.
+  detect_previous_install || true
+  DEFAULT_INSTALL_DIR=$(get_default_install_dir)
 
-GITHUB_RELEASES_URL="https://github.com/block/proto-fleet/releases"
+  # If the existing containers were only visible via `sudo docker`, this script
+  # is running as a user who can't manage them. Bail out loudly rather than
+  # silently extracting on top of an install we can't control — continuing
+  # would orphan the root-owned containers and likely leave the user with two
+  # competing stacks. A process-substitution path cannot be reopened by sudo;
+  # ask the operator to save this installer without changing download sources.
+  # Shell-escape VERSION so the suggested copy-paste commands below stay safe
+  # even when the user-supplied version arg contains spaces or metachars.
+  QUOTED_VERSION=$(printf '%q' "${REQUESTED_VERSION:-latest}")
+
+  if [ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" = "1" ] && [ "$(id -u)" -ne 0 ]; then
+    echo "❌ Existing fleet containers were detected, but only via sudo."
+    echo "   They are managed by the root Docker daemon, and this script is running as $(id -un)."
+    echo "   Re-run the installer as root so the upgrade targets the same daemon:"
+    echo ""
+    echo "     Save this installer locally and run: sudo bash install.sh ${QUOTED_VERSION}"
+    echo ""
+    echo "   Or, if your user account is already in the 'docker' group but the current"
+    echo "   shell hasn't picked it up yet, log out and back in (or run 'newgrp docker')"
+    echo "   and re-run the original install command without sudo."
+    echo ""
+    echo "   (The 'sudo bash <(curl ...)' form does not work — process substitution"
+    echo "   opens an FD that sudo cannot access.)"
+    exit 1
+  fi
+
+  # Marker check: docker-compose.yaml ships in every install tarball, so its
+  # presence inside a 'deployment/' directory is a strong positive signal that
+  # this really is a ProtoFleet install (and not some unrelated 'deployment/'
+  # tree the user happened to create).
+  if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
+    && [ -n "$REQUESTED_INSTALL_DIR" ] \
+    && { [ -e "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ] \
+      || [ -L "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; }; then
+    if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$REQUESTED_INSTALL_DIR"); then
+      exit 1
+    fi
+    echo "📁 No running fleet containers, but found requested install on disk at: ${PREVIOUS_INSTALL_DIR}"
+  elif [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
+    && [ -d "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}" ] \
+    && [ -f "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
+    if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$DEFAULT_INSTALL_DIR"); then
+      exit 1
+    fi
+    echo "📁 No running fleet containers, but found existing install on disk at: ${PREVIOUS_INSTALL_DIR}"
+  fi
+
+  if [ -n "$REQUESTED_INSTALL_DIR" ]; then
+    SUGGESTED_DIR="$REQUESTED_INSTALL_DIR"
+    echo "📌 Using requested installation location: ${SUGGESTED_DIR}"
+  elif [ -n "${PREVIOUS_INSTALL_DIR:-}" ]; then
+    SUGGESTED_DIR="$PREVIOUS_INSTALL_DIR"
+    echo "📌 Found previous installation at: ${SUGGESTED_DIR}"
+  else
+    SUGGESTED_DIR="$DEFAULT_INSTALL_DIR"
+    echo "📌 No previous installation detected."
+    echo "   Suggested installation location: ${SUGGESTED_DIR}"
+  fi
+
+  if [ -n "$REQUESTED_INSTALL_DIR" ]; then
+    INSTALL_DIR="$REQUESTED_INSTALL_DIR"
+  elif [ "$NON_INTERACTIVE" = "1" ]; then
+    if [ -z "${PREVIOUS_INSTALL_DIR:-}" ]; then
+      echo "❌ A fresh non-interactive install requires --install-dir." >&2
+      exit 1
+    fi
+    INSTALL_DIR="$SUGGESTED_DIR"
+  else
+    # Read from /dev/tty so prompts work under `curl ... | sudo bash -s --`.
+    read -p "   Use this location? (Y/n): " use_suggested < /dev/tty
+    if [[ "$use_suggested" =~ ^[Nn]$ ]]; then
+      read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir < /dev/tty
+      INSTALL_DIR="${custom_dir:-$DEFAULT_INSTALL_DIR}"
+    else
+      INSTALL_DIR="$SUGGESTED_DIR"
+    fi
+  fi
+
+  case "$INSTALL_DIR" in
+    *$'\n'*|*$'\r'*)
+      echo "❌ Installation paths cannot contain newline characters." >&2
+      exit 1
+      ;;
+  esac
+
+  if ! promote_selected_install_if_existing "$INSTALL_DIR"; then
+    exit 1
+  fi
+  if ! INSTALL_DIR=$(resolve_selected_install_path "$INSTALL_DIR" "${PREVIOUS_INSTALL_DIR:-}"); then
+    exit 1
+  fi
+  if ! guard_selected_install_when_sudo_blocked \
+    "$INSTALL_DIR" "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" "$QUOTED_VERSION"; then
+    exit 1
+  fi
+  if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
+    echo "❌ Non-interactive mode requires an existing configured deployment at ${INSTALL_DIR}/${DEPLOYMENT_DIR}." >&2
+    exit 1
+  fi
+
+fi
+resolve_install_release_repository "$INSTALL_DIR"
+resolve_updater_privilege
+if [ -e "$UPDATER_ENV_PATH" ]; then
+  verify_existing_updater_ownership_with "$INSTALL_DIR" ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || exit 1
+fi
+check_page_size
 
 # determine version and tarball name
 case "${REQUESTED_VERSION:-latest}" in
@@ -1868,8 +2121,8 @@ CHECKSUM_PATH="${DOWNLOAD_DIR}/${TAR_NAME}.sha256"
 echo "🔐 Fetching and verifying ${TAR_NAME}.sha256"
 if ! curl -fsSL "${URL}.sha256" -o "${CHECKSUM_PATH}"; then
   echo "❌ This release does not provide the required SHA-256 integrity file."
-  echo "   For a legacy release, run the installer published with that exact tag:"
-  echo "   bash <(curl -fsSL ${GITHUB_RELEASES_URL}/download/${VERSION}/install.sh) ${VERSION}"
+  echo "   Consult the installer published with that exact tag in ${RELEASE_REPOSITORY}."
+  echo "   Legacy installers may not support repository selection; do not use an upstream-only installer for a fork."
   exit 1
 fi
 checksum_fields=$(wc -w < "${CHECKSUM_PATH}" | tr -d '[:space:]')
@@ -1890,6 +2143,19 @@ else
 fi
 rm -f "${CHECKSUM_PATH}"
 
+bundle_metadata=$(tar -xOf "$TAR_PATH" deployment/version.txt) || {
+  echo "Error: release bundle has no version metadata." >&2
+  exit 1
+}
+bundle_repository=$(release_repository_from_metadata "$bundle_metadata") || {
+  echo "Error: release bundle has invalid repository metadata." >&2
+  exit 1
+}
+if [ "$bundle_repository" != "$RELEASE_REPOSITORY" ]; then
+  echo "Error: downloaded bundle belongs to $bundle_repository, expected $RELEASE_REPOSITORY." >&2
+  exit 1
+fi
+
 if [ "$HA_INSTALL" = "1" ]; then
   run_ha_install "$TAR_PATH" "$DOWNLOAD_DIR"
   exit $?
@@ -1899,145 +2165,6 @@ UPDATER_BOOTSTRAP_DIR="${DOWNLOAD_DIR}/updater-bootstrap"
 if ! extract_updater_bootstrap "$TAR_PATH" "$UPDATER_BOOTSTRAP_DIR"; then
   echo "ℹ️  This release has no valid host-updater bootstrap payload; one-click upgrades will remain disabled."
   UPDATER_BOOTSTRAP_DIR=""
-fi
-
-# Function to determine default installation directory based on OS.
-# When invoked under sudo on Linux, prefer the invoking user's home over
-# /root — fleet is normally installed under the user account, and falling
-# back to /root/proto-fleet would silently miss the user's on-disk install.
-get_default_install_dir() {
-  local os_type
-  os_type=$(uname -s)
-
-  if [ "$os_type" = "Darwin" ]; then
-    echo "$HOME/Applications/ProtoFleet"
-    return
-  fi
-
-  if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-    # `|| true` neutralizes set -e / pipefail so a missing getent or failed
-    # NSS lookup falls through to $HOME instead of aborting.
-    local sudo_home
-    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
-    if [ -n "$sudo_home" ]; then
-      echo "$sudo_home/proto-fleet"
-      return
-    fi
-    # SUDO_USER set but resolution failed — warn so the operator knows the
-    # default below is /root, not their home. Direct >&2 because this
-    # function's stdout is captured by the `$(...)` caller.
-    echo "⚠️  SUDO_USER='$SUDO_USER' set but home lookup returned empty;" >&2
-    echo "    default install dir will fall back to \$HOME ($HOME/proto-fleet)." >&2
-  fi
-
-  echo "$HOME/proto-fleet"
-}
-
-echo "🔍 Checking for previous ProtoFleet installations via Docker..."
-# An explicit target controls the destination, not the Docker ownership
-# boundary. Always probe both daemon contexts before replacing files so
-# --install-dir cannot bypass the root-daemon mismatch guard.
-detect_previous_install || true
-DEFAULT_INSTALL_DIR=$(get_default_install_dir)
-
-# If the existing containers were only visible via `sudo docker`, this script
-# is running as a user who can't manage them. Bail out loudly rather than
-# silently extracting on top of an install we can't control — continuing
-# would orphan the root-owned containers and likely leave the user with two
-# competing stacks. (Process substitution + sudo is a footgun, so tell them
-# the pipe form that actually works.)
-# Shell-escape VERSION so the suggested copy-paste commands below stay safe
-# even when the user-supplied version arg contains spaces or metachars.
-QUOTED_VERSION=$(printf '%q' "${VERSION}")
-
-if [ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" = "1" ] && [ "$(id -u)" -ne 0 ]; then
-  echo "❌ Existing fleet containers were detected, but only via sudo."
-  echo "   They are managed by the root Docker daemon, and this script is running as $(id -un)."
-  echo "   Re-run the installer as root so the upgrade targets the same daemon:"
-  echo ""
-  echo "     curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION}"
-  echo ""
-  echo "   Or, if your user account is already in the 'docker' group but the current"
-  echo "   shell hasn't picked it up yet, log out and back in (or run 'newgrp docker')"
-  echo "   and re-run the original install command without sudo."
-  echo ""
-  echo "   (The 'sudo bash <(curl ...)' form does not work — process substitution"
-  echo "   opens an FD that sudo cannot access.)"
-  exit 1
-fi
-
-# Marker check: docker-compose.yaml ships in every install tarball, so its
-# presence inside a 'deployment/' directory is a strong positive signal that
-# this really is a ProtoFleet install (and not some unrelated 'deployment/'
-# tree the user happened to create).
-if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
-  && [ -n "$REQUESTED_INSTALL_DIR" ] \
-  && { [ -e "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ] \
-    || [ -L "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; }; then
-  if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$REQUESTED_INSTALL_DIR"); then
-    exit 1
-  fi
-  echo "📁 No running fleet containers, but found requested install on disk at: ${PREVIOUS_INSTALL_DIR}"
-elif [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
-  && [ -d "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}" ] \
-  && [ -f "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
-  if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$DEFAULT_INSTALL_DIR"); then
-    exit 1
-  fi
-  echo "📁 No running fleet containers, but found existing install on disk at: ${PREVIOUS_INSTALL_DIR}"
-fi
-
-if [ -n "$REQUESTED_INSTALL_DIR" ]; then
-  SUGGESTED_DIR="$REQUESTED_INSTALL_DIR"
-  echo "📌 Using requested installation location: ${SUGGESTED_DIR}"
-elif [ -n "${PREVIOUS_INSTALL_DIR:-}" ]; then
-  SUGGESTED_DIR="$PREVIOUS_INSTALL_DIR"
-  echo "📌 Found previous installation at: ${SUGGESTED_DIR}"
-else
-  SUGGESTED_DIR="$DEFAULT_INSTALL_DIR"
-  echo "📌 No previous installation detected."
-  echo "   Suggested installation location: ${SUGGESTED_DIR}"
-fi
-
-if [ -n "$REQUESTED_INSTALL_DIR" ]; then
-  INSTALL_DIR="$REQUESTED_INSTALL_DIR"
-elif [ "$NON_INTERACTIVE" = "1" ]; then
-  if [ -z "${PREVIOUS_INSTALL_DIR:-}" ]; then
-    echo "❌ A fresh non-interactive install requires --install-dir." >&2
-    exit 1
-  fi
-  INSTALL_DIR="$SUGGESTED_DIR"
-else
-  # Read from /dev/tty so prompts work under `curl ... | sudo bash -s --`.
-  read -p "   Use this location? (Y/n): " use_suggested < /dev/tty
-  if [[ "$use_suggested" =~ ^[Nn]$ ]]; then
-    read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir < /dev/tty
-    INSTALL_DIR="${custom_dir:-$DEFAULT_INSTALL_DIR}"
-  else
-    INSTALL_DIR="$SUGGESTED_DIR"
-  fi
-fi
-
-case "$INSTALL_DIR" in
-  *$'\n'*|*$'\r'*)
-    echo "❌ Installation paths cannot contain newline characters." >&2
-    exit 1
-    ;;
-esac
-
-if ! promote_selected_install_if_existing "$INSTALL_DIR"; then
-  exit 1
-fi
-if ! INSTALL_DIR=$(resolve_selected_install_path "$INSTALL_DIR" "${PREVIOUS_INSTALL_DIR:-}"); then
-  exit 1
-fi
-if ! guard_selected_install_when_sudo_blocked \
-  "$INSTALL_DIR" "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" "$QUOTED_VERSION"; then
-  exit 1
-fi
-if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
-  echo "❌ Non-interactive mode requires an existing configured deployment at ${INSTALL_DIR}/${DEPLOYMENT_DIR}." >&2
-  exit 1
 fi
 
 echo "📌 Will install to: ${INSTALL_DIR}"
@@ -2284,6 +2411,7 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
 fi
 RUN_FLEET_STATUS=0
 if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+  PROTO_FLEET_RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
   ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
   RUN_FLEET_STATUS=0
   if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then

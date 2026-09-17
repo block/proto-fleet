@@ -84,6 +84,7 @@ jobs:
     needs: [metadata]
     uses: ./.github/workflows/proto-fleet-artifact-build.yml
     with:
+      release_repository: ${{ github.repository }}
       version: ${{ needs.metadata.outputs.version }}
       build_date: ${{ needs.metadata.outputs.build_date }}
       retention_days: 7
@@ -145,6 +146,12 @@ jobs:
         with:
           name: proto-os-artifact
           path: /tmp/nightly-assets/proto-os
+
+      - name: Download repository-specific installers
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-release-installers
+          path: /tmp/nightly-assets/installers
 
       - name: List nightly assets
         run: find /tmp/nightly-assets -type f | sort
@@ -231,8 +238,8 @@ jobs:
             /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
-            ./deployment-files/install.sh \
-            ./deployment-files/fleetnode/install-fleet-node.sh \
+            /tmp/nightly-assets/installers/install.sh \
+            /tmp/nightly-assets/installers/install-fleet-node.sh \
             ./deployment-files/uninstall.sh \
             --draft \
             --notes-file /tmp/nightly-release-notes.md \
@@ -254,8 +261,8 @@ jobs:
             /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
-            ./deployment-files/install.sh \
-            ./deployment-files/fleetnode/install-fleet-node.sh \
+            /tmp/nightly-assets/installers/install.sh \
+            /tmp/nightly-assets/installers/install-fleet-node.sh \
             ./deployment-files/uninstall.sh \
             --clobber
 
@@ -282,6 +289,7 @@ jobs:
           {
             "version": "$VERSION",
             "tag": "$VERSION",
+            "release_repository": "${{ github.repository }}",
             "commit": "${{ github.sha }}",
             "build_date": "$BUILD_DATE",
             "run_id": "${{ github.run_id }}",

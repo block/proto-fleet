@@ -126,6 +126,10 @@ import "google/protobuf/timestamp.proto";
 // resumes. Fleet has no durable artifact store, so this is what survives a
 // redeploy. Two files with the same version but different payloads are
 // different artifacts; assigning one after the other starts a rollout.
+// Read responses use cached upload/startup checksum identity and current file
+// presence/readability for availability, without rehashing payloads. Known
+// verification failures exclude unchanged copies. This is an availability hint:
+// assignment admission, dispatch and delivery independently verify payload bytes.
 //
 // Managed-deployment provenance is the checksum from the last successful
 // Fleet-managed deployment to a miner, recorded after it reports the target
@@ -309,7 +313,9 @@ service RolloutService {
     rpc CancelRollout(CancelRolloutRequest) returns (CancelRolloutResponse);
 
     // Re-queues the suppressed members of a rollout's manufacturer/model pair.
-    // An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+    // An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
+    // and adds suppressed members from earlier rollouts of the generation as
+    // unbatched late joiners without baselines. A
     // finished rollout, while it is current under the RolloutService
     // assignment-generation rule and its pair has no active rollout under the
     // single-active-rollout rule, starts one all-at-once rollout for every
@@ -621,8 +627,9 @@ message ReleaseChannelModelGroup {
     // firmware is assigned. The assignment's identity under the RolloutService
     // artifact identity rule.
     string firmware_checksum = 13 [(buf.validate.field).string = {max_len: 64, pattern: "^$|^[0-9a-f]{64}$"}];
-    // Whether an uploaded file with firmware_checksum currently exists. False
-    // while the artifact must be re-uploaded before enforcement can dispatch.
+    // Cached availability of an uploaded file with firmware_checksum, including
+    // current presence/readability and known verification failures. Status reads
+    // do not rehash payload bytes; dispatch independently verifies the artifact.
     bool firmware_available = 14;
 }
 
@@ -797,11 +804,12 @@ enum RolloutDevicePhase {
     ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
     // The first attempt did not take; the update was re-sent.
     ROLLOUT_DEVICE_PHASE_RETRYING = 3;
-    // Meets every convergence criterion: reports the target version; its
+    // The server latches this phase when the miner reports the target version; its
     // RolloutService managed-deployment provenance equals the rollout's
     // firmware_checksum; is online; and is hashing when baseline_hashing is
-    // true or has_baseline is false. Per-device telemetry deltas do not affect
-    // this phase.
+    // true or has_baseline is false. Later health changes do not rewrite this
+    // phase. While the rollout is active, firmware/provenance drift or a
+    // foreign firmware command reopens convergence; finished history stays fixed.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, reported manufacturer/model became incompatible
     // before verification, or the rollout was canceled before this miner
@@ -857,19 +865,21 @@ message RolloutDeviceCounts {
     int32 skipped = 7 [(buf.validate.field).int32.gte = 0];
 }
 
-// Post-update evidence for the miners under review: the batch at the gate
-// (or in flight), or every target in the rest stage. Compared against each
-// miner's own baseline.
+// Post-update evidence for the miners under review: the current batch, every
+// target for an unbatched rollout, or the unbatched targets in the rest stage
+// after batching. Includes excluded and skipped targets as neutral counts;
+// health samples are compared against each contributing miner's own baseline.
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"
-        message: "verified plus failed plus excluded plus skipped, online, and baseline_hashing must not exceed devices_total, and verified and hashing must not exceed online"
-        expression: "this.verified + this.failed + this.excluded + this.skipped <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
+        message: "verified plus failed plus excluded plus skipped, online, and baseline_hashing must not exceed devices_total, and hashing must not exceed online"
+        expression: "this.verified + this.failed + this.excluded + this.skipped <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.hashing <= this.online"
     };
 
     int32 devices_total = 1 [(buf.validate.field).int32.gte = 0];
     // Miners in the DONE phase. Per-device telemetry deltas do not affect
-    // this count.
+    // this count. The server latches verification, so a later offline
+    // observation can make this count exceed online.
     int32 verified = 2 [(buf.validate.field).int32.gte = 0];
     int32 online = 3 [(buf.validate.field).int32.gte = 0];
     int32 hashing = 4 [(buf.validate.field).int32.gte = 0];
@@ -1266,14 +1276,16 @@ message ListReleaseChannelMinersRequest {
     string model = 3 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     // Maximum miners to return. 0 uses the server default of 100.
     int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
-    // Cursor returned by a previous call; leave empty for the first page.
-    string cursor = 5 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; leave empty for the first page.
+    string cursor = 5 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMinersResponse {
     repeated ReleaseChannelMiner miners = 1 [(buf.validate.field).repeated.max_items = 1000];
-    // Cursor for the next page; empty when there are no more miners.
-    string cursor = 2 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; empty when there are no more miners.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMembershipConflictsRequest {
@@ -1282,16 +1294,18 @@ message ListReleaseChannelMembershipConflictsRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
     // Maximum conflict records to return. 0 uses the server default of 100.
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
-    // Cursor returned by a previous call; leave empty for the first page.
-    string cursor = 3 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 2048];
 }
 
 message ListReleaseChannelMembershipConflictsResponse {
     // Flat records keep the page bounded when one miner matches many channels.
     // Clients may group records by device_id.
     repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
-    // Cursor for the next page; empty when there are no more conflicts.
-    string cursor = 2 [(buf.validate.field).string.max_len = 100];
+    // Opaque cursor sized for a 255-code-point Unicode device identifier,
+    // numeric sort keys and encoding overhead; empty when there are no more conflicts.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 
 message CreateReleaseChannelRequest {

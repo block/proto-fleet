@@ -49,6 +49,14 @@ RETURNING *;
 SELECT * FROM release_channel
 WHERE id = sqlc.arg('channel_id') AND org_id = sqlc.arg('org_id');
 
+-- name: GetReleaseChannelForUpdate :one
+-- Serialize assignment changes before reading any pair, including pairs with
+-- no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+-- permits foreign-key checks by concurrent rollout/target inserts.
+SELECT * FROM release_channel
+WHERE id = sqlc.arg('channel_id') AND org_id = sqlc.arg('org_id')
+FOR NO KEY UPDATE;
+
 -- name: ListReleaseChannels :many
 SELECT * FROM release_channel
 WHERE org_id = sqlc.arg('org_id')
@@ -290,7 +298,9 @@ ORDER BY d.device_identifier, d.id, owner.channel_id;
 
 -- name: UpsertReleaseChannelFirmware :one
 -- Assigns an artifact to a pair and advances the pair's generation. The
--- stored key keeps the case it was first written with.
+-- stored key keeps the case it was first written with. assigned_by is the
+-- owning user for enforcement commands, separate from the rollout's audit
+-- actor. Reconciliation and retries retain this assignment's owner.
 INSERT INTO release_channel_firmware (
     channel_id, manufacturer, model, firmware_checksum, firmware_version,
     firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by
@@ -300,7 +310,9 @@ VALUES (
     sqlc.arg('firmware_target_manufacturer'), sqlc.arg('firmware_target_model'), 1, sqlc.arg('assigned_by')
 )
 ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
-SET firmware_checksum = EXCLUDED.firmware_checksum,
+SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
+    previous_firmware_version = release_channel_firmware.firmware_version,
+    firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
     firmware_target_manufacturer = EXCLUDED.firmware_target_manufacturer,
     firmware_target_model = EXCLUDED.firmware_target_model,
@@ -315,6 +327,8 @@ RETURNING *;
 UPDATE release_channel_firmware
 SET firmware_checksum = '',
     firmware_version = '',
+    previous_firmware_checksum = '',
+    previous_firmware_version = '',
     firmware_target_manufacturer = '',
     firmware_target_model = '',
     assignment_generation = assignment_generation + 1,
@@ -398,6 +412,45 @@ WHERE m.org_id = sqlc.arg('org_id')
         AND s.assignment_generation = sqlc.arg('assignment_generation')::bigint
   )
 ORDER BY d.device_identifier;
+
+-- name: CountReleaseChannelFirmwarePreviewMembers :one
+-- Both preview counts use one snapshot of the mismatch rule above. A pending
+-- foreign command makes a member mismatched even when it reports the assigned
+-- version and provenance. Suppression excludes dispatch targets, but does not
+-- change whether a member matches the assignment.
+WITH members AS (
+    SELECT COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
+           AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
+           AND NOT EXISTS (
+               SELECT 1 FROM queue_message qm
+               WHERE qm.device_id = d.id
+                 AND qm.command_type = 'FirmwareUpdate'
+                 AND qm.status IN ('PENDING', 'PROCESSING')
+                 AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+                     THEN qm.payload->>'firmware_checksum' <> sqlc.arg('firmware_checksum')::text
+                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE(sqlc.arg('assigned_file_ids')::text[], '{}')))
+                 END
+           ) AS on_target,
+           EXISTS (
+               SELECT 1 FROM firmware_rollout_suppressed_device s
+               WHERE s.channel_id = m.channel_id
+                 AND s.device_id = d.id
+                 AND s.manufacturer_key = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+                 AND s.model_key = release_channel_pair_key(sqlc.arg('model')::text)
+                 AND s.assignment_generation = sqlc.arg('assignment_generation')::bigint
+           ) AS suppressed
+    FROM release_channel_member m
+    JOIN device d ON d.id = m.device_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+    WHERE m.org_id = sqlc.arg('org_id')
+      AND m.channel_id = sqlc.arg('channel_id')
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
+)
+SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE on_target)::int AS on_target_count
+FROM members;
 
 -- name: ListReleaseChannelSuppressedMembers :many
 -- Members of one pair the enforcement loop currently suppresses;
@@ -607,13 +660,16 @@ FROM locked_rollout
 WHERE r.id = locked_rollout.id AND r.status = 'active';
 
 -- name: FinishFirmwareRollout :execrows
--- Ends an active rollout as 'completed' or 'completed_with_failures'.
+-- Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+-- Recheck the pause under the row lock so stale settled targets cannot complete
+-- work after the operator pauses it. Resuming permits a later tick to finish.
 -- Record the first terminal time after the header lock, bounded by the
--- rollout's preceding lifecycle events, and clear any active pause.
+-- rollout's preceding lifecycle events.
 WITH locked_rollout AS MATERIALIZED (
     SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = sqlc.arg('rollout_id') AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
@@ -621,7 +677,7 @@ SET status = sqlc.arg('status'),
     finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
     paused_at = NULL
 FROM locked_rollout
-WHERE r.id = locked_rollout.id AND r.status = 'active';
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL;
 
 -- name: AdvanceFirmwareRolloutStage :one
 -- Stage transitions of an active rollout, attributed to an actor when one
@@ -708,6 +764,72 @@ WHERE id = sqlc.arg('rollout_id');
 
 -- --- Rollout devices ---
 
+-- name: ObserveFirmwareRolloutReservationsOffline :exec
+-- Once an outstanding command's target has been seen offline, its reservation
+-- becomes an offline slot. Returning online releases that slot even if command
+-- completion arrives later. This observation survives exclusion, cancellation,
+-- retries and completed rollout history.
+UPDATE firmware_rollout_reservation reservation
+SET observed_offline = true
+FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE (sqlc.narg('channel_id')::bigint IS NULL OR reservation.channel_id = sqlc.narg('channel_id'))
+  AND reservation.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND NOT reservation.observed_offline
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING');
+
+-- name: DeleteReleasedFirmwareRolloutReservations :exec
+-- Offline targets keep an offline slot through their retained rollout target
+-- history, so a terminal command no longer needs its reservation row. A live
+-- command can also release after an observed offline/online cycle. Keep that
+-- observation until recovery, and discard fleet-deleted targets immediately.
+DELETE FROM firmware_rollout_reservation reservation
+USING device d
+WHERE d.id = reservation.device_id
+  AND (
+      d.deleted_at IS NOT NULL
+      OR NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = reservation.device_id
+            AND qm.command_batch_log_uuid = reservation.batch_uuid
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+      )
+      OR (reservation.observed_offline AND EXISTS (
+          SELECT 1 FROM device_status ds
+          WHERE ds.device_id = d.id
+            AND ds.status::text NOT IN ('OFFLINE', 'UNKNOWN', 'UPDATING')
+      ))
+  );
+
+-- name: ListFirmwareRolloutOfflineSlots :many
+-- Every historical target can hold an offline slot, regardless of phase or
+-- current membership. Actual command reservations persist until their command
+-- finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+-- Fleet deletion releases both. UNION counts a device only once, including
+-- when it was targeted by several rollouts in this channel.
+SELECT rd.device_id
+FROM firmware_rollout_device rd
+JOIN firmware_rollout r ON r.id = rd.rollout_id
+JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE r.channel_id = sqlc.arg('channel_id')
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+UNION
+SELECT reservation.device_id
+FROM firmware_rollout_reservation reservation
+JOIN device d ON d.id = reservation.device_id AND d.deleted_at IS NULL
+WHERE reservation.channel_id = sqlc.arg('channel_id')
+  AND NOT reservation.observed_offline
+  AND EXISTS (
+      SELECT 1 FROM queue_message qm
+      WHERE qm.device_id = reservation.device_id
+        AND qm.command_batch_log_uuid = reservation.batch_uuid
+        AND qm.command_type = 'FirmwareUpdate'
+        AND qm.status IN ('PENDING', 'PROCESSING')
+  );
+
 -- name: ListFirmwareRolloutDevices :many
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
 -- status, latest telemetry within 15 minutes of this statement, open errors
@@ -717,6 +839,13 @@ WHERE id = sqlc.arg('rollout_id');
 -- Existing targets remain tied to their paired device when firmware changes its
 -- reported manufacturer/model: the engine still verifies the update's outcome,
 -- but in_scope must be true before dispatching another compatible update.
+-- The prior deployed version distinguishes a version change from replacing an
+-- artifact with another that reports the same version; the latter requires the
+-- latest dispatch's successful command result before recording new provenance.
+-- Command completion serializes through the provenance row and retains its
+-- exact latest batch identity. That command must also have succeeded for the
+-- same immutable checksum: timestamps and historical file IDs cannot prove
+-- current artifact identity, and missing command history fails closed.
 -- Live health is evidence for the engine's
 -- next decision; the persisted columns (verified_at, halted_at, excluded_at)
 -- carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -746,6 +875,18 @@ SELECT rd.device_id,
              AND result.org_id = r.org_id
              AND result.device_id = rd.device_id
              AND result.status = 'SUCCESS'
+             AND EXISTS (
+                 SELECT 1
+                 FROM command_batch_log current_batch
+                 JOIN command_on_device_log current_result ON current_result.command_batch_log_id = current_batch.id
+                 WHERE current_batch.uuid = dep.last_command_batch_uuid
+                   AND (current_batch.organization_id = r.org_id OR current_batch.organization_id IS NULL)
+                   AND current_batch.type = 'FirmwareUpdate'
+                   AND current_batch.payload->>'firmware_checksum' = r.firmware_checksum
+                   AND current_result.device_id = rd.device_id
+                   AND current_result.org_id = r.org_id
+                   AND current_result.status = 'SUCCESS'
+             )
        ))::boolean AS last_dispatch_succeeded,
        rd.verified_at,
        rd.halted_at,
@@ -770,6 +911,7 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE(dep.firmware_version, '')::text AS last_deployed_firmware_version,
        dep.deployed_at AS last_deployed_at,
        COALESCE((
            SELECT array_agg(qm.payload->>'firmware_checksum')
@@ -856,7 +998,7 @@ ON CONFLICT (rollout_id, device_id) DO NOTHING;
 
 -- name: AppendFirmwareRolloutDevices :exec
 -- Adds late joiners: unbatched, unordered (they sort last) and without a
--- baseline, so they are judged on version and being online only. Miners
+-- baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 -- already in the rollout are left as they are.
 INSERT INTO firmware_rollout_device (rollout_id, device_id)
 SELECT sqlc.arg('rollout_id'), d.id
@@ -880,7 +1022,15 @@ WHERE rollout_id = sqlc.arg('rollout_id')
 -- Only targets actually dispatched to may authorize a later provenance write.
 -- Lock targets before sampling one monotonic clock per attempt. A timestamp
 -- evaluated before a target-lock wait would shorten the next retry interval.
-WITH locked_targets AS MATERIALIZED (
+WITH reservations AS (
+    INSERT INTO firmware_rollout_reservation (channel_id, device_id, batch_uuid)
+    SELECT r.channel_id, device_id, sqlc.arg('batch_uuid')::text
+    FROM firmware_rollout r
+    CROSS JOIN unnest(sqlc.arg('dispatched_device_ids')::bigint[]) AS dispatched(device_id)
+    WHERE r.id = sqlc.arg('rollout_id')
+      AND sqlc.arg('batch_uuid')::text <> ''
+    ON CONFLICT (channel_id, device_id, batch_uuid) DO NOTHING
+), locked_targets AS MATERIALIZED (
     SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
     FROM firmware_rollout_device AS target
     WHERE target.rollout_id = sqlc.arg('rollout_id')

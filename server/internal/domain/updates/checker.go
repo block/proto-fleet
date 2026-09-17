@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const (
 	defaultCheckInterval         = time.Hour
 	revalidationWarningThreshold = 3
-	releaseNotesBaseURL          = "https://github.com/block/proto-fleet/releases/tag/"
 )
 
 var (
@@ -89,7 +90,7 @@ type Checker struct {
 // NewChecker creates a release checker; serverVersion identifies this fleetd
 // build in the User-Agent header.
 func NewChecker(cfg Config, serverVersion string) *Checker {
-	return newChecker(cfg, releaseAPIBaseURL, serverVersion, slog.Default())
+	return newChecker(cfg, releaseinfo.APIBaseURL(releaseinfo.Repository), serverVersion, slog.Default())
 }
 
 func newChecker(cfg Config, releasesAPIURL, serverVersion string, logger *slog.Logger) *Checker {
@@ -124,6 +125,10 @@ func cloneRelease(release *Release) *Release {
 // start, then one per (jittered) interval. It is a no-op when the checker is
 // disabled or already running.
 func (c *Checker) Start(ctx context.Context) error {
+	cfg := c.cfg
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start release checker: %w", err)
 	}
@@ -238,6 +243,12 @@ func (c *Checker) jitteredInterval() time.Duration {
 // is logged above Debug — update notification is best-effort and must never
 // look like a server problem.
 func (c *Checker) check(ctx context.Context) {
+	cfg := c.cfg
+	if err := cfg.Validate(); err != nil {
+		c.markUnavailable()
+		c.logger.Debug("invalid release source", "error", err)
+		return
+	}
 	latest, latestErr := c.client.fetchLatestStableFallback(ctx)
 	list, err := c.client.fetchReleases(ctx)
 	if err != nil {
@@ -246,7 +257,7 @@ func (c *Checker) check(ctx context.Context) {
 		return
 	}
 	previous := c.Snapshot()
-	stable := latestStable(latest, list)
+	stable := latestStable(latest, list, releaseinfo.Repository)
 	if latestErr != nil {
 		c.logFetchFailure("stable release fallback unavailable", latestErr)
 	}
@@ -260,7 +271,7 @@ func (c *Checker) check(ctx context.Context) {
 	rc, rcComplete := c.reconcileCachedRelease(
 		ctx,
 		"release candidate",
-		latestRC(list),
+		latestRC(list, releaseinfo.Repository),
 		previous.LatestRC,
 		isEligibleRCRelease,
 	)
@@ -307,7 +318,7 @@ func (c *Checker) reconcileCachedRelease(
 	if !found || !eligible(rel) {
 		return current, true
 	}
-	return newRelease(rel), true
+	return newRelease(rel, releaseinfo.Repository), true
 }
 
 func (c *Checker) logFetchFailure(message string, err error) {
@@ -339,7 +350,7 @@ func (c *Checker) clearRevalidationFailures(channel string) {
 // both GitHub's created-at-based /releases/latest candidate and the first
 // release-list page. The endpoint remains a fallback when prereleases crowd
 // every stable release out of the list page.
-func latestStable(latest githubRelease, list []githubRelease) *Release {
+func latestStable(latest githubRelease, list []githubRelease, repository string) *Release {
 	var best *githubRelease
 	if isEligibleStableRelease(latest) {
 		best = &latest
@@ -356,12 +367,12 @@ func latestStable(latest githubRelease, list []githubRelease) *Release {
 	if best == nil {
 		return nil
 	}
-	return newRelease(*best)
+	return newRelease(*best, repository)
 }
 
 // latestRC picks the newest release candidate from the list by semver
 // max-compare; GitHub's list order is not a reliable recency signal.
-func latestRC(list []githubRelease) *Release {
+func latestRC(list []githubRelease, repository string) *Release {
 	var best *githubRelease
 	for i := range list {
 		rel := &list[i]
@@ -375,7 +386,7 @@ func latestRC(list []githubRelease) *Release {
 	if best == nil {
 		return nil
 	}
-	return newRelease(*best)
+	return newRelease(*best, repository)
 }
 
 func isEligibleStableRelease(rel githubRelease) bool {
@@ -397,22 +408,22 @@ func isCanonicalRCTag(tag string) bool {
 	return rcTagPattern.MatchString(tag) && semver.IsValid(tag)
 }
 
-func newRelease(rel githubRelease) *Release {
+func newRelease(rel githubRelease, repository string) *Release {
 	return &Release{
 		Version:     rel.TagName,
-		NotesURL:    releaseNotesURL(rel.TagName),
+		NotesURL:    releaseNotesURL(repository, rel.TagName),
 		PublishedAt: rel.PublishedAt,
 		Prerelease:  isCanonicalRCTag(rel.TagName),
 	}
 }
 
-// releaseNotesURL derives the rendered link from the fixed repository and the
+// releaseNotesURL derives the rendered link from the selected repository and the
 // same canonical tag grammar used for channel selection. The body-provided
 // html_url is intentionally ignored so an upstream response cannot redirect
 // an operator to another HTTPS host or smuggle URL userinfo.
-func releaseNotesURL(tag string) string {
+func releaseNotesURL(repository, tag string) string {
 	if !isCanonicalStableTag(tag) && !isCanonicalRCTag(tag) {
 		return ""
 	}
-	return releaseNotesBaseURL + tag
+	return releaseinfo.ReleaseNotesBaseURL(repository) + tag
 }

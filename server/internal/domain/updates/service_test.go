@@ -458,7 +458,7 @@ func TestInstallCommandRequiresCanonicalReleaseTag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.tag, func(t *testing.T) {
 			t.Parallel()
-			command, ok := installCommand(downloadBaseURL, tt.tag)
+			command, ok := installCommand("block/proto-fleet", tt.tag)
 			assert.Equal(t, tt.want, ok)
 			if tt.want {
 				assert.NotEmpty(t, command)
@@ -610,7 +610,7 @@ func TestNoncanonicalCandidateNeverOffered(t *testing.T) {
 		assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 	}
 
-	cmd, ok := installCommand(downloadBaseURL, "v0.3.0+build.1")
+	cmd, ok := installCommand("block/proto-fleet", "v0.3.0+build.1")
 	assert.False(t, ok, "installCommand must refuse a noncanonical tag")
 	assert.Empty(t, cmd)
 

@@ -185,13 +185,15 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 	}
 
 	info := &session.Info{
-		AuthMethod:     session.AuthMethodAPIKey,
-		APIKeyID:       apiKeyRecord.KeyID,
-		UserID:         userID,
-		OrganizationID: apiKeyRecord.OrganizationID,
-		ExternalUserID: user.UserID,
-		Username:       user.Username,
-		Role:           roleName,
+		AuthMethod:       session.AuthMethodAPIKey,
+		APIKeyID:         apiKeyRecord.KeyID,
+		APIKeyDatabaseID: apiKeyRecord.ID,
+		APIKeyName:       apiKeyRecord.Name,
+		UserID:           userID,
+		OrganizationID:   apiKeyRecord.OrganizationID,
+		ExternalUserID:   user.UserID,
+		Username:         user.Username,
+		Role:             roleName,
 	}
 
 	authedCtx, err := i.loadEffectivePermissions(ctx, info)

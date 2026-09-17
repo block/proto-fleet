@@ -54,7 +54,11 @@ fleetnode run --local-discovery-subnet=10.90.0.0/24
 FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
 ```
 
-The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR and no broader than the supported scan-size limit.
+The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR, /20 or narrower. Each command accepts at most 4,096 target addresses and ten raw port entries. A /20 enumerates 4,094 usable addresses; an explicit 4,096-address range includes every address. Fleet Server keeps its broader address policy and can scan the aggregate of its known subnets without a Fleet Node command cap.
+
+The public discovery API names this mode `network_scan` (`NetworkScanModeRequest`). Nodes retain the ten-minute command budget, so a /20 with responsive ports and slow plugin identification can finish partially. Identified devices remain available, and incomplete discovery produces a source-specific warning. Update Fleet Server, Fleet Nodes, and clients together for this API change; the existing command-version and capability checks continue to support maintenance.
+
+A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The complete upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
 
 ## Control stream
 
@@ -63,7 +67,7 @@ The configured subnet is validated the same way as an auto-detected local subnet
 1. Agent dials gateway, sends `ControlHello`.
 2. Server replies `ControlAccepted`; stream stays open.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
-4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 30-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
+4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
 
 Discovery and pairing share one exclusive process-wide slot. All other commands share 512 process-wide slots. Fleet and Fleet Node use the same fixed admission policy:

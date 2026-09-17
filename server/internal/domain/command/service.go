@@ -162,14 +162,15 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		return
 	}
 	batchIDCopy := batchID
+	userID, username := activityUserFromSession(info)
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           eventType,
 		Description:    description,
 		ScopeCount:     &deviceCount,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		BatchID:        &batchIDCopy,
 		Metadata:       map[string]any{"batch_id": batchID},
@@ -187,8 +188,21 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorRolloutEnforcement:
+		return activitymodels.ActorSystem
 	}
 	return ""
+}
+
+// activityUserFromSession snapshots the activity identity independently of the
+// numeric user that owns command batches. Background firmware enforcement is a
+// system action, not an action by the assignment owner or a synthetic user.
+func activityUserFromSession(info *session.Info) (*string, *string) {
+	if info == nil || info.Actor == session.ActorRolloutEnforcement {
+		return nil, nil
+	}
+	userID, username := info.ExternalUserID, info.Username
+	return &userID, &username
 }
 
 // isExternalCommand is true for user/API-key traffic. Internal orchestrators
@@ -254,14 +268,15 @@ func (s *Service) logPreflightBlockedStrict(
 	eventType := activityEventType(commandType)
 	auditCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 	defer cancel()
+	userID, username := activityUserFromSession(info)
 	return s.activitySvc.LogStrict(auditCtx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           "command_preflight_blocked",
 		Description:    fmt.Sprintf("Command %q blocked: %d of %d device(s) excluded by preflight filters", eventType, len(skipped), len(requestedIdentifiers)),
 		Result:         activitymodels.ResultFailure,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		Metadata:       skipMetadata(eventType, len(requestedIdentifiers), skipped),
 	})
@@ -284,14 +299,15 @@ func (s *Service) logFilterSkips(
 		return
 	}
 	requestedCount := dispatchedCount + len(skipped)
+	userID, username := activityUserFromSession(info)
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           "command_filter_skip",
 		Description:    fmt.Sprintf("Command %q dispatched with %d device(s) excluded by preflight filters", eventType, len(skipped)),
 		Result:         activitymodels.ResultSuccess,
 		ActorType:      actorTypeFromSession(info),
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
+		UserID:         userID,
+		Username:       username,
 		OrganizationID: &info.OrganizationID,
 		Metadata:       skipMetadata(eventType, requestedCount, skipped),
 	})
@@ -427,8 +443,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			"error", err, "batch_id", batchID)
 		return nil
 	}
-	userID := info.ExternalUserID
-	username := info.Username
+	userID, username := activityUserFromSession(info)
 	organizationID := info.OrganizationID
 	actorType := actorTypeFromSession(info)
 	return func() error {
@@ -460,8 +475,8 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			Result:         result,
 			ScopeCount:     &scopeCount,
 			ActorType:      actorType,
-			UserID:         &userID,
-			Username:       &username,
+			UserID:         userID,
+			Username:       username,
 			OrganizationID: &organizationID,
 			BatchID:        &batchIDCopy,
 			Metadata: map[string]any{
@@ -477,6 +492,9 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 }
 
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error) {
+	if db.GetTxQueries(ctx) != nil && !db.HasCommitHooks(ctx) {
+		return "", fleeterror.NewInternalError("transactional command dispatch requires post-commit callbacks")
+	}
 	if s.saveCommandBatchLogOverride != nil {
 		return s.saveCommandBatchLogOverride(ctx, userID, organizationID, command, payloadBytes, devicesCount)
 	}
@@ -484,7 +502,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (string, error) {
+	create := func(q sqlc.Querier) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
@@ -503,7 +521,11 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		}
 
 		return newUUID, nil
-	})
+	}
+	if q := db.GetTxQueries(ctx); q != nil {
+		return create(q)
+	}
+	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, create)
 }
 
 func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
@@ -963,6 +985,9 @@ func commandPayloadRedacted(kind string) map[string]any {
 // enqueues work. External callers fail on skips; internal callers may inspect
 // CommandResult.Skipped.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
+	if db.GetTxQueries(ctx) != nil && !db.HasCommitHooks(ctx) {
+		return nil, fleeterror.NewInternalError("transactional command dispatch requires post-commit callbacks")
+	}
 	if !s.executionService.IsRunning() {
 		return nil, fleeterror.NewNotActiveError()
 	}
@@ -1105,6 +1130,12 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		default:
 			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 		}
+		// Batch, queue and caller bookkeeping share the ambient transaction.
+		// A failed enqueue rolls all of them back; trying to reconcile via a
+		// separate transaction would wait on our own uncommitted batch lock.
+		if db.GetTxQueries(ctx) != nil {
+			return nil, enqueueErr
+		}
 		if err := s.reconcileFailedEnqueue(ctx, batchLogIdentifier, len(deviceIDs), enqueueErr); err != nil {
 			return nil, err
 		}
@@ -1123,6 +1154,11 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 // processCommand before this helper is reached.
 func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, eventType, description string) {
 	if result.BatchIdentifier == "" {
+		return
+	}
+	if db.AfterCommit(ctx, func() {
+		s.finalizeDispatch(db.WithoutTransaction(ctx), result, eventType, description)
+	}) {
 		return
 	}
 	var completedCallback onFinishedCallbackFunc
@@ -1589,12 +1625,17 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
 			err = fleeterror.NewInternalError("command execution service stopped before enqueue")
 		}
+		if db.GetTxQueries(ctx) != nil {
+			return "", err
+		}
 		if err := s.reconcileFailedEnqueue(ctx, commandBatchLogUUID, len(deviceIdentifiers), err); err != nil {
 			return "", err
 		}
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	if !db.AfterCommit(ctx, func() { s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil) }) {
+		s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	}
 	return commandBatchLogUUID, nil
 }
 
@@ -1651,16 +1692,23 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 	}
 
 	if result.BatchIdentifier != "" {
-		// Bundle callback runs first so the ZIP is on disk before the activity
-		// log marks the batch as completed; the activity finalizer then writes
-		// the completion row. Both are chained through composeFinalizers.
-		bundleCb := s.filesService.DownloadLogsOnFinishedCallback(result.BatchIdentifier)
-		activityCb := s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, "download_logs", "Download logs")
-		s.logCommandActivity(ctx, "download_logs", "Download logs", result.DispatchedCount, result.BatchIdentifier)
-		s.initializeStatusUpdateRoutine(result.BatchIdentifier, composeFinalizers(bundleCb, activityCb))
+		s.finalizeDownloadLogs(ctx, result)
 	}
 
 	return result, nil
+}
+
+func (s *Service) finalizeDownloadLogs(ctx context.Context, result *CommandResult) {
+	if db.AfterCommit(ctx, func() { s.finalizeDownloadLogs(db.WithoutTransaction(ctx), result) }) {
+		return
+	}
+	// Bundle callback runs first so the ZIP is on disk before the activity
+	// log marks the batch as completed; the activity finalizer then writes
+	// the completion row. Both are chained through composeFinalizers.
+	bundleCb := s.filesService.DownloadLogsOnFinishedCallback(result.BatchIdentifier)
+	activityCb := s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, "download_logs", "Download logs")
+	s.logCommandActivity(ctx, "download_logs", "Download logs", result.DispatchedCount, result.BatchIdentifier)
+	s.initializeStatusUpdateRoutine(result.BatchIdentifier, composeFinalizers(bundleCb, activityCb))
 }
 
 func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {

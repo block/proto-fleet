@@ -16,8 +16,26 @@ import (
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFleetdRepositoryCannotBeOverriddenAtRuntime(t *testing.T) {
+	t.Setenv("UPDATES_RELEASE_REPOSITORY", "other-owner/fleet")
+	t.Setenv("PROTO_FLEET_RELEASE_REPOSITORY", "other-owner/fleet")
+	t.Setenv("AUTH_CLIENT_EXPIRATION_PERIOD", "1h")
+	t.Setenv("AUTH_CLIENT_SECRET_KEY", "test-client-secret")
+	t.Setenv("ENCRYPT_SERVICE_MASTER_KEY", "test-master-key")
+	config := &Config{}
+	parser, err := kong.New(config, kong.Name("fleetd"))
+	require.NoError(t, err)
+	_, err = parser.Parse(nil)
+	require.NoError(t, err)
+	require.NoError(t, config.Updates.Validate())
+	require.Equal(t, releaseinfo.DownloadBaseURL(releaseinfo.Repository), config.Updates.DownloadBaseURL)
+	_, err = parser.Parse([]string{"--updates-release-repository=other-owner/fleet"})
+	require.ErrorContains(t, err, "unknown flag")
+}
 
 func TestFleetdLoadsConfigFromYAML(t *testing.T) {
 	t.Parallel()

@@ -27,6 +27,10 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	upSQL, err := migrations.Migrations.ReadFile("000148_release_channels.up.sql")
 	require.NoError(t, err)
+	reservationDownSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.down.sql")
+	require.NoError(t, err)
+	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.up.sql")
+	require.NoError(t, err)
 
 	relations := []string{
 		"release_channel", "release_channel_target", "release_channel_firmware",
@@ -59,12 +63,18 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	}
 
 	requireObjects(true)
+	// The current schema includes reservations that reference release_channel.
+	// Roll back that dependent migration before exercising the shipped schema.
+	_, err = db.ExecContext(ctx, string(reservationDownSQL))
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(downSQL))
 	require.NoError(t, err)
 	requireObjects(false)
 	_, err = db.ExecContext(ctx, string(upSQL))
 	require.NoError(t, err)
 	requireObjects(true)
+	_, err = db.ExecContext(ctx, string(reservationUpSQL))
+	require.NoError(t, err)
 
 	var members int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM release_channel_member`).Scan(&members))

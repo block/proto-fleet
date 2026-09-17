@@ -3392,7 +3392,7 @@ func TestManagerRejectsProductionDownloadBaseOverride(t *testing.T) {
 		DownloadBaseURL: "https://mirror.example.com/proto-fleet",
 		GOARCH:          "amd64",
 	})
-	require.ErrorContains(t, err, "official GitHub Releases URL")
+	require.ErrorContains(t, err, "configured release repository")
 }
 
 func TestExtractArchiveRejectsTraversal(t *testing.T) {
@@ -3785,9 +3785,12 @@ func releaseServer(t *testing.T, version, arch string, bundle []byte, checksumOv
 	return server
 }
 
-func releaseBundle(t *testing.T, version string) []byte {
+func releaseBundle(t *testing.T, version string, repository ...string) []byte {
 	t.Helper()
 	versionFile := "version: " + version + "\ncommit: " + targetReleaseCommit + "\n"
+	if len(repository) > 0 {
+		versionFile += "release_repository: " + repository[0] + "\n"
+	}
 	files := map[string]string{
 		"deployment/version.txt":                         versionFile,
 		"deployment/docker-compose.yaml":                 "services: {}\n",

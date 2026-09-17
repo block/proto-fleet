@@ -1935,14 +1935,14 @@ export enum AckCode {
   BAD_REQUEST = 3,
 
   /**
-   * AGENT_INCAPABLE: this agent cannot execute the requested mode (mdns, nmap missing). Retry on a different node.
+   * AGENT_INCAPABLE: this agent cannot execute the requested mode (for example, mDNS). Retry on a different node.
    *
    * @generated from enum value: ACK_CODE_AGENT_INCAPABLE = 4;
    */
   AGENT_INCAPABLE = 4,
 
   /**
-   * SCAN_FAILED: scanning machinery errored (nmap subprocess, etc.).
+   * SCAN_FAILED: the TCP scanner failed (for example, a local socket resource error).
    *
    * @generated from enum value: ACK_CODE_SCAN_FAILED = 5;
    */

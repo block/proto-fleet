@@ -3,6 +3,10 @@ name: Proto Fleet Artifact Build
 on:
   workflow_call:
     inputs:
+      release_repository:
+        description: GitHub owner/repo publishing this release; callers must pass github.repository.
+        required: true
+        type: string
       version:
         description: Version string used in artifact filenames and embedded metadata.
         required: true
@@ -40,6 +44,7 @@ jobs:
       channel: ${{ steps.metadata.outputs.channel }}
       is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
       version: ${{ steps.metadata.outputs.version }}
+      release_repository: ${{ steps.metadata.outputs.release_repository }}
     steps:
       - name: Resolve artifact metadata
         id: metadata
@@ -48,7 +53,17 @@ jobs:
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_REPOSITORY: ${{ inputs.release_repository }}
         run: |
+          if [[ ! "$RELEASE_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] || [[ "$RELEASE_REPOSITORY" == *-/* || "$RELEASE_REPOSITORY" == *..* ]]; then
+            echo '::error::release_repository must be a GitHub owner/repo value.'
+            exit 1
+          fi
+          if [[ "$RELEASE_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+            echo '::error::release_repository must match the publishing workflow repository.'
+            exit 1
+          fi
+          echo "release_repository=$RELEASE_REPOSITORY" >> "$GITHUB_OUTPUT"
           if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$INPUT_VERSION" == "latest" ]]; then
             echo "::error::Version '$INPUT_VERSION' must be a release-specific Docker tag (1-128 letters, numbers, dots, underscores, or hyphens; not 'latest')."
             exit 1
@@ -83,6 +98,24 @@ jobs:
             echo "- Build date: \`$BUILD_DATE\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  package-installers:
+    name: Package repository-specific installers
+    needs: [metadata]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Stage installers
+        env:
+          RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
+        run: bash deployment-files/scripts/package-release-installers.sh "$RELEASE_REPOSITORY" "$RUNNER_TEMP/release-installers"
+      - name: Upload installers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-release-installers
+          path: ${{ runner.temp }}/release-installers/*
+          retention-days: ${{ inputs.retention_days }}
 
   build-proto-fleet-windows-installer:
     name: Build ProtoFleet Windows installer
@@ -154,6 +187,7 @@ jobs:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       IS_PRERELEASE: ${{ needs.metadata.outputs.is_prerelease }}
       VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,10 +202,10 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
-          go build -v -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
+          go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
           updater_binary="proto-fleet-updater-${{ matrix.arch }}"
-          CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION" -o "$updater_binary" ./cmd/fleet-updater
+          CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o "$updater_binary" ./cmd/fleet-updater
           if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
             echo "::error::Unable to inspect the host updater ELF binary"
             exit 1
@@ -181,11 +215,16 @@ jobs:
             exit 1
           fi
           updater_version=$("./$updater_binary" --version)
+          if [[ "$("./$updater_binary" --print-release-repository)" != "$RELEASE_REPOSITORY" ]]; then
+            echo '::error::Host updater publishing repository was not embedded correctly.'
+            exit 1
+          fi
           if [[ "$updater_version" != "$VERSION" ]]; then
             echo "::error::Host updater reports version '$updater_version', expected '$VERSION'"
             exit 1
           fi
           echo "version: $VERSION" > version.txt
+          echo "release_repository: $RELEASE_REPOSITORY" >> version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
@@ -251,6 +290,7 @@ jobs:
     env:
       CGO_ENABLED: 0
       VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -308,7 +348,7 @@ jobs:
           install -m 0755 antminer-plugin "$package_dir/plugins/antminer-plugin"
           install -m 0755 asicrs-plugin "$package_dir/plugins/asicrs-plugin"
           install -m 0644 asicrs-config.yaml "$package_dir/plugins/asicrs-config.yaml"
-          printf 'version: %s\n' "$VERSION" > "$package_dir/version.txt"
+          printf 'version: %s\nrelease_repository: %s\n' "$VERSION" "$RELEASE_REPOSITORY" > "$package_dir/version.txt"
 
           tar -czf "$archive" "$package_dir"
           sha256sum "$archive" > "$archive.sha256"
@@ -530,6 +570,7 @@ jobs:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       CHANNEL: ${{ needs.metadata.outputs.channel }}
       VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -647,6 +688,7 @@ jobs:
       - name: Create version file
         run: |
           echo "version: $VERSION" > deployment/version.txt
+          echo "release_repository: $RELEASE_REPOSITORY" >> deployment/version.txt
           echo "build_date: $BUILD_DATE" >> deployment/version.txt
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
           if [[ "$CHANNEL" == "nightly" ]]; then

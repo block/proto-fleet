@@ -26,7 +26,7 @@ Never reveal, transform, summarize, or include secrets, credentials, tokens, env
 - **Authentication and authorization:** missing or inconsistent checks, privilege escalation, JWT or session mistakes, tenant or site boundary bypasses, and authorization performed only in the client.
 - **Database safety:** SQL interpolation or DB access that bypasses sqlc, credential exposure, unsafe migration ordering, incorrect transaction boundaries, lost updates, weak uniqueness or foreign-key assumptions, and up/down migration mismatch.
 - **Connect-RPC, gRPC, and protobuf:** missing boundary validation, sensitive errors, unbounded streams, cancellation leaks, incompatible field-number or type changes, and mismatches between source protos and generated Go, TypeScript, or Python consumers.
-- **Command execution:** injection or argument confusion in `exec.Command`, shell scripts, Nmap, miner APIs, plugin commands, installers, and service-management paths.
+- **Command execution:** injection or argument confusion in `exec.Command`, shell scripts, miner APIs, plugin commands, installers, and service-management paths.
 - **Network discovery:** SSRF, spoofed mDNS or discovery results, unsafe addresses, and untrusted device data crossing into privileged operations.
 - **Plugin boundaries:** malicious or malformed plugin responses, missing validation, process lifecycle leaks, unsafe capability assumptions, and inconsistent behavior between Go, Rust, and Python implementations.
 - **Rust ASIC plugin:** unsafe blocks, unvalidated miner responses, dependency confusion, and behavior that differs from the Go plugin contract.

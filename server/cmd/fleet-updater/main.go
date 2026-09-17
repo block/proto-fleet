@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/block/proto-fleet/server/internal/updater"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -63,8 +64,16 @@ func run() error {
 	deploymentMode := flag.String("deployment-mode", defaultDeploymentMode, "Deployment mode: standalone or ha")
 	repairStartup := flag.Bool("repair-startup", false, "Repair an interrupted deployment layout and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	showRepository := flag.Bool("print-release-repository", false, "Print the embedded publishing repository and exit")
 	flag.Parse()
 
+	if *showRepository {
+		if err := releaseinfo.ValidateRepository(releaseinfo.Repository); err != nil {
+			return err
+		}
+		fmt.Println(releaseinfo.Repository)
+		return nil
+	}
 	if *showVersion {
 		fmt.Println(version)
 		return nil
@@ -82,10 +91,11 @@ func run() error {
 		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("resolve install root: %w", err))
 	}
 	config := updater.Config{
-		InstallRoot:    absoluteInstallRoot,
-		StateDir:       *stateDir,
-		SelfUpdatePath: *selfUpdatePath,
-		DeploymentMode: updater.DeploymentMode(*deploymentMode),
+		InstallRoot:     absoluteInstallRoot,
+		StateDir:        *stateDir,
+		SelfUpdatePath:  *selfUpdatePath,
+		DeploymentMode:  updater.DeploymentMode(*deploymentMode),
+		DownloadBaseURL: os.Getenv("PROTO_FLEET_DOWNLOAD_BASE_URL"),
 	}
 	if *repairStartup {
 		probeCtx, cancel := context.WithTimeout(context.Background(), time.Second)

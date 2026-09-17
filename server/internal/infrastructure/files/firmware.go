@@ -734,6 +734,9 @@ func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (rea
 		file.Close()
 		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
 	}
+	if expectedChecksum != "" {
+		defer func() { s.recordFirmwarePayloadVerification(canonical, expectedChecksum, info, err == nil) }()
+	}
 
 	metadata, hasMetadata := FirmwareMetadata{}, false
 	if expectedChecksum == "" {
@@ -936,6 +939,7 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 
 func (s *Service) removeFirmwareChecksumLocked(checksum, canonicalID string) {
 	delete(s.firmwareChecksumByID, canonicalID)
+	delete(s.firmwarePayloadFailures, canonicalID)
 	ids := s.checksumIndex[checksum]
 	for i, id := range ids {
 		if id != canonicalID {
@@ -952,6 +956,7 @@ func (s *Service) removeFirmwareChecksumLocked(checksum, canonicalID string) {
 }
 
 func (s *Service) removeFirmwareChecksumByScanLocked(canonicalID string) {
+	delete(s.firmwarePayloadFailures, canonicalID)
 	for checksum, ids := range s.checksumIndex {
 		for i, id := range ids {
 			if id != canonicalID {

@@ -356,13 +356,13 @@ func TestStableSelectionRejectsPrereleaseFlag(t *testing.T) {
 	t.Run("latest endpoint", func(t *testing.T) {
 		t.Parallel()
 
-		assert.Nil(t, latestStable(markedPrerelease, nil))
+		assert.Nil(t, latestStable(markedPrerelease, nil, "block/proto-fleet"))
 	})
 
 	t.Run("release list", func(t *testing.T) {
 		t.Parallel()
 
-		got := latestStable(stableEntry("v1.9.1"), []githubRelease{markedPrerelease})
+		got := latestStable(stableEntry("v1.9.1"), []githubRelease{markedPrerelease}, "block/proto-fleet")
 		require.NotNil(t, got)
 		assert.Equal(t, "v1.9.1", got.Version)
 	})
@@ -448,9 +448,9 @@ func TestRCTagRequiresCanonicalSemver(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, isCanonicalRCTag(tt.tag))
 			if tt.want {
-				require.NotNil(t, latestRC([]githubRelease{rcEntry(tt.tag)}))
+				require.NotNil(t, latestRC([]githubRelease{rcEntry(tt.tag)}, "block/proto-fleet"))
 			} else {
-				assert.Nil(t, latestRC([]githubRelease{rcEntry(tt.tag)}))
+				assert.Nil(t, latestRC([]githubRelease{rcEntry(tt.tag)}, "block/proto-fleet"))
 			}
 		})
 	}
@@ -714,7 +714,7 @@ func TestRCMetadataUsesCanonicalTagInsteadOfGitHubPrereleaseFlag(t *testing.T) {
 
 	misflagged := rcEntry("v1.2.3-rc.1")
 	misflagged.Prerelease = false
-	release := latestRC([]githubRelease{misflagged})
+	release := latestRC([]githubRelease{misflagged}, "block/proto-fleet")
 
 	require.NotNil(t, release)
 	assert.True(t, release.Prerelease, "the UI warning must follow the grammar used to select the RC channel")
@@ -1114,11 +1114,11 @@ func TestNotesURLUsesCanonicalRepositoryAndTag(t *testing.T) {
 		"tag_name":"v0.2.9",
 		"html_url":"https://github.com@something.example/phishing"
 	}`), &upstream))
-	release := newRelease(upstream)
+	release := newRelease(upstream, "block/proto-fleet")
 	assert.Equal(t, "https://github.com/block/proto-fleet/releases/tag/v0.2.9", release.NotesURL)
 
-	assert.Empty(t, releaseNotesURL("nightly-20260731"))
-	assert.Empty(t, releaseNotesURL("v1.2.3/../../phishing"))
+	assert.Empty(t, releaseNotesURL("block/proto-fleet", "nightly-20260731"))
+	assert.Empty(t, releaseNotesURL("block/proto-fleet", "v1.2.3/../../phishing"))
 }
 
 func TestCheckSafelyInvalidatesPrimedSnapshotAndAllowsNextCycle(t *testing.T) {
