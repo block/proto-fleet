@@ -32,6 +32,7 @@ describe("release channel current assignment history", () => {
       const group = create(ReleaseChannelModelGroupSchema, {
         ...canaryChannel.modelGroups[0],
         assignmentGeneration: 2n,
+        activeRolloutId: 0n,
         onTargetCount,
       });
       const previous = create(RolloutSchema, {
@@ -64,6 +65,7 @@ describe("release channel current assignment history", () => {
     const group = create(ReleaseChannelModelGroupSchema, {
       ...canaryChannel.modelGroups[0],
       assignmentGeneration: 2n,
+      activeRolloutId: 0n,
       onTargetCount: 2,
     });
     const finished = create(RolloutSchema, {
@@ -103,6 +105,33 @@ describe("release channel current assignment history", () => {
 });
 
 describe("release channel update summary", () => {
+  it.each([2n, 3n])(
+    "waits for the reported rollout instead of displaying an earlier scan (generation %s)",
+    (generation) => {
+      const current = { ...activeRigRollout, id: 99n, assignmentGeneration: generation };
+      const group = { ...canaryChannel.modelGroups[0], activeRolloutId: current.id, assignmentGeneration: generation };
+      const channel = { ...canaryChannel, modelGroups: [group] };
+      const props = { channels: [channel], rollouts: [gatedRigRollout], onCreate: vi.fn(), onManage: vi.fn() };
+      const { rerender } = render(<ReleaseChannelsTable {...props} />);
+      fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+      expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^Refreshing update status$/);
+      expect(screen.getByTestId("channel-status-Canary")).toHaveTextContent(/^Refreshing update status$/);
+      rerender(<ReleaseChannelsTable {...props} rollouts={[current, gatedRigRollout]} />);
+      expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^Updating, 2 of 6$/);
+      expect(screen.getByTestId("channel-status-Canary")).toHaveTextContent(/^1 updating$/);
+      // A later group read can also report completion before the rollout scan does.
+      rerender(
+        <ReleaseChannelsTable
+          {...props}
+          channels={[{ ...channel, modelGroups: [{ ...group, activeRolloutId: 0n }] }]}
+          rollouts={[current, gatedRigRollout]}
+        />,
+      );
+      expect(screen.getByTestId("channel-status-Canary")).toHaveTextContent(/^No active updates$/);
+      expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^2 of 6 on target$/);
+    },
+  );
+
   const rawRigGroups = [
     { manufacturer: "Proto", model: "Rig" },
     { manufacturer: "proto", model: "rig" },
@@ -116,7 +145,16 @@ describe("release channel update summary", () => {
   ])("counts raw model variants as one update: $label", ({ rollout, label }) => {
     render(
       <ReleaseChannelsTable
-        channels={[{ ...canaryChannel, modelGroups: rawRigGroups }]}
+        channels={[
+          {
+            ...canaryChannel,
+            modelGroups: rawRigGroups.map((group) => ({
+              ...group,
+              activeRolloutId: rollout.id,
+              assignmentGeneration: rollout.assignmentGeneration,
+            })),
+          },
+        ]}
         rollouts={[rollout]}
         onCreate={vi.fn()}
         onManage={vi.fn()}
@@ -132,23 +170,30 @@ describe("release channel update summary", () => {
       { manufacturer: "Proto", model: "Rig 2" },
       { manufacturer: "Bitmain", model: "S21" },
     ];
-    const modelGroups = pairs.flatMap((pair) => [
-      create(ReleaseChannelModelGroupSchema, { ...pair, minerCount: 1 }),
+    const updates = [activeRigRollout, pausedRigRollout, gatedRigRollout].map((rollout, index) => ({
+      ...rollout,
+      ...pairs[index],
+    }));
+    const modelGroups = updates.flatMap((rollout) => [
       create(ReleaseChannelModelGroupSchema, {
-        manufacturer: ` ${pair.manufacturer.toLowerCase()} `,
-        model: ` ${pair.model.toLowerCase()} `,
+        manufacturer: rollout.manufacturer,
+        model: rollout.model,
+        assignmentGeneration: rollout.assignmentGeneration,
+        activeRolloutId: rollout.id,
+        minerCount: 1,
+      }),
+      create(ReleaseChannelModelGroupSchema, {
+        manufacturer: ` ${rollout.manufacturer.toLowerCase()} `,
+        model: ` ${rollout.model.toLowerCase()} `,
+        activeRolloutId: rollout.id,
+        assignmentGeneration: rollout.assignmentGeneration,
         minerCount: 1,
       }),
     ]);
     render(
       <ReleaseChannelsTable
         channels={[{ ...canaryChannel, modelGroups }]}
-        rollouts={[
-          { ...activeRigRollout, ...pairs[0] },
-          { ...pausedRigRollout, ...pairs[1] },
-          { ...gatedRigRollout, ...pairs[2] },
-          { ...activeRigRollout, id: 100n, channelId: 2n },
-        ]}
+        rollouts={[...updates, { ...activeRigRollout, id: 100n, channelId: 2n }]}
         onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
@@ -161,7 +206,13 @@ describe("release channel update summary", () => {
 describe("release channel model row identity", () => {
   it("isolates BOM models from active ASCII updates while joining Go whitespace aliases", () => {
     const modelGroups = ["Rig", "\uFEFFRig", "Rig\u0085"].map((model) =>
-      create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+      create(ReleaseChannelModelGroupSchema, {
+        manufacturer: "Proto",
+        model,
+        minerCount: 1,
+        activeRolloutId: model === "\uFEFFRig" ? 0n : activeRigRollout.id,
+        assignmentGeneration: activeRigRollout.assignmentGeneration,
+      }),
     );
     render(
       <ReleaseChannelsTable

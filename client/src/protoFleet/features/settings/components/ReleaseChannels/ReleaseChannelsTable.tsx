@@ -4,12 +4,11 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import { StatusCell } from "./channelStatus";
 import {
+  activeRolloutForGroup,
   assignmentKey,
   channelUpdateStatus,
-  isActive,
   modelFirmwareLabel,
   modelUpdateStatus,
-  pairKey,
   pairLabel,
 } from "./rolloutStatus";
 import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -53,10 +52,6 @@ const channelColTitles: ColTitles<ChannelColumn> = {
   actions: "",
 };
 
-// Rollouts and groups meet on the channel plus the folded pair key.
-const channelPairKey = (channelId: bigint, pair: { manufacturer: string; model: string }) =>
-  `${channelId.toString()}:${pairKey(pair)}`;
-
 const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout) =>
   `${channelId.toString()}:${assignmentKey(pair)}`;
 
@@ -83,10 +78,7 @@ function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollo
 const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: ReleaseChannelsTableProps) => {
   const [expandedChannelIds, setExpandedChannelIds] = useState(() => new Set<string>());
 
-  const activeByChannelPair = useMemo(
-    () => new Map(rollouts.filter(isActive).map((rollout) => [channelPairKey(rollout.channelId, rollout), rollout])),
-    [rollouts],
-  );
+  const rolloutsById = useMemo(() => new Map(rollouts.map((rollout) => [rollout.id, rollout])), [rollouts]);
   const lastFinished = useMemo(() => lastFinishedByChannelAssignment(rollouts), [rollouts]);
 
   const rows = useMemo<ChannelTableRow[]>(
@@ -118,10 +110,15 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
   };
 
   // Raw model variants share a canonical rollout, which contributes only once.
-  const channelActiveRollouts = (channel: ChannelView): Rollout[] =>
-    [...new Set(channel.modelGroups.map((group) => channelPairKey(channel.id, group)))]
-      .map((key) => activeByChannelPair.get(key))
-      .filter((rollout): rollout is Rollout => rollout !== undefined);
+  const channelStatus = (channel: ChannelView) => {
+    const active = new Map<bigint, Rollout>();
+    for (const group of channel.modelGroups) {
+      const rollout = activeRolloutForGroup(channel.id, group, rolloutsById);
+      if (group.activeRolloutId > 0n && !rollout) return { label: "Refreshing update status", tone: "active" as const };
+      if (rollout) active.set(rollout.id, rollout);
+    }
+    return channelUpdateStatus([...active.values()]);
+  };
 
   const colConfig: ColConfig<ChannelTableRow, string, ChannelColumn> = {
     name: {
@@ -175,16 +172,12 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
     status: {
       component: (row) =>
         row.kind === "channel" ? (
-          <StatusCell
-            status={channelUpdateStatus(channelActiveRollouts(row.channel))}
-            emphasized
-            testId={`channel-status-${row.channel.name}`}
-          />
+          <StatusCell status={channelStatus(row.channel)} emphasized testId={`channel-status-${row.channel.name}`} />
         ) : (
           <StatusCell
             status={modelUpdateStatus(
               row.group,
-              activeByChannelPair.get(channelPairKey(row.channel.id, row.group)),
+              activeRolloutForGroup(row.channel.id, row.group, rolloutsById),
               lastFinished.get(channelAssignmentKey(row.channel.id, row.group)),
             )}
             testId={`model-status-${row.channel.name}-${row.group.model}`}

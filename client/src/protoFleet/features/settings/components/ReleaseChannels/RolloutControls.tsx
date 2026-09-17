@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   gatesAfterBatch,
+  hasSampledLimit,
   isPacedMethod,
   methodOptions,
   orderOptions,
@@ -207,7 +208,7 @@ const RolloutControls = ({
             <>
               <p className="text-200 text-text-primary-70">
                 A reviewed batch continues on its own once every miner is back and hashing, none failed, the limits
-                below hold, and telemetry has settled. Leave a limit empty to skip that check.
+                below hold, and telemetry has settled. Leave a maximum empty to skip that check.
               </p>
               <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
                 <Input
@@ -254,6 +255,25 @@ const RolloutControls = ({
                   )}
                   disabled={disabled}
                 />
+                {hasSampledLimit(thresholds) ? (
+                  <div className="flex flex-col gap-2">
+                    <Input
+                      id="min-sample-coverage"
+                      label="Min sample coverage (%)"
+                      {...numericInput(
+                        "minSampleCoveragePercent",
+                        thresholds.minSampleCoveragePercent,
+                        (value) => updateThresholds({ minSampleCoveragePercent: value }),
+                        true,
+                      )}
+                      disabled={disabled}
+                    />
+                    <p className="text-200 text-text-primary-70">
+                      Minimum share of verified miners each enabled hashrate, efficiency, or temperature check must
+                      sample. Empty means 100%; error counts do not use this setting.
+                    </p>
+                  </div>
+                ) : null}
                 <Input
                   id="stabilization-minutes"
                   label="Wait for telemetry (minutes)"

@@ -7,8 +7,8 @@ import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
 import RolloutControls from "./RolloutControls";
 import {
+  activeRolloutForGroup,
   assignmentKey,
-  isActive,
   isPaused,
   pacingSummary,
   pairKey,
@@ -414,13 +414,18 @@ const ReleaseChannelManageView = ({
   };
 
   const channelRollouts = channel ? rollouts.filter((r) => r.channelId === channel.id) : [];
-  const activeByPair = new Map(channelRollouts.filter(isActive).map((r) => [pairKey(r), r]));
-  const activeCount = activeByPair.size;
+  const rolloutsById = new Map(channelRollouts.map((rollout) => [rollout.id, rollout]));
+  const activeForGroup = (group: ReleaseChannelModelGroup) =>
+    activeRolloutForGroup(channelId ?? 0n, group, rolloutsById);
   const modelGroups = channel?.modelGroups ?? [];
+  const activeCount = new Set(modelGroups.map((group) => activeForGroup(group)?.id).filter((id) => id !== undefined))
+    .size;
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
   const minersGroup =
     minersPair !== null ? modelGroups.find((group) => observedPairKey(group) === minersPair) : undefined;
+  const minersRollout = minersGroup ? activeForGroup(minersGroup) : undefined;
+  const minersRolloutPending = minersGroup && minersGroup.activeRolloutId > 0n && !minersRollout;
 
   const dirtyAssignmentsByPair = new Map<string, AssignmentDraft>();
   const invalidSelections = new Map<string, string>();
@@ -670,7 +675,8 @@ const ReleaseChannelManageView = ({
               <tbody className="text-text-primary">
                 {modelGroups.map((group) => {
                   const acknowledged = acknowledgedAssignments[pairKey(group)];
-                  const activeRollout = acknowledged ? undefined : activeByPair.get(pairKey(group));
+                  const activeRollout = acknowledged ? undefined : activeForGroup(group);
+                  const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
                   const counts = activeRollout ? rolloutDeviceCounts(activeRollout) : undefined;
                   return [
                     <tr
@@ -707,7 +713,7 @@ const ReleaseChannelManageView = ({
                             variant={variants.secondary}
                             size={sizes.compact}
                             text="View miners"
-                            disabled={acknowledged !== undefined}
+                            disabled={acknowledged !== undefined || rolloutPending}
                             onClick={() => setMinersPair(observedPairKey(group))}
                             testId={`view-miners-${group.model}`}
                           />
@@ -779,12 +785,12 @@ const ReleaseChannelManageView = ({
         </Section>
       ) : null}
 
-      {channel && minersGroup && !acknowledgedAssignments[pairKey(minersGroup)] ? (
+      {channel && minersGroup && !minersRolloutPending && !acknowledgedAssignments[pairKey(minersGroup)] ? (
         <ModelMinersModal
           channelId={channel.id}
           channelName={channel.name}
           group={minersGroup}
-          activeRollout={activeByPair.get(pairKey(minersGroup))}
+          activeRollout={minersRollout}
           minerNames={minerNames}
           listChannelMiners={listChannelMiners}
           listRolloutDevices={listRolloutDevices}

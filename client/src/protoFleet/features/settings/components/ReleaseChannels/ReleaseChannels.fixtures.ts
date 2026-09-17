@@ -30,6 +30,7 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 
 // Fixture data for the release channel stories and tests: one mixed-fleet
 // channel ("Canary") mid-update on its Rig group, plus the firmware files and
@@ -155,7 +156,13 @@ const modelGroup = (
   channelId: bigint,
   fields: Pick<
     ReleaseChannelModelGroup,
-    "manufacturer" | "model" | "firmwareFileId" | "firmwareVersion" | "firmwareChecksum" | "activeRolloutId"
+    | "manufacturer"
+    | "model"
+    | "firmwareFileId"
+    | "firmwareVersion"
+    | "firmwareChecksum"
+    | "activeRolloutId"
+    | "assignmentGeneration"
   >,
   miners: ReleaseChannelMiner[],
 ): ReleaseChannelModelGroup => {
@@ -171,7 +178,6 @@ const modelGroup = (
     firmwareAvailable: assigned && fields.firmwareFileId !== "",
     firmwareTargetManufacturer: assigned ? fields.manufacturer : "",
     firmwareTargetModel: assigned ? fields.model : "",
-    assignmentGeneration: assigned ? 1n : 0n,
     minerCount: miners.length,
     onTargetCount: assigned
       ? miners.filter(
@@ -244,6 +250,7 @@ export const canaryChannel: ChannelView = {
         firmwareVersion: "1.4.4",
         firmwareChecksum: checksums.rig144,
         activeRolloutId: BigInt(41),
+        assignmentGeneration: 2n,
       },
       [
         rigMiner(1, "1.4.4"),
@@ -263,6 +270,7 @@ export const canaryChannel: ChannelView = {
         firmwareVersion: "",
         firmwareChecksum: "",
         activeRolloutId: BigInt(0),
+        assignmentGeneration: 0n,
       },
       [
         create(ReleaseChannelMinerSchema, {
@@ -296,12 +304,27 @@ const settledRigGroup = modelGroup(
     firmwareVersion: "1.4.4",
     firmwareChecksum: checksums.rig144,
     activeRolloutId: BigInt(0),
+    assignmentGeneration: 1n,
   },
   [1, 2, 3, 4, 5, 6].map((n) => rigMiner(n, "1.4.4")),
 );
 export const canaryChannelSettled: ChannelView = {
   ...canaryChannel,
   modelGroups: canaryChannel.modelGroups.map((group) => (group.model === "Rig" ? settledRigGroup : group)),
+};
+
+// Alternate active scenarios enforce the same assignment but have their own
+// rollout IDs. Model-group reads must name the exact scenario being shown.
+export const channelWithActiveRollout = (channel: ChannelView, rollout: Rollout): ChannelView => {
+  const target = minerTargetKey(rollout.manufacturer, rollout.model);
+  return {
+    ...channel,
+    modelGroups: channel.modelGroups.map((group) =>
+      channel.id === rollout.channelId && target !== null && minerTargetKey(group.manufacturer, group.model) === target
+        ? { ...group, activeRolloutId: rollout.id, assignmentGeneration: rollout.assignmentGeneration }
+        : group,
+    ),
+  };
 };
 
 export const emptyChannel: ChannelView = {

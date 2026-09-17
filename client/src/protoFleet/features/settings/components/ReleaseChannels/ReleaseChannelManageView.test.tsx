@@ -4,6 +4,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
+import { activeRigRollout, canaryChannel, gatedRigRollout } from "./ReleaseChannels.fixtures";
 import {
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
@@ -147,6 +148,33 @@ describe("release channel active sizing validation", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  test("shows saved telemetry coverage, blocks invalid edits, and saves a cleared server default", async () => {
+    const channel = {
+      ...existingChannel(),
+      behavior: create(RolloutBehaviorSchema, {
+        method: RolloutMethod.BATCHED,
+        batchSize: 1,
+        reviewAfterEachBatch: true,
+        autoContinueOnHealthyTelemetry: true,
+        thresholds: { maxHashrateDropPercent: 10, minSampleCoveragePercent: 50 },
+      }),
+    };
+    const { onSave } = renderManage(channel);
+    const coverage = screen.getByLabelText("Min sample coverage (%)");
+    expect(coverage).toHaveValue("50");
+    fireEvent.change(coverage, { target: { value: "0" } });
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.change(coverage, { target: { value: "75" } });
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave.mock.calls[0][0].behavior.thresholds).toEqual(
+      expect.objectContaining({ maxHashrateDropPercent: 10, minSampleCoveragePercent: 75 }),
+    );
+    fireEvent.change(coverage, { target: { value: "" } });
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave.mock.calls[1][0].behavior.thresholds?.minSampleCoveragePercent).toBeUndefined();
+    expect(onSave.mock.calls[1][0].behavior.thresholds?.maxHashrateDropPercent).toBe(10);
+  });
+
   test.each([
     ["Multiple batches", "Batch size (miners)", "batchSize", ""],
     ["Multiple batches", "Batch size (miners)", "batchSize", "0"],
@@ -201,6 +229,69 @@ describe("release channel active sizing validation", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
     expect(onApply).toHaveBeenCalledOnce();
     expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe("release channel active rollout identity", () => {
+  test("replaces stale progress and cancels its miner drilldown when the group reports a new active ID", async () => {
+    const current = { ...activeRigRollout, id: 99n, firmwareVersion: "2.0.0", assignmentGeneration: 3n };
+    const originalGroup = {
+      ...canaryChannel.modelGroups[0],
+      activeRolloutId: gatedRigRollout.id,
+      assignmentGeneration: gatedRigRollout.assignmentGeneration,
+    };
+    const originalChannel = { ...canaryChannel, modelGroups: [originalGroup] };
+    const group = {
+      ...originalGroup,
+      activeRolloutId: current.id,
+      assignmentGeneration: current.assignmentGeneration,
+      firmwareVersion: current.firmwareVersion,
+    };
+    const channel = { ...originalChannel, modelGroups: [group] };
+    const props = {
+      channel: originalChannel,
+      rollouts: [gatedRigRollout],
+      firmwareFiles: [],
+      minerNames: {},
+      previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
+      listChannelMiners: vi.fn().mockResolvedValue([]),
+      listRolloutDevices: vi.fn().mockResolvedValue([]),
+      onSave: vi.fn().mockResolvedValue(undefined),
+      onApply: vi.fn().mockResolvedValue(undefined),
+    };
+    props.listRolloutDevices.mockImplementationOnce(
+      (_id: bigint, signal: AbortSignal) =>
+        new Promise<never[]>((resolve) => signal.addEventListener("abort", () => resolve([]), { once: true })),
+    );
+    const { rerender } = render(<ReleaseChannelManageView {...props} />);
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Review needed");
+    fireEvent.click(screen.getByTestId("view-miners-Rig"));
+    await waitFor(() =>
+      expect(props.listRolloutDevices).toHaveBeenCalledWith(gatedRigRollout.id, expect.any(AbortSignal)),
+    );
+    const oldSignal = props.listRolloutDevices.mock.calls[0][1] as AbortSignal;
+    rerender(<ReleaseChannelManageView {...props} channel={channel} hasRefreshError />);
+    expect(oldSignal.aborted).toBe(true);
+    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Refreshing update status");
+    expect(screen.queryByTestId("model-group-rollout-progress-Rig")).not.toBeInTheDocument();
+    expect(screen.getByTestId("view-miners-Rig")).toBeDisabled();
+    expect(screen.queryByTestId("channel-update-pill")).not.toBeInTheDocument();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+    rerender(<ReleaseChannelManageView {...props} channel={channel} rollouts={[current, gatedRigRollout]} />);
+    expect(screen.getByTestId("model-group-rollout-progress-Rig")).toHaveTextContent("Updating to 2.0.0");
+    expect(screen.getByTestId("channel-update-pill")).toHaveTextContent("Update in progress");
+    expect(screen.getByTestId("view-miners-Rig")).toBeEnabled();
+    await waitFor(() => expect(props.listRolloutDevices).toHaveBeenLastCalledWith(current.id, expect.any(AbortSignal)));
+    rerender(
+      <ReleaseChannelManageView
+        {...props}
+        channel={{ ...channel, modelGroups: [{ ...group, activeRolloutId: 0n }] }}
+        rollouts={[current, gatedRigRollout]}
+      />,
+    );
+    expect(screen.queryByTestId("model-group-rollout-progress-Rig")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("channel-update-pill")).not.toBeInTheDocument();
+    expect(props.listRolloutDevices).toHaveBeenCalledTimes(2);
   });
 });
 

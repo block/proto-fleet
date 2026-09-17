@@ -9,6 +9,7 @@ import {
   canaryChannelSettled,
   canaryHistory,
   canaryPreview,
+  channelWithActiveRollout,
   completedRigRollout,
   conflictingPreview,
   emptyChannel,
@@ -69,7 +70,10 @@ export const BatchReviewWithFailure: Story = {
   render: () => (
     <Frame>
       <ReleaseChannelManageView
-        channel={{ ...canaryChannel, behavior: batchedRigRollout.behavior }}
+        channel={{
+          ...channelWithActiveRollout(canaryChannel, batchedRigRollout),
+          behavior: batchedRigRollout.behavior,
+        }}
         rollouts={[batchedRigRollout, completedRigRollout]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}

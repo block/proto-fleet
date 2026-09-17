@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { methodHelpText, methodLabels, orderLabels } from "./rolloutStatus";
 import {
+  type RolloutAutomationThresholds,
   RolloutAutomationThresholdsSchema,
   type RolloutBehavior,
   RolloutBehaviorSchema,
@@ -41,6 +42,11 @@ export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>
   behavior.method === RolloutMethod.PILOT_THEN_CONTINUE ||
   (behavior.method === RolloutMethod.BATCHED && behavior.reviewAfterEachBatch);
 
+export const hasSampledLimit = (thresholds: RolloutAutomationThresholds | undefined): boolean =>
+  thresholds?.maxHashrateDropPercent !== undefined ||
+  thresholds?.maxEfficiencyIncreasePercent !== undefined ||
+  thresholds?.maxTemperatureIncreaseCelsius !== undefined;
+
 export type RolloutNumericField =
   | "batchSize"
   | "pilotSize"
@@ -50,6 +56,7 @@ export type RolloutNumericField =
   | "maxHashrateDropPercent"
   | "maxEfficiencyIncreasePercent"
   | "maxTemperatureIncreaseCelsius"
+  | "minSampleCoveragePercent"
   | "maxNewErrors";
 
 const MAX_INT32 = 2_147_483_647;
@@ -95,6 +102,12 @@ export function rolloutBehaviorErrors(behavior: RolloutBehavior): Partial<Record
       }
     }
     if (thresholds?.maxNewErrors !== undefined) checkInteger("maxNewErrors", thresholds.maxNewErrors);
+    if (hasSampledLimit(thresholds) && thresholds?.minSampleCoveragePercent !== undefined) {
+      const coverage = thresholds.minSampleCoveragePercent;
+      if (!Number.isFinite(coverage) || coverage <= 0 || coverage > 100) {
+        errors.minSampleCoveragePercent = "Enter a number greater than 0 and at most 100.";
+      }
+    }
   }
   return errors;
 }

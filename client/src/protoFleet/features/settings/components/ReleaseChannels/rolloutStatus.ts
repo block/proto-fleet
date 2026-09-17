@@ -384,6 +384,23 @@ export interface UpdateStatus {
   tone: UpdateTone;
 }
 
+// Summary and model-group pages are separate reads. The group's active ID is
+// authoritative; another active rollout for its pair may belong to an older scan.
+export function activeRolloutForGroup(
+  channelId: bigint,
+  group: ReleaseChannelModelGroup,
+  rolloutsById: ReadonlyMap<bigint, Rollout>,
+): Rollout | undefined {
+  const rollout = group.activeRolloutId > 0n ? rolloutsById.get(group.activeRolloutId) : undefined;
+  return rollout &&
+    isActive(rollout) &&
+    rollout.channelId === channelId &&
+    rollout.assignmentGeneration === group.assignmentGeneration &&
+    pairKey(rollout) === pairKey(group)
+    ? rollout
+    : undefined;
+}
+
 const shortDate = (timestamp?: Timestamp): string =>
   timestamp
     ? new Date(timestampMs(timestamp)).toLocaleDateString(undefined, {
@@ -425,6 +442,7 @@ export function modelUpdateStatus(
       tone: "active",
     };
   }
+  if (group.activeRolloutId > 0n) return { label: "Refreshing update status", tone: "active" };
   if (group.firmwareVersion === "") return { label: "No firmware assigned", tone: "none" };
   if (group.minerCount === 0) return { label: "No miners", tone: "none" };
   const onTarget = group.onTargetCount;

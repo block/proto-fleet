@@ -17,6 +17,7 @@ import {
   singleBatchBehavior,
 } from "./ReleaseChannels.fixtures";
 import {
+  activeRolloutForGroup,
   channelUpdateStatus,
   deviceCounts,
   evidenceScopeLabel,
@@ -64,7 +65,36 @@ describe("release channel target keys", () => {
     expect(new Set(pairs.map(pairKey)).size).toBe(pairs.length);
   });
 });
-const rigGroup = canaryChannel.modelGroups[0];
+const rigGroup = { ...canaryChannel.modelGroups[0], activeRolloutId: 0n, assignmentGeneration: 1n };
+
+describe("active rollout identity", () => {
+  const group = {
+    ...rigGroup,
+    activeRolloutId: activeRigRollout.id,
+    assignmentGeneration: activeRigRollout.assignmentGeneration,
+  };
+  it.each([
+    { channelId: 99n },
+    { manufacturer: "Other" },
+    { model: "Other" },
+    { assignmentGeneration: 99n },
+    { status: RolloutStatus.COMPLETED },
+  ])("does not attach an inconsistent rollout summary (%#)", (patch) => {
+    const rollout = { ...activeRigRollout, ...patch };
+    expect(activeRolloutForGroup(1n, group, new Map([[rollout.id, rollout]]))).toBeUndefined();
+  });
+  it("joins normalized observed aliases only to the reported active ID", () => {
+    const rollouts = new Map([
+      [activeRigRollout.id, activeRigRollout],
+      [gatedRigRollout.id, gatedRigRollout],
+    ]);
+    expect(activeRolloutForGroup(1n, { ...group, manufacturer: " proto ", model: " rig " }, rollouts)).toBe(
+      activeRigRollout,
+    );
+    expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 0n }, rollouts)).toBeUndefined();
+    expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 999n }, rollouts)).toBeUndefined();
+  });
+});
 
 describe("current assignment completion status", () => {
   it("does not carry an old assignment's failures into the current assignment", () => {

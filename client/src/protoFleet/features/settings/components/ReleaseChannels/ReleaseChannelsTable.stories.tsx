@@ -5,6 +5,7 @@ import {
   activeRigRollout,
   batchedRigRollout,
   canaryChannel,
+  channelWithActiveRollout,
   completedRigRollout,
   completedWithFailuresRigRollout,
   emptyChannel,
@@ -55,7 +56,7 @@ export const ReviewNeeded: Story = {
   render: () => (
     <Frame>
       <ReleaseChannelsTable
-        channels={[canaryChannel, productionChannel]}
+        channels={[channelWithActiveRollout(canaryChannel, gatedRigRollout), productionChannel]}
         rollouts={[gatedRigRollout, completedRigRollout]}
         onCreate={noop}
         onManage={noop}
@@ -69,7 +70,7 @@ export const WithFailures: Story = {
   render: () => (
     <Frame>
       <ReleaseChannelsTable
-        channels={[canaryChannel, productionChannel]}
+        channels={[channelWithActiveRollout(canaryChannel, batchedRigRollout), productionChannel]}
         rollouts={[batchedRigRollout, completedWithFailuresRigRollout]}
         onCreate={noop}
         onManage={noop}
