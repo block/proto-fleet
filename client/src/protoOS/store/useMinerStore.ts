@@ -55,7 +55,7 @@ export interface MinerStore {
 // Type for the partial state that we persist
 type PersistedState = {
   auth: Pick<AuthSlice, "session">;
-  ui: Pick<UISlice, "duration" | "activeChartLines" | "theme" | "temperatureUnit">;
+  ui: Pick<UISlice, "duration" | "activeChartLines" | "theme" | "temperatureUnit" | "flowUnit">;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
@@ -128,6 +128,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
                 activeChartLines: state.ui.activeChartLines,
                 theme: state.ui.theme,
                 temperatureUnit: state.ui.temperatureUnit,
+                flowUnit: state.ui.flowUnit,
               },
             },
             version: value.version,
@@ -212,6 +213,7 @@ const useMinerStore = create<MinerStore>()(
               activeChartLines: state.ui.activeChartLines,
               theme: state.ui.theme,
               temperatureUnit: state.ui.temperatureUnit,
+              flowUnit: state.ui.flowUnit,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -245,6 +247,7 @@ const useMinerStore = create<MinerStore>()(
                 activeChartLines: persisted?.ui?.activeChartLines ?? currentState.ui.activeChartLines,
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
+                flowUnit: persisted?.ui?.flowUnit === "L/min" ? "L/min" : "GPM",
               },
             };
           },

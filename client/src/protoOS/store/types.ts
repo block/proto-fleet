@@ -16,11 +16,11 @@ import type {
   LevelRollup,
   PsuTelemetry,
 } from "./contract";
-import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
+import type { FlowUnit, TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
 
 // reexporting types defined in shared.  Eventually all of these types should be defined in shared
 // and we wont need to do any reexporting
-export { Theme, ThemeColor, TemperatureUnit };
+export { Theme, ThemeColor, TemperatureUnit, FlowUnit };
 
 type Value = number | null;
 

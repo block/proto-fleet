@@ -21,7 +21,7 @@ vi.mock("./routePrefetch", () => {
     importContainerModules: route("modules"),
     importContainerPools: route("pool statistics"),
     importContainerTanks: route("tanks"),
-    importDiagnosticView: route("diagnostics"),
+    importDiagnosticView: route("systems"),
     importEfficiency: route("efficiency"),
     importHashboardTemperature: route("hashboard temperature"),
     importHashrate: route("hashrate"),
@@ -130,6 +130,20 @@ describe("ProtoOS router", () => {
     expect(screen.getByTestId("kpi-layout")).toBeInTheDocument();
     expect(screen.queryByTestId("container-home-layout")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe(path === "/" ? "/hashrate" : path);
+  });
+
+  test.each([
+    ["", "/systems", "systems"],
+    ["", "/systems/HB-1", "hashboard temperature"],
+    ["/miners/ct1", "/systems", "systems"],
+    ["/miners/ct1", "/systems/HB-1", "hashboard temperature"],
+  ])("opens Systems under miner root '%s' at %s", async (minerRoot, path, label) => {
+    mocks.minerRoot = minerRoot;
+    const routes = minerRoot ? [{ path: minerRoot, children: routerConfig }] : routerConfig;
+    const router = createMemoryRouter(routes, { initialEntries: [`${minerRoot}${path}`] });
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`${minerRoot}${path}`);
   });
 
   test("renders Overview at the container index and keeps rig index redirects", async () => {

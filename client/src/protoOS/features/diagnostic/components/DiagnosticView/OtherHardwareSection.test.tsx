@@ -26,6 +26,7 @@ beforeEach(() => {
 });
 
 test("container PSU cards expose status details without fetching mining status on mount", () => {
+  useMinerStore.getState().hardware.setControlBoard({ serial: "container-controller", boardId: "1" });
   render(
     <MemoryRouter>
       <OtherHardwareSection />
@@ -33,6 +34,7 @@ test("container PSU cards expose status details without fetching mining status o
   );
 
   expect(screen.getAllByTestId("card")).toHaveLength(2);
+  expect(screen.queryByText(/Controller|CPU capacity|Latency/)).not.toBeInTheDocument();
   expect(getMiningStatus).not.toHaveBeenCalled();
   expect(screen.getAllByRole("button", { name: "More info" })).toHaveLength(2);
 });

@@ -1,5 +1,7 @@
+import { tankSide } from "./tankSide";
 import type { LevelRollup, MetricTelemetry, PlantTelemetry } from "@/protoOS/store/contract";
-import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import { useFlowUnit, useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import { formatFlowRate } from "@/shared/utils/flowRate";
 import { convertCtoF, formatEfficiencyOrDash, formatTempRange } from "@/shared/utils/telemetryFormat";
 
 const latestValue = (metric: MetricTelemetry | undefined) => {
@@ -19,8 +21,8 @@ const TankMetrics = ({
   tankSlot?: number;
 }) => {
   const unit = useTemperatureUnit();
-  // CT1's numbered tanks subdivide two fluid volumes: A (left, 1–3) and B (right, 4–6).
-  const side = [1, 2, 3].includes(tankSlot ?? 0) ? "Left" : [4, 5, 6].includes(tankSlot ?? 0) ? "Right" : undefined;
+  const flowUnit = useFlowUnit();
+  const side = tankSide(tankSlot);
   const outlet = side === "Left" ? plant?.outletATemperature : side === "Right" ? plant?.outletBTemperature : undefined;
   const fluidLevel = side === "Left" ? plant?.tankALiquidLevel : side === "Right" ? plant?.tankBLiquidLevel : undefined;
   const coolingMetric = (label: string, metric: MetricTelemetry | undefined, units: string) => {
@@ -29,7 +31,6 @@ const TankMetrics = ({
     return {
       label,
       text: converted === null ? "—" : `${converted.toFixed(1)} ${units === "°C" ? `°${unit}` : units}`,
-      note: value === null ? "Reading unavailable." : undefined,
     };
   };
   const hashrate = latestValue(rollup?.hashrate);
@@ -44,7 +45,7 @@ const TankMetrics = ({
     const converted = unit === "F" ? convertCtoF(average) : average;
     temperature = `${converted.toFixed(1)} °${unit}`;
   }
-  const metrics: { label: string; text: string; note?: string }[] = [
+  const metrics: { label: string; text: string }[] = [
     {
       label: "Hashrate",
       text: hashrate === null ? "—" : `${hashrate.toLocaleString(undefined, { maximumFractionDigits: 1 })} TH/s`,
@@ -55,24 +56,22 @@ const TankMetrics = ({
     },
     { label: "Efficiency", text: formatEfficiencyOrDash(latestValue(rollup?.efficiency)) },
     { label: "Temperature", text: temperature },
-    ...(showCooling
-      ? [
-          coolingMetric("Flow", plant?.flowRate, "L/min"),
-          coolingMetric(`${side ? `${side} tank` : "Tank"} inlet temperature`, plant?.inletTemperature, "°C"),
-          coolingMetric(`${side ? `${side} tank` : "Tank"} outlet temperature`, outlet, "°C"),
-          coolingMetric("Fluid level", fluidLevel, "mm"),
-        ]
-      : []),
   ];
+  if (showCooling) {
+    const tankLabel = side ? `${side} tank` : "Tank";
+    metrics.push(
+      { label: "Flow", text: formatFlowRate(latestValue(plant?.flowRate), flowUnit) },
+      coolingMetric(`${tankLabel} inlet temperature`, plant?.inletTemperature, "°C"),
+      coolingMetric(`${tankLabel} outlet temperature`, outlet, "°C"),
+      coolingMetric("Fluid level", fluidLevel, "mm"),
+    );
+  }
   return (
     <dl className={`grid grid-cols-2 gap-x-6 gap-y-8 ${showCooling ? "tablet:grid-cols-4" : ""}`}>
-      {metrics.map(({ label, text, note }) => (
+      {metrics.map(({ label, text }) => (
         <div key={label}>
           <dt className="mb-1 text-300 text-text-primary-70">{label}</dt>
-          <dd className="text-emphasis-400 text-text-primary tabular-nums tablet:text-heading-200">
-            {text}
-            {note ? <span className="mt-1 block text-200 font-normal text-text-primary-70">{note}</span> : null}
-          </dd>
+          <dd className="text-emphasis-400 text-text-primary tabular-nums tablet:text-heading-200">{text}</dd>
         </div>
       ))}
     </dl>

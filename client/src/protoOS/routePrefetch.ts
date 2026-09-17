@@ -65,7 +65,7 @@ export const containerRoutePrefetch: readonly RouteImporter[] = [
 
 // Section tier for protoFleet — embeds this router under /miners/:id/*.
 // SingleMinerWrapper triggers this on mount so KPI tabs, Logs,
-// Diagnostics, and per-miner Settings are warm. Composes global +
+// Systems, and per-miner Settings are warm. Composes global +
 // settings tiers so new entries flow through automatically.
 export const singleMinerRoutePrefetch: readonly RouteImporter[] = [
   ...globalRoutePrefetch,

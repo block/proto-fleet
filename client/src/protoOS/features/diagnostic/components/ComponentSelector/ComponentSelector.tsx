@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { componentLabels, components } from "./constants";
 import { ComponentFilterType } from "./types";
+import { useModuleModel } from "@/protoOS/store";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import type { Segment } from "@/shared/components/SegmentedControl/types";
 
@@ -10,12 +11,15 @@ interface ComponentSelectorProps {
 }
 
 const ComponentSelector = ({ selectedComponent, onSelect }: ComponentSelectorProps) => {
+  const moduleModel = useModuleModel();
   const componentSegments = useMemo(() => {
-    return components.map((component: ComponentFilterType) => ({
-      key: component,
-      title: componentLabels[component],
-    })) as Segment[];
-  }, []);
+    return components
+      .filter((component) => moduleModel !== "ct1" || component !== "controlBoard")
+      .map((component: ComponentFilterType) => ({
+        key: component,
+        title: componentLabels[component],
+      })) as Segment[];
+  }, [moduleModel]);
 
   return (
     <SegmentedControl

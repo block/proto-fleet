@@ -49,6 +49,7 @@ describe("Container diagnostics", () => {
     vi.clearAllMocks();
     hosting.adapter = null;
     useMinerStore.getState().ui.setTemperatureUnit("C");
+    useMinerStore.getState().ui.setFlowUnit("GPM");
     const fixture = tanksFixture(6);
     const owner = { kind: "container" as const, id: fixture.topology.containerId };
     fixture.hardware.plant.set(plantId, { ref: { id: plantId, kind: "plant", owner }, kind: "plant", name: "Plant" });
@@ -70,7 +71,8 @@ describe("Container diagnostics", () => {
         ...fixture.telemetry.rollupsByEntity.get(key),
         boardCount: 48,
         onlineBoardCount: 48,
-        temperature: { latest: { value: 60, units: "°C" } },
+        temperature: { latest: { value: 40, units: "°C" } },
+        averageAsicTemperature: { latest: { value: 60, units: "°C" } },
       });
     });
     fixture.telemetry.plant.set(plantId, {
@@ -137,17 +139,34 @@ describe("Container diagnostics", () => {
       useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
     }
     render(<ContainerDiagnosticView />);
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Circuit breakers" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
     expect(screen.getByText("PDU 1").nextElementSibling).toHaveTextContent(expected);
   });
 
   test.each([
     ["C", "60.0°C"],
     ["F", "140.0°F"],
-  ] as const)("uses %s for tank card temperatures", (unit, expected) => {
+  ] as const)("uses %s for tank card average ASIC temperatures", (unit, expected) => {
     useMinerStore.getState().ui.setTemperatureUnit(unit);
     render(<ContainerDiagnosticView />);
     expect(within(screen.getAllByRole("article")[0]).getByText(expected)).toBeInTheDocument();
+  });
+
+  test("shows unavailable ASIC temperatures without falling back to board sensors", () => {
+    render(<ContainerDiagnosticView />);
+    fireEvent.click(screen.getByRole("button", { name: "Tank 1 info" }));
+    act(() => {
+      useMinerStore.setState((state) => {
+        for (const rollup of state.telemetry.rollupsByEntity.values()) {
+          rollup.averageAsicTemperature = { latest: { value: null, units: "°C" } };
+        }
+      });
+    });
+    const card = within(screen.getByRole("article", { name: "Tank 1" }));
+    expect(card.getByText("Temperature").nextElementSibling).toHaveTextContent("—");
+    expect(card.queryByText("40.0°C")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("Temperature").parentElement).toHaveTextContent("—");
+    expect(screen.queryByText("60.0°C")).not.toBeInTheDocument();
   });
 
   test.each([
@@ -237,7 +256,7 @@ describe("Container diagnostics", () => {
     useMinerStore.getState().hardware.replaceHardware(initial.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(initial.telemetry);
     render(<ContainerDiagnosticView />);
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
     const labels = [
       "Pump speed",
       "Pump inlet pressure",
@@ -328,23 +347,217 @@ describe("Container diagnostics", () => {
     expect(within(screen.getAllByRole("article")[0]).getByText("48/48")).toBeInTheDocument();
   });
 
+  test("keeps sparse tank maps in their physical banks and scopes bank commands accordingly", async () => {
+    const stopScopedMining = vi.fn().mockResolvedValue(undefined);
+    hosting.adapter = {
+      stopScopedMining,
+      startScopedMining: vi.fn(),
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    useMinerStore.setState((state) => {
+      const topology = state.hardware.topology;
+      if (topology?.kind !== "container") throw new Error("Expected container");
+      for (const [id, tank] of topology.tanks) {
+        if (tank.slot === 1 || tank.slot === 2) topology.tanks.delete(id);
+      }
+    });
+    render(<ContainerDiagnosticView />);
+    const left = within(screen.getByRole("region", { name: "Left tanks" }));
+    const right = within(screen.getByRole("region", { name: "Right tanks" }));
+    expect(left.getAllByRole("article")).toHaveLength(1);
+    expect(left.getByRole("article", { name: "Tank 3" })).toBeInTheDocument();
+    expect(right.getAllByRole("article")).toHaveLength(3);
+    expect(right.getByRole("article", { name: "Tank 4" })).toBeInTheDocument();
+    fireEvent.click(left.getByRole("checkbox", { name: "Left tanks power" }));
+    expect(stopScopedMining).toHaveBeenCalledWith(
+      { modules: Array.from({ length: 16 }, (_, index) => ({ tank: 3, module: index + 1 })) },
+      expect.anything(),
+    );
+    await act(async () => {});
+  });
+
+  test("keeps tanks with unknown bank positions visible without assigning A/B sensors", () => {
+    useMinerStore.setState((state) => {
+      const topology = state.hardware.topology;
+      if (topology?.kind !== "container") throw new Error("Expected container");
+      for (const tank of topology.tanks.values()) tank.slot = undefined;
+    });
+    render(<ContainerDiagnosticView />);
+    expect(within(screen.getByRole("region", { name: "Other tanks" })).getAllByRole("article")).toHaveLength(6);
+    expect(screen.getByRole("checkbox", { name: "Left tanks power" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Right tanks power" })).toBeDisabled();
+  });
+
+  test("does not substitute the common outlet for an unavailable bank outlet", () => {
+    useMinerStore.setState((state) => {
+      state.telemetry.plant.get(plantId)!.outletATemperature = undefined;
+    });
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByText("Left tank outlet temperature").nextElementSibling).toHaveTextContent("—");
+    expect(screen.getByText("Right tank outlet temperature").nextElementSibling).toHaveTextContent("43.5°C");
+    expect(screen.getByText("33.3°C → 43.3°C")).toBeInTheDocument();
+  });
+
+  test.each([undefined, 0])("distinguishes unavailable online-board counts from zero: %s", (onlineBoardCount) => {
+    useMinerStore.setState((state) => {
+      for (const rollup of state.telemetry.rollupsByEntity.values()) rollup.onlineBoardCount = onlineBoardCount;
+    });
+    render(<ContainerDiagnosticView />);
+    const expected = onlineBoardCount === undefined ? "—" : "0/48";
+    const card = within(screen.getByRole("article", { name: "Tank 1" }));
+    expect(card.getByText("Online hashboards").nextElementSibling).toHaveTextContent(expected);
+    fireEvent.click(card.getByRole("button", { name: "Tank 1 info" }));
+    expect(within(screen.getByRole("dialog")).getByText("Online hashboards").parentElement).toHaveTextContent(expected);
+  });
+
+  test("clears summary power, outlet temperature, and derived delta when later snapshots omit readings", () => {
+    const initial = toCanonicalContainer(
+      {},
+      {},
+      { plant: { totalPowerW: 124_800, inletTemperatureC: 33.3, outletTemperatureC: 43.3 } },
+      "ct1",
+    );
+    useMinerStore.getState().hardware.replaceHardware(initial.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(initial.telemetry);
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByText("124.8 kW")).toBeInTheDocument();
+    expect(screen.getByText("33.3°C → 43.3°C")).toBeInTheDocument();
+    act(() => {
+      useMinerStore.getState().telemetry.mergeTelemetry(toCanonicalContainer({}, {}, {}, "ct1").telemetry);
+    });
+    for (const label of ["Total power", "Inlet to outlet temperature", "Temperature delta"]) {
+      expect(screen.getByText(label).nextElementSibling).toHaveTextContent("—");
+    }
+  });
+
+  test("clears a missing fan speed without showing the measured-zero gauge", () => {
+    const initial = toCanonicalContainer(
+      {},
+      {},
+      { coolingFans: [{ componentId: "dry-cooler-fan-1", speedPercent: 85 }] },
+      "ct1",
+    );
+    useMinerStore.getState().hardware.replaceHardware(initial.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(initial.telemetry);
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByRole("img", { name: "Fan 1 PWM: 85%" })).toBeInTheDocument();
+    act(() => {
+      useMinerStore
+        .getState()
+        .telemetry.mergeTelemetry(
+          toCanonicalContainer({}, {}, { coolingFans: [{ componentId: "dry-cooler-fan-1" }] }, "ct1").telemetry,
+        );
+    });
+    expect(screen.getByRole("img", { name: "Fan 1 PWM: unavailable" })).toHaveTextContent("—");
+    expect(screen.queryByText("85% PWM")).not.toBeInTheDocument();
+    act(() => {
+      useMinerStore
+        .getState()
+        .telemetry.mergeTelemetry(
+          toCanonicalContainer({}, {}, { coolingFans: [{ componentId: "dry-cooler-fan-1", speedPercent: 0 }] }, "ct1")
+            .telemetry,
+        );
+    });
+    expect(screen.getByRole("img", { name: "Fan 1 PWM: 0%" })).not.toHaveTextContent("—");
+    expect(screen.getByText("0% PWM")).toBeInTheDocument();
+  });
+
   test("switches among the dry cooler, power, and controls designs", () => {
     render(<ContainerDiagnosticView />);
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
-    expect(screen.getByRole("heading", { name: "Dry cooler" })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("segmented-control"))
+        .getAllByRole("button")
+        .map((tab) => tab.textContent),
+    ).toEqual(["All", "Tanks", "Cooling", "Power", "Controls"]);
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
+    expect(screen.getByRole("heading", { name: "Cooling" })).toBeInTheDocument();
     expect(screen.getByText("50.0 Hz")).toBeInTheDocument();
     expect(screen.getByText("85% PWM")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Tanks" })).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Circuit breakers" }));
-    expect(screen.getByRole("heading", { name: "Circuit breakers" })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("heading", { name: "Power" })).toBeInTheDocument();
     expect(screen.getByText("PDU 1")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("button", { name: "Controls" }));
     expect(screen.getByRole("heading", { name: "Controls" })).toBeInTheDocument();
     expect(screen.getByText("Coolant pump")).toBeInTheDocument();
     expect(screen.getByText("Inactive")).toBeInTheDocument();
+  });
+
+  test.each([
+    { health: "offline", miningStatus: "unknown", label: "Offline", color: "bg-core-accent-fill" },
+    { health: "ok", miningStatus: "stopped", label: "Sleeping", color: "bg-text-primary-30" },
+    { health: "ok", miningStatus: "curtailed", label: "Sleeping", color: "bg-text-primary-30" },
+  ] as const)(
+    "shows a centered $label dot on a neutral miner tile for $miningStatus",
+    ({ health, miningStatus, label, color }) => {
+      const fixture = tanksFixture(1, 1);
+      for (const board of fixture.telemetry.hashboards.values()) {
+        board.health = health;
+        board.miningStatus = miningStatus;
+      }
+      useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+      useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      render(<ContainerDiagnosticView />);
+      const tile = within(screen.getByRole("group", { name: "Module 1" }));
+      const dot = tile.getByRole("img", { name: label });
+      expect(dot).toHaveClass("rounded-full", "top-1/2", "left-1/2", color);
+      for (const board of tile.getAllByRole("img", { name: /hashboard:/ })) {
+        expect(board).toHaveClass("bg-surface-10");
+        expect(board).not.toHaveClass(color);
+      }
+
+      act(() => {
+        for (const board of fixture.telemetry.hashboards.values()) {
+          board.health = "ok";
+          board.miningStatus = "mining";
+        }
+        useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      });
+      expect(tile.queryByRole("img", { name: label })).not.toBeInTheDocument();
+    },
+  );
+
+  test.each(["stopped", "curtailed"] as const)(
+    "marks mixed mining and %s hashboards with a module warning until they recover",
+    (miningStatus) => {
+      const fixture = tanksFixture(1, 1);
+      const board = [...fixture.telemetry.hashboards.values()][1];
+      board.miningStatus = miningStatus;
+      useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+      useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      render(<ContainerDiagnosticView />);
+
+      const tile = within(screen.getByRole("group", { name: "Module 1" }));
+      expect(tile.getByRole("img", { name: "Needs attention" })).toContainElement(tile.getByTestId("alert-icon"));
+      expect(tile.getByRole("img", { name: "mid hashboard: Sleeping" })).toHaveClass("bg-surface-10");
+      expect(tile.queryByRole("img", { name: "Sleeping" })).not.toBeInTheDocument();
+
+      act(() => {
+        board.miningStatus = "mining";
+        useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      });
+      expect(tile.queryByRole("img", { name: "Needs attention" })).not.toBeInTheDocument();
+      expect(tile.getAllByRole("img", { name: /hashboard: Healthy/ })).toHaveLength(3);
+    },
+  );
+
+  test("keeps fault stripes visible when another hashboard is offline", () => {
+    const fixture = tanksFixture(1, 1);
+    const boards = [...fixture.telemetry.hashboards.values()];
+    boards[0].health = "fault";
+    boards[1].health = "offline";
+    boards[1].miningStatus = "unknown";
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+    render(<ContainerDiagnosticView />);
+    const tile = within(screen.getByRole("group", { name: "Module 1" }));
+    expect(tile.getByRole("img", { name: "left hashboard: Needs attention" })).toHaveClass("bg-intent-critical-fill");
+    expect(tile.queryByRole("img", { name: "Offline" })).not.toBeInTheDocument();
+    expect(tile.queryByRole("img", { name: "Needs attention" })).not.toBeInTheDocument();
   });
 
   test("shows each hashboard's issue intensity in physical slot order", () => {
@@ -376,7 +589,7 @@ describe("Container diagnostics", () => {
   test("uses plant-only telemetry outside All and Tanks", () => {
     render(<ContainerDiagnosticView />);
     expect(useTelemetry).toHaveBeenLastCalledWith({ level: ["hashboard", "miner"] });
-    for (const name of ["Dry cooler", "Circuit breakers", "Controls"]) {
+    for (const name of ["Cooling", "Power", "Controls"]) {
       fireEvent.mouseDown(screen.getByRole("button", { name }));
       expect(useTelemetry).toHaveBeenLastCalledWith({ level: ["miner"] });
     }
@@ -424,10 +637,20 @@ describe("Container diagnostics", () => {
     expect(fan.getByText("Fault")).toBeInTheDocument();
   });
 
+  test("keeps bank and pump flow in the selected units", () => {
+    render(<ContainerDiagnosticView />);
+    expect(screen.getAllByText("42.6 GPM")).toHaveLength(2);
+    expect(screen.getByText("50.0 Hz input, 42.6 GPM")).toBeInTheDocument();
+    act(() => useMinerStore.getState().ui.setFlowUnit("L/min"));
+    expect(screen.getAllByText("161.3 L/min")).toHaveLength(2);
+    expect(screen.getByText("50.0 Hz input, 161.3 L/min")).toBeInTheDocument();
+    expect(screen.queryByText(/GPM/)).not.toBeInTheDocument();
+  });
+
   test("shows pump metrics and one global tank light control", () => {
     render(<ContainerDiagnosticView />);
     fireEvent.mouseDown(screen.getByRole("button", { name: "Controls" }));
-    expect(screen.getByText("50.0 Hz input, 161.3 LPM")).toBeInTheDocument();
+    expect(screen.getByText("50.0 Hz input, 42.6 GPM")).toBeInTheDocument();
     expect(screen.queryByText(/controls are not available/i)).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Tank lights" })).toBeDisabled();
     expect(screen.queryByRole("checkbox", { name: "Tank A light" })).not.toBeInTheDocument();

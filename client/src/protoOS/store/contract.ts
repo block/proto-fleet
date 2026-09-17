@@ -1,5 +1,5 @@
 import type { Duration } from "@/shared/components/DurationSelector";
-import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
+import type { FlowUnit, TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
 
 // Nominal ("branded") type helper: tags a primitive with a phantom name so
 // structurally-identical ids (DeviceId vs HashboardId, etc.) can't be swapped.
@@ -313,6 +313,8 @@ export interface PowerCoverage {
 }
 
 export interface LevelRollup extends LevelTelemetry {
+  /** Mean of available per-hashboard ASIC temperature averages, separate from board sensors. */
+  averageAsicTemperature?: MetricTelemetry;
   miningStatus?: MiningStatus;
   health?: HealthState;
   boardCount?: number;
@@ -627,6 +629,7 @@ export interface UIState {
   theme: Theme;
   deviceTheme: Theme;
   temperatureUnit: TemperatureUnit;
+  flowUnit: FlowUnit;
   themeColor?: ThemeColor;
   firmwareUpdateDismissed: boolean;
   showLoginModal: boolean;

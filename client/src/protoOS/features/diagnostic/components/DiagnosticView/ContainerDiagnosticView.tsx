@@ -7,6 +7,7 @@ import { useContainerControl } from "./useContainerControl";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { tankSide } from "@/protoOS/features/tanks/tankSide";
 import { hashboardAttentionFill } from "@/protoOS/features/tanks/tankStatusColors";
 import {
   boardStatus,
@@ -29,7 +30,7 @@ import {
   type PlantTelemetry,
   type TankNode,
 } from "@/protoOS/store/contract";
-import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import { useFlowUnit, useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { Alert, Info } from "@/shared/assets/icons";
@@ -38,6 +39,7 @@ import RadialGauge from "@/shared/components/RadialGauge";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import Switch from "@/shared/components/Switch";
 import type { TemperatureUnit } from "@/shared/features/preferences/types";
+import { formatFlowRate } from "@/shared/utils/flowRate";
 import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 type DiagnosticTab = "all" | "tanks" | "dry-cooler" | "power" | "controls";
@@ -57,13 +59,12 @@ const DiagnosticsPolling = ({ full }: { full: boolean }) => {
 const tabs = [
   { key: "all", title: "All" },
   { key: "tanks", title: "Tanks" },
-  { key: "dry-cooler", title: "Dry cooler" },
-  { key: "power", title: "Circuit breakers" },
+  { key: "dry-cooler", title: "Cooling" },
+  { key: "power", title: "Power" },
   { key: "controls", title: "Controls" },
 ];
 
 const PASCALS_PER_PSI = 6_894.757;
-const GALLONS_PER_LITRE = 0.264_172;
 
 const latest = (metric: MetricTelemetry | undefined) => {
   const value = metric?.latest?.value;
@@ -185,8 +186,8 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
 };
 
 const boardColor = {
-  offline: "bg-core-accent-fill",
-  sleeping: "bg-text-primary-30",
+  offline: "bg-surface-10",
+  sleeping: "bg-surface-10",
   healthy: "bg-surface-10",
   unknown: "border border-border-10 bg-surface-base",
 };
@@ -252,8 +253,11 @@ const TankDiagnosticCard = ({
   const { on, actionable } = tankPowerState(rollup?.miningStatus);
   const boardCount = rollup?.boardCount;
   const onlineBoardCount = rollup?.onlineBoardCount;
-  const temperature = latest(rollup?.temperature);
+  const boardAvailability =
+    boardCount === undefined || onlineBoardCount === undefined ? "—" : `${onlineBoardCount}/${boardCount}`;
+  const temperatureText = formatTemperature(latest(rollup?.averageAsicTemperature), unit);
   const power = latest(rollup?.power);
+  const powerText = power === undefined ? "—" : `${decimal(power / 1_000)} kW`;
 
   return (
     <article className="rounded-2xl bg-surface-5 p-6" aria-label={tank.label ?? `Tank ${tank.slot ?? ""}`}>
@@ -289,12 +293,16 @@ const TankDiagnosticCard = ({
         {modules.map((module, index) => {
           const bySlot = new Map(moduleHashboards(module, topology).map((board) => [board.location?.slot, board]));
           const position = grid.positions[index];
+          const minerStatus = statuses[index];
+          const needsModuleWarning =
+            minerStatus === "attention" &&
+            !module.hashboardIds.some((id) => boardStatus(telemetry.get(id)) === "attention");
           return (
             <span
               key={module.id}
               role="group"
               aria-label={`Module ${module.location?.moduleSlot ?? module.id}`}
-              className="flex h-14 overflow-hidden rounded-sm"
+              className="relative flex h-14 overflow-hidden rounded-sm"
               style={position ? { gridColumn: position.column, gridRow: position.row } : undefined}
             >
               {[1, 2, 3].map((slot) => {
@@ -318,6 +326,27 @@ const TankDiagnosticCard = ({
                   />
                 );
               })}
+              {needsModuleWarning ? (
+                <span
+                  role="img"
+                  aria-label={statusLabels.attention}
+                  title={statusLabels.attention}
+                  className="absolute inset-0 flex items-center justify-center"
+                >
+                  <Alert width="w-2/3" className="text-intent-critical-fill" />
+                </span>
+              ) : null}
+              {minerStatus === "offline" || minerStatus === "sleeping" ? (
+                <span
+                  role="img"
+                  aria-label={statusLabels[minerStatus]}
+                  title={statusLabels[minerStatus]}
+                  className={clsx(
+                    "absolute top-1/2 left-1/2 aspect-square w-[45%] -translate-x-1/2 -translate-y-1/2 rounded-full",
+                    minerStatus === "offline" ? "bg-core-accent-fill" : "bg-text-primary-30",
+                  )}
+                />
+              ) : null}
             </span>
           );
         })}
@@ -325,15 +354,15 @@ const TankDiagnosticCard = ({
       <dl className="grid grid-cols-3 gap-4 text-center text-300 text-text-primary-70 tabular-nums">
         <div>
           <dt className="sr-only">Online hashboards</dt>
-          <dd>{boardCount === undefined ? "—" : `${onlineBoardCount ?? 0}/${boardCount}`}</dd>
+          <dd>{boardAvailability}</dd>
         </div>
         <div>
           <dt className="sr-only">Temperature</dt>
-          <dd>{formatTemperature(temperature, unit)}</dd>
+          <dd>{temperatureText}</dd>
         </div>
         <div>
           <dt className="sr-only">Power</dt>
-          <dd>{power === undefined ? "—" : `${decimal(power / 1_000)} kW`}</dd>
+          <dd>{powerText}</dd>
         </div>
       </dl>
       {showInfo ? (
@@ -346,11 +375,11 @@ const TankDiagnosticCard = ({
           metrics={[
             {
               label: "Online hashboards",
-              value: boardCount === undefined ? "—" : `${onlineBoardCount ?? 0}/${boardCount}`,
+              value: boardAvailability,
             },
             { label: "Modules needing attention", value: statuses.filter((status) => status === "attention").length },
-            { label: "Temperature", value: formatTemperature(temperature, unit) },
-            { label: "Power", value: power === undefined ? "—" : `${decimal(power / 1_000)} kW` },
+            { label: "Temperature", value: temperatureText },
+            { label: "Power", value: powerText },
           ]}
           metadata={{
             status: { label: "Mining status", value: miningStatusLabels[rollup?.miningStatus ?? "unknown"] },
@@ -375,6 +404,7 @@ const TankBank = ({
   const plant = data.plant;
   const unit = useTemperatureUnit();
   const flow = latest(plant?.flowRate);
+  const flowUnit = useFlowUnit();
   const outlet = side === "Left" ? plant?.outletATemperature : plant?.outletBTemperature;
   const liquidLevel = latest(side === "Left" ? plant?.tankALiquidLevel : plant?.tankBLiquidLevel);
   const scopes = tanks.map((tank) => tankMiningScope(tank, tankModules(tank, data.topology)));
@@ -387,15 +417,12 @@ const TankBank = ({
   return (
     <section aria-labelledby={`${side.toLowerCase()}-tanks-title`}>
       <dl className="mb-6 grid grid-cols-2 gap-6 tablet:grid-cols-4">
-        <Stat label="Flow" value={flow === undefined ? "—" : `${decimal(flow * GALLONS_PER_LITRE)} GPM`} />
+        <Stat label="Flow" value={formatFlowRate(flow, flowUnit)} />
         <Stat
           label={`${side} tank inlet temperature`}
           value={formatTemperature(latest(plant?.inletTemperature), unit)}
         />
-        <Stat
-          label={`${side} tank outlet temperature`}
-          value={formatTemperature(latest(outlet ?? plant?.outletTemperature), unit)}
-        />
+        <Stat label={`${side} tank outlet temperature`} value={formatTemperature(latest(outlet), unit)} />
         <Stat label="Fluid level" value={liquidLevel === undefined ? "—" : `${decimal(liquidLevel)} mm`} />
       </dl>
       <Panel className="mb-1 flex items-center justify-between">
@@ -427,7 +454,7 @@ const TankBank = ({
 
 const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
   const powerControl = useTankPower();
-  const midpoint = Math.ceil(data.tanks.length / 2);
+  const unassigned = data.tanks.filter((tank) => tankSide(tank.slot) === undefined);
   return (
     <section className="space-y-10" aria-labelledby="container-diagnostics-tanks">
       <h2 id="container-diagnostics-tanks" className="text-heading-200">
@@ -438,8 +465,22 @@ const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useCon
           {powerControl.error}
         </p>
       ) : null}
-      <TankBank side="Left" tanks={data.tanks.slice(0, midpoint)} data={data} powerControl={powerControl} />
-      <TankBank side="Right" tanks={data.tanks.slice(midpoint)} data={data} powerControl={powerControl} />
+      {(["Left", "Right"] as const).map((side) => (
+        <TankBank
+          key={side}
+          side={side}
+          tanks={data.tanks.filter((tank) => tankSide(tank.slot) === side)}
+          data={data}
+          powerControl={powerControl}
+        />
+      ))}
+      {unassigned.length > 0 ? (
+        <section aria-label="Other tanks" className="grid gap-1 laptop:grid-cols-3">
+          {unassigned.map((tank) => (
+            <TankDiagnosticCard key={tank.id} tank={tank} topology={data.topology} powerControl={powerControl} />
+          ))}
+        </section>
+      ) : null}
     </section>
   );
 };
@@ -465,7 +506,7 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   return (
     <section aria-labelledby="dry-cooler-title">
       <h2 id="dry-cooler-title" className="mb-6 text-heading-200">
-        Dry cooler
+        Cooling
       </h2>
       <dl className="mb-6 grid grid-cols-2 gap-6 laptop:grid-cols-5">
         <Stat label="Pump speed" value={pumpSpeed === undefined ? "—" : `${decimal(pumpSpeed)} Hz`} />
@@ -512,15 +553,23 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
               <p className="text-300 text-text-primary-70 tabular-nums">
                 {speed === undefined ? "—" : `${decimal(speed, 0)}% PWM`}
               </p>
-              <div className="mt-4 text-center">
-                <RadialGauge
-                  value={speed ?? 0}
-                  size={56}
-                  strokeWidth={7}
-                  valueStrokeWidth={7}
-                  strokeLinecap="butt"
-                  colorClassName={faulted ? "text-intent-critical-fill" : "text-text-primary"}
-                />
+              <div
+                className="mt-4 text-center"
+                role="img"
+                aria-label={`${fan.name} PWM: ${speed === undefined ? "unavailable" : `${decimal(speed, 0)}%`}`}
+              >
+                {speed === undefined ? (
+                  <span className="inline-flex h-14 w-14 items-center justify-center text-text-primary-70">—</span>
+                ) : (
+                  <RadialGauge
+                    value={speed}
+                    size={56}
+                    strokeWidth={7}
+                    valueStrokeWidth={7}
+                    strokeLinecap="butt"
+                    colorClassName={faulted ? "text-intent-critical-fill" : "text-text-primary"}
+                  />
+                )}
               </div>
             </Panel>
           );
@@ -571,7 +620,7 @@ const distributionStatus = (telemetry: PlantTelemetry | undefined) => {
 const PowerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => (
   <section aria-labelledby="power-diagnostics-title">
     <h2 id="power-diagnostics-title" className="mb-6 text-heading-200">
-      Circuit breakers
+      Power
     </h2>
     <Panel>
       <dl className="grid grid-cols-2 gap-8 tablet:grid-cols-4 desktop:grid-cols-7">
@@ -603,6 +652,7 @@ const ControlsDiagnostics = ({ plant }: { plant?: PlantTelemetry }) => {
   const { setControl, pending, error, supported } = useContainerControl();
   const pumpSpeed = latest(plant?.coolantPumpSpeed);
   const flow = latest(plant?.flowRate);
+  const flowUnit = useFlowUnit();
   return (
     <section aria-labelledby="controls-diagnostics-title">
       <h2 id="controls-diagnostics-title" className="mb-6 text-heading-200">
@@ -628,7 +678,9 @@ const ControlsDiagnostics = ({ plant }: { plant?: PlantTelemetry }) => {
               <span className="text-emphasis-300">{label}</span>
               <div className="flex items-center gap-5">
                 <span className="text-300 text-text-primary-70">
-                  {name === "coolant_pump" ? `${decimal(pumpSpeed)} Hz input, ${decimal(flow)} LPM` : status}
+                  {name === "coolant_pump"
+                    ? `${decimal(pumpSpeed)} Hz input, ${formatFlowRate(flow, flowUnit)}`
+                    : status}
                 </span>
                 {!isAlarm ? (
                   <Switch
@@ -656,7 +708,7 @@ const ContainerDiagnosticView = ({ className }: { className?: string }) => {
     return (
       <>
         {polling}
-        <p role="status">Loading container diagnostics…</p>
+        <p role="status">Loading container systems…</p>
       </>
     );
   const show = (tab: Exclude<DiagnosticTab, "all">) => selectedTab === "all" || selectedTab === tab;
@@ -664,7 +716,7 @@ const ContainerDiagnosticView = ({ className }: { className?: string }) => {
     <div className={clsx("w-full", className)} data-testid="container-diagnostics">
       {polling}
       <div className="mb-10 flex flex-col items-start justify-between gap-4 tablet:flex-row tablet:items-center">
-        <h1 className="text-heading-300">Diagnostics</h1>
+        <h1 className="text-heading-300">Systems</h1>
         <div className="max-w-full overflow-x-auto">
           <SegmentedControl
             segments={tabs}

@@ -17,6 +17,36 @@ const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => (
   moduleModel: deviceType === "container" ? ("ct1" as const) : ("r2" as const),
 });
 
+describe("flow unit preference", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useMinerStore.getState().ui.setFlowUnit("GPM");
+  });
+
+  test("defaults to gallons per minute", () => {
+    expect(useMinerStore.getInitialState().ui.flowUnit).toBe("GPM");
+  });
+
+  test.each(["GPM", "L/min"] as const)("persists and restores %s across reloads and device switches", async (unit) => {
+    useMinerStore.getState().ui.setFlowUnit(unit);
+    const saved = localStorage.getItem("proto-ui-preferences")!;
+    expect(JSON.parse(saved).state.ui.flowUnit).toBe(unit);
+    useMinerStore.getState().ui.setFlowUnit(unit === "GPM" ? "L/min" : "GPM");
+    localStorage.setItem("proto-ui-preferences", saved);
+    await useMinerStore.persist.rehydrate();
+    expect(useMinerStore.getState().ui.flowUnit).toBe(unit);
+    useMinerStore.getState().resetDeviceData();
+    expect(useMinerStore.getState().ui.flowUnit).toBe(unit);
+  });
+
+  test.each([undefined, "invalid"])("uses GPM when a saved preference is %s", async (flowUnit) => {
+    useMinerStore.getState().ui.setFlowUnit("L/min");
+    localStorage.setItem("proto-ui-preferences", JSON.stringify({ state: { ui: { flowUnit } }, version: 0 }));
+    await useMinerStore.persist.rehydrate();
+    expect(useMinerStore.getState().ui.flowUnit).toBe("GPM");
+  });
+});
+
 describe("useMinerStore.resetDeviceData", () => {
   beforeEach(() => {
     useMinerStore.getState().resetDeviceData();

@@ -4,6 +4,7 @@ import { ContainerHardwareView } from "./ContainerHardware";
 import { containerInventory } from "./containerInventory";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
 import { asDeviceId, type SystemInfoData } from "@/protoOS/store/contract";
+import { Fleet, LightningAlt, Speedometer, ThemeLight } from "@/shared/assets/icons";
 
 const systemInfo: SystemInfoData = {
   identity: { deviceId: asDeviceId("device:ct1"), deviceType: "container", adapterId: "mdk-v2", macAddresses: [] },
@@ -13,6 +14,18 @@ const systemInfo: SystemInfoData = {
 };
 
 describe("Container hardware settings", () => {
+  test.each([
+    { name: "Modules", Icon: Fleet },
+    { name: "PSUs", Icon: LightningAlt },
+    { name: "CDU", Icon: Speedometer },
+    { name: "Lights", Icon: ThemeLight },
+  ])("uses the Figma icon for $name", ({ name, Icon }) => {
+    render(<ContainerHardwareView />);
+    const expected = render(<Icon />);
+    const card = screen.getByRole("button", { name: `${name} —` });
+    expect(card.querySelector("svg")?.outerHTML).toBe(expected.container.querySelector("svg")?.outerHTML);
+  });
+
   test("keeps unavailable inventory visible as dashes without a load-error message", () => {
     render(<ContainerHardwareView />);
     expect(screen.getAllByText("—")).toHaveLength(13);
