@@ -186,6 +186,7 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
 };
 
 const boardColor = {
+  isolated: "bg-text-primary-30",
   offline: "bg-surface-10",
   sleeping: "bg-surface-10",
   healthy: "bg-surface-10",

@@ -3,7 +3,6 @@ import { create } from "@bufbuild/protobuf";
 
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   MinerListFilterSchema,
@@ -38,6 +37,7 @@ import {
 } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 export type GroupScope = {

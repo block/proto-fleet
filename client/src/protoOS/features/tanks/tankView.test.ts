@@ -4,6 +4,14 @@ import { tanksFixture } from "./Tanks.fixtures";
 import { boardStatus, moduleStatus, tankGrid, tankMiningScope, tankModules } from "./tankView";
 
 describe("tank presentation", () => {
+  test("distinguishes isolated boards from offline boards and mixed modules", () => {
+    const { telemetry } = tanksFixture();
+    const board = [...telemetry.hashboards.values()][0];
+    const isolated = { ...board, isolated: true };
+    expect(boardStatus(isolated)).toBe("isolated");
+    expect(moduleStatus([isolated, isolated, isolated])).toBe("isolated");
+    expect(moduleStatus([board, isolated, board])).toBe("attention");
+  });
   test("preserves module gaps and positions the first row at the bottom", () => {
     const { topology } = tanksFixture();
     const tank = [...topology.tanks.values()][0];

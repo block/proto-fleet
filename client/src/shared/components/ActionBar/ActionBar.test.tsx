@@ -1,33 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import ActionBar from ".";
-import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
-
-// MinerActionsMenu imports hooks from the removed fleet store slice.
-// Mock it so the test that renders it directly doesn't crash.
-vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
-  default: ({ onActionStart }: { onActionStart?: () => void }) => (
-    <div>
-      <span>More</span>
-      <button data-testid="actions-menu-button" onClick={onActionStart}>
-        <button data-testid="reboot-popover-button" onClick={onActionStart}>
-          Reboot
-        </button>
-      </button>
-    </div>
-  ),
-}));
-
-vi.mock("@/protoFleet/api/usePools", () => ({
-  default: () => ({
-    pools: [],
-    validatePool: vi.fn(({ onSuccess }) => {
-      onSuccess?.();
-    }),
-    validatePoolPending: false,
-  }),
-}));
-
 describe("Action Bar", () => {
   const actionBarTestId = "action-bar";
 
@@ -94,31 +67,15 @@ describe("Action Bar", () => {
     expect(queryByTestId(actionBarTestId)).not.toBeInTheDocument();
   });
 
-  test("renders MinerActionsMenu and calls setHidden method properly", async () => {
-    const onActionStartMock = vi.fn();
-    const selectedMiners = ["MinerId1"];
-
-    const { getByText, getByTestId } = render(
+  test("lets action content hide the bar", () => {
+    render(
       <ActionBar
-        selectedItems={selectedMiners}
-        renderActions={(setHidden) => (
-          <MinerActionsMenu
-            selectedMiners={selectedMiners}
-            selectionMode="subset"
-            onActionStart={() => {
-              onActionStartMock();
-              setHidden(true);
-            }}
-          />
-        )}
+        selectedItems={["item-1"]}
+        renderActions={(setHidden) => <button onClick={() => setHidden(true)}>Run action</button>}
       />,
     );
-
-    expect(getByText("More")).toBeInTheDocument();
-
-    fireEvent.click(getByTestId("actions-menu-button"));
-    fireEvent.click(getByTestId("reboot-popover-button"));
-    expect(onActionStartMock).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Run action" }));
+    expect(screen.getByTestId("action-bar")).toHaveClass("invisible");
   });
 
   test("calls onClose callback when close button is clicked", () => {

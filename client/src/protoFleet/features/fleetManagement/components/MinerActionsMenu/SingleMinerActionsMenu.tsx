@@ -3,7 +3,6 @@ import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionP
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
@@ -26,6 +25,7 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";

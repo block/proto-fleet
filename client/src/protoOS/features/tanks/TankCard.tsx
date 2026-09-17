@@ -31,7 +31,7 @@ const TankCard = memo(({ tank, topology, label, onViewModule }: Props) => {
   const modules = useMemo(() => tankModules(tank, topology), [tank, topology]);
   const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
   const statuses = useMemo(() => {
-    const counts = { attention: 0, offline: 0, sleeping: 0, healthy: 0, unknown: 0 };
+    const counts = { attention: 0, offline: 0, isolated: 0, sleeping: 0, healthy: 0, unknown: 0 };
     for (const module of modules) {
       const boards = module.hashboardIds.map((id) => telemetry.get(id));
       counts[moduleStatus(boards)]++;

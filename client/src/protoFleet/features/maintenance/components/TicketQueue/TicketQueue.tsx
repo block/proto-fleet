@@ -15,11 +15,11 @@ import {
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketVersion } from "@/protoFleet/api/maintenance";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
 import { useHasPermission } from "@/protoFleet/store";
 import { Info } from "@/shared/assets/icons";
+import ActionBar from "@/shared/components/ActionBar";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";

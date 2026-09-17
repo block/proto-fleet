@@ -32,6 +32,24 @@ describe("RowActionsMenu", () => {
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 
+  it("only handles outside clicks while the menu is open", () => {
+    const onOpenChange = vi.fn();
+    render(<RowActionsMenu actions={[{ label: "Edit", onClick: vi.fn() }]} onOpenChange={onOpenChange} />);
+    fireEvent.mouseDown(document.body);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    onOpenChange.mockClear();
+    fireEvent.mouseDown(document.body);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+
+    onOpenChange.mockClear();
+    fireEvent.mouseDown(document.body);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("caps the desktop popover to the viewport and scrolls on the content surface", () => {
     render(<RowActionsMenu actions={[{ label: "Edit", onClick: vi.fn() }]} />);
     fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));

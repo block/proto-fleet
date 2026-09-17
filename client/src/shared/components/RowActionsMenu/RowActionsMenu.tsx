@@ -117,6 +117,7 @@ const RowActionsMenuInner = ({
 
   const onClickOutside = useCallback(() => setMenuOpen(false), [setMenuOpen]);
   useClickOutside({
+    enabled: open,
     ref: triggerRef,
     onClickOutside,
     ignoreSelectors: [".popover-content", `[data-testid="${popoverTestId}"]`],

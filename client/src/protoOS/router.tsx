@@ -12,6 +12,7 @@ import {
   importHashboardTemperature,
   importHashrate,
   importLogs,
+  importModuleHashboardOverlay,
   importOnboarding,
   importOnboardingAuthentication,
   importOnboardingMiningPool,
@@ -28,6 +29,7 @@ import {
 } from "./routePrefetch";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -57,6 +59,7 @@ const DiagnosticView = lazy(importDiagnosticView);
 const Logs = lazy(importLogs);
 const ContainerTanks = lazy(importContainerTanks);
 const ContainerModules = lazy(importContainerModules);
+const ModuleHashboardOverlay = lazy(importModuleHashboardOverlay);
 const ContainerPools = lazy(importContainerPools);
 const Onboarding = lazy(importOnboarding);
 const OnboardingWelcome = lazy(importOnboardingWelcome);
@@ -291,15 +294,22 @@ export const routerConfig: CustomRouteObject[] = [
       title: "Tanks",
     },
   ),
-  createRoute(
-    "modules",
-    <ContainerRoute>
-      <ContainerModules />
-    </ContainerRoute>,
-    {
-      title: "Modules",
-    },
-  ),
+  {
+    ...createRoute(
+      "modules",
+      <ContainerRoute>
+        <ContainerModules />
+      </ContainerRoute>,
+      { title: "Modules", hideErrors: true, ContentLayout: ListContentLayout },
+    ),
+    children: [
+      {
+        path: ":tankId/:moduleId",
+        element: <Outlet />,
+        children: [{ path: ":serial", element: <ModuleHashboardOverlay /> }],
+      },
+    ],
+  },
   // Note: Onboarding renders AppLayout directly in fullscreen mode
   createRoute("onboarding", <Onboarding />, {
     title: "Onboarding",

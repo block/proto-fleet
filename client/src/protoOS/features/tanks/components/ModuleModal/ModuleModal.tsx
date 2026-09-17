@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
@@ -21,10 +21,16 @@ const ModuleModal = ({
   module,
   tank,
   topology,
+  onClose,
+  modulePath: getModulePath,
+  moduleLabel,
 }: {
   module: ModuleNode;
   tank: TankNode;
   topology: ContainerTopology;
+  onClose?: () => void;
+  modulePath?: (module: ModuleNode) => string;
+  moduleLabel?: (module: ModuleNode) => string;
 }) => {
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -54,6 +60,7 @@ const ModuleModal = ({
     };
   }, []);
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { minerRoot } = useMinerHosting();
   const modules = tankModules(tank, topology);
   const boards = moduleHashboards(module, topology);
@@ -67,14 +74,17 @@ const ModuleModal = ({
   );
   const { error, pending } = useHashboardStatus({ hashboardSerialNumbers: serials, poll: true });
   const tankPath = `${minerRoot}/tanks/${tankRouteValue(tank)}`;
-  const modulePath = `${tankPath}/modules/${moduleRouteValue(module, modules.findIndex((item) => item.id === module.id) + 1)}`;
+  const pathForModule = (item: ModuleNode) =>
+    getModulePath?.(item) ??
+    `${tankPath}/modules/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
+  const modulePath = pathForModule(module);
 
   return (
     <Modal
       size="fullscreen"
       title="Modules"
       dialogLabel="Modules"
-      onDismiss={() => navigate(tankPath)}
+      onDismiss={onClose ?? (() => navigate(tankPath))}
       buttons={[{ text: "Done", variant: "primary" }]}
       bodyClassName="text-text-primary"
     >
@@ -85,12 +95,11 @@ const ModuleModal = ({
             currentId={module.id}
             items={modules.map((item, index) => ({
               id: item.id,
-              name: `Module ${item.location?.moduleSlot ?? index + 1}`,
+              name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
             }))}
             onSelect={(id) => {
               const index = modules.findIndex((item) => item.id === id);
-              if (index >= 0)
-                navigate(`${tankPath}/modules/${moduleRouteValue(modules[index], index + 1)}`, { replace: true });
+              if (index >= 0) navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
             }}
           />
         </PopoverProvider>
@@ -108,7 +117,7 @@ const ModuleModal = ({
                 <HashboardStatusCard
                   key={board.id}
                   identifier={board.identity.value}
-                  viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}`}
+                  viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
                 />
               ) : (
                 <EmptySlotCard key={slot} type="hashboard" position={slot} title={`Board ${slot}`} />

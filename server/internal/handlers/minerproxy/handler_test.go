@@ -15,7 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
+
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
@@ -49,6 +53,10 @@ func TestPermissionsFor(t *testing.T) {
 		proxyPath string
 		want      []string
 	}{
+		{name: "CT1 scoped start", method: http.MethodPost, proxyPath: "/api/v2/mining/scoped/start", want: []string{authz.PermMinerStartMining}},
+		{name: "CT1 scoped stop", method: http.MethodPost, proxyPath: "/api/v2/mining/scoped/stop", want: []string{authz.PermMinerStopMining}},
+		{name: "CT1 identify", method: http.MethodPost, proxyPath: "/api/v2/hashboards/identify-led", want: []string{authz.PermMinerBlinkLED}},
+		{name: "CT1 isolation", method: http.MethodPost, proxyPath: "/api/v2/mining/isolation", want: []string{authz.PermMinerStartMining, authz.PermMinerStopMining}},
 		{name: "CT1 power target", method: http.MethodPut, proxyPath: "/api/v2/mining/target-power", want: []string{authz.PermMinerSetPowerTarget}},
 		{name: "CT1 module run-in", method: http.MethodPost, proxyPath: "/api/v2/modules/T1-M01/run-in", want: []string{authz.PermMinerStartMining, authz.PermMinerStopMining, authz.PermMinerSetPowerTarget}},
 		{name: "CT1 coolant pump", method: http.MethodPost, proxyPath: "/api/v2/power/container/controls/coolant_pump", want: []string{authz.PermMinerSetCoolingMode}},
@@ -794,5 +802,117 @@ func TestForwardCT1RunInWithoutV1Login(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+// Each mutation is explicitly allowlisted: related methods and child paths must
+// not gain access, and CT1 commands must never invoke the MDK v1 login flow.
+func TestCT1ModuleActions(t *testing.T) {
+	const scope = `"scope":{"identifiers":["02:00:00:00:01:01","02:00:00:00:01:02"]}`
+	const boardResults = `{"results":[{"macAddress":"02:00:00:00:01:01","applied":true},{"macAddress":"02:00:00:00:01:02","applied":false,"message":"disconnected"}]}`
+	for _, endpoint := range []struct{ rest, body, response string }{
+		{"mining/scoped/start", "{" + scope + "}", boardResults},
+		{"mining/scoped/stop", "{" + scope + "}", boardResults},
+		{"hashboards/identify-led", "{" + scope + `,"mode":"HASHBOARD_IDENTIFY_LED_MODE_BLINK"}`, `{"boardsUpdated":2}`},
+		{"mining/isolation", "{" + scope + `,"isolated":true}`, boardResults},
+		{"mining/isolation", "{" + scope + `,"isolated":false}`, boardResults},
+	} {
+		rest, body, response := endpoint.rest, endpoint.body, endpoint.response
+		t.Run(rest, func(t *testing.T) {
+			proxyPath, ok := proxyPathFor("v2", http.MethodPost, rest)
+			if !ok || proxyPath != "/api/v2/"+rest || requiresMinerAuthentication(proxyPath) {
+				t.Fatalf("command must be explicitly proxyable without v1 login: %s", rest)
+			}
+			for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+				if _, ok := proxyPathFor("v2", method, rest); ok {
+					t.Errorf("unexpectedly allowed %s %s", method, rest)
+				}
+			}
+			if _, ok := proxyPathFor("v2", http.MethodPost, rest+"/extra"); ok {
+				t.Error("unexpectedly allowed child endpoint")
+			}
+			var hits atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if r.Method != http.MethodPost || r.URL.Path != proxyPath {
+					t.Errorf("unexpected upstream request: %s %s", r.Method, r.URL)
+				}
+				if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+					t.Error("caller credentials forwarded to CT1")
+				}
+				got, err := io.ReadAll(r.Body)
+				if err != nil || string(got) != body {
+					t.Errorf("request body changed: %s, %v", got, err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, response)
+			}))
+			defer upstream.Close()
+			h := newForwardTestHandler(t)
+			encrypted, err := h.encryptService.Encrypt([]byte("stored-v1-password"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
+			src := httptest.NewRequest(http.MethodPost, "/miners/ct1"+proxyPath, nil)
+			src.Header.Set("Authorization", "Bearer fleet-token")
+			src.Header.Set("Cookie", "fleet_session=private")
+			resp, err := h.forward(context.Background(), src, target, proxyPath, []byte(body), requiresMinerAuthentication(proxyPath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			got, err := io.ReadAll(resp.Body)
+			if err != nil || resp.StatusCode != http.StatusOK || string(got) != response {
+				t.Fatalf("command response changed: status=%d body=%s error=%v", resp.StatusCode, got, err)
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("expected one command and no login, got %d requests", hits.Load())
+			}
+		})
+	}
+}
+
+func TestCT1ModuleActionPermissionGates(t *testing.T) {
+	siteID, otherSiteID := int64(42), int64(43)
+	for _, endpoint := range []struct {
+		rest     string
+		required []string
+	}{
+		{"mining/scoped/start", []string{authz.PermMinerStartMining}},
+		{"mining/scoped/stop", []string{authz.PermMinerStopMining}},
+		{"hashboards/identify-led", []string{authz.PermMinerBlinkLED}},
+		{"mining/isolation", []string{authz.PermMinerStartMining, authz.PermMinerStopMining}},
+	} {
+		t.Run(endpoint.rest, func(t *testing.T) {
+			check := func(permissions []string, grantedSite int64) bool {
+				ctx := authn.SetInfo(context.Background(), &session.Info{UserID: 1, OrganizationID: 1})
+				ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{ScopeType: authz.ScopeSite, SiteID: &grantedSite, Permissions: permissions}}))
+				for _, permission := range permissionsFor(http.MethodPost, "/api/v2/"+endpoint.rest) {
+					if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: &siteID}); err != nil {
+						if httpStatusForError(err) != http.StatusForbidden {
+							t.Fatalf("expected forbidden, got %v", err)
+						}
+						return false
+					}
+				}
+				return true
+			}
+			if !check(endpoint.required, siteID) {
+				t.Error("required permissions should authorize the command at their assigned site")
+			}
+			if check(endpoint.required, otherSiteID) {
+				t.Error("permissions at a different site must not authorize the command")
+			}
+			if check([]string{authz.PermMinerRead, authz.PermMinerUpdatePassword}, siteID) {
+				t.Error("unrelated miner permissions must not authorize the command")
+			}
+			for i, missing := range endpoint.required {
+				remaining := append(slices.Clone(endpoint.required[:i]), endpoint.required[i+1:]...)
+				if check(remaining, siteID) {
+					t.Errorf("command allowed without %s", missing)
+				}
+			}
+		})
 	}
 }

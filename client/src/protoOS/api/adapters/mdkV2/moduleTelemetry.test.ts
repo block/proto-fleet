@@ -270,3 +270,8 @@ describe("CT1 ASIC display positions", () => {
     expect(result.asics[1].column).toBeUndefined();
   });
 });
+
+test("retains explicit isolation separately from offline health", () => {
+  const { telemetry } = normalizeModules([[{ isolated: true }]]);
+  expect([...telemetry.hashboards.values()][0]).toMatchObject({ isolated: true, health: "offline" });
+});

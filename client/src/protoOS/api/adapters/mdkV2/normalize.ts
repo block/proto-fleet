@@ -374,6 +374,7 @@ const groupBoards = <K>(boards: BoardEntry[], key: (entry: BoardEntry) => K) => 
 };
 
 const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
+  isolated: entry.board.isolated ?? false,
   hashboardId: entry.hashboardId,
   health: healthState(entry.board),
   miningStatus: boardMiningStatus(entry.board),

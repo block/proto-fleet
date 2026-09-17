@@ -102,6 +102,7 @@ const ActionBar = ({
             variant={variants.secondary}
             size={sizes.compact}
             testId="close-button"
+            ariaLabel="Clear selection"
             onClick={handleClose}
           />
           <div className="text-emphasis-300 text-grayscale-white-90">{selectionText}</div>

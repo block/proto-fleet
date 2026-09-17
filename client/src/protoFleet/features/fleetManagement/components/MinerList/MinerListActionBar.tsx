@@ -5,9 +5,9 @@ import type {
   MinerListFilter,
   MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 import { useSetActionBarVisible } from "@/protoFleet/store";
+import ActionBar from "@/shared/components/ActionBar";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 

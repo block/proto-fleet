@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { type BuildingRackHealth, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import RowActionsMenu from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useInViewport } from "@/shared/hooks/useInViewport";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerMwOrDash } from "@/shared/utils/telemetryFormat";

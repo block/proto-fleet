@@ -324,6 +324,8 @@ export interface LevelRollup extends LevelTelemetry {
 
 export interface HashboardTelemetry extends LevelTelemetry {
   hashboardId: HashboardId;
+  /** Explicit isolation reported by firmware; offline alone does not imply isolation. */
+  isolated?: boolean;
   health?: HealthState;
   miningStatus?: MiningStatus;
   /** Active errors plus warnings reported for this hashboard; null means health data is unavailable. */

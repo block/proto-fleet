@@ -1,11 +1,12 @@
 import type { MiningScope } from "@/protoOS/api/adapters/types";
 import type { ContainerTopology, HashboardTelemetry, ModuleNode, TankNode, Topology } from "@/protoOS/store/contract";
 
-export const moduleStatuses = ["attention", "offline", "sleeping", "healthy", "unknown"] as const;
+export const moduleStatuses = ["attention", "offline", "isolated", "sleeping", "healthy", "unknown"] as const;
 export type ModuleStatus = (typeof moduleStatuses)[number];
 export const statusLabels: Record<ModuleStatus, string> = {
   attention: "Needs attention",
   offline: "Offline",
+  isolated: "Isolated",
   sleeping: "Sleeping",
   healthy: "Healthy",
   unknown: "Unknown",
@@ -13,6 +14,7 @@ export const statusLabels: Record<ModuleStatus, string> = {
 
 export const boardStatus = (board: HashboardTelemetry | undefined): ModuleStatus => {
   if (!board) return "unknown";
+  if (board.isolated) return "isolated";
   if (board.health === "fault" || board.health === "degraded" || board.miningStatus === "error") return "attention";
   if (board.miningStatus === "stopped" || board.miningStatus === "curtailed") return "sleeping";
   if (board.health === "offline") return "offline";
@@ -26,6 +28,7 @@ export const moduleStatus = (boards: (HashboardTelemetry | undefined)[]): Module
   if (statuses.includes("attention")) return "attention";
   if (statuses.includes("offline")) return "offline";
   if (statuses.includes("unknown")) return "unknown";
+  if (statuses.every((status) => status === "isolated")) return "isolated";
   if (statuses.every((status) => status === "sleeping")) return "sleeping";
   return statuses.every((status) => status === "healthy") ? "healthy" : "attention";
 };

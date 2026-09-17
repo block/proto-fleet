@@ -36,6 +36,13 @@ export interface MiningScope {
   modules?: Array<{ tank: number; module: number }>;
 }
 
+/** Hashboard commands that do not require prior isolation. */
+export type HashboardAction = "start" | "stop" | "identify" | "isolate" | "clearIsolation";
+export interface HashboardActionResult {
+  accepted: number;
+  failures: Array<{ identifier: string; message: string }>;
+}
+
 export interface ModuleRunInRequest {
   taskId?: string;
   duration?: string;
@@ -204,6 +211,12 @@ export interface MinerAdapter {
     params?: AdapterRequestOptions,
   ): Promise<void>;
   clearScopedPowerTarget?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
+  /** Explicit board identities only; an empty target is never a container-wide command. */
+  runHashboardAction?(
+    action: HashboardAction,
+    identifiers: string[],
+    params?: AdapterRequestOptions,
+  ): Promise<HashboardActionResult>;
   startScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
   stopScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
   setModuleFixedVoltage?(moduleId: string, millivolts: number, params?: AdapterRequestOptions): Promise<void>;

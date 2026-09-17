@@ -27,6 +27,7 @@ import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popove
 const statusColor: Record<ModuleStatus, string> = {
   attention: "bg-intent-critical-fill",
   offline: "bg-core-accent-fill",
+  isolated: "bg-text-primary-30",
   sleeping: "bg-text-primary-30",
   healthy: "bg-text-primary",
   unknown: "border border-border-30",

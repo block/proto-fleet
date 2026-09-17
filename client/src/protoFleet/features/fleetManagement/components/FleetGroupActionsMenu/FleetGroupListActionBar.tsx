@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { type RowAction } from "../RowActionsMenu";
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import { useSetActionBarVisible } from "@/protoFleet/store";
+import ActionBar from "@/shared/components/ActionBar";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import { type RowAction } from "@/shared/components/RowActionsMenu";
 
 interface FleetGroupListActionBarProps {
   selectedScopes: GroupScope[];

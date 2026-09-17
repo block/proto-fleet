@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
@@ -82,6 +82,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const [selectedMetric, setSelectedMetric] = useState<SelectedMetric>("temperature");
 
   const navigate = useNavigate();
+  const { search } = useLocation();
 
   // Fetch latest telemetry data with polling
   // TODO: [STORE_REFACTOR] Telemetry API will give include miner and hashboard level data when we specify level=asic
@@ -92,7 +93,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   });
 
   const close = () => {
-    navigate("..", { relative: "path" });
+    navigate({ pathname: "..", search }, { relative: "path" });
   };
 
   // Get hashboard data from store

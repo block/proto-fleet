@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import InlineSelector from "@/shared/components/InlineSelector";
 
 const HashboardSelector = ({
@@ -9,11 +9,14 @@ const HashboardSelector = ({
   currentHashboard?: string;
 }) => {
   const navigate = useNavigate();
+  const { search } = useLocation();
   return (
     <InlineSelector
       items={hashboardList.map((board) => ({ id: board.serial, name: board.name }))}
       currentId={currentHashboard}
-      onSelect={(serial) => navigate(`../${encodeURIComponent(serial)}`, { replace: true, relative: "path" })}
+      onSelect={(serial) =>
+        navigate({ pathname: `../${encodeURIComponent(serial)}`, search }, { replace: true, relative: "path" })
+      }
     />
   );
 };

@@ -590,6 +590,10 @@ var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
 	{method: http.MethodGet, rest: "hashboards/*/asics", requiresAuth: false},
 	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false},
+	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false},
+	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false},
+	{method: http.MethodPost, rest: "hashboards/identify-led", requiresAuth: false},
+	{method: http.MethodPost, rest: "mining/isolation", requiresAuth: false},
 	{method: http.MethodPost, rest: "modules/*/run-in", requiresAuth: false},
 	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false},
 	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false},
@@ -679,6 +683,16 @@ func permissionsFor(method string, proxyPath string) []string {
 	}
 
 	switch {
+	case proxyPath == "/api/v2/mining/scoped/start":
+		return []string{authz.PermMinerStartMining}
+	case proxyPath == "/api/v2/mining/scoped/stop":
+		return []string{authz.PermMinerStopMining}
+	case proxyPath == "/api/v2/hashboards/identify-led":
+		return []string{authz.PermMinerBlinkLED}
+	case proxyPath == "/api/v2/mining/isolation":
+		// Clearing isolation re-aligns boards with the cluster's mining intent,
+		// which can either start or stop mining.
+		return []string{authz.PermMinerStartMining, authz.PermMinerStopMining}
 	case proxyPath == "/api/v2/mining/target-power":
 		return []string{authz.PermMinerSetPowerTarget}
 	case strings.HasPrefix(proxyPath, "/api/v2/modules/") && strings.HasSuffix(proxyPath, "/run-in") && strings.Count(proxyPath, "/") == 5:

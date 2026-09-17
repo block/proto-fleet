@@ -17,8 +17,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./routePrefetch", () => {
   const route = (label: string) => () => Promise.resolve({ default: () => <div>{label}</div> });
   return {
+    importContainerModules: () =>
+      Promise.resolve({
+        default: () => (
+          <>
+            <div>modules</div>
+            <Outlet />
+          </>
+        ),
+      }),
     importContainerHome: () => Promise.resolve({ default: ({ tab }: { tab: string }) => <div>container {tab}</div> }),
-    importContainerModules: route("modules"),
     importContainerPools: route("pool statistics"),
     importContainerTanks: route("tanks"),
     importDiagnosticView: route("systems"),
@@ -26,6 +34,7 @@ vi.mock("./routePrefetch", () => {
     importHashboardTemperature: route("hashboard temperature"),
     importHashrate: route("hashrate"),
     importLogs: route("logs"),
+    importModuleHashboardOverlay: route("module hashboard overlay"),
     importOnboarding: route("onboarding"),
     importOnboardingAuthentication: route("onboarding authentication"),
     importOnboardingMiningPool: route("onboarding mining pool"),
@@ -94,6 +103,22 @@ vi.mock("@/shared/components/ProgressCircular", () => ({
 }));
 
 describe("ProtoOS router", () => {
+  test.each(["/modules/1/2", "/modules/1/2/board-id"])("keeps the modules list behind %s", async (path) => {
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    const router = createMemoryRouter(routerConfig, { initialEntries: [path] });
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByText("modules")).toBeInTheDocument();
+    if (path.endsWith("board-id")) expect(await screen.findByText("module hashboard overlay")).toBeInTheDocument();
+  });
+
+  test("redirects rigs away from list module overlays", async () => {
+    mocks.systemInfo = { identity: { deviceType: "rig" } };
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/modules/1/2/board-id"] });
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByText("hashrate")).toBeInTheDocument();
+    expect(screen.queryByText("module hashboard overlay")).not.toBeInTheDocument();
+  });
+
   test.each(["", "/miners/ct1"])("keeps Pools scoped to containers under %s", async (root) => {
     mocks.minerRoot = root;
     mocks.systemInfo = { identity: { deviceType: "container" } };

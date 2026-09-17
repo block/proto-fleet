@@ -4,6 +4,8 @@ import type {
   AdapterProbeMatch,
   AdapterRequestOptions,
   ContainerSettings,
+  HashboardAction,
+  HashboardActionResult,
   HashboardStatus,
   MinerAdapter,
   MiningScope,
@@ -19,6 +21,7 @@ import { queryContainerHistory } from "./containerHistory";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
+  V2HashboardIdentifyLEDMode,
   V2PerformanceMode,
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
@@ -339,6 +342,42 @@ export class MdkV2Adapter implements MinerAdapter {
 
   async clearScopedPowerTarget(scope: MiningScope, params: AdapterRequestOptions = {}) {
     await this.client.miningServiceClearPowerTargetScoped({ scope }, this.decorate(params));
+  }
+
+  async runHashboardAction(
+    action: HashboardAction,
+    identifiers: string[],
+    params: AdapterRequestOptions = {},
+  ): Promise<HashboardActionResult> {
+    if (!identifiers.length || identifiers.some((id) => !id.trim())) throw new Error("No hashboards selected.");
+    const scope = { identifiers: [...new Set(identifiers)] };
+    const options = this.decorate(params);
+    if (action === "identify") {
+      const { data } = await this.client.hashboardServiceSetIdentifyLed(
+        {
+          scope,
+          mode: V2HashboardIdentifyLEDMode.HASHBOARD_IDENTIFY_LED_MODE_BLINK,
+        },
+        options,
+      );
+      return { accepted: data.boardsUpdated ?? 0, failures: [] };
+    }
+    const { data } =
+      action === "start"
+        ? await this.client.miningServiceStartMiningScoped({ scope }, options)
+        : action === "stop"
+          ? await this.client.miningServiceStopMiningScoped({ scope }, options)
+          : await this.client.miningServiceSetIsolation({ scope, isolated: action === "isolate" }, options);
+    const results = data.results ?? [];
+    return {
+      accepted: results.filter((result) => result.applied === true).length,
+      failures: results
+        .filter((result) => result.applied !== true)
+        .map((result) => ({
+          identifier: result.macAddress ?? "Unknown board",
+          message: result.message || "Command was not applied.",
+        })),
+    };
   }
 
   async startScopedMining(scope: MiningScope, params: AdapterRequestOptions = {}) {
