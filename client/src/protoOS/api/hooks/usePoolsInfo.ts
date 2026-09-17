@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
@@ -25,6 +25,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
   const authRetry = useAuthRetry();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const latestRequest = useRef(0);
   const data = useStoredPoolsInfo();
   const setPoolsInfo = useSetPoolsInfo();
   const setPoolsInfoPending = useSetPoolsInfoPending();
@@ -36,6 +37,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
 
       const performFetch = () => {
         if (signal?.aborted) return;
+        const requestId = ++latestRequest.current;
         const accept = beginStoreWrite("pools:module:root");
         accept();
         setPending(true);
@@ -68,8 +70,10 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
             onError?.(newError);
           },
         }).finally(() => {
+          // Another hook can supersede this request's shared store write, but
+          // this caller must still leave its loading state when its work ends.
+          if (requestId === latestRequest.current) setPending(false);
           if (!accept()) return;
-          setPending(false);
           setPoolsInfoPending(false);
         });
       };
