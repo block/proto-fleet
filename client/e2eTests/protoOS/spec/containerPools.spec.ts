@@ -47,6 +47,25 @@ test.describe("Container Pools", () => {
     await expect(page.getByRole("button", { name: "Add mining pools" })).toHaveCount(0);
   });
 
+  for (const endpoint of ["pools", "pools/diagnostics"]) {
+    test(`shows initial ${endpoint} failure and recovers on the shared poll`, async ({ page }) => {
+      await page.clock.install();
+      let outage = true;
+      await page.route(`**/api/v2/${endpoint}`, async (route) => {
+        if (outage) await route.fulfill({ status: 503, json: { message: "Unavailable" } });
+        else await route.continue();
+      });
+      await page.goto("/pools");
+      await expect(page.getByRole("alert")).toContainText("Could not load pool information. Retrying automatically.");
+      await expect(page.getByText("Loading pool statistics…")).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Configure pools" })).toBeVisible();
+      outage = false;
+      await page.clock.fastForward(16_000);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("98.0%");
+    });
+  }
+
   test("keeps other pools usable when one history request fails", async ({ page }) => {
     await page.route("**/api/v2/telemetry/shares/history?**", async (route) => {
       if (new URL(route.request().url()).searchParams.get("poolId") === "2") {

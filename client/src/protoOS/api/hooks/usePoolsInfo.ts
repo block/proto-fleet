@@ -4,6 +4,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
 import type { PoolInfo } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { useSetPoolsInfoError, useSetPoolsInfoPending } from "@/protoOS/store/hooks/usePools";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -26,20 +27,25 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
   const [pending, setPending] = useState<boolean>(false);
   const data = useStoredPoolsInfo();
   const setPoolsInfo = useSetPoolsInfo();
+  const setPoolsInfoPending = useSetPoolsInfoPending();
+  const setPoolsInfoError = useSetPoolsInfoError();
 
   const fetchData = useCallback(
     ({ onSuccess, onError, retryOnMinerDown, signal }: FetchPoolsInfoProps = {}) => {
       if (!adapter) return;
 
       const performFetch = () => {
+        if (signal?.aborted) return;
         const accept = beginStoreWrite("pools:module:root");
+        accept();
         setPending(true);
         setError(undefined);
-        authRetry({
+        setPoolsInfoPending(true);
+        return authRetry({
           request: (params) => adapter.getPools(params),
           signal,
           onSuccess: (sortedPools) => {
-            if (!accept()) return;
+            if (signal?.aborted || !accept()) return;
             setPoolsInfo(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {
@@ -52,25 +58,30 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
             }
           },
           onError: (e) => {
+            if (signal?.aborted || !accept()) return;
             const newError = e?.error?.message ?? "An error occurred";
             if (retryOnMinerDown) {
               setTimeout(() => performFetch(), 5000);
             }
             setError(newError);
+            setPoolsInfoError(newError);
             onError?.(newError);
           },
         }).finally(() => {
+          if (!accept()) return;
           setPending(false);
+          setPoolsInfoPending(false);
         });
       };
 
-      performFetch();
+      return performFetch();
     },
-    [adapter, authRetry, setPoolsInfo],
+    [adapter, authRetry, setPoolsInfo, setPoolsInfoError, setPoolsInfoPending],
   );
 
   usePoll({
     fetchData: (signal) => fetchData({ signal }),
+    params: adapter,
     poll,
     pollIntervalMs,
   });

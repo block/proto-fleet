@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { PoolHistoryResult } from "@/protoOS/api/adapters/poolHistory";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
-import { usePoolsInfo } from "@/protoOS/store/hooks/usePools";
+import { usePoolsInfo, usePoolsInfoResource } from "@/protoOS/store/hooks/usePools";
 import { type Duration, durations, durationToMs } from "@/shared/components/DurationSelector/constants";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -29,6 +29,7 @@ export function usePoolStatistics(duration: PoolDuration) {
   // AuthenticatedShell owns pool configuration/diagnostics polling. Read its
   // snapshot without mounting another fetching hook or starting another poll.
   const pools = usePoolsInfo();
+  const poolsResource = usePoolsInfoResource();
   const authRetry = useAuthRetry();
   const poolIdsKey = pools === undefined ? undefined : JSON.stringify(pools.map(({ id }) => id).sort());
   const params = useMemo(() => ({ adapter, duration, poolIdsKey }), [adapter, duration, poolIdsKey]);
@@ -79,10 +80,16 @@ export function usePoolStatistics(duration: PoolDuration) {
     },
   });
   const current = snapshot?.selection === params ? snapshot : undefined;
+  const poolsError =
+    poolsResource?.status === "error"
+      ? pools === undefined
+        ? "Could not load pool information. Retrying automatically."
+        : "Could not refresh pool information. Displayed pool details may be out of date."
+      : undefined;
   return {
     pools: adapter ? pools : undefined,
     history: current?.history,
-    pending: current?.pending ?? true,
-    error: current?.error,
+    pending: pools === undefined ? !poolsError : (current?.pending ?? true),
+    error: [poolsError, current?.error].filter(Boolean).join(" ") || undefined,
   };
 }

@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type PoolDuration, usePoolStatistics } from "./usePoolStatistics";
 import type { PoolHistoryResult } from "@/protoOS/api/adapters/poolHistory";
+import { usePoolsInfo as useFetchPoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { asPoolId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
@@ -30,6 +31,75 @@ describe("pool statistics lifecycle", () => {
     useMinerStore.getState().pools.setPoolsInfo([{ id: asPoolId("pool:1"), name: "Primary", priority: 0 }]);
   });
   afterEach(() => vi.useRealTimers());
+
+  it("exposes initial shared pool-fetch failure and recovers on the shell poll", async () => {
+    useMinerStore.getState().resetDeviceData();
+    mocks.adapter.getPools.mockRejectedValue({ status: 503, error: { message: "Unavailable" } });
+    mocks.adapter.getPoolHistory.mockResolvedValue(history(10));
+    const { result } = renderHook(() => {
+      useFetchPoolsInfo({ poll: true, pollIntervalMs: 15_000 });
+      return usePoolStatistics("1h");
+    });
+    await act(async () => {});
+    expect(result.current.pools).toBeUndefined();
+    expect(result.current.pending).toBe(false);
+    expect(result.current.error).toBe("Could not load pool information. Retrying automatically.");
+    expect(mocks.adapter.getPoolHistory).not.toHaveBeenCalled();
+
+    let recover!: (pools: { id: ReturnType<typeof asPoolId>; priority: number }[]) => void;
+    mocks.adapter.getPools.mockReturnValue(
+      new Promise((resolve) => {
+        recover = resolve;
+      }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(result.current.error).toContain("Could not load pool information");
+    // The shell poll waits for the in-flight request; the page doesn't add another fetch.
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.adapter.getPools).toHaveBeenCalledTimes(2);
+    await act(async () => recover([{ id: asPoolId("pool:1"), priority: 0 }]));
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.history).toEqual(history(10));
+    expect(mocks.adapter.getPoolHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains pool data and warns if the shared pool refresh fails", async () => {
+    const pools = [{ id: asPoolId("pool:1"), priority: 0 }];
+    mocks.adapter.getPools.mockResolvedValueOnce(pools).mockRejectedValue({ status: 503 });
+    mocks.adapter.getPoolHistory.mockResolvedValue(history(10));
+    const { result } = renderHook(() => {
+      useFetchPoolsInfo({ poll: true, pollIntervalMs: 15_000 });
+      return usePoolStatistics("1h");
+    });
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(result.current.pools).toEqual(pools);
+    expect(result.current.history).toEqual(history(10));
+    expect(result.current.error).toContain("Displayed pool details may be out of date");
+    mocks.adapter.getPools.mockResolvedValue(pools);
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it("does not apply a shared pool-fetch error after switching miners", async () => {
+    useMinerStore.getState().resetDeviceData();
+    let reject!: (error: unknown) => void;
+    mocks.adapter.getPools.mockReturnValue(
+      new Promise((_, no) => {
+        reject = no;
+      }),
+    );
+    const { result } = renderHook(() => {
+      useFetchPoolsInfo({ poll: true, pollIntervalMs: 15_000 });
+      return usePoolStatistics("1h");
+    });
+    await act(async () => {});
+    act(() => useMinerStore.getState().resetDeviceData());
+    await act(async () => reject({ status: 503 }));
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.pools).toBeUndefined();
+    expect(result.current.pending).toBe(true);
+  });
 
   it.each([
     ["1h", 1],
