@@ -1253,7 +1253,7 @@ describe("release channel scope synchronization", () => {
       const incoming = scopeWith(3n);
       updateChannel({ ...channel, scope: incoming }, false);
       const expected = create(ReleaseChannelScopeSchema, { ...incoming, [field]: [...ids] });
-      await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(expected, channel.id));
+      await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(expected, channel.id, expect.any(AbortSignal)));
       expect(screen.getByTestId("save-channel")).toBeEnabled();
       await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
       expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: expected }));
@@ -1282,7 +1282,7 @@ describe("release channel scope synchronization", () => {
     const incoming = scopeWith(3n);
     updateChannel({ ...channel, scope: incoming }, false);
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(incoming, channel.id));
+    await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(incoming, channel.id, expect.any(AbortSignal)));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: incoming }));

@@ -82,7 +82,7 @@ interface AcknowledgedAssignment extends AssignmentDraft {
 }
 
 function channelTextError(value: string, label: string, maxLength: number): string | undefined {
-  const submitted = value.trim();
+  const submitted = trimMinerTarget(value);
   if (submitted.includes("\u0000")) return `${label} cannot contain null characters.`;
   // Protobuf string limits count Unicode code points, not UTF-16 code units.
   if (Array.from(submitted).length > maxLength) return `${label} must be ${maxLength} characters or fewer.`;
@@ -272,7 +272,11 @@ interface ReleaseChannelManageViewProps {
   rollouts: Rollout[];
   firmwareFiles: FirmwareFileInfo[];
   minerNames: Record<string, string>;
-  previewScope: (scope: ReleaseChannelScope, channelId?: bigint) => Promise<PreviewReleaseChannelScopeResponse>;
+  previewScope: (
+    scope: ReleaseChannelScope,
+    channelId?: bigint,
+    signal?: AbortSignal,
+  ) => Promise<PreviewReleaseChannelScopeResponse>;
   listChannelMiners: (
     channelId: bigint,
     manufacturer?: string,
@@ -311,7 +315,7 @@ const ReleaseChannelManageView = ({
   const [behavior, setBehavior] = useState<RolloutBehavior>(() => channel?.behavior ?? defaultBehavior());
   const [preview, setPreview] = useState<{
     scope: ReleaseChannelScope;
-    load: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
+    load: (scope: ReleaseChannelScope, signal?: AbortSignal) => Promise<PreviewReleaseChannelScopeResponse>;
     value: PreviewReleaseChannelScopeResponse;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -345,7 +349,7 @@ const ReleaseChannelManageView = ({
 
   const channelId = channel?.id;
   const previewForChannel = useCallback(
-    (candidate: ReleaseChannelScope) => previewScope(candidate, channelId),
+    (candidate: ReleaseChannelScope, signal?: AbortSignal) => previewScope(candidate, channelId, signal),
     [previewScope, channelId],
   );
   const handlePreview = useCallback(
@@ -359,8 +363,12 @@ const ReleaseChannelManageView = ({
   if (!isSaving && savedSettings !== settingsBase) {
     setSettingsBase(savedSettings);
     if (settingsBase && savedSettings) {
-      if (name.trim() === settingsBase.name && savedSettings.name !== settingsBase.name) setName(savedSettings.name);
-      if (description.trim() === settingsBase.description && savedSettings.description !== settingsBase.description) {
+      if (trimMinerTarget(name) === settingsBase.name && savedSettings.name !== settingsBase.name)
+        setName(savedSettings.name);
+      if (
+        trimMinerTarget(description) === settingsBase.description &&
+        savedSettings.description !== settingsBase.description
+      ) {
         setDescription(savedSettings.description);
       }
       setScope(
@@ -381,8 +389,8 @@ const ReleaseChannelManageView = ({
   }
   const dirty =
     savedSettings === undefined ||
-    name.trim() !== savedSettings.name ||
-    description.trim() !== savedSettings.description ||
+    trimMinerTarget(name) !== savedSettings.name ||
+    trimMinerTarget(description) !== savedSettings.description ||
     !scopeSelectionsEqual(scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
     !equals(
       RolloutBehaviorSchema,
@@ -396,7 +404,7 @@ const ReleaseChannelManageView = ({
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
   const isWriting = isSaving || isApplying || (writeLock?.isLocked ?? false);
-  const nameError = name.trim() === "" ? "Enter a name." : channelTextError(name, "Name", 100);
+  const nameError = trimMinerTarget(name) === "" ? "Enter a name." : channelTextError(name, "Name", 100);
   const descriptionError = channelTextError(description, "Description", 1000);
   const isDelegated = behavior.method === RolloutMethod.DELEGATED;
   const canSave =
@@ -413,8 +421,8 @@ const ReleaseChannelManageView = ({
     if (writeInFlightRef.current || !canSave) return;
     if (writeLock && !writeLock.tryAcquire()) return;
     const submitted = {
-      name: name.trim(),
-      description: description.trim(),
+      name: trimMinerTarget(name),
+      description: trimMinerTarget(description),
       scope,
       behavior: rolloutBehaviorForRequest(behavior),
     };

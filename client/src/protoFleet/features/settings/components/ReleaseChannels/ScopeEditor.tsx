@@ -28,7 +28,7 @@ const toBigInts = (ids: string[]): bigint[] => ids.map((id) => BigInt(id));
 
 interface PreviewRequest {
   scope: ReleaseChannelScope;
-  load: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
+  load: (scope: ReleaseChannelScope, signal?: AbortSignal) => Promise<PreviewReleaseChannelScopeResponse>;
   attempt: number;
 }
 
@@ -41,7 +41,7 @@ interface ScopeEditorProps {
   scope: ReleaseChannelScope;
   onChange: (scope: ReleaseChannelScope) => void;
   // Resolves the scope live: miners per model and overlapping channels.
-  previewScope: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
+  previewScope: (scope: ReleaseChannelScope, signal?: AbortSignal) => Promise<PreviewReleaseChannelScopeResponse>;
   onPreview?: (preview: PreviewReleaseChannelScopeResponse | null) => void;
   editingExistingChannel?: boolean;
   disabled?: boolean;
@@ -83,11 +83,13 @@ const ScopeEditor = ({
   // results remain labeled as previous context, never as the changed scope.
   useEffect(() => {
     let cancelled = false;
+    let controller: AbortController | undefined;
     onPreview?.(null);
     if (isScopeEmpty(request.scope) || scopeValidationErrors(request.scope).length > 0) return;
     const timer = setTimeout(() => {
+      controller = new AbortController();
       request
-        .load(request.scope)
+        .load(request.scope, controller.signal)
         .then((result) => {
           if (cancelled) return;
           setLastPreview({ request, value: result });
@@ -106,6 +108,7 @@ const ScopeEditor = ({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      controller?.abort();
     };
     // onPreview is a notification callback; re-resolving when the parent
     // re-renders with a new function identity would loop.

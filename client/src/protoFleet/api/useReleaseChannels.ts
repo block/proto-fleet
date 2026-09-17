@@ -179,7 +179,11 @@ export interface ReleaseChannelsApi {
   updateChannel: (channelId: bigint, draft: ReleaseChannelDraft) => Promise<ReleaseChannel | undefined>;
   deleteChannel: (channelId: bigint) => Promise<void>;
   // Read-only: does not touch the polled state.
-  previewScope: (scope: ReleaseChannelScope, channelId?: bigint) => Promise<PreviewReleaseChannelScopeResponse>;
+  previewScope: (
+    scope: ReleaseChannelScope,
+    channelId?: bigint,
+    signal?: AbortSignal,
+  ) => Promise<PreviewReleaseChannelScopeResponse>;
   // Read-only detail lists. The server pages both; these walk every page so
   // a modal can show the whole set. Filters match observed identities
   // verbatim.
@@ -520,9 +524,24 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const previewScope = useCallback(
-    (scope: ReleaseChannelScope, channelId?: bigint) =>
-      withAuthErrors(() => rolloutClient.previewReleaseChannelScope({ scope, channelId: channelId ?? 0n })),
-    [withAuthErrors],
+    async (scope: ReleaseChannelScope, channelId?: bigint, signal?: AbortSignal) => {
+      const session = sessionRef.current;
+      const response = await withAuthErrors(
+        () =>
+          rolloutClient.previewReleaseChannelScope(
+            { scope, channelId: channelId ?? 0n },
+            { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+          ),
+        signal,
+      );
+      // A completed read can still belong to an abandoned editor or login.
+      signal?.throwIfAborted();
+      if (sessionRef.current !== session || !isCurrentSession()) {
+        throw new Error("Your session changed. Refresh the page before trying again.");
+      }
+      return response;
+    },
+    [isCurrentSession, withAuthErrors],
   );
 
   const listChannelMiners = useCallback(

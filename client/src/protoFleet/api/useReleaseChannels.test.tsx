@@ -14,6 +14,7 @@ import {
   type ListRolloutsResponse,
   ListRolloutsResponseSchema,
   PauseRolloutRequestSchema,
+  PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelMinerSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
@@ -966,6 +967,96 @@ describe("useReleaseChannels", () => {
     expect(mockListRollouts).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBeNull();
   });
+
+  it("does not send an already-aborted scope preview", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const controller = new AbortController();
+    const reason = new Error("Scope preview was replaced");
+    controller.abort(reason);
+    await expect(
+      result.current.previewScope(create(ReleaseChannelScopeSchema), undefined, controller.signal),
+    ).rejects.toBe(reason);
+    expect(mockPreviewReleaseChannelScope).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it("times out a stalled scope preview through Connect and allows retry without refreshing the snapshot", async () => {
+    capturePollingTimer();
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previous = { channels: result.current.channels, rollouts: result.current.rollouts };
+    const stalled = stalledRolloutTransport();
+    mockPreviewReleaseChannelScope.mockImplementation(stalled.client.previewReleaseChannelScope);
+    const scope = create(ReleaseChannelScopeSchema, { siteIds: [1n] });
+    const controller = new AbortController();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let rejected!: Promise<void>;
+    await act(async () => {
+      rejected = expect(result.current.previewScope(scope, 1n, controller.signal)).rejects.toMatchObject({
+        code: Code.DeadlineExceeded,
+      });
+    });
+    expect(stalled.signals).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTimeAsync(29_999));
+    expect(stalled.signals[0].aborted).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+    });
+    expect(stalled.signals[0].aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+    const preview = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 5 });
+    mockPreviewReleaseChannelScope.mockResolvedValue(preview);
+    await expect(result.current.previewScope(scope, 1n, controller.signal)).resolves.toEqual(preview);
+    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledTimes(2);
+    expect(mockPreviewReleaseChannelScope).toHaveBeenLastCalledWith(
+      { scope, channelId: 1n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
+    expect(mockListRollouts).toHaveBeenCalledOnce();
+    expect(result.current.channels).toBe(previous.channels);
+    expect(result.current.rollouts).toBe(previous.rollouts);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each(
+    (["canceled", "new login", "new login before rerender", "unmounted"] as const).flatMap((context) =>
+      (["success", "401"] as const).map((outcome) => ({ context, outcome })),
+    ),
+  )(
+    "rejects a late scope preview $outcome when $context without logging out the current session",
+    async ({ context, outcome }) => {
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const oldPreview = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 99 });
+      const response = deferred<typeof oldPreview>();
+      mockPreviewReleaseChannelScope.mockReturnValueOnce(response.promise);
+      const controller = new AbortController();
+      const reason = new Error("Scope preview was replaced");
+      const authenticationError = new ConnectError("Old preview login expired", Code.Unauthenticated);
+      const request = result.current.previewScope(create(ReleaseChannelScopeSchema), 1n, controller.signal);
+      const rejected =
+        context === "canceled"
+          ? expect(request).rejects.toBe(reason)
+          : outcome === "401"
+            ? expect(request).rejects.toBe(authenticationError)
+            : expect(request).rejects.toThrow("Your session changed");
+      if (context === "canceled") controller.abort(reason);
+      else if (context === "unmounted") unmount();
+      else {
+        mockAuth.sessionGeneration += 1;
+        if (context === "new login") {
+          rerender();
+          await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+        }
+      }
+      if (outcome === "401") response.reject(authenticationError);
+      else response.resolve(oldPreview);
+      await rejected;
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(paginatedActionCases)(
     "times out a stalled $name page through Connect and makes the modal retry usable",
@@ -2343,9 +2434,13 @@ describe("useReleaseChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     const listCalls = mockListReleaseChannels.mock.calls.length;
 
-    const preview = await result.current.previewScope({ siteIds: [1n] } as never, 7n);
+    const controller = new AbortController();
+    const preview = await result.current.previewScope({ siteIds: [1n] } as never, 7n, controller.signal);
     expect(preview.minerCount).toBe(4);
-    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledWith({ scope: { siteIds: [1n] }, channelId: 7n });
+    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledWith(
+      { scope: { siteIds: [1n] }, channelId: 7n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
     expect(mockListReleaseChannels).toHaveBeenCalledTimes(listCalls);
   });
 

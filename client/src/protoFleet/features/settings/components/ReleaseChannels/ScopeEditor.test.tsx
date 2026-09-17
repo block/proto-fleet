@@ -2,9 +2,11 @@ import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import ScopeEditor from "./ScopeEditor";
 import {
+  type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelScopeSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -72,6 +74,120 @@ beforeEach(() => {
   selections.groupIds = [];
   selections.deviceIdentifiers = [];
   vi.clearAllMocks();
+});
+
+describe("release-channel scope preview cancellation", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const tick = (ms = 300) => act(async () => vi.advanceTimersByTimeAsync(ms));
+  const deferredPreview = () => {
+    let resolve!: (value: PreviewReleaseChannelScopeResponse) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<PreviewReleaseChannelScopeResponse>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+
+  it("cancels obsolete debounce timers without starting requests", async () => {
+    const preview = vi.fn();
+    const props = { onChange: vi.fn(), previewScope: preview };
+    const { rerender, unmount } = render(<ScopeEditor {...props} scope={scope} />);
+    await tick(299);
+    expect(preview).not.toHaveBeenCalled();
+    rerender(<ScopeEditor {...props} scope={create(ReleaseChannelScopeSchema, { siteIds: [2n] })} />);
+    await tick(299);
+    expect(preview).not.toHaveBeenCalled();
+    unmount();
+    await tick();
+    expect(preview).not.toHaveBeenCalled();
+  });
+
+  it.each(["scope", "loader", "empty scope", "invalid scope", "unmount"])(
+    "aborts the old request after a changed %s and suppresses its late error",
+    async (change) => {
+      const pending = deferredPreview();
+      const result = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 6 });
+      const preview = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(result);
+      const replacement = vi.fn().mockResolvedValue(result);
+      const onPreview = vi.fn();
+      const props = { onChange: vi.fn(), previewScope: preview, onPreview, scope };
+      const { rerender, unmount } = render(<ScopeEditor {...props} />);
+      await tick();
+      const signal = preview.mock.calls[0][1] as AbortSignal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal.aborted).toBe(false);
+
+      if (change === "unmount") unmount();
+      else if (change === "loader") rerender(<ScopeEditor {...props} previewScope={replacement} />);
+      else {
+        const next = create(ReleaseChannelScopeSchema, {
+          siteIds:
+            change === "scope"
+              ? [2n]
+              : change === "invalid scope"
+                ? Array.from({ length: 101 }, (_, i) => BigInt(i + 1))
+                : [],
+        });
+        rerender(<ScopeEditor {...props} scope={next} />);
+      }
+      expect(signal.aborted).toBe(true);
+      const notifications = onPreview.mock.calls.length;
+      await act(async () => pending.reject(new ConnectError("old session expired", Code.Unauthenticated)));
+      expect(screen.queryByText(/old session expired/)).not.toBeInTheDocument();
+      expect(onPreview).toHaveBeenCalledTimes(notifications);
+      await tick();
+      if (change === "scope" || change === "loader") {
+        expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 6 miners");
+        expect(onPreview).toHaveBeenLastCalledWith(result);
+        const currentSignal = (
+          change === "scope" ? preview.mock.calls[1][1] : replacement.mock.calls[0][1]
+        ) as AbortSignal;
+        expect(currentSignal).not.toBe(signal);
+        expect(currentSignal.aborted).toBe(false);
+      } else {
+        expect(preview).toHaveBeenCalledOnce();
+        expect(onPreview).not.toHaveBeenCalledWith(result);
+      }
+    },
+  );
+
+  it("shows a deadline failure and retries with a fresh request signal", async () => {
+    const result = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 7 });
+    const retry = deferredPreview();
+    const preview = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<PreviewReleaseChannelScopeResponse>((_resolve, reject) => {
+            setTimeout(() => reject(new ConnectError("preview deadline exceeded", Code.DeadlineExceeded)), 30_000);
+          }),
+      )
+      .mockReturnValueOnce(retry.promise);
+    const onPreview = vi.fn();
+    render(<ScopeEditor scope={scope} onChange={vi.fn()} previewScope={preview} onPreview={onPreview} />);
+    await tick();
+    const firstSignal = preview.mock.calls[0][1] as AbortSignal;
+    await tick(29_999);
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving");
+    expect(screen.queryByRole("button", { name: "Retry preview" })).not.toBeInTheDocument();
+    await tick(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("preview deadline exceeded");
+    expect(onPreview).toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
+    expect(firstSignal.aborted).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving");
+    await tick();
+    const retrySignal = preview.mock.calls[1][1] as AbortSignal;
+    expect(retrySignal).not.toBe(firstSignal);
+    expect(retrySignal.aborted).toBe(false);
+    await act(async () => retry.resolve(result));
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 7 miners");
+    expect(onPreview).toHaveBeenLastCalledWith(result);
+  });
 });
 
 describe("release-channel scope bounds", () => {
@@ -191,12 +307,15 @@ describe("release-channel scope bounds", () => {
     expect(screen.queryByTestId("scope-conflicts")).not.toBeInTheDocument();
     expect(onPreview).toHaveBeenLastCalledWith(null);
     await resolvePreview();
+    const pendingSignal = preview.mock.calls[1][1] as AbortSignal;
+    expect(pendingSignal.aborted).toBe(false);
     rerender(
       <ScopeEditor
         {...props}
         scope={create(ReleaseChannelScopeSchema, { siteIds: Array.from({ length: 101 }, (_, i) => BigInt(i + 1)) })}
       />,
     );
+    expect(pendingSignal.aborted).toBe(true);
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("Last valid preview: 1 site · covers 5 miners");
     expect(screen.getByTestId("scope-preview")).not.toHaveTextContent("Other channel");
     await act(async () => finishPending(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 999 })));
@@ -232,7 +351,7 @@ describe("release-channel scope permissions", () => {
     permissions.add("site:read");
     const onChange = vi.fn();
     render(<ScopeEditor scope={scope} onChange={onChange} previewScope={previewScope} editingExistingChannel />);
-    await waitFor(() => expect(previewScope).toHaveBeenCalledWith(scope));
+    await waitFor(() => expect(previewScope).toHaveBeenCalledWith(scope, expect.any(AbortSignal)));
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("1 site, 1 building, 1 rack, 1 group, 1 miner");
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));

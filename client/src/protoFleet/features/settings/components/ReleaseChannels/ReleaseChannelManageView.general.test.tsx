@@ -5,7 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { canaryChannel } from "./ReleaseChannels.fixtures";
 import { PreviewReleaseChannelScopeResponseSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import type { ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
+import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   SiteSelectionModal: () => null,
@@ -19,23 +19,26 @@ vi.mock("@/shared/features/toaster", () => ({
   STATUSES: { success: "success", error: "error" },
 }));
 
-function renderManage() {
+function renderManage(channel: ChannelView = canaryChannel) {
   const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(undefined);
   const onApply = vi.fn().mockResolvedValue(undefined);
-  render(
-    <ReleaseChannelManageView
-      channel={canaryChannel}
-      rollouts={[]}
-      firmwareFiles={[]}
-      minerNames={{}}
-      previewScope={vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema))}
-      listChannelMiners={vi.fn().mockResolvedValue([])}
-      listRolloutDevices={vi.fn().mockResolvedValue([])}
-      onSave={onSave}
-      onApply={onApply}
-    />,
-  );
-  return { onSave, onApply };
+  const props = {
+    channel,
+    rollouts: [],
+    firmwareFiles: [],
+    minerNames: {},
+    previewScope: vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
+    listChannelMiners: vi.fn().mockResolvedValue([]),
+    listRolloutDevices: vi.fn().mockResolvedValue([]),
+    onSave,
+    onApply,
+  };
+  const { rerender } = render(<ReleaseChannelManageView {...props} />);
+  return {
+    onSave,
+    onApply,
+    updateChannel: (next: ChannelView) => rerender(<ReleaseChannelManageView {...props} channel={next} />),
+  };
 }
 
 beforeEach(() => {
@@ -52,7 +55,7 @@ describe("release channel name and description validation", () => {
   ])("validates trimmed $label by Unicode code points: $limit", async ({ label, field, valid, limit }) => {
     const { onSave } = renderManage();
     const input = screen.getByLabelText(label);
-    const invalid = `  ${valid}x  `;
+    const invalid = ` \u0085${valid}x\u0085 `;
     fireEvent.change(input, { target: { value: invalid } });
 
     expect(input).toHaveValue(invalid);
@@ -61,12 +64,56 @@ describe("release channel name and description validation", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
     expect(onSave).not.toHaveBeenCalled();
-    fireEvent.change(input, { target: { value: `  ${valid}  ` } });
+    fireEvent.change(input, { target: { value: ` \u0085${valid}\u0085 ` } });
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
 
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ [field]: valid }));
+  });
+
+  it.each([
+    { label: "Name", field: "name", value: "\uFEFF", limit: 100 },
+    { label: "Description", field: "description", value: "\uFEFF", limit: 1000 },
+  ])("preserves BOM in $label and includes it in length validation", async ({ label, field, value, limit }) => {
+    const { onSave } = renderManage();
+    const input = screen.getByLabelText(label);
+    fireEvent.change(input, { target: { value: value + "x".repeat(limit) } });
+    expect(screen.getByText(`${label} must be ${limit} characters or fewer.`)).toBeVisible();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.change(input, { target: { value } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ [field]: value }));
+    expect(input).toHaveValue(value);
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+  });
+
+  it("uses Go trimming for dirty state and rebases untouched name and description fields", async () => {
+    const channel = { ...canaryChannel, name: "\uFEFFCanary", description: "\uFEFFDescription" };
+    const { onSave, updateChannel } = renderManage(channel);
+    const name = screen.getByLabelText("Name");
+    const description = screen.getByLabelText("Description");
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeDisabled();
+    fireEvent.change(name, { target: { value: `\u0085${channel.name}\u0085` } });
+    fireEvent.change(description, { target: { value: `\u0085${channel.description}\u0085` } });
+    expect(save).toBeDisabled();
+    updateChannel({ ...channel, name: "Remote", description: "Remote description" });
+    expect(name).toHaveValue("Remote");
+    expect(description).toHaveValue("Remote description");
+    expect(save).toBeDisabled();
+    fireEvent.change(name, { target: { value: "\u0085Local\u0085" } });
+    fireEvent.change(description, { target: { value: "\u0085\u0085" } });
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Local", description: "" }));
+    expect(save).toBeDisabled();
+    updateChannel({ ...channel, name: "Local", description: "" });
+    expect(save).toBeDisabled();
+    updateChannel({ ...channel, name: "Next", description: "Next description" });
+    expect(name).toHaveValue("Next");
+    expect(description).toHaveValue("Next description");
+    expect(save).toBeDisabled();
   });
 
   it.each(["Name", "Description"])("rejects null characters in %s without discarding the text", (label) => {
@@ -83,6 +130,7 @@ describe("release channel name and description validation", () => {
 
   it.each([
     { label: "Name", value: "   " },
+    { label: "Name", value: "\u0085" },
     { label: "Name", value: "n".repeat(101) },
     { label: "Description", value: "d".repeat(1001) },
   ])("blocks invalid $label but lets firmware Apply use saved settings", async ({ label, value }) => {
