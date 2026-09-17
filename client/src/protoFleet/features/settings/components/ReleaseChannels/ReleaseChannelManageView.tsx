@@ -19,7 +19,7 @@ import {
   rolloutProgressSummary,
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
-import { scopeValidationErrors } from "./scopeUtils";
+import { rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelMiner,
@@ -337,13 +337,13 @@ const ReleaseChannelManageView = ({
       if (description.trim() === settingsBase.description && savedSettings.description !== settingsBase.description) {
         setDescription(savedSettings.description);
       }
-      const incomingScope = savedSettings.scope ?? create(ReleaseChannelScopeSchema);
-      if (
-        equals(ReleaseChannelScopeSchema, scope, settingsBase.scope ?? create(ReleaseChannelScopeSchema)) &&
-        !equals(ReleaseChannelScopeSchema, scope, incomingScope)
-      ) {
-        setScope(incomingScope);
-      }
+      setScope(
+        rebaseScope(
+          scope,
+          settingsBase.scope ?? create(ReleaseChannelScopeSchema),
+          savedSettings.scope ?? create(ReleaseChannelScopeSchema),
+        ),
+      );
       setBehavior(
         rebaseBehavior(
           behavior,
@@ -357,7 +357,7 @@ const ReleaseChannelManageView = ({
     savedSettings === undefined ||
     name.trim() !== savedSettings.name ||
     description.trim() !== savedSettings.description ||
-    !equals(ReleaseChannelScopeSchema, scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
+    !scopeSelectionsEqual(scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
     !equals(
       RolloutBehaviorSchema,
       behaviorForComparison(behavior),

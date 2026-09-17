@@ -5,9 +5,11 @@ import { create } from "@bufbuild/protobuf";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
+  type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
+  ReleaseChannelScopeSchema,
   RolloutAutomationThresholdsSchema,
   RolloutBehaviorSchema,
   RolloutMethod,
@@ -26,11 +28,25 @@ vi.mock("@/protoFleet/store", async (importOriginal) => ({
 // selection modals' fleet-data loading is outside this save-flow regression.
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   SiteSelectionModal: ({ open, onSave }: { open: boolean; onSave: (selection: { siteIds: string[] }) => void }) =>
-    open ? <button onClick={() => onSave({ siteIds: ["2"] })}>Choose site 2</button> : null,
-  BuildingSelectionModal: () => null,
-  RackSelectionModal: () => null,
-  GroupSelectionModal: () => null,
-  MinerSelectionModal: () => null,
+    open ? (
+      <>
+        <button onClick={() => onSave({ siteIds: ["2"] })}>Choose site 2</button>
+        <button onClick={() => onSave({ siteIds: [] })}>Clear sites</button>
+        <button onClick={() => onSave({ siteIds: ["2", "1"] })}>Choose sites 2 and 1</button>
+      </>
+    ) : null,
+  BuildingSelectionModal: ({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(["2"])}>Choose building 2</button>
+  ),
+  RackSelectionModal: ({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(["2"])}>Choose rack 2</button>
+  ),
+  GroupSelectionModal: ({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(["2"])}>Choose group 2</button>
+  ),
+  MinerSelectionModal: ({ onSave }: { onSave: (selection: { selectedMinerIds: string[] }) => void }) => (
+    <button onClick={() => onSave({ selectedMinerIds: ["miner-2"] })}>Choose miner 2</button>
+  ),
 }));
 
 vi.mock("@/shared/features/toaster", () => ({
@@ -1002,6 +1018,126 @@ describe("effective release channel behavior", () => {
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "" } });
     expect(save).toBeEnabled();
+  });
+});
+
+describe("release channel scope synchronization", () => {
+  const scopeWith = (id: bigint) =>
+    create(ReleaseChannelScopeSchema, {
+      siteIds: [id],
+      buildingIds: [id],
+      rackIds: [id],
+      groupIds: [id],
+      deviceIdentifiers: [`miner-${id}`],
+    });
+  const choose = (dimension: string, selection: string) => {
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${dimension} `) }));
+    fireEvent.click(screen.getByRole("button", { name: selection }));
+  };
+
+  test.each([
+    ["Sites", "siteIds", "Choose site 2", [2n]],
+    ["Buildings", "buildingIds", "Choose building 2", [2n]],
+    ["Racks", "rackIds", "Choose rack 2", [2n]],
+    ["Groups", "groupIds", "Choose group 2", [2n]],
+    ["Miners", "deviceIdentifiers", "Choose miner 2", ["miner-2"]],
+  ] as const)(
+    "keeps a local %s edit while accepting other scope dimensions from polling",
+    async (label, field, selection, ids) => {
+      const channel = { ...existingChannel(), scope: scopeWith(1n) };
+      const { onSave, updateChannel, previewScope } = renderManage(channel);
+      choose(label, selection);
+      const incoming = scopeWith(3n);
+      updateChannel({ ...channel, scope: incoming }, false);
+      const expected = create(ReleaseChannelScopeSchema, { ...incoming, [field]: [...ids] });
+      await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(expected, channel.id));
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
+      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: expected }));
+    },
+  );
+
+  test("preserves a local scope clear while accepting remote additions and removals", async () => {
+    const channel = { ...existingChannel(), scope: scopeWith(1n) };
+    const { onSave, updateChannel } = renderManage(channel);
+    choose("Sites", "Clear sites");
+    const incoming = create(ReleaseChannelScopeSchema, { ...scopeWith(3n), rackIds: [], deviceIdentifiers: [] });
+    updateChannel({ ...channel, scope: incoming }, false);
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        scope: create(ReleaseChannelScopeSchema, { ...incoming, siteIds: [] }),
+      }),
+    );
+  });
+
+  test("treats selector reordering as unchanged and accepts a later remote edit to that dimension", async () => {
+    const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
+    const { onSave, updateChannel, previewScope } = renderManage(channel);
+    choose("Sites", "Choose sites 2 and 1");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    const incoming = scopeWith(3n);
+    updateChannel({ ...channel, scope: incoming }, false);
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(incoming, channel.id));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: incoming }));
+  });
+
+  test("rebases a recovered scope against the acknowledged save while retaining edits made during Save", async () => {
+    const channel = { ...existingChannel(), scope: scopeWith(1n) };
+    const write = deferredWrite();
+    const onSave = vi
+      .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { updateChannel } = renderManage(channel, onSave);
+    choose("Sites", "Choose site 2");
+    fireEvent.click(screen.getByTestId("save-channel"));
+    choose("Buildings", "Choose building 2");
+    updateChannel(channel, true);
+    await act(async () => write.resolve());
+    expect(onSave.mock.calls[0][0].scope).toEqual(
+      create(ReleaseChannelScopeSchema, { ...channel.scope, siteIds: [2n] }),
+    );
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    const incoming = scopeWith(3n);
+    updateChannel({ ...channel, scope: incoming }, false);
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave.mock.calls[1][0].scope).toEqual(
+      create(ReleaseChannelScopeSchema, { ...incoming, buildingIds: [2n] }),
+    );
+  });
+
+  test("keeps a pending preview when polling changes only selector order", async () => {
+    const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
+    const { previewScope, updateChannel } = renderManage(channel);
+    let finishPreview!: (preview: PreviewReleaseChannelScopeResponse) => void;
+    previewScope.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishPreview = resolve;
+      }),
+    );
+    await waitFor(() => expect(previewScope).toHaveBeenCalledOnce());
+    updateChannel({ ...channel, scope: create(ReleaseChannelScopeSchema, { siteIds: [2n, 1n] }) }, false);
+    await act(async () => finishPreview(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 42 })));
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 42 miners");
+    expect(previewScope).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+  });
+
+  test("treats an absent remote scope as empty dimensions while retaining a local edit", async () => {
+    const channel = { ...existingChannel(), scope: scopeWith(1n) };
+    const { onSave, updateChannel } = renderManage(channel);
+    choose("Sites", "Choose site 2");
+    updateChannel({ ...channel, scope: undefined }, false);
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        scope: create(ReleaseChannelScopeSchema, { siteIds: [2n] }),
+      }),
+    );
   });
 });
 

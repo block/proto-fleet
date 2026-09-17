@@ -1,5 +1,40 @@
-import type { ReleaseChannelScope } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { create } from "@bufbuild/protobuf";
+
+import { type ReleaseChannelScope, ReleaseChannelScopeSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+
+// Scope selectors are sets; the server deduplicates and sorts their IDs.
+const sameSelection = (left: readonly (bigint | string)[], right: readonly (bigint | string)[]): boolean => {
+  const leftIds = new Set(left);
+  const rightIds = new Set(right);
+  return leftIds.size === rightIds.size && [...leftIds].every((id) => rightIds.has(id));
+};
+
+export function scopeSelectionsEqual(left: ReleaseChannelScope, right: ReleaseChannelScope): boolean {
+  return (["siteIds", "buildingIds", "rackIds", "groupIds", "deviceIdentifiers"] as const).every((field) =>
+    sameSelection(left[field], right[field]),
+  );
+}
+
+// Preserve each locally edited selector while accepting remote changes to the
+// others. A concurrent edit to the same selector leaves that local choice intact.
+export function rebaseScope(
+  draft: ReleaseChannelScope,
+  previous: ReleaseChannelScope,
+  incoming: ReleaseChannelScope,
+): ReleaseChannelScope {
+  const keepLocal = <T extends bigint | string>(local: T[], base: T[], remote: T[]): T[] =>
+    sameSelection(local, base) ? remote : local;
+  const merged = create(ReleaseChannelScopeSchema, {
+    siteIds: keepLocal(draft.siteIds, previous.siteIds, incoming.siteIds),
+    buildingIds: keepLocal(draft.buildingIds, previous.buildingIds, incoming.buildingIds),
+    rackIds: keepLocal(draft.rackIds, previous.rackIds, incoming.rackIds),
+    groupIds: keepLocal(draft.groupIds, previous.groupIds, incoming.groupIds),
+    deviceIdentifiers: keepLocal(draft.deviceIdentifiers, previous.deviceIdentifiers, incoming.deviceIdentifiers),
+  });
+  // Equivalent polls should not invalidate or restart an in-flight scope preview.
+  return scopeSelectionsEqual(draft, merged) ? draft : merged;
+}
 
 // Repeated-field bounds from ReleaseChannelScope apply to both preview and
 // writes. Keep every selected ID so operators can reduce an oversized draft.
