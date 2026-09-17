@@ -157,6 +157,28 @@ class PlanIndexTest(unittest.TestCase):
         with self.assertRaisesRegex(plan_index.PlanIndexError, "duplicate.*status"):
             plan_index.parse_plan(path, self.plans_dir)
 
+    def test_rejects_frontmatter_line_without_colon(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="draft")
+        contents = path.read_text(encoding="utf-8")
+        path.write_text(
+            contents.replace("tracker: ", "tracker missing"),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "malformed.*tracker"):
+            plan_index.parse_plan(path, self.plans_dir)
+
+    def test_rejects_quoted_frontmatter_key(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="draft")
+        contents = path.read_text(encoding="utf-8")
+        path.write_text(
+            contents.replace("status: draft", 'status: draft\n"status": completed'),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "quoted.*status"):
+            plan_index.parse_plan(path, self.plans_dir)
+
     def test_rejects_indented_nested_frontmatter(self) -> None:
         path = self.write_plan("2026-09-17-example-plan.md", status="completed")
         contents = path.read_text(encoding="utf-8")

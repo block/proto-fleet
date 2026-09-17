@@ -105,6 +105,36 @@ for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antmi
   done
 done
 
+for plan_path in 'docs/plans/**' scripts/plan_index.py scripts/plan_index_test.py \
+  '.agents/skills/plan/**' '.agents/skills/plan-conventions/**' AGENTS.md justfile; do
+  if ! jq -e --arg path "$plan_path" \
+    '."changed-checks".commands["plan-hygiene"].glob | index($path)' \
+    <<<"$lefthook_config" >/dev/null; then
+    echo "Plan hygiene does not run for: $plan_path" >&2
+    exit 1
+  fi
+done
+
+if [ "$(jq -r '."changed-checks".commands["plan-hygiene"].run' \
+  <<<"$lefthook_config")" != "just check-plan-hygiene" ]; then
+  echo "Changed-path plan hygiene must use the canonical just recipe" >&2
+  exit 1
+fi
+
+plan_index_recipe="$(just --dry-run plan-index 2>&1)"
+if [[ "$plan_index_recipe" != *'scripts/plan_index.py --write'* ]]; then
+  echo "Plan index recipe does not regenerate the inventory" >&2
+  exit 1
+fi
+
+plan_check_recipe="$(just --dry-run check-plan-hygiene 2>&1)"
+for check_command in 'scripts/plan_index_test.py' 'scripts/plan_index.py --check'; do
+  if [[ "$plan_check_recipe" != *"$check_command"* ]]; then
+    echo "Plan hygiene recipe omits: $check_command" >&2
+    exit 1
+  fi
+done
+
 client_init_recipe="$(just --dry-run _client-init 2>&1)"
 client_init_fingerprint="${client_init_recipe%%$'\nif [ "false" != true ]'*}"
 for install_input in client/package.json client/package-lock.json client/.npmrc; do

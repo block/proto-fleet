@@ -194,6 +194,17 @@ changed-checks:
         - "scripts/check-changed_test.sh"
       run: just test-developer-workflows
 
+    plan-hygiene:
+      glob:
+        - "docs/plans/**"
+        - "scripts/plan_index.py"
+        - "scripts/plan_index_test.py"
+        - ".agents/skills/plan/**"
+        - ".agents/skills/plan-conventions/**"
+        - "AGENTS.md"
+        - "justfile"
+      run: just check-plan-hygiene
+
 pre-push:
   commands:
     changed-path-checks:

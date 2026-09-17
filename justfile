@@ -30,6 +30,15 @@ test-developer-workflows:
   scripts/check-changed_test.sh
   just --list >/dev/null
 
+# regenerate the planning-doc inventory
+plan-index:
+  python3 scripts/plan_index.py --write
+
+# test plan lifecycle validation and verify the generated inventory
+check-plan-hygiene:
+  python3 scripts/plan_index_test.py
+  python3 scripts/plan_index.py --check
+
 # run all code generation
 gen: gen-protos gen-db-queries gen-go
   just _format-client
