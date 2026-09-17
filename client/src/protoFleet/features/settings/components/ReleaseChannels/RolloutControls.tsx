@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { type ReactElement, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -7,9 +7,10 @@ import {
   methodOptions,
   orderOptions,
   planReadout,
-  rolloutSizeError,
+  rolloutBehaviorErrors,
+  type RolloutNumericField,
 } from "./behaviorUtils";
-import { methodHelpText } from "./rolloutStatus";
+import { methodHelpText, methodLabels } from "./rolloutStatus";
 import {
   type RolloutAutomationThresholds,
   RolloutAutomationThresholdsSchema,
@@ -22,14 +23,22 @@ import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
 
-const parseInt0 = (text: string): number => Math.max(0, Number.parseInt(text, 10) || 0);
-const parseOptionalNumber = (text: string): number | undefined => {
+const parseNumberDraft = (text: string, optional: boolean, scale: number): number | undefined => {
   const trimmed = text.trim();
-  if (trimmed === "") return undefined;
-  const n = Number.parseFloat(trimmed);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  if (trimmed === "") return optional ? undefined : 0;
+  // Parse the whole decimal value; malformed input remains invalid rather
+  // than silently removing a limit or accepting only its numeric prefix.
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) return Number.NaN;
+  const value = Number(trimmed) * scale;
+  if (scale !== 1 && Number.isFinite(value)) {
+    // Minute/second conversion may land one representable step from an
+    // integer (2.05 minutes -> 122.99999999999999 seconds). Correct only
+    // floating-point roundoff; actual fractional seconds remain invalid.
+    const seconds = Math.round(value);
+    if (Math.abs(seconds - value) <= Number.EPSILON * Math.abs(value) * 4) return seconds;
+  }
+  return value;
 };
-const optionalText = (n: number | undefined): string => (n === undefined ? "" : String(n));
 
 interface RolloutControlsProps {
   behavior: RolloutBehavior;
@@ -37,6 +46,8 @@ interface RolloutControlsProps {
   // Miners the channel currently covers, for the plan readout.
   inScopeCount?: number;
   disabled?: boolean;
+  // Existing delegated channels can switch back before saving another method.
+  allowDelegated?: boolean;
 }
 
 // The "Update behavior" controls, per the release channels design: Method,
@@ -48,7 +59,11 @@ const RolloutControls = ({
   onChange,
   inScopeCount = 0,
   disabled = false,
+  allowDelegated = false,
 }: RolloutControlsProps): ReactElement => {
+  // Keep raw text above the conditionally mounted fields so hidden invalid
+  // edits survive method/gate changes and never become an intentional unset.
+  const [numberText, setNumberText] = useState<Partial<Record<RolloutNumericField, string>>>({});
   const update = (patch: Partial<RolloutBehavior>) =>
     onChange(create(RolloutBehaviorSchema, { ...behavior, ...patch }));
   const updateThresholds = (patch: Partial<RolloutAutomationThresholds>) =>
@@ -59,8 +74,35 @@ const RolloutControls = ({
   const batched = behavior.method === RolloutMethod.BATCHED;
   const pilot = behavior.method === RolloutMethod.PILOT_THEN_CONTINUE;
   const gates = gatesAfterBatch(behavior);
-  const readout = planReadout(behavior, inScopeCount);
-  const sizeError = rolloutSizeError(behavior);
+  const errors = rolloutBehaviorErrors(behavior);
+  const readout = errors.batchSize || errors.pilotSize ? null : planReadout(behavior, inScopeCount);
+  const numericInput = (
+    field: RolloutNumericField,
+    value: number | undefined,
+    onNumberChange: (value: number | undefined) => void,
+    optional = false,
+    scale = 1,
+  ) => ({
+    type: "text",
+    inputMode: "decimal" as const,
+    initValue: numberText[field] ?? (value === undefined ? "" : String(value / scale)),
+    error: errors[field],
+    onChange: (text: string) => {
+      setNumberText((current) => ({ ...current, [field]: text }));
+      onNumberChange(parseNumberDraft(text, optional, scale));
+    },
+  });
+  const availableMethods =
+    allowDelegated || behavior.method === RolloutMethod.DELEGATED
+      ? [
+          ...methodOptions,
+          {
+            value: String(RolloutMethod.DELEGATED),
+            label: methodLabels[RolloutMethod.DELEGATED],
+            description: methodHelpText[RolloutMethod.DELEGATED],
+          },
+        ]
+      : methodOptions;
 
   return (
     <div className="flex flex-col gap-4" data-testid="rollout-controls">
@@ -68,7 +110,7 @@ const RolloutControls = ({
         <Select
           id="rollout-method"
           label="Method"
-          options={methodOptions}
+          options={availableMethods}
           value={String(behavior.method === RolloutMethod.UNSPECIFIED ? RolloutMethod.ALL_AT_ONCE : behavior.method)}
           onChange={(value) => update({ method: Number(value) as RolloutMethod })}
           disabled={disabled}
@@ -98,20 +140,14 @@ const RolloutControls = ({
             <Input
               id="pilot-size"
               label="Pilot batch size (miners)"
-              type="number"
-              initValue={behavior.pilotSize}
-              onChange={(value) => update({ pilotSize: parseInt0(value) })}
-              error={sizeError}
+              {...numericInput("pilotSize", behavior.pilotSize, (value) => update({ pilotSize: value ?? 0 }))}
               disabled={disabled}
             />
           ) : (
             <Input
               id="batch-size"
               label="Batch size (miners)"
-              type="number"
-              initValue={behavior.batchSize}
-              onChange={(value) => update({ batchSize: parseInt0(value) })}
-              error={sizeError}
+              {...numericInput("batchSize", behavior.batchSize, (value) => update({ batchSize: value ?? 0 }))}
               disabled={disabled}
             />
           )}
@@ -119,9 +155,13 @@ const RolloutControls = ({
             <Input
               id="wait-between-batches"
               label="Wait between batches (minutes)"
-              type="number"
-              initValue={Math.round(behavior.waitBetweenBatchesSeconds / 60)}
-              onChange={(value) => update({ waitBetweenBatchesSeconds: parseInt0(value) * 60 })}
+              {...numericInput(
+                "waitBetweenBatchesSeconds",
+                behavior.waitBetweenBatchesSeconds,
+                (value) => update({ waitBetweenBatchesSeconds: value ?? 0 }),
+                false,
+                60,
+              )}
               disabled={disabled}
             />
           ) : null}
@@ -167,44 +207,57 @@ const RolloutControls = ({
                 <Input
                   id="max-hashrate-drop"
                   label="Max hashrate drop (%)"
-                  type="number"
-                  initValue={optionalText(thresholds.maxHashrateDropPercent)}
-                  onChange={(value) => updateThresholds({ maxHashrateDropPercent: parseOptionalNumber(value) })}
+                  {...numericInput(
+                    "maxHashrateDropPercent",
+                    thresholds.maxHashrateDropPercent,
+                    (value) => updateThresholds({ maxHashrateDropPercent: value }),
+                    true,
+                  )}
                   disabled={disabled}
                 />
                 <Input
                   id="max-efficiency-increase"
                   label="Max efficiency increase (%)"
-                  type="number"
-                  initValue={optionalText(thresholds.maxEfficiencyIncreasePercent)}
-                  onChange={(value) => updateThresholds({ maxEfficiencyIncreasePercent: parseOptionalNumber(value) })}
+                  {...numericInput(
+                    "maxEfficiencyIncreasePercent",
+                    thresholds.maxEfficiencyIncreasePercent,
+                    (value) => updateThresholds({ maxEfficiencyIncreasePercent: value }),
+                    true,
+                  )}
                   disabled={disabled}
                 />
                 <Input
                   id="max-temp-increase"
                   label="Max temp increase (°C)"
-                  type="number"
-                  initValue={optionalText(thresholds.maxTemperatureIncreaseCelsius)}
-                  onChange={(value) => updateThresholds({ maxTemperatureIncreaseCelsius: parseOptionalNumber(value) })}
+                  {...numericInput(
+                    "maxTemperatureIncreaseCelsius",
+                    thresholds.maxTemperatureIncreaseCelsius,
+                    (value) => updateThresholds({ maxTemperatureIncreaseCelsius: value }),
+                    true,
+                  )}
                   disabled={disabled}
                 />
                 <Input
                   id="max-errors"
                   label="Max errors"
-                  type="number"
-                  initValue={optionalText(thresholds.maxNewErrors)}
-                  onChange={(value) => {
-                    const n = parseOptionalNumber(value);
-                    updateThresholds({ maxNewErrors: n === undefined ? undefined : Math.round(n) });
-                  }}
+                  {...numericInput(
+                    "maxNewErrors",
+                    thresholds.maxNewErrors,
+                    (value) => updateThresholds({ maxNewErrors: value }),
+                    true,
+                  )}
                   disabled={disabled}
                 />
                 <Input
                   id="stabilization-minutes"
                   label="Wait for telemetry (minutes)"
-                  type="number"
-                  initValue={Math.round(behavior.stabilizationSeconds / 60)}
-                  onChange={(value) => update({ stabilizationSeconds: parseInt0(value) * 60 })}
+                  {...numericInput(
+                    "stabilizationSeconds",
+                    behavior.stabilizationSeconds,
+                    (value) => update({ stabilizationSeconds: value ?? 0 }),
+                    false,
+                    60,
+                  )}
                   disabled={disabled}
                 />
               </div>
@@ -216,9 +269,9 @@ const RolloutControls = ({
       <Input
         id="max-concurrent-offline"
         label="Max miners offline at once (0 for no limit)"
-        type="number"
-        initValue={behavior.maxConcurrentOffline}
-        onChange={(value) => update({ maxConcurrentOffline: parseInt0(value) })}
+        {...numericInput("maxConcurrentOffline", behavior.maxConcurrentOffline, (value) =>
+          update({ maxConcurrentOffline: value ?? 0 }),
+        )}
         disabled={disabled}
       />
     </div>

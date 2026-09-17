@@ -35,23 +35,69 @@ export const orderOptions = [RolloutOrder.LEAST_EFFICIENT_FIRST, RolloutOrder.RA
 export const isPacedMethod = (method: RolloutMethod): boolean =>
   method === RolloutMethod.BATCHED || method === RolloutMethod.PILOT_THEN_CONTINUE;
 
-// Only the selected method's size is sent to the server. Retained values
-// for hidden fields must not prevent saving another method.
-export const rolloutSizeError = (behavior: RolloutBehavior): string | undefined => {
-  const size =
-    behavior.method === RolloutMethod.BATCHED
-      ? behavior.batchSize
-      : behavior.method === RolloutMethod.PILOT_THEN_CONTINUE
-        ? behavior.pilotSize
-        : undefined;
-  return size !== undefined && size < 1 ? "Enter at least 1 miner." : undefined;
-};
-
 // Whether a finished batch holds for review (and so whether auto-continue
 // and its thresholds apply).
 export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>
   behavior.method === RolloutMethod.PILOT_THEN_CONTINUE ||
   (behavior.method === RolloutMethod.BATCHED && behavior.reviewAfterEachBatch);
+
+export type RolloutNumericField =
+  | "batchSize"
+  | "pilotSize"
+  | "waitBetweenBatchesSeconds"
+  | "stabilizationSeconds"
+  | "maxConcurrentOffline"
+  | "maxHashrateDropPercent"
+  | "maxEfficiencyIncreasePercent"
+  | "maxTemperatureIncreaseCelsius"
+  | "maxNewErrors";
+
+const MAX_INT32 = 2_147_483_647;
+const integerError = (value: number, minimum = 0): string | undefined => {
+  if (minimum === 1 && value < 1) return "Enter at least 1 miner.";
+  return Number.isInteger(value) && value >= minimum && value <= MAX_INT32
+    ? undefined
+    : `Enter a whole number from ${minimum} to 2,147,483,647.`;
+};
+
+// Validate only fields the selected method will send. Hidden draft values stay
+// available for correction if the operator switches back to that method.
+export function rolloutBehaviorErrors(behavior: RolloutBehavior): Partial<Record<RolloutNumericField, string>> {
+  const errors: Partial<Record<RolloutNumericField, string>> = {};
+  const checkInteger = (field: RolloutNumericField, value: number, minimum = 0) => {
+    const error = integerError(value, minimum);
+    if (error) errors[field] = error;
+  };
+  const checkDuration = (field: "waitBetweenBatchesSeconds" | "stabilizationSeconds", value: number) => {
+    if (integerError(value)) {
+      errors[field] = "Enter a duration in whole seconds from 0 to 2,147,483,647 seconds.";
+    }
+  };
+  checkInteger("maxConcurrentOffline", behavior.maxConcurrentOffline);
+  if (behavior.method === RolloutMethod.BATCHED) {
+    checkInteger("batchSize", behavior.batchSize, 1);
+    if (!behavior.reviewAfterEachBatch) checkDuration("waitBetweenBatchesSeconds", behavior.waitBetweenBatchesSeconds);
+  }
+  if (behavior.method === RolloutMethod.PILOT_THEN_CONTINUE) checkInteger("pilotSize", behavior.pilotSize, 1);
+  if (gatesAfterBatch(behavior) && behavior.autoContinueOnHealthyTelemetry) {
+    checkDuration("stabilizationSeconds", behavior.stabilizationSeconds);
+    const thresholds = behavior.thresholds;
+    for (const field of [
+      "maxHashrateDropPercent",
+      "maxEfficiencyIncreasePercent",
+      "maxTemperatureIncreaseCelsius",
+    ] as const) {
+      const value = thresholds?.[field];
+      if (value === undefined) continue;
+      if (!Number.isFinite(value) || value < 0 || (field === "maxHashrateDropPercent" && value > 100)) {
+        errors[field] =
+          field === "maxHashrateDropPercent" ? "Enter a number from 0 to 100." : "Enter a finite number of 0 or more.";
+      }
+    }
+    if (thresholds?.maxNewErrors !== undefined) checkInteger("maxNewErrors", thresholds.maxNewErrors);
+  }
+  return errors;
+}
 
 // Live plan readout: "~3 batches of 10" for the miners currently in scope.
 export function planReadout(behavior: RolloutBehavior, inScopeCount: number): string | null {

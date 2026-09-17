@@ -215,9 +215,9 @@ describe("release channel pacing guidance", () => {
         "Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel.",
       ),
     ).toBeInTheDocument();
-    if (method === RolloutMethod.BATCHED) expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(10);
+    if (method === RolloutMethod.BATCHED) expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("10");
     if (method === RolloutMethod.PILOT_THEN_CONTINUE)
-      expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue(3);
+      expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
 
     // Staging only a clear must not turn the whole scope into a predicted update.
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
@@ -258,7 +258,7 @@ describe("release channel pacing guidance", () => {
     await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 60 miners"));
     expect(controls).not.toHaveTextContent("~12 batches of 5 across 60 miners");
     expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(5);
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("5");
   });
 });
 
@@ -309,7 +309,7 @@ describe("release channel write ordering", () => {
     onSave.mockRejectedValueOnce(new Error("Newer save rejected"));
     await act(async () => fireEvent.click(save));
     expect(dialog).toHaveTextContent("Pacing: batches of 3, back to back.");
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(8);
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("8");
     expect(save).toBeEnabled();
 
     const refreshed = {
@@ -686,7 +686,7 @@ describe("effective release channel behavior", () => {
     await act(async () => fireEvent.click(save));
     expect(onSave).toHaveBeenCalledOnce();
     // The form keeps values for switching back; serialization strips them.
-    expect(onSave.mock.calls[0][0].behavior.thresholds?.maxHashrateDropPercent).toBe(10);
+    expect(onSave.mock.calls[0][0].behavior.thresholds).toBeUndefined();
     updateChannel({ ...channel, behavior: saved() }, false);
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "5" } });
@@ -713,7 +713,7 @@ describe("effective release channel behavior", () => {
     const save = screen.getByTestId("save-channel");
     fireEvent.click(screen.getByLabelText("Review after each batch"));
     await act(async () => fireEvent.click(save));
-    expect(onSave.mock.calls[0][0].behavior.waitBetweenBatchesSeconds).toBe(120);
+    expect(onSave.mock.calls[0][0].behavior.waitBetweenBatchesSeconds).toBe(0);
     updateChannel(
       {
         ...channel,

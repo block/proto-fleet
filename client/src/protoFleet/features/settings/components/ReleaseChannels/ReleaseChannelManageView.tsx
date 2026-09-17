@@ -1,7 +1,7 @@
 import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
-import { defaultBehavior, rolloutSizeError } from "./behaviorUtils";
+import { defaultBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
 import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
@@ -29,6 +29,7 @@ import {
   type RolloutBehavior,
   RolloutBehaviorSchema,
   type RolloutDevice,
+  RolloutMethod,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
@@ -223,13 +224,18 @@ const ReleaseChannelManageView = ({
   const canSave =
     dirty &&
     name.trim() !== "" &&
-    !rolloutSizeError(behavior) &&
+    Object.keys(rolloutBehaviorErrors(behavior)).length === 0 &&
     (channel !== undefined || !hasConflicts) &&
     !isWriting;
 
   const handleSave = async () => {
     if (writeInFlightRef.current || !canSave) return;
-    const submitted = { name: name.trim(), description: description.trim(), scope, behavior };
+    const submitted = {
+      name: name.trim(),
+      description: description.trim(),
+      scope,
+      behavior: rolloutBehaviorForRequest(behavior),
+    };
     writeInFlightRef.current = true;
     setIsSaving(true);
     try {
@@ -400,7 +406,11 @@ const ReleaseChannelManageView = ({
         title="Update behavior"
         subtext="Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel."
       >
-        <RolloutControls behavior={behavior} onChange={setBehavior} />
+        <RolloutControls
+          behavior={behavior}
+          onChange={setBehavior}
+          allowDelegated={savedSettings?.behavior?.method === RolloutMethod.DELEGATED}
+        />
       </Section>
 
       {channel ? (
