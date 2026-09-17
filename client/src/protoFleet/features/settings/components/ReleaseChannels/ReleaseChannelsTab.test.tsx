@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -9,9 +9,13 @@ import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
 
-const { listFirmwareFiles } = vi.hoisted(() => ({ listFirmwareFiles: vi.fn() }));
+const { listFirmwareFiles, pushToast } = vi.hoisted(() => ({ listFirmwareFiles: vi.fn(), pushToast: vi.fn() }));
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({ useFirmwareApi: () => ({ listFirmwareFiles }) }));
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast,
+  STATUSES: { success: "success", error: "error" },
+}));
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   SiteSelectionModal: () => null,
   BuildingSelectionModal: () => null,
@@ -60,6 +64,7 @@ const openPicker = () => fireEvent.click(screen.getByTestId("channel-firmware-se
 
 beforeEach(() => {
   vi.useFakeTimers();
+  pushToast.mockClear();
   listFirmwareFiles.mockReset().mockResolvedValue(firmwareFiles);
   useFleetStore.setState({
     auth: { ...initialAuth, isAuthenticated: true, username: "operator", sessionGeneration: 1 },
@@ -72,6 +77,127 @@ afterEach(() => {
   useFleetStore.setState({ auth: initialAuth });
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+function deferredWrite() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const deleteConfirm = () =>
+  within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Delete channel" });
+
+describe("release channel deletion coordination", () => {
+  it("blocks Delete during Save and its follow-up read, including actions before a rerender", async () => {
+    const api = apiFor();
+    const committed = deferredWrite();
+    const refreshed = deferredWrite();
+    api.updateChannel = vi.fn(async () => {
+      await committed.promise;
+      await refreshed.promise;
+      return undefined;
+    });
+    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    const save = screen.getByTestId("save-channel");
+    const confirm = deleteConfirm();
+    const back = screen.getByTestId("back-to-channels");
+    act(() => {
+      save.click();
+      confirm.click();
+      back.click();
+    });
+    expect(api.updateChannel).toHaveBeenCalledOnce();
+    expect(api.deleteChannel).not.toHaveBeenCalled();
+    expect(screen.getByTestId("delete-channel")).toBeDisabled();
+    expect(confirm).toBeDisabled();
+    expect(back).toBeDisabled();
+    await act(async () => committed.resolve());
+    expect(confirm).toBeDisabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Saved channel");
+    await act(async () => refreshed.resolve());
+    expect(deleteConfirm()).toBeEnabled();
+    await act(async () => fireEvent.click(deleteConfirm()));
+    expect(api.deleteChannel).toHaveBeenCalledExactlyOnceWith(canaryChannel.id);
+  });
+
+  it("blocks Delete while firmware Apply is pending and leaves the existing confirmation available afterward", async () => {
+    const api = apiFor();
+    const applied = deferredWrite();
+    api.applyFirmware = vi.fn(async () => {
+      await applied.promise;
+      return [];
+    });
+    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Start update" });
+    const confirm = deleteConfirm();
+    act(() => {
+      start.click();
+      confirm.click();
+    });
+    expect(api.applyFirmware).toHaveBeenCalledOnce();
+    expect(api.deleteChannel).not.toHaveBeenCalled();
+    expect(screen.getByTestId("delete-channel")).toBeDisabled();
+    expect(confirm).toBeDisabled();
+    await act(async () => applied.resolve());
+    expect(deleteConfirm()).toBeEnabled();
+    await act(async () => fireEvent.click(deleteConfirm()));
+    expect(api.deleteChannel).toHaveBeenCalledOnce();
+  });
+
+  it("serializes Delete against Save, Apply and duplicate confirmation, retaining drafts and retry after failure", async () => {
+    const api = apiFor();
+    const deleted = deferredWrite();
+    api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
+    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    const save = screen.getByTestId("save-channel");
+    const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Start update" });
+    const confirm = deleteConfirm();
+    const cancel = within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Cancel" });
+    act(() => {
+      confirm.click();
+      confirm.click();
+      save.click();
+      start.click();
+      cancel.click();
+      screen.getByTestId("back-to-channels").click();
+    });
+    expect(api.deleteChannel).toHaveBeenCalledOnce();
+    expect(api.updateChannel).not.toHaveBeenCalled();
+    expect(api.applyFirmware).not.toHaveBeenCalled();
+    expect(save).toBeDisabled();
+    expect(start).toBeDisabled();
+    expect(screen.getByTestId("delete-channel-dialog")).toBeInTheDocument();
+    await act(async () => deleted.reject(new Error("Channel deletion failed")));
+    expect(pushToast).toHaveBeenCalledWith({ message: "Channel deletion failed", status: "error" });
+    expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
+    expect(save).toBeEnabled();
+    expect(start).toBeEnabled();
+    expect(deleteConfirm()).toBeEnabled();
+    await act(async () => fireEvent.click(deleteConfirm()));
+    expect(api.deleteChannel).toHaveBeenCalledTimes(2);
+    expect(pushToast).toHaveBeenLastCalledWith({ message: "Deleted release channel Canary", status: "success" });
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
 });
 
 describe("release channel firmware catalog", () => {

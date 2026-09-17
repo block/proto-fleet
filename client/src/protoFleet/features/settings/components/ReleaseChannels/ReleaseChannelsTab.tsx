@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
@@ -69,6 +69,20 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   );
   const [channelToDelete, setChannelToDelete] = useState<ChannelView | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const deletingRef = useRef(false);
+  const writeInFlightRef = useRef(false);
+  const [isWriting, setIsWriting] = useState(false);
+  const tryAcquireWrite = useCallback(() => {
+    if (writeInFlightRef.current) return false;
+    writeInFlightRef.current = true;
+    setIsWriting(true);
+    return true;
+  }, []);
+  const releaseWrite = useCallback(() => {
+    writeInFlightRef.current = false;
+    setIsWriting(false);
+  }, []);
+  const writeLock = { isLocked: isWriting, tryAcquire: tryAcquireWrite, release: releaseWrite };
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -130,19 +144,28 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     };
   }, [authSessionIdentity, isAuthenticated, listFirmwareFiles, sessionGeneration, username]);
 
-  const handleDelete = () => {
-    if (!channelToDelete) return;
+  const handleDelete = async () => {
+    if (!channelToDelete || !tryAcquireWrite()) return;
+    deletingRef.current = true;
     setIsDeleting(true);
-    deleteChannel(channelToDelete.id)
-      .then(() => {
-        pushToast({ message: `Deleted release channel ${channelToDelete.name}`, status: STATUSES.success });
-        setChannelToDelete(null);
-        setView({ kind: "list" });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't delete the release channel", status: STATUSES.error });
-      })
-      .finally(() => setIsDeleting(false));
+    try {
+      await deleteChannel(channelToDelete.id);
+      pushToast({ message: `Deleted release channel ${channelToDelete.name}`, status: STATUSES.success });
+      setChannelToDelete(null);
+      setView({ kind: "list" });
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error && error.message ? error.message : "Couldn't delete the release channel",
+        status: STATUSES.error,
+      });
+    } finally {
+      deletingRef.current = false;
+      setIsDeleting(false);
+      releaseWrite();
+    }
+  };
+  const dismissDelete = () => {
+    if (!deletingRef.current) setChannelToDelete(null);
   };
 
   // Resolved fresh on every poll so the manage view tracks live progress;
@@ -180,7 +203,10 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           type="button"
           data-testid="back-to-channels"
           className="flex cursor-pointer items-center gap-2 self-start text-200 text-text-primary-70 transition-colors hover:text-text-primary"
-          onClick={() => setView({ kind: "list" })}
+          disabled={isWriting}
+          onClick={() => {
+            if (!writeInFlightRef.current) setView({ kind: "list" });
+          }}
         >
           ← All release channels
         </button>
@@ -193,6 +219,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
       ) : view.kind === "create" ? (
         <ReleaseChannelManageView
           key="create"
+          writeLock={writeLock}
           rollouts={rollouts}
           firmwareFiles={firmwareFiles}
           minerNames={minerNames}
@@ -209,6 +236,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         <ReleaseChannelManageView
           key={managedChannel.id.toString()}
           channel={managedChannel}
+          writeLock={writeLock}
           hasRefreshError={error !== null}
           rollouts={rollouts}
           firmwareFiles={firmwareFiles}
@@ -219,10 +247,10 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           onSave={async (draft) => {
             await updateChannel(managedChannel.id, draft);
           }}
-          onDelete={setChannelToDelete}
-          onApply={async (channelId, assignments) => {
-            await applyFirmware(channelId, assignments);
+          onDelete={(channel) => {
+            if (!writeInFlightRef.current) setChannelToDelete(channel);
           }}
+          onApply={applyFirmware}
         />
       ) : awaitingCreatedChannel ? (
         <p className="text-text-primary-70">Channel details will appear after a successful refresh.</p>
@@ -233,7 +261,10 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
               variant={variants.primary}
               size={sizes.compact}
               text="Create release channel"
-              onClick={() => setView({ kind: "create" })}
+              disabled={isWriting}
+              onClick={() => {
+                if (!writeInFlightRef.current) setView({ kind: "create" });
+              }}
               className="phone:w-full"
               testId="create-release-channel"
             />
@@ -247,8 +278,12 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         <ReleaseChannelsTable
           channels={channels}
           rollouts={rollouts}
-          onCreate={() => setView({ kind: "create" })}
-          onManage={(channel) => setView({ kind: "manage", channelId: channel.id })}
+          onCreate={() => {
+            if (!writeInFlightRef.current) setView({ kind: "create" });
+          }}
+          onManage={(channel) => {
+            if (!writeInFlightRef.current) setView({ kind: "manage", channelId: channel.id });
+          }}
         />
       )}
 
@@ -257,9 +292,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         title="Delete release channel?"
         subtitle={`Miners in ${channelToDelete?.name ?? "this channel"} keep their current firmware, but it is no longer enforced for them and the channel's update history is removed.`}
         testId="delete-channel-dialog"
-        onDismiss={() => {
-          if (!isDeleting) setChannelToDelete(null);
-        }}
+        onDismiss={dismissDelete}
         icon={
           <DialogIcon intent="critical">
             <Alert />
@@ -269,13 +302,14 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           {
             text: "Cancel",
             variant: variants.secondary,
-            onClick: () => setChannelToDelete(null),
+            onClick: dismissDelete,
             disabled: isDeleting,
           },
           {
             text: "Delete channel",
             variant: variants.danger,
             onClick: handleDelete,
+            disabled: isWriting,
             loading: isDeleting,
           },
         ]}
