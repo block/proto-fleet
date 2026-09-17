@@ -34,12 +34,29 @@ for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antmi
 done
 
 client_init_recipe="$(just --dry-run _client-init 2>&1)"
+client_init_fingerprint="${client_init_recipe%%$'\nif [ "false" != true ]'*}"
 for install_input in client/package.json client/package-lock.json; do
-  if [[ "$client_init_recipe" != *"$install_input"* ]]; then
+  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
     echo "Client dependency fingerprint omits: $install_input" >&2
     exit 1
   fi
 done
+
+for install_input in \
+  npm_config_platform NPM_CONFIG_PLATFORM process.platform 'platform=$INSTALL_PLATFORM' \
+  npm_config_arch NPM_CONFIG_ARCH process.arch 'arch=$INSTALL_ARCH' \
+  npm_config_libc NPM_CONFIG_LIBC glibcVersionRuntime '"glibc"' '"musl"' 'libc=$INSTALL_LIBC' \
+  'include=optional'; do
+  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
+    echo "Client dependency fingerprint omits install context: $install_input" >&2
+    exit 1
+  fi
+done
+
+if [[ "$client_init_recipe" != *'npm clean-install --include=optional'* ]]; then
+  echo "Client dependency install must explicitly include optional dependencies" >&2
+  exit 1
+fi
 
 plugin_build_recipe="$(just --dry-run _build-go-plugins-cross linux arm64 server/plugins 2>&1)"
 while IFS= read -r module; do

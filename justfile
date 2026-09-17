@@ -376,7 +376,22 @@ _client-init force="false":
   #!/usr/bin/env bash
   set -euo pipefail
   STAMP=.cache/client-deps/install-inputs.hash
-  WANT_HASH="$(git hash-object client/package.json client/package-lock.json | git hash-object --stdin)"
+  INSTALL_PLATFORM="${npm_config_platform:-${NPM_CONFIG_PLATFORM:-$(node -p 'process.platform')}}"
+  INSTALL_ARCH="${npm_config_arch:-${NPM_CONFIG_ARCH:-$(node -p 'process.arch')}}"
+  INSTALL_LIBC="${npm_config_libc:-${NPM_CONFIG_LIBC:-}}"
+  if [ -z "$INSTALL_LIBC" ]; then
+    INSTALL_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
+  fi
+  WANT_HASH="$(
+    {
+      git hash-object client/package.json client/package-lock.json
+      printf '%s\n' \
+        "platform=$INSTALL_PLATFORM" \
+        "arch=$INSTALL_ARCH" \
+        "libc=$INSTALL_LIBC" \
+        "include=optional"
+    } | git hash-object --stdin
+  )"
   if [ "{{force}}" != true ] \
      && [ -d client/node_modules ] \
      && [ -f "$STAMP" ] \
@@ -389,7 +404,7 @@ _client-init force="false":
     registry_args+=(--registry "$COREPACK_NPM_REGISTRY")
   fi
   rm -f "$STAMP"
-  (cd client && npm clean-install "${registry_args[@]}")
+  (cd client && npm clean-install --include=optional "${registry_args[@]}")
   mkdir -p "$(dirname "$STAMP")"
   printf '%s\n' "$WANT_HASH" > "$STAMP"
 
