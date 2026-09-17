@@ -51,14 +51,17 @@ const Navigation = ({
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
   const pageName = useMemo(() => {
-    // Remove leading slash
-    const route = pathname.replace(/^\//, "");
+    const localPath =
+      minerRoot && (pathname === minerRoot || pathname.startsWith(`${minerRoot}/`))
+        ? pathname.slice(minerRoot.length)
+        : pathname;
+    const route = localPath.replace(/^\//, "").replace(/\/$/, "");
     if (route.length) {
       return route;
     } else {
       return isApp ? appHomeItem : navigationItems.onboarding;
     }
-  }, [pathname, isApp, appHomeItem]);
+  }, [pathname, minerRoot, isApp, appHomeItem]);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {

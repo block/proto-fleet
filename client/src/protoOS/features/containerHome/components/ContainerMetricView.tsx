@@ -10,7 +10,7 @@ export function HomeSummary({ readings, children }: { readings: HomeReading[]; c
     <section aria-label="Live readings" className="rounded-3xl bg-surface-elevated-base p-6 shadow-100">
       <div className="grid grid-cols-2 gap-x-4 gap-y-6 tablet:grid-cols-3 desktop:grid-cols-6">
         {readings.map((reading) => (
-          <Stat key={reading.id} label={reading.label} value={reading.value} text={reading.note} size="small" />
+          <Stat key={reading.id} label={reading.label} value={reading.value} size="small" />
         ))}
       </div>
       {children}
@@ -27,7 +27,6 @@ interface Props {
   onModeChange?: (mode: HomeChartMode) => void;
   categories?: CategorySummary[];
   locations?: LocationReading[];
-  notice?: string;
 }
 
 export default function ContainerMetricView({
@@ -39,7 +38,6 @@ export default function ContainerMetricView({
   onModeChange,
   categories = [],
   locations,
-  notice,
 }: Props) {
   return (
     <div className="flex flex-col gap-1">
@@ -50,7 +48,6 @@ export default function ContainerMetricView({
           <h2 className="text-200 text-text-primary-50">{title === "Power" ? "Power distribution" : title}</h2>
           <ChartModeSelector title={title} modes={modes} mode={mode} onModeChange={onModeChange} />
         </div>
-        {notice ? <p className="mb-4 text-200 text-text-primary-70">{notice}</p> : null}
         <MetricChart mode={mode} locations={locations} history={history} />
       </section>
       {categories.length ? (

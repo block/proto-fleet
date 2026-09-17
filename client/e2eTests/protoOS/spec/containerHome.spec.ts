@@ -26,7 +26,7 @@ test.describe("Container Home", () => {
     await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-main");
     await expect(page.getByRole("region", { name: "Fans period statistics" })).toContainText("kW");
     await page.getByRole("button", { name: "Hashboards", exact: true }).click();
-    await expect(page.getByText("Hashboard distribution unavailable.")).toBeVisible();
+    await expect(page.getByText("History unavailable for this selection.")).toBeVisible();
     await navigation.getByRole("link", { name: "Temperature", exact: true }).click();
     await expect(page.getByRole("region", { name: "Live readings" })).toContainText("°C");
     await page.getByRole("button", { name: "Fluid", exact: true }).click();
