@@ -42,17 +42,16 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
   const moduleEfficiency =
     hashboardPower !== null && hashrate !== null && hashrate > 0 ? hashboardPower / hashrate : null;
   const pdus = [...hardware.plant.values()].filter((component) => component.kind === "distribution");
-  const reading = (id: string, label: string, value: number | null, units: string, note?: string): HomeReading => ({
+  const reading = (id: string, label: string, value: number | null, units: string): HomeReading => ({
     id,
     label,
     value: formatReading(value, units),
-    note,
   });
   const powerReadings: HomeReading[] = [
     reading("container-power", "Container power", power === null ? null : power / 1000, "kW"),
     reading("container-efficiency", "Container efficiency", efficiency, "J/TH"),
     ...["high", "low", "average"].map((stat) => reading(`module-${stat}`, `Module ${stat}`, null, "kW")),
-    reading("module-efficiency", "Module efficiency", moduleEfficiency, "J/TH", "Hashboard power only"),
+    reading("module-efficiency", "Module efficiency", moduleEfficiency, "J/TH"),
     ...pdus.map((component) => {
       const value = latest(telemetry.plant.get(component.ref.id)?.totalPower);
       return reading(component.ref.id, component.name, value === null ? null : value / 1000, "kW");

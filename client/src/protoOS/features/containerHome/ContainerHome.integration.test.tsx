@@ -86,7 +86,7 @@ describe("container Home integration", () => {
       { metric: "fanPower", identifier: "fan-one" },
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Hashboards" }));
-    await waitFor(() => expect(screen.getByText("Hashboard distribution unavailable.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("History unavailable for this selection.")).toBeInTheDocument());
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
     expect(mocks.adapter.getCurrentTelemetry).toHaveBeenCalledTimes(1);
   });
@@ -96,7 +96,7 @@ describe("container Home integration", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/power-usage?mode=hashboards"] });
     render(<RouterProvider router={router} />);
     await act(async () => {});
-    expect(screen.getByText("Hashboard distribution unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("History unavailable for this selection.")).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(60_000));
     expect(mocks.adapter.getContainerHistory).not.toHaveBeenCalled();
 

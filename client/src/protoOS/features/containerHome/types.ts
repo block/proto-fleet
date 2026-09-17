@@ -5,7 +5,6 @@ export interface HomeReading {
   id: string;
   label: string;
   value: string;
-  note?: string;
 }
 
 export interface HomeSeries {
@@ -25,7 +24,6 @@ export interface HomeHistory {
   window: [number, number];
   loading?: boolean;
   error?: string;
-  notice?: string;
   /** Only disjoint, fully attributed power series may be stacked. */
   stacked?: boolean;
 }

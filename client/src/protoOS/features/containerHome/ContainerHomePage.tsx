@@ -77,7 +77,6 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     window,
     loading: historyState.pending,
     error: historyState.error,
-    notice: historyState.result?.unavailable.length ? "Some history readings are unavailable." : undefined,
   };
   const onModeChange = (next: HomeChartMode) =>
     setSearchParams((previous) => {
@@ -95,13 +94,11 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
           id: "power",
           label: "Power",
           value: formatReading(live.power === null ? null : live.power / 1000, "kW"),
-          note: `${live.powerSource.label}. Tank power history unavailable.`,
         }}
         fluid={{
           id: "fluid",
           label: "Fluid levels and temperature",
           value: formatReading(temperatureValue(latest(live.plant?.inletTemperature), unit), `°${unit}`),
-          note: "Plant inlet temperature. Tank fluid levels and temperatures unavailable.",
         }}
         boardCount={live.boardCount}
         powerLocations={live.powerLocations}
@@ -145,14 +142,9 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
         mode={mode}
         modes={powerModes}
         onModeChange={onModeChange}
-        notice={`${live.powerSource.label}. Module power statistics unavailable.`}
         history={{
           ...baseHistory,
           series,
-          notice:
-            mode === "hashboards"
-              ? "Hashboard distribution unavailable."
-              : "Partial coverage: mining and fan power are shown separately. Pumps, AC and Aux readings are unavailable. Fan statistics summarize bucket averages.",
         }}
         categories={categorySummaries(fanSeries)}
       />
@@ -180,16 +172,10 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
         mode={mode}
         modes={temperatureModes}
         onModeChange={onModeChange}
-        notice={
-          mode === "fluid"
-            ? "Tank fluid readings unavailable. Fluid summary reports the plant inlet."
-            : "Fluid summary reports the plant inlet. Module, PDU and subsystem temperature statistics unavailable."
-        }
         history={{
           ...baseHistory,
           units: `°${unit}`,
           series: mode === "system" ? sensorSeries : [],
-          notice: mode === "hashboards" ? "Hashboard distribution unavailable." : baseHistory.notice,
         }}
         locations={live.fluidLocations}
         categories={categorySummaries()}
@@ -214,7 +200,6 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
         },
         { id: "boards", label: "Hashboards", value: live.boardCount ?? "—" },
       ]}
-      notice={efficiency ? `${live.powerSource.label} divided by corresponding hashrate.` : undefined}
       history={{ ...baseHistory, units, series: [toHomeSeries(tab, title, ORANGE, series, window, units)] }}
     />
   );

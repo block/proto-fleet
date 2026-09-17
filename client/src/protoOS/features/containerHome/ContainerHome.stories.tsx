@@ -161,7 +161,6 @@ function MetricStory({
           series: buildStorySeries({ ...dataOptions, mode, partial }),
           units: temperature ? "°C" : "kW",
           stacked: !temperature && mode === "system" && !partial,
-          notice: partial ? "Partial coverage: only reported series are shown." : undefined,
           loading,
           error: error ? "Could not refresh history. Displayed history may be out of date." : undefined,
         }}
@@ -191,7 +190,7 @@ export const Overview = () => (
     <ContainerOverviewView
       hashrate={{ id: "hashrate", label: "Hashrate", value: "16.1k TH/s" }}
       power={{ id: "power", label: "Power", value: "220 kW" }}
-      fluid={{ id: "fluid", label: "Fluid levels and temperature", value: "—", note: "Fluid readings unavailable." }}
+      fluid={{ id: "fluid", label: "Fluid levels and temperature", value: "—" }}
       boardCount="188/200 hashboards"
       history={{ ...history, stacked: false, units: "TH/s", series: [series[0]] }}
       powerLocations={locations}

@@ -39,7 +39,6 @@ function OverviewCard({
         </div>
       }
     >
-      {reading.note ? <p className="mt-3 text-200 text-text-primary-70">{reading.note}</p> : null}
       {children}
     </Card>
   );

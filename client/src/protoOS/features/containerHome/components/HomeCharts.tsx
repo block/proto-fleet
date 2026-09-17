@@ -17,7 +17,6 @@ export function HomeHistoryChart({ history, compact = false }: HistoryChartProps
           {history.error}
         </p>
       ) : null}
-      {history.notice ? <p className="mb-3 text-200 text-text-primary-70">{history.notice}</p> : null}
       <div className="flex flex-col gap-6 tablet:flex-row">
         <div className={compact ? "h-72 min-w-0 tablet:flex-1" : "h-80 min-w-0 tablet:h-96 tablet:flex-1"}>
           <HistoryPlot history={history} compact={compact} />
