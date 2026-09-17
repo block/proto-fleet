@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  # Lint and build+test run as separate jobs so they execute in parallel on
+  # Lint and test run as separate jobs so they execute in parallel on
   # two runners instead of serially on one. They share the Go build cache.
   lint:
     name: Lint
@@ -60,9 +60,6 @@ jobs:
 
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
-
-      - name: Build
-        run: just build
 
       # The timescaledb service is built from server/timescaledb/ and has no
       # `image:`, so a cold runner rebuilds it on every `just db-up` (~30s of
