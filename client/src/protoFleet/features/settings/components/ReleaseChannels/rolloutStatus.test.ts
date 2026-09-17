@@ -250,6 +250,42 @@ describe("channel and model status", () => {
     expect(modelUpdateStatus({ ...grownGroup, onTargetCount: 10 }, undefined, finished).label).toMatch(/^Updated /);
   });
 
+  it.each([
+    {
+      name: "waiting for an external controller",
+      state: RolloutState.WAITING_FOR_CONTROLLER,
+      counts: { done: 2, queued: 4 },
+      expected: { label: "Waiting for controller", tone: "active" },
+    },
+    {
+      name: "waiting with failed miners",
+      state: RolloutState.WAITING_FOR_CONTROLLER,
+      counts: { done: 2, failed: 1, queued: 3 },
+      expected: { label: "1 failed, 2 of 6 updated", tone: "attention" },
+    },
+    {
+      name: "paused with failed miners",
+      state: RolloutState.PAUSED,
+      counts: { done: 2, failed: 1, queued: 3 },
+      expected: { label: "Paused, 2 of 6", tone: "none" },
+    },
+    {
+      name: "updating after controller dispatch",
+      state: RolloutState.IN_PROGRESS,
+      counts: { done: 2, inProgress: 1, queued: 3 },
+      expected: { label: "Updating, 2 of 6", tone: "active" },
+    },
+  ])("describes delegated model status when $name", ({ state, counts, expected }) => {
+    const delegated = create(RolloutSchema, {
+      ...activeRigRollout,
+      behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }),
+      stage: RolloutStage.REST,
+      state,
+      deviceCounts: create(RolloutDeviceCountsSchema, counts),
+    });
+    expect(modelUpdateStatus(rigGroup, delegated, undefined)).toEqual(expected);
+  });
+
   it("shows remaining off-target miners neutrally when the completed rollout only skipped them", () => {
     const finished = create(RolloutSchema, {
       ...completedRigRollout,

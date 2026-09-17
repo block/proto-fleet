@@ -395,6 +395,9 @@ export function modelUpdateStatus(
       return { label: `${counts.failed} failed, ${progress} updated`, tone: "attention" };
     }
     if (needsManualReview(activeRollout)) return { label: "Review needed", tone: "attention" };
+    if (activeRollout.state === RolloutState.WAITING_FOR_CONTROLLER) {
+      return { label: "Waiting for controller", tone: "active" };
+    }
     if (activeRollout.state === RolloutState.STABILIZING_TELEMETRY) {
       return { label: `Waiting for telemetry, ${progress}`, tone: "active" };
     }

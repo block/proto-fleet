@@ -5,15 +5,21 @@ import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  CancelRolloutRequestSchema,
+  ContinueRolloutRequestSchema,
   CreateReleaseChannelRequestSchema,
   ListReleaseChannelModelGroupsResponseSchema,
   ListReleaseChannelsResponseSchema,
   type ListRolloutsResponse,
   ListRolloutsResponseSchema,
+  PauseRolloutRequestSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
   ReleaseChannelScopeSchema,
   ReleaseChannelSummarySchema,
+  ResumeRolloutRequestSchema,
+  RetryFailedRolloutDevicesRequestSchema,
+  RollbackReleaseChannelFirmwareRequestSchema,
   RolloutBehaviorSchema,
   RolloutMethod,
   RolloutOrder,
@@ -36,6 +42,10 @@ const {
   mockPreviewReleaseChannelScope,
   mockApplyReleaseChannelFirmware,
   mockCancelRollout,
+  mockContinueRollout,
+  mockPauseRollout,
+  mockResumeRollout,
+  mockRollbackReleaseChannelFirmware,
   mockRetryFailedRolloutDevices,
   mockListReleaseChannelMiners,
   mockListRolloutDevices,
@@ -53,6 +63,10 @@ const {
   mockPreviewReleaseChannelScope: vi.fn(),
   mockApplyReleaseChannelFirmware: vi.fn(),
   mockCancelRollout: vi.fn(),
+  mockContinueRollout: vi.fn(),
+  mockPauseRollout: vi.fn(),
+  mockResumeRollout: vi.fn(),
+  mockRollbackReleaseChannelFirmware: vi.fn(),
   mockRetryFailedRolloutDevices: vi.fn(),
   mockListReleaseChannelMiners: vi.fn(),
   mockListRolloutDevices: vi.fn(),
@@ -80,6 +94,10 @@ vi.mock("@/protoFleet/api/clients", () => ({
     previewReleaseChannelScope: mockPreviewReleaseChannelScope,
     applyReleaseChannelFirmware: mockApplyReleaseChannelFirmware,
     cancelRollout: mockCancelRollout,
+    continueRollout: mockContinueRollout,
+    pauseRollout: mockPauseRollout,
+    resumeRollout: mockResumeRollout,
+    rollbackReleaseChannelFirmware: mockRollbackReleaseChannelFirmware,
     retryFailedRolloutDevices: mockRetryFailedRolloutDevices,
     listReleaseChannelMiners: mockListReleaseChannelMiners,
     listRolloutDevices: mockListRolloutDevices,
@@ -137,6 +155,15 @@ function capturePollingTimer() {
   return () => poll();
 }
 
+const revisionActions = [
+  ["rollbackFirmware", mockRollbackReleaseChannelFirmware, RollbackReleaseChannelFirmwareRequestSchema],
+  ["continueRollout", mockContinueRollout, ContinueRolloutRequestSchema],
+  ["pauseRollout", mockPauseRollout, PauseRolloutRequestSchema],
+  ["resumeRollout", mockResumeRollout, ResumeRolloutRequestSchema],
+  ["cancelRollout", mockCancelRollout, CancelRolloutRequestSchema],
+  ["retryFailedDevices", mockRetryFailedRolloutDevices, RetryFailedRolloutDevicesRequestSchema],
+] as const;
+
 describe("useReleaseChannels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -157,6 +184,132 @@ describe("useReleaseChannels", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each(revisionActions)(
+    "%s sends the caller's observed revision and propagates a stale response without retrying",
+    async (action, rpc, schema) => {
+      const observed = create(RolloutSchema, { ...rollout, revision: 3n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [observed] }));
+      rpc.mockResolvedValue({ startedRollouts: [observed], rollout: observed });
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const revisionFromOpenDialog = result.current.rollouts[0].revision;
+
+      const newer = create(RolloutSchema, { ...observed, revision: 9n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [newer] }));
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(result.current.rollouts[0].revision).toBe(9n);
+      await act(async () => {
+        await result.current[action](9n, revisionFromOpenDialog);
+      });
+      expect(rpc).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 3n });
+      expect(toJson(schema, create(schema, rpc.mock.calls[0][0]))).toEqual({ rolloutId: "9", expectedRevision: "3" });
+
+      rpc.mockClear();
+      const stale = new ConnectError("stale rollout revision", Code.FailedPrecondition);
+      rpc.mockRejectedValueOnce(stale);
+      const readsBeforeFailure = mockListRollouts.mock.calls.length;
+      await act(async () => {
+        await expect(result.current[action](9n, revisionFromOpenDialog)).rejects.toBe(stale);
+      });
+      expect(rpc).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 3n });
+      expect(mockListRollouts).toHaveBeenCalledTimes(readsBeforeFailure);
+      expect(result.current.rollouts[0].revision).toBe(9n);
+    },
+  );
+
+  it.each(revisionActions)("%s rejects nonpositive revisions before sending any mutation", async (action, rpc) => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    for (const expectedRevision of [0n, -1n]) {
+      await expect(result.current[action](9n, expectedRevision)).rejects.toThrow(
+        "Refresh the rollout before taking this action.",
+      );
+    }
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mockListRollouts).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads and mutates rollout data when miner display names are forbidden", async () => {
+    mockListMinerStateSnapshots.mockRejectedValue(new ConnectError("miner:read is required", Code.PermissionDenied));
+    const initial = create(RolloutSchema, { ...rollout, revision: 2n });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [initial] }));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.channels).toEqual([canaryView]);
+    expect(result.current.rollouts).toEqual([initial]);
+    expect(result.current.minerNames).toEqual({});
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+
+    const canceled = create(RolloutSchema, { ...initial, status: RolloutStatus.CANCELED, revision: 3n });
+    mockCancelRollout.mockResolvedValue({ rollout: canceled });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [canceled] }));
+    await act(async () => {
+      await result.current.cancelRollout(9n, initial.revision);
+    });
+    expect(mockCancelRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 2n });
+    expect(result.current.rollouts).toEqual([canceled]);
+    expect(result.current.minerNames).toEqual({});
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it("discards stale and partial miner names when a later snapshot page is forbidden", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+    const updated = create(RolloutSchema, { ...rollout, revision: 2n });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [updated] }));
+    mockListMinerStateSnapshots.mockImplementation(({ cursor }) =>
+      cursor
+        ? Promise.reject(new ConnectError("permission revoked", Code.PermissionDenied))
+        : Promise.resolve({ miners: [{ deviceIdentifier: "rig-002", name: "Partial name" }], cursor: "next-page" }),
+    );
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.rollouts).toEqual([updated]);
+    expect(result.current.channels).toEqual([canaryView]);
+    expect(result.current.minerNames).toEqual({});
+    expect(mockListMinerStateSnapshots).toHaveBeenLastCalledWith({ pageSize: 1000, cursor: "next-page" });
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    mockListMinerStateSnapshots.mockResolvedValue({
+      miners: [{ deviceIdentifier: "rig-001", name: "Restored name" }],
+      cursor: "",
+    });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Restored name" });
+  });
+
+  it.each([
+    ["miner authentication", mockListMinerStateSnapshots, new ConnectError("expired", Code.Unauthenticated)],
+    ["miner availability", mockListMinerStateSnapshots, new ConnectError("offline", Code.Unavailable)],
+    [
+      "untyped miner error",
+      mockListMinerStateSnapshots,
+      Object.assign(new Error("denied"), { code: Code.PermissionDenied }),
+    ],
+    ["rollout permission", mockListRollouts, new ConnectError("firmware permission revoked", Code.PermissionDenied)],
+  ] as const)("keeps %s failures blocking and delegates them to auth handling", async (_, rpc, error) => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const previous = {
+      channels: result.current.channels,
+      rollouts: result.current.rollouts,
+      miners: result.current.minerNames,
+    };
+    rpc.mockRejectedValueOnce(error);
+    await act(async () => {
+      await expect(result.current.refresh()).rejects.toBe(error);
+    });
+    expect(result.current.channels).toBe(previous.channels);
+    expect(result.current.rollouts).toBe(previous.rollouts);
+    expect(result.current.minerNames).toBe(previous.miners);
+    expect(mockHandleAuthErrors).toHaveBeenCalledWith({ error });
   });
 
   it.each(["success", "unauthenticated"])(
@@ -970,16 +1123,16 @@ describe("useReleaseChannels", () => {
         { manufacturer: "Proto", model: "Rig", firmwareFileId: "fw-2" },
       ]);
       expect(started).toEqual([rollout]);
-      await result.current.cancelRollout(9n);
-      const retried = await result.current.retryFailedDevices(9n);
+      await result.current.cancelRollout(9n, 4n);
+      const retried = await result.current.retryFailedDevices(9n, 5n);
       expect(retried).toEqual(rollout);
     });
     expect(mockApplyReleaseChannelFirmware).toHaveBeenCalledWith({
       channelId: 1n,
       assignments: [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "fw-2" }],
     });
-    expect(mockCancelRollout).toHaveBeenCalledWith({ rolloutId: 9n });
-    expect(mockRetryFailedRolloutDevices).toHaveBeenCalledWith({ rolloutId: 9n });
+    expect(mockCancelRollout).toHaveBeenCalledWith({ rolloutId: 9n, expectedRevision: 4n });
+    expect(mockRetryFailedRolloutDevices).toHaveBeenCalledWith({ rolloutId: 9n, expectedRevision: 5n });
   });
 
   it("walks every page of the detail lists", async () => {

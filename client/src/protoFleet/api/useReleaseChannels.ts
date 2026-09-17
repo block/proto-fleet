@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
 import {
@@ -77,6 +78,13 @@ function mergeRollouts(previous: Rollout[], incoming: Rollout[]): Rollout[] {
   });
 }
 
+function rolloutControlRequest(rolloutId: bigint, expectedRevision: bigint) {
+  // Zero disables the server's stale-action guard. Controls must use the
+  // revision the operator saw, never a newer revision from the polling cache.
+  if (!(expectedRevision > 0n)) throw new Error("Refresh the rollout before taking this action.");
+  return { rolloutId, expectedRevision };
+}
+
 // What an operator sets on a channel; the server resolves the scope and
 // validates the behavior.
 export interface ReleaseChannelDraft {
@@ -104,12 +112,12 @@ export interface ReleaseChannelsApi {
   listChannelMiners: (channelId: bigint, manufacturer?: string, model?: string) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
   applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
-  rollbackFirmware: (rolloutId: bigint) => Promise<Rollout[]>;
-  continueRollout: (rolloutId: bigint) => Promise<void>;
-  pauseRollout: (rolloutId: bigint) => Promise<void>;
-  resumeRollout: (rolloutId: bigint) => Promise<void>;
-  cancelRollout: (rolloutId: bigint) => Promise<void>;
-  retryFailedDevices: (rolloutId: bigint) => Promise<Rollout | undefined>;
+  rollbackFirmware: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout[]>;
+  continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  pauseRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  resumeRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  cancelRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  retryFailedDevices: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout | undefined>;
 }
 
 // Fetches release channels and rollouts, polling while mounted so firmware
@@ -174,7 +182,12 @@ export function useReleaseChannels(): ReleaseChannelsApi {
             fleetManagementClient
               .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor })
               .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
-          ),
+          ).catch((error: unknown) => {
+            // Firmware managers need not have miner:read. Names are optional;
+            // do not retain old names after their permission is revoked.
+            if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
+            throw error;
+          }),
         ]);
         if (!isCurrentRequest()) return;
         // Read channels after rollouts, so a newly created channel cannot be
@@ -342,8 +355,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const rollbackFirmware = useCallback(
-    async (rolloutId: bigint) => {
-      const resp = await rolloutClient.rollbackReleaseChannelFirmware({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const resp = await rolloutClient.rollbackReleaseChannelFirmware(
+        rolloutControlRequest(rolloutId, expectedRevision),
+      );
       await refresh();
       return resp.startedRollouts;
     },
@@ -351,40 +366,40 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const continueRollout = useCallback(
-    async (rolloutId: bigint) => {
-      await rolloutClient.continueRollout({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      await rolloutClient.continueRollout(rolloutControlRequest(rolloutId, expectedRevision));
       await refresh();
     },
     [refresh],
   );
 
   const pauseRollout = useCallback(
-    async (rolloutId: bigint) => {
-      await rolloutClient.pauseRollout({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      await rolloutClient.pauseRollout(rolloutControlRequest(rolloutId, expectedRevision));
       await refresh();
     },
     [refresh],
   );
 
   const resumeRollout = useCallback(
-    async (rolloutId: bigint) => {
-      await rolloutClient.resumeRollout({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      await rolloutClient.resumeRollout(rolloutControlRequest(rolloutId, expectedRevision));
       await refresh();
     },
     [refresh],
   );
 
   const cancelRollout = useCallback(
-    async (rolloutId: bigint) => {
-      await rolloutClient.cancelRollout({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      await rolloutClient.cancelRollout(rolloutControlRequest(rolloutId, expectedRevision));
       await refresh();
     },
     [refresh],
   );
 
   const retryFailedDevices = useCallback(
-    async (rolloutId: bigint) => {
-      const resp = await rolloutClient.retryFailedRolloutDevices({ rolloutId });
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const resp = await rolloutClient.retryFailedRolloutDevices(rolloutControlRequest(rolloutId, expectedRevision));
       await refresh();
       return resp.rollout;
     },
