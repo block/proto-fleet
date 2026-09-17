@@ -428,12 +428,13 @@ export function modelUpdateStatus(
   if (group.firmwareVersion === "") return { label: "No firmware assigned", tone: "none" };
   if (group.minerCount === 0) return { label: "No miners", tone: "none" };
   const onTarget = group.onTargetCount;
-  if (lastFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
-    const failed = failedCount(lastFinished);
+  const currentFinished = lastFinished?.assignmentGeneration === group.assignmentGeneration ? lastFinished : undefined;
+  if (currentFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
+    const failed = failedCount(currentFinished);
     if (failed > 0) return { label: `${failed} failed to update`, tone: "attention" };
   }
   if (onTarget === group.minerCount) {
-    const finished = lastFinished?.finishedAt ? shortDate(lastFinished.finishedAt) : "";
+    const finished = currentFinished?.finishedAt ? shortDate(currentFinished.finishedAt) : "";
     return { label: finished ? `Updated ${finished}` : "Up to date", tone: "completed" };
   }
   return { label: `${onTarget} of ${group.minerCount} on target`, tone: "none" };
@@ -462,6 +463,11 @@ export const pairLabel = (pair: { manufacturer: string; model: string }): string
 // meets the canonical "Proto Rig". Unknown identities never match anything.
 export const pairKey = (pair: { manufacturer: string; model: string }): string =>
   minerTargetKey(pair.manufacturer, pair.model) ?? `\u0000${pair.manufacturer}\u0000${pair.model}`;
+
+// Finished outcomes belong to one assignment, even when the same artifact
+// is selected again later. Raw model variants still share its canonical key.
+export const assignmentKey = (pair: { manufacturer: string; model: string; assignmentGeneration: bigint }): string =>
+  JSON.stringify([pairKey(pair), pair.assignmentGeneration.toString()]);
 
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.firmwareVersion === "") return "—";

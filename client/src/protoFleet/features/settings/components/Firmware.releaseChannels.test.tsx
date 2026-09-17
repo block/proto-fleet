@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -86,15 +87,34 @@ describe("release-channel load errors", () => {
     expect(pushToast).not.toHaveBeenCalled();
   });
 
-  it("keeps the load error and retry visible on the Files tab", async () => {
+  it("mounts channel polling only while the Release channels tab is open", async () => {
     const api = { ...apiFor(), hasLoaded: false, error: new Error("Request failed") };
-    mockUseReleaseChannels.mockReturnValue(api);
-    render(page("files"));
+    const mounted = vi.fn();
+    const stopped = vi.fn();
+    mockUseReleaseChannels.mockImplementation(function useMockReleaseChannels() {
+      useEffect(() => {
+        mounted();
+        return stopped;
+      }, []);
+      return api;
+    });
+    const { unmount } = render(page("files"));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load release channels and update status");
     await screen.findByText("No firmware files uploaded");
+    expect(mockUseReleaseChannels).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
+    await waitFor(() => expect(mounted).toHaveBeenCalledOnce());
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load release channels and update status");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(api.refresh).toHaveBeenCalledOnce());
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Files" }));
+    await waitFor(() => expect(stopped).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
+    await waitFor(() => expect(mounted).toHaveBeenCalledTimes(2));
+    unmount();
+    expect(stopped).toHaveBeenCalledTimes(2);
   });
 
   it("handles a rejected manual retry without duplicate requests or failure toasts", async () => {

@@ -1,7 +1,7 @@
 import { type ReactElement, useEffect, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 
-import { isScopeEmpty, scopeSummary } from "./scopeUtils";
+import { isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelScope,
@@ -24,6 +24,11 @@ type SelectionKind = "site" | "building" | "rack" | "group" | "miner";
 
 const toStrings = (ids: bigint[]): string[] => ids.map((id) => id.toString());
 const toBigInts = (ids: string[]): bigint[] => ids.map((id) => BigInt(id));
+
+interface PreviewSnapshot {
+  scope: ReleaseChannelScope;
+  value: PreviewReleaseChannelScopeResponse;
+}
 
 interface ScopeEditorProps {
   scope: ReleaseChannelScope;
@@ -51,34 +56,38 @@ const ScopeEditor = ({
   const canReadMiners = useHasPermission("miner:read");
   const canSelectTargets = canReadSites || canReadRacks || canReadMiners;
   const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
-  const [preview, setPreview] = useState<PreviewReleaseChannelScopeResponse | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [lastPreview, setLastPreview] = useState<PreviewSnapshot | null>(null);
+  const [previewError, setPreviewError] = useState<{ scope: ReleaseChannelScope; message: string } | null>(null);
+  const validationErrors = scopeValidationErrors(scope);
+  const previewMatchesScope = lastPreview !== null && equals(ReleaseChannelScopeSchema, lastPreview.scope, scope);
+  const currentError =
+    previewError && equals(ReleaseChannelScopeSchema, previewError.scope, scope) ? previewError.message : null;
+  const preview = previewMatchesScope && !currentError && validationErrors.length === 0 ? lastPreview.value : null;
 
   const update = (patch: Partial<ReleaseChannelScope>) =>
     onChange(create(ReleaseChannelScopeSchema, { ...scope, ...patch }));
 
   // Debounced so a burst of selections resolves once; the latest request
-  // wins. An empty scope clears the preview on the same schedule.
+  // wins. Invalidate the parent's conflict result immediately; old successful
+  // results remain labeled as previous context, never as the changed scope.
   useEffect(() => {
     let cancelled = false;
+    onPreview?.(null);
+    if (isScopeEmpty(scope) || scopeValidationErrors(scope).length > 0) return;
     const timer = setTimeout(() => {
-      if (isScopeEmpty(scope)) {
-        setPreview(null);
-        setPreviewError(null);
-        onPreview?.(null);
-        return;
-      }
       previewScope(scope)
         .then((result) => {
           if (cancelled) return;
-          setPreview(result);
+          setLastPreview({ scope, value: result });
           setPreviewError(null);
           onPreview?.(result);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          setPreview(null);
-          setPreviewError(error instanceof Error ? error.message : "Couldn't resolve the selection");
+          setPreviewError({
+            scope,
+            message: error instanceof Error ? error.message : "Couldn't resolve the selection",
+          });
           onPreview?.(null);
         });
     }, PREVIEW_DEBOUNCE_MS);
@@ -139,7 +148,9 @@ const ScopeEditor = ({
       <ScopePreview
         scope={scope}
         preview={preview}
-        error={previewError}
+        error={currentError}
+        validationErrors={validationErrors}
+        previousPreview={preview ? null : lastPreview}
         editingExistingChannel={editingExistingChannel}
         canSelectTargets={canSelectTargets}
       />
@@ -209,12 +220,16 @@ const ScopePreview = ({
   scope,
   preview,
   error,
+  validationErrors,
+  previousPreview,
   editingExistingChannel,
   canSelectTargets,
 }: {
   scope: ReleaseChannelScope;
   preview: PreviewReleaseChannelScopeResponse | null;
   error: string | null;
+  validationErrors: string[];
+  previousPreview: PreviewSnapshot | null;
   editingExistingChannel: boolean;
   canSelectTargets: boolean;
 }): ReactElement => {
@@ -227,18 +242,28 @@ const ScopePreview = ({
       </p>
     );
   }
-  if (error) {
+  if (validationErrors.length > 0 || error || !preview) {
     return (
-      <p className="text-200 text-text-critical" data-testid="scope-preview">
-        {error}
-      </p>
-    );
-  }
-  if (!preview) {
-    return (
-      <p className="text-200 text-text-primary-50" data-testid="scope-preview">
-        Resolving {scopeSummary(scope)}…
-      </p>
+      <div className="flex flex-col gap-1 text-200" data-testid="scope-preview">
+        {validationErrors.length > 0 ? (
+          <div role="alert" className="text-intent-critical-fill">
+            {validationErrors.map((message) => (
+              <p key={message}>{message}</p>
+            ))}
+          </div>
+        ) : error ? (
+          <p className="text-intent-critical-fill">{error}</p>
+        ) : (
+          <p className="text-text-primary-50">Resolving {scopeSummary(scope)}…</p>
+        )}
+        {previousPreview ? (
+          <p className="text-text-primary-50">
+            Last valid preview: {scopeSummary(previousPreview.scope)} · covers{" "}
+            {previousPreview.value.minerCount.toLocaleString()}{" "}
+            {previousPreview.value.minerCount === 1 ? "miner" : "miners"}.
+          </p>
+        ) : null}
+      </div>
     );
   }
   const models = preview.models.map((m) => `${m.minerCount.toLocaleString()} ${m.model || "unknown model"}`).join(", ");

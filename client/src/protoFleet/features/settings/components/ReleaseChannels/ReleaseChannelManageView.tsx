@@ -7,6 +7,7 @@ import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
 import RolloutControls from "./RolloutControls";
 import {
+  assignmentKey,
   isActive,
   isPaused,
   pacingSummary,
@@ -18,6 +19,7 @@ import {
   rolloutProgressSummary,
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
+import { scopeValidationErrors } from "./scopeUtils";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelMiner,
@@ -92,6 +94,64 @@ function behaviorForComparison(behavior: RolloutBehavior): RolloutBehavior {
     effective.thresholds = undefined;
   }
   return effective;
+}
+
+// Carry remote changes into untouched fields without overwriting local edits,
+// including inactive values that request normalization intentionally omits.
+function rebaseBehavior(draft: RolloutBehavior, previous: RolloutBehavior, incoming: RolloutBehavior): RolloutBehavior {
+  if (equals(RolloutBehaviorSchema, previous, incoming)) return draft;
+  const keepLocal = <T,>(local: T, base: T, remote: T): T => (Object.is(local, base) ? remote : local);
+  const thresholds = create(RolloutAutomationThresholdsSchema);
+  for (const field of [
+    "maxHashrateDropPercent",
+    "maxEfficiencyIncreasePercent",
+    "maxTemperatureIncreaseCelsius",
+    "maxNewErrors",
+    "minSampleCoveragePercent",
+  ] as const) {
+    thresholds[field] = keepLocal(
+      draft.thresholds?.[field],
+      previous.thresholds?.[field],
+      incoming.thresholds?.[field],
+    );
+  }
+  return create(RolloutBehaviorSchema, {
+    method: keepLocal(draft.method, previous.method, incoming.method),
+    order: keepLocal(draft.order, previous.order, incoming.order),
+    batchSize: keepLocal(draft.batchSize, previous.batchSize, incoming.batchSize),
+    pilotSize: keepLocal(draft.pilotSize, previous.pilotSize, incoming.pilotSize),
+    waitBetweenBatchesSeconds: keepLocal(
+      draft.waitBetweenBatchesSeconds,
+      previous.waitBetweenBatchesSeconds,
+      incoming.waitBetweenBatchesSeconds,
+    ),
+    reviewAfterEachBatch: keepLocal(
+      draft.reviewAfterEachBatch,
+      previous.reviewAfterEachBatch,
+      incoming.reviewAfterEachBatch,
+    ),
+    autoContinueOnHealthyTelemetry: keepLocal(
+      draft.autoContinueOnHealthyTelemetry,
+      previous.autoContinueOnHealthyTelemetry,
+      incoming.autoContinueOnHealthyTelemetry,
+    ),
+    stabilizationSeconds: keepLocal(
+      draft.stabilizationSeconds,
+      previous.stabilizationSeconds,
+      incoming.stabilizationSeconds,
+    ),
+    maxConcurrentOffline: keepLocal(
+      draft.maxConcurrentOffline,
+      previous.maxConcurrentOffline,
+      incoming.maxConcurrentOffline,
+    ),
+    controllerTimeoutSeconds: keepLocal(
+      draft.controllerTimeoutSeconds,
+      previous.controllerTimeoutSeconds,
+      incoming.controllerTimeoutSeconds,
+    ),
+    thresholds,
+  });
 }
 
 interface FirmwarePickerCellProps {
@@ -184,19 +244,23 @@ const ReleaseChannelManageView = ({
   onDelete,
   onApply,
 }: ReleaseChannelManageViewProps) => {
-  // The draft is seeded once from the channel; the parent remounts this
-  // view (keyed by channel id) when a different channel is opened.
+  // A different channel remounts this view; later polls rebase only fields
+  // that still match the previous authoritative settings for this channel.
   const [name, setName] = useState(channel?.name ?? "");
   const [description, setDescription] = useState(channel?.description ?? "");
   const [scope, setScope] = useState<ReleaseChannelScope>(() => channel?.scope ?? create(ReleaseChannelScopeSchema));
   const [behavior, setBehavior] = useState<RolloutBehavior>(() => channel?.behavior ?? defaultBehavior());
   const [preview, setPreview] = useState<PreviewReleaseChannelScopeResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [savedDraft, setSavedDraft] = useState<ReleaseChannelDraft | null>(null);
+  const [savedDraft, setSavedDraft] = useState<{
+    settings: ReleaseChannelDraft;
+    beforeSave: ChannelView | undefined;
+  } | null>(null);
+  const [settingsBase, setSettingsBase] = useState<ChannelView | ReleaseChannelDraft | undefined>(channel);
 
   // A successful read restores the channel as the source of truth. Do not
   // carry an old save acknowledgement into a later, unrelated refresh error.
-  if (!hasRefreshError && savedDraft !== null) setSavedDraft(null);
+  if (!hasRefreshError && savedDraft !== null && channel !== savedDraft.beforeSave) setSavedDraft(null);
 
   // Staged (unapplied) firmware choices per pair key; absent key = server value.
   const [staged, setStaged] = useState<Record<string, string>>({});
@@ -213,7 +277,31 @@ const ReleaseChannelManageView = ({
     [previewScope, channelId],
   );
 
-  const savedSettings = hasRefreshError && savedDraft ? savedDraft : channel;
+  const savedSettings =
+    savedDraft && (hasRefreshError || channel === savedDraft.beforeSave) ? savedDraft.settings : channel;
+  if (!isSaving && savedSettings !== settingsBase) {
+    setSettingsBase(savedSettings);
+    if (settingsBase && savedSettings) {
+      if (name.trim() === settingsBase.name && savedSettings.name !== settingsBase.name) setName(savedSettings.name);
+      if (description.trim() === settingsBase.description && savedSettings.description !== settingsBase.description) {
+        setDescription(savedSettings.description);
+      }
+      const incomingScope = savedSettings.scope ?? create(ReleaseChannelScopeSchema);
+      if (
+        equals(ReleaseChannelScopeSchema, scope, settingsBase.scope ?? create(ReleaseChannelScopeSchema)) &&
+        !equals(ReleaseChannelScopeSchema, scope, incomingScope)
+      ) {
+        setScope(incomingScope);
+      }
+      setBehavior(
+        rebaseBehavior(
+          behavior,
+          settingsBase.behavior ?? create(RolloutBehaviorSchema),
+          savedSettings.behavior ?? create(RolloutBehaviorSchema),
+        ),
+      );
+    }
+  }
   const dirty =
     savedSettings === undefined ||
     name.trim() !== savedSettings.name ||
@@ -234,6 +322,7 @@ const ReleaseChannelManageView = ({
     dirty &&
     !nameError &&
     !descriptionError &&
+    scopeValidationErrors(scope).length === 0 &&
     Object.keys(rolloutBehaviorErrors(behavior)).length === 0 &&
     (channel !== undefined || !hasConflicts) &&
     !isWriting;
@@ -252,7 +341,8 @@ const ReleaseChannelManageView = ({
       await onSave(submitted);
       // Only these submitted values were saved; edits made while waiting
       // remain dirty even if the follow-up refresh fails.
-      setSavedDraft(submitted);
+      setSavedDraft({ settings: submitted, beforeSave: channel });
+      setSettingsBase(submitted);
       pushToast({
         message: channel ? "Release channel saved" : `Created release channel ${submitted.name}`,
         status: STATUSES.success,
@@ -337,7 +427,7 @@ const ReleaseChannelManageView = ({
   const lastFinishedByPair = new Map<string, Rollout>();
   for (const r of channelRollouts) {
     if (r.status !== RolloutStatus.COMPLETED && r.status !== RolloutStatus.COMPLETED_WITH_FAILURES) continue;
-    if (!lastFinishedByPair.has(pairKey(r))) lastFinishedByPair.set(pairKey(r), r); // rollouts arrive newest first
+    if (!lastFinishedByPair.has(assignmentKey(r))) lastFinishedByPair.set(assignmentKey(r), r); // rollouts arrive newest first
   }
 
   return (
@@ -472,7 +562,7 @@ const ReleaseChannelManageView = ({
                         <ModelStatusCell
                           group={group}
                           activeRollout={activeRollout}
-                          lastFinished={lastFinishedByPair.get(pairKey(group))}
+                          lastFinished={lastFinishedByPair.get(assignmentKey(group))}
                         />
                       </td>
                       <td className="py-3 text-right">

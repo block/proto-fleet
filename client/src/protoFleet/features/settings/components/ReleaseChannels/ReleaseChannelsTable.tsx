@@ -4,6 +4,7 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import { StatusCell } from "./channelStatus";
 import {
+  assignmentKey,
   channelUpdateStatus,
   isActive,
   modelFirmwareLabel,
@@ -56,15 +57,18 @@ const channelColTitles: ColTitles<ChannelColumn> = {
 const channelPairKey = (channelId: bigint, pair: { manufacturer: string; model: string }) =>
   `${channelId.toString()}:${pairKey(pair)}`;
 
+const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout) =>
+  `${channelId.toString()}:${assignmentKey(pair)}`;
+
 // Newest finished (completed or completed with failures) rollout per
-// (channel, model), for "Updated <date>" and "N failed" cells.
-function lastFinishedByChannelPair(rollouts: Rollout[]): Map<string, Rollout> {
+// (channel, model, assignment generation), for "Updated <date>" and "N failed" cells.
+function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollout> {
   const latest = new Map<string, Rollout>();
   for (const rollout of rollouts) {
     const finished =
       rollout.status === RolloutStatus.COMPLETED || rollout.status === RolloutStatus.COMPLETED_WITH_FAILURES;
     if (!finished || !rollout.finishedAt) continue;
-    const key = channelPairKey(rollout.channelId, rollout);
+    const key = channelAssignmentKey(rollout.channelId, rollout);
     const current = latest.get(key);
     if (!current?.finishedAt || timestampMs(rollout.finishedAt) > timestampMs(current.finishedAt)) {
       latest.set(key, rollout);
@@ -83,7 +87,7 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
     () => new Map(rollouts.filter(isActive).map((rollout) => [channelPairKey(rollout.channelId, rollout), rollout])),
     [rollouts],
   );
-  const lastFinished = useMemo(() => lastFinishedByChannelPair(rollouts), [rollouts]);
+  const lastFinished = useMemo(() => lastFinishedByChannelAssignment(rollouts), [rollouts]);
 
   const rows = useMemo<ChannelTableRow[]>(
     () =>
@@ -181,7 +185,7 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
             status={modelUpdateStatus(
               row.group,
               activeByChannelPair.get(channelPairKey(row.channel.id, row.group)),
-              lastFinished.get(channelPairKey(row.channel.id, row.group)),
+              lastFinished.get(channelAssignmentKey(row.channel.id, row.group)),
             )}
             testId={`model-status-${row.channel.name}-${row.group.model}`}
           />

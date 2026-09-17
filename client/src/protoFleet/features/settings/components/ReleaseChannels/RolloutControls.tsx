@@ -63,7 +63,9 @@ const RolloutControls = ({
 }: RolloutControlsProps): ReactElement => {
   // Keep raw text above the conditionally mounted fields so hidden invalid
   // edits survive method/gate changes and never become an intentional unset.
-  const [numberText, setNumberText] = useState<Partial<Record<RolloutNumericField, string>>>({});
+  const [numberText, setNumberText] = useState<
+    Partial<Record<RolloutNumericField, { text: string; value: number | undefined }>>
+  >({});
   const update = (patch: Partial<RolloutBehavior>) =>
     onChange(create(RolloutBehaviorSchema, { ...behavior, ...patch }));
   const updateThresholds = (patch: Partial<RolloutAutomationThresholds>) =>
@@ -85,11 +87,17 @@ const RolloutControls = ({
   ) => ({
     type: "text",
     inputMode: "decimal" as const,
-    initValue: numberText[field] ?? (value === undefined ? "" : String(value / scale)),
+    initValue:
+      numberText[field] && Object.is(numberText[field].value, value)
+        ? numberText[field].text
+        : value === undefined
+          ? ""
+          : String(value / scale),
     error: errors[field],
     onChange: (text: string) => {
-      setNumberText((current) => ({ ...current, [field]: text }));
-      onNumberChange(parseNumberDraft(text, optional, scale));
+      const value = parseNumberDraft(text, optional, scale);
+      setNumberText((current) => ({ ...current, [field]: { text, value } }));
+      onNumberChange(value);
     },
   });
   const availableMethods =

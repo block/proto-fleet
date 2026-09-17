@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import ScopeEditor from "./ScopeEditor";
@@ -15,18 +16,35 @@ import {
   SiteSelectionModal,
 } from "@/protoFleet/components/TargetSelectionModal";
 
-const { permissions } = vi.hoisted(() => ({ permissions: new Set<string>() }));
+const { permissions, selections } = vi.hoisted(() => ({
+  permissions: new Set<string>(),
+  selections: {
+    siteIds: ["8"],
+    buildingIds: [] as string[],
+    rackIds: [] as string[],
+    groupIds: [] as string[],
+    deviceIdentifiers: [] as string[],
+  },
+}));
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: (permission: string) => permissions.has(permission) }));
 // Placement dialogs fetch on mount. These stand-ins let us verify that a
 // closed or unauthorized picker is never mounted, before any data hook runs.
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   SiteSelectionModal: vi.fn(({ onSave }: { onSave: (selection: { siteIds: string[] }) => void }) => (
-    <button onClick={() => onSave({ siteIds: ["8"] })}>Save sites</button>
+    <button onClick={() => onSave({ siteIds: selections.siteIds })}>Save sites</button>
   )),
-  BuildingSelectionModal: vi.fn(() => <div>Building picker</div>),
-  RackSelectionModal: vi.fn(() => <div>Rack picker</div>),
-  GroupSelectionModal: vi.fn(() => <div>Group picker</div>),
-  MinerSelectionModal: vi.fn(() => <div>Miner picker</div>),
+  BuildingSelectionModal: vi.fn(({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(selections.buildingIds)}>Save buildings</button>
+  )),
+  RackSelectionModal: vi.fn(({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(selections.rackIds)}>Save racks</button>
+  )),
+  GroupSelectionModal: vi.fn(({ onSave }: { onSave: (ids: string[]) => void }) => (
+    <button onClick={() => onSave(selections.groupIds)}>Save groups</button>
+  )),
+  MinerSelectionModal: vi.fn(({ onSave }: { onSave: (selection: { selectedMinerIds: string[] }) => void }) => (
+    <button onClick={() => onSave({ selectedMinerIds: selections.deviceIdentifiers })}>Save miners</button>
+  )),
 }));
 
 const pickers = [
@@ -48,7 +66,149 @@ const previewScope = vi.fn().mockResolvedValue(create(PreviewReleaseChannelScope
 
 beforeEach(() => {
   permissions.clear();
+  selections.siteIds = ["8"];
+  selections.buildingIds = [];
+  selections.rackIds = [];
+  selections.groupIds = [];
+  selections.deviceIdentifiers = [];
   vi.clearAllMocks();
+});
+
+describe("release-channel scope bounds", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const permission of ["site:read", "rack:read", "miner:read"]) permissions.add(permission);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const resolvePreview = async () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+  it.each([
+    ["Sites", "siteIds", 100, SiteSelectionModal, "selectedSiteIds"],
+    ["Buildings", "buildingIds", 100, BuildingSelectionModal, "selectedBuildingIds"],
+    ["Racks", "rackIds", 500, RackSelectionModal, "selectedRackIds"],
+    ["Groups", "groupIds", 100, GroupSelectionModal, "selectedGroupIds"],
+    ["Miners", "deviceIdentifiers", 10000, MinerSelectionModal, "selectedMinerIds"],
+  ] as const)(
+    "retains oversized %s, skips invalid previews, and recovers at the %s limit",
+    async (label, field, limit, picker, selectionProp) => {
+      const result = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 5 });
+      const preview = vi.fn().mockResolvedValue(result);
+      const onPreview = vi.fn();
+      const changed = vi.fn();
+      function Editor() {
+        const [draft, setDraft] = useState(create(ReleaseChannelScopeSchema));
+        return (
+          <ScopeEditor
+            scope={draft}
+            onChange={(next) => {
+              changed(next);
+              setDraft(next);
+            }}
+            previewScope={preview}
+            onPreview={onPreview}
+          />
+        );
+      }
+      render(<Editor />);
+      const selectCount = (count: number) => {
+        selections[field] = Array.from({ length: count }, (_, index) => String(index + 1));
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label} `) }));
+        fireEvent.click(screen.getByRole("button", { name: `Save ${label.toLowerCase()}` }));
+      };
+      selectCount(limit);
+      await resolvePreview();
+      expect(preview).toHaveBeenCalledOnce();
+      expect(preview.mock.calls[0][0][field]).toHaveLength(limit);
+      expect(onPreview).toHaveBeenLastCalledWith(result);
+      selectCount(limit + 1);
+      expect(changed.mock.calls[changed.mock.calls.length - 1][0][field]).toHaveLength(limit + 1);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        `Select no more than ${limit.toLocaleString()} ${label.toLowerCase()} (${(limit + 1).toLocaleString()} selected).`,
+      );
+      expect(onPreview).toHaveBeenLastCalledWith(null);
+      await resolvePreview();
+      expect(preview).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label} `) }));
+      const calls = vi.mocked(picker).mock.calls;
+      expect(calls[calls.length - 1][0]).toMatchObject({ [selectionProp]: selections[field] });
+      selections[field] = selections[field].slice(0, limit);
+      fireEvent.click(screen.getByRole("button", { name: `Save ${label.toLowerCase()}` }));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await resolvePreview();
+      expect(preview).toHaveBeenCalledTimes(2);
+      expect(preview.mock.calls[1][0][field]).toHaveLength(limit);
+      expect(onPreview).toHaveBeenLastCalledWith(result);
+    },
+  );
+
+  it("keeps oversized permission-hidden IDs when another dimension changes", async () => {
+    permissions.delete("rack:read");
+    const hiddenScope = create(ReleaseChannelScopeSchema, {
+      siteIds: [1n],
+      rackIds: Array.from({ length: 501 }, (_, i) => BigInt(i + 1)),
+    });
+    const onChange = vi.fn();
+    const preview = vi.fn();
+    render(<ScopeEditor scope={hiddenScope} onChange={onChange} previewScope={preview} />);
+    expect(screen.queryByRole("button", { name: /^Racks / })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Select no more than 500 racks (501 selected).");
+    fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
+    fireEvent.click(screen.getByRole("button", { name: "Save sites" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(
+      create(ReleaseChannelScopeSchema, { ...hiddenScope, siteIds: [8n] }),
+    );
+    await resolvePreview();
+    expect(preview).not.toHaveBeenCalled();
+  });
+
+  it("labels the last valid preview and suppresses stale conflicts and late responses after invalidation", async () => {
+    const oldResult = create(PreviewReleaseChannelScopeResponseSchema, {
+      minerCount: 5,
+      conflicts: [{ channelId: 2n, channelName: "Other channel", minerCount: 5 }],
+      conflictCount: 1,
+    });
+    let finishPending!: (value: typeof oldResult) => void;
+    const pending = new Promise<typeof oldResult>((resolve) => {
+      finishPending = resolve;
+    });
+    const preview = vi
+      .fn()
+      .mockResolvedValueOnce(oldResult)
+      .mockReturnValueOnce(pending)
+      .mockResolvedValueOnce(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 6 }));
+    const onPreview = vi.fn();
+    const props = { onChange: vi.fn(), previewScope: preview, onPreview };
+    const { rerender } = render(
+      <ScopeEditor {...props} scope={create(ReleaseChannelScopeSchema, { siteIds: [1n] })} />,
+    );
+    await resolvePreview();
+    expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Other channel");
+    rerender(<ScopeEditor {...props} scope={create(ReleaseChannelScopeSchema, { siteIds: [2n] })} />);
+    expect(screen.queryByTestId("scope-conflicts")).not.toBeInTheDocument();
+    expect(onPreview).toHaveBeenLastCalledWith(null);
+    await resolvePreview();
+    rerender(
+      <ScopeEditor
+        {...props}
+        scope={create(ReleaseChannelScopeSchema, { siteIds: Array.from({ length: 101 }, (_, i) => BigInt(i + 1)) })}
+      />,
+    );
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Last valid preview: 1 site · covers 5 miners");
+    expect(screen.getByTestId("scope-preview")).not.toHaveTextContent("Other channel");
+    await act(async () => finishPending(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 999 })));
+    await resolvePreview();
+    expect(preview).toHaveBeenCalledTimes(2);
+    expect(onPreview).toHaveBeenLastCalledWith(null);
+    expect(screen.getByTestId("scope-preview")).not.toHaveTextContent("999");
+    rerender(<ScopeEditor {...props} scope={create(ReleaseChannelScopeSchema, { siteIds: [3n] })} />);
+    await resolvePreview();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 6 miners");
+    expect(screen.getByTestId("scope-preview")).not.toHaveTextContent("Last valid preview");
+  });
 });
 
 describe("release-channel scope permissions", () => {

@@ -833,7 +833,9 @@ describe("release channel saves during scope overlaps", () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Renamed", scope: channel.scope }));
     expect(save).toBeDisabled();
     await act(async () => finishSaving());
-    await waitFor(() => expect(save).toBeEnabled());
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Another edit" } });
+    expect(save).toBeEnabled();
   });
 
   test("lets the server reject newly introduced overlaps and displays its error", async () => {
@@ -901,9 +903,11 @@ describe("release channel saves while refresh fails", () => {
     updateChannel({ ...channel, name: "Saved name" }, false);
     expect(save).toBeDisabled();
     updateChannel({ ...channel, name: "Another operator's name" }, false);
-    expect(save).toBeEnabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Another operator's name");
+    expect(save).toBeDisabled();
     updateChannel({ ...channel, name: "Another operator's name" }, true);
-    expect(save).toBeEnabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Another operator's name");
+    expect(save).toBeDisabled();
   });
 
   test("does not acknowledge local edits made while the successful save was pending", async () => {

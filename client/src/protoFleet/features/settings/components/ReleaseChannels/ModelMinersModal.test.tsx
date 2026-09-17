@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import ModelMinersModal from "./ModelMinersModal";
@@ -11,6 +11,10 @@ import {
   RolloutDevicePhase,
   RolloutDeviceSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { useFleetStore } from "@/protoFleet/store";
+
+const initialAuth = useFleetStore.getState().auth;
+afterEach(() => useFleetStore.setState({ auth: initialAuth }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -40,6 +44,103 @@ const propsFor = () => ({
 });
 
 describe("ModelMinersModal detail loading", () => {
+  it("finishes slow detail scans across repeated summary polls and coalesces one trailing refresh", async () => {
+    const props = propsFor();
+    const members = deferred<ReleaseChannelMiner[]>();
+    const progress = deferred<RolloutDevice[]>();
+    const nextMembers = deferred<ReleaseChannelMiner[]>();
+    const nextProgress = deferred<RolloutDevice[]>();
+    props.listChannelMiners.mockReturnValueOnce(members.promise).mockReturnValueOnce(nextMembers.promise);
+    props.listRolloutDevices.mockReturnValueOnce(progress.promise).mockReturnValueOnce(nextProgress.promise);
+    const { rerender } = render(<ModelMinersModal {...props} />);
+
+    for (let poll = 0; poll < 4; poll++) {
+      rerender(<ModelMinersModal {...props} group={{ ...props.group }} activeRollout={{ ...activeRigRollout }} />);
+    }
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+    await act(async () => members.resolve([miner]));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    await act(async () => progress.resolve([device]));
+
+    expect(screen.getByTestId("channel-miner-rig-1")).toHaveTextContent("Updated");
+    expect(props.listChannelMiners).toHaveBeenCalledTimes(2);
+    expect(props.listRolloutDevices).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    await act(async () => {
+      nextMembers.resolve([create(ReleaseChannelMinerSchema, { deviceIdentifier: "rig-2" })]);
+      nextProgress.resolve([
+        create(RolloutDeviceSchema, { deviceIdentifier: "rig-2", phase: RolloutDevicePhase.FAILED }),
+      ]);
+    });
+    expect(screen.getByTestId("channel-miner-rig-2")).toHaveTextContent("Failed");
+    expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "false");
+    expect(props.listChannelMiners).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for both reads to settle before retrying a scan whose other read failed", async () => {
+    const props = propsFor();
+    const members = deferred<ReleaseChannelMiner[]>();
+    const progress = deferred<RolloutDevice[]>();
+    props.listChannelMiners.mockReturnValueOnce(members.promise);
+    props.listRolloutDevices.mockReturnValueOnce(progress.promise);
+    const { rerender } = render(<ModelMinersModal {...props} />);
+    await act(async () => progress.reject(new Error("Device page failed")));
+    rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+    rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
+    await act(async () => members.resolve([miner]));
+    expect(screen.getByTestId("channel-miner-rig-1")).toHaveTextContent("Updated");
+    expect(props.listChannelMiners).toHaveBeenCalledTimes(2);
+    expect(props.listRolloutDevices).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("discards queued work when unmounted during a slow scan", async () => {
+    const props = propsFor();
+    const members = deferred<ReleaseChannelMiner[]>();
+    props.listChannelMiners.mockReturnValueOnce(members.promise);
+    const { rerender, unmount } = render(<ModelMinersModal {...props} />);
+    rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+    unmount();
+    await act(async () => members.resolve([miner]));
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "invalidates prior-session data and a pending scan's late %s",
+    async (result) => {
+      const props = propsFor();
+      const { rerender } = render(<ModelMinersModal {...props} />);
+      await screen.findByTestId("channel-miner-rig-1");
+      const obsolete = deferred<ReleaseChannelMiner[]>();
+      const current = deferred<ReleaseChannelMiner[]>();
+      props.listChannelMiners.mockReturnValueOnce(obsolete.promise).mockReturnValueOnce(current.promise);
+      rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+      act(() => {
+        useFleetStore.setState({
+          auth: { ...initialAuth, username: "new-operator", sessionGeneration: initialAuth.sessionGeneration + 1 },
+        });
+      });
+      expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
+      await act(async () => {
+        if (result === "resolve") obsolete.resolve([miner]);
+        else obsolete.reject(new Error("Old session failed"));
+        current.resolve([create(ReleaseChannelMinerSchema, { deviceIdentifier: "new-session" })]);
+      });
+      expect(screen.getByTestId("channel-miner-new-session")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(props.listChannelMiners).toHaveBeenCalledTimes(3);
+    },
+  );
+
   it.each(["listChannelMiners", "listRolloutDevices"] as const)(
     "shows a failed initial %s and retries both complete detail lists",
     async (failedRead) => {

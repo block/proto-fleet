@@ -52,6 +52,20 @@ import {
 
 const rigGroup = canaryChannel.modelGroups[0];
 
+describe("current assignment completion status", () => {
+  it("does not carry an old assignment's failures into the current assignment", () => {
+    expect(
+      modelUpdateStatus({ ...rigGroup, assignmentGeneration: 2n }, undefined, completedWithFailuresRigRollout),
+    ).toEqual({ label: "2 of 6 on target", tone: "none" });
+  });
+
+  it("does not credit the current assignment with an old assignment's completion date", () => {
+    expect(
+      modelUpdateStatus({ ...rigGroup, assignmentGeneration: 2n, onTargetCount: 6 }, undefined, completedRigRollout),
+    ).toEqual({ label: "Up to date", tone: "completed" });
+  });
+});
+
 describe("rolloutStageLabel", () => {
   it("uses the design's stage vocabulary", () => {
     expect(rolloutStageLabel(activeRigRollout)).toBe("In progress");

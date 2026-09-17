@@ -1,12 +1,106 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { activeRigRollout, canaryChannel, gatedRigRollout, pausedRigRollout } from "./ReleaseChannels.fixtures";
+import {
+  activeRigRollout,
+  canaryChannel,
+  completedRigRollout,
+  completedWithFailuresRigRollout,
+  gatedRigRollout,
+  pausedRigRollout,
+} from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
-import { ReleaseChannelModelGroupSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  ReleaseChannelModelGroupSchema,
+  RolloutDeviceCountsSchema,
+  RolloutSchema,
+  RolloutState,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("release channel current assignment history", () => {
+  it.each([
+    { finished: completedRigRollout, onTargetCount: 6, label: "Up to date" },
+    { finished: completedWithFailuresRigRollout, onTargetCount: 2, label: "2 of 6 on target" },
+  ])(
+    "ignores old-generation completion after the current update is canceled: $label",
+    ({ finished, onTargetCount, label }) => {
+      const group = create(ReleaseChannelModelGroupSchema, {
+        ...canaryChannel.modelGroups[0],
+        assignmentGeneration: 2n,
+        onTargetCount,
+      });
+      const previous = create(RolloutSchema, {
+        ...finished,
+        assignmentGeneration: 1n,
+        firmwareVersion: group.firmwareVersion,
+        firmwareChecksum: group.firmwareChecksum,
+      });
+      const canceled = create(RolloutSchema, {
+        ...previous,
+        id: 99n,
+        assignmentGeneration: 2n,
+        status: RolloutStatus.CANCELED,
+        state: RolloutState.CANCELED,
+      });
+      render(
+        <ReleaseChannelsTable
+          channels={[{ ...canaryChannel, modelGroups: [group] }]}
+          rollouts={[canceled, previous]}
+          onCreate={vi.fn()}
+          onManage={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+      expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(new RegExp(`^${label}$`));
+    },
+  );
+
+  it("selects the latest completion within the displayed generation rather than another generation's newer history", () => {
+    const group = create(ReleaseChannelModelGroupSchema, {
+      ...canaryChannel.modelGroups[0],
+      assignmentGeneration: 2n,
+      onTargetCount: 2,
+    });
+    const finished = create(RolloutSchema, {
+      ...completedWithFailuresRigRollout,
+      assignmentGeneration: 2n,
+      finishedAt: create(TimestampSchema, { seconds: 20n }),
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 4, failed: 2 }),
+    });
+    const earlier = create(RolloutSchema, {
+      ...finished,
+      id: 49n,
+      finishedAt: create(TimestampSchema, { seconds: 10n }),
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 5, failed: 1 }),
+    });
+    const otherGeneration = create(RolloutSchema, {
+      ...completedRigRollout,
+      assignmentGeneration: 3n,
+      finishedAt: create(TimestampSchema, { seconds: 30n }),
+    });
+    const otherChannel = create(RolloutSchema, {
+      ...finished,
+      channelId: 2n,
+      finishedAt: create(TimestampSchema, { seconds: 40n }),
+      deviceCounts: create(RolloutDeviceCountsSchema, { done: 1, failed: 5 }),
+    });
+    render(
+      <ReleaseChannelsTable
+        channels={[{ ...canaryChannel, modelGroups: [group] }]}
+        rollouts={[otherGeneration, earlier, otherChannel, finished]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^2 failed to update$/);
+  });
+});
 
 describe("release channel update summary", () => {
   const rawRigGroups = [

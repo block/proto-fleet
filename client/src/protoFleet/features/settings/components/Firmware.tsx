@@ -365,12 +365,8 @@ const firmwareTabs = [
   { key: TAB_RELEASE_CHANNELS, title: "Release channels" },
 ];
 
-// The active tab lives in the `tab` search param so other surfaces can
-// deep-link straight to the release channels view. Channels and updates are
-// polled here, above the tabs, so one poll can feed every surface on the page.
-const Firmware = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
+// Mount channel polling only while this tab has a consumer.
+const ReleaseChannelsSection = () => {
   const channelsApi = useReleaseChannels();
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -385,18 +381,7 @@ const Firmware = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <SegmentedControl
-        // SegmentedControl is uncontrolled; remount it when navigation
-        // (rather than a click) changes the URL-derived tab.
-        key={activeTab}
-        className="self-start"
-        segments={firmwareTabs}
-        initialSegmentKey={activeTab}
-        onSelect={(key) => {
-          setSearchParams(key === TAB_RELEASE_CHANNELS ? { tab: RELEASE_CHANNELS_TAB_PARAM } : {}, { replace: true });
-        }}
-      />
+    <>
       {channelsApi.error ? (
         <div role="alert" aria-busy={isRetrying}>
           <Callout
@@ -416,7 +401,30 @@ const Firmware = () => {
           />
         </div>
       ) : null}
-      {activeTab === TAB_RELEASE_CHANNELS ? <ReleaseChannelsTab api={channelsApi} /> : <FirmwareFilesSection />}
+      <ReleaseChannelsTab api={channelsApi} />
+    </>
+  );
+};
+
+// Keep the active tab in the URL so other surfaces can deep-link here.
+const Firmware = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SegmentedControl
+        // SegmentedControl is uncontrolled; remount it when navigation
+        // (rather than a click) changes the URL-derived tab.
+        key={activeTab}
+        className="self-start"
+        segments={firmwareTabs}
+        initialSegmentKey={activeTab}
+        onSelect={(key) => {
+          setSearchParams(key === TAB_RELEASE_CHANNELS ? { tab: RELEASE_CHANNELS_TAB_PARAM } : {}, { replace: true });
+        }}
+      />
+      {activeTab === TAB_RELEASE_CHANNELS ? <ReleaseChannelsSection /> : <FirmwareFilesSection />}
     </div>
   );
 };
