@@ -12,6 +12,7 @@ import {
   gatedRigRollout,
   pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
+import { isActive } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import Firmware from "@/protoFleet/features/settings/components/Firmware";
@@ -45,10 +46,15 @@ function apiFor(rollout: Rollout) {
     channels: [
       {
         ...canaryChannel,
-        modelGroups: canaryChannel.modelGroups.map((group) => ({
-          ...group,
-          assignmentGeneration: rollout.assignmentGeneration,
-        })),
+        modelGroups: canaryChannel.modelGroups.map((group) =>
+          group.manufacturer === rollout.manufacturer && group.model === rollout.model
+            ? {
+                ...group,
+                assignmentGeneration: rollout.assignmentGeneration,
+                activeRolloutId: isActive(rollout) ? rollout.id : 0n,
+              }
+            : group,
+        ),
       },
     ],
     rollouts: [rollout],
