@@ -20,7 +20,7 @@ but no UI consumes them yet.
 
 This PR delivers the **navigation scaffold** for the multi-site
 frontend per the scaffold-first phasing in
-[`docs/plans/2026-05-05-multi-site-support-plan.md`](./2026-05-05-multi-site-support-plan.md).
+[`docs/plans/2026-05-05-multi-site-support-plan.md`](../2026-05-05-multi-site-support-plan.md).
 It registers three new routes (`/sites`, `/settings/sites`,
 `/buildings/:id`), mounts a global topbar SitePicker that replaces
 today's `LocationSelector` placeholder, gates the new sidenav +

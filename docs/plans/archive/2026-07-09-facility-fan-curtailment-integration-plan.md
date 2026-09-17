@@ -434,14 +434,10 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
 
 ## Phase 4: Modbus TCP adapter protocol I/O
 
-> **Status: not started.** No Phase 4 PR is open or merged as of
-> 2026-07-16. The Phase 1 adapter has config parsing/validation only;
-> `modbustcp.SetState` is still a deliberate stub. The commissioned
-> control-subnet data model and dial-time authorization check remain a
-> blocking design prerequisite, not an implemented foundation. The current
-> `driver.Device` passed to `SetState` contains no `SiteID` or authorized
-> CIDRs, so Phase 4 must also define how site commissioning data reaches the
-> dial authorization boundary before implementing writes.
+> **Status: completed.** [PR #762](https://github.com/block/proto-fleet/pull/762)
+> merged on 2026-07-17. It added commissioned site control subnets, a
+> deployment-managed outer allowlist, fail-closed dial authorization, and
+> bounded FC5/FC6 writes.
 
 The `Controller` interface, registry, and config validation landed in
 Phase 1; this phase implements the write path.
@@ -480,9 +476,10 @@ security precondition on `modbustcp.SetState`.)
 
 ## Phase 5: Reconciler sequencing
 
-> **Status: not started.** No Phase 5 PR is open or merged as of
-> 2026-07-16. The reconciler, event schema/proto, `StartRequest`, and
-> `StartCurtailmentRequest` remain fan-unaware.
+> **Status: completed.** [PR #770](https://github.com/block/proto-fleet/pull/770)
+> merged on 2026-07-20. It added manual and MQTT event stamping, exclusive fan
+> claims, reconciler sequencing, per-cycle re-assertion, restore gating,
+> terminal recovery, durable errors, and operator alerts.
 
 - **Event stamping**: extend the start/event path so fan device IDs and
   delays are copied onto `curtailment_event` (migration:
@@ -565,18 +562,17 @@ security precondition on `modbustcp.SetState`.)
 
 ## Delivery: PR grouping
 
-Five sequential PRs, one per phase, each independently reviewable and safe
-to merge in order. PRs 1–3 are merged; PRs 4–5 are not opened as of
-2026-07-16. No fan behavior activates until PR 5 lands, so PRs 1–4 are
-pure surface area with no operational risk:
+Five sequential PRs, one per phase, merged in order. Fan behavior activated
+only when PR 5 landed; site commissioning and network reachability remain
+deployment gates:
 
 | PR | Scope | Contents | Depends on |
 | --- | --- | --- | --- |
 | PR 1 (**merged** — [#724](https://github.com/block/proto-fleet/pull/724), `27e80188`; tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration `000122`, `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service, Connect handlers. Profile reference guard deferred because its column did not exist yet. | — |
 | PR 2 (**merged** — [#743](https://github.com/block/proto-fleet/pull/743), `9246a584`; tracker [#742](https://github.com/block/proto-fleet/issues/742)) | Infra device client (Phase 2) | `useInfrastructureDevices`, API-backed `InfraDeviceList`, loading/error and mutation states, per-driver add/edit forms, redaction handling, status-column hiding | PR 1 |
 | PR 3 (**merged** — [#750](https://github.com/block/proto-fleet/pull/750), `092043a5`; tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Profile fan settings (Phase 3) | Profile proto + migration, org/permission validation with scope-independent fan selection, Infrastructure picker + delay fields, transactional device/site guards, legacy-client replacement semantics, interim automation/live-run blocks | PRs 1, 2 |
-| PR 4 (**not opened**) | Modbus write path (Phase 4) | Commissioned-subnet authorization, modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
-| PR 5 (**not opened**) | Reconciler sequencing (Phase 5) | Event stamping, fan device claim rule at Start, fan-OFF gate, re-assertion, restore path, terminal-path fan ON, `CurtailmentEvent` proto exposure, removal of interim execution blocks | PRs 3, 4 |
+| PR 4 (**merged** — [#762](https://github.com/block/proto-fleet/pull/762), `4e29658c`) | Modbus write path (Phase 4) | Commissioned-subnet authorization, modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
+| PR 5 (**merged** — [#770](https://github.com/block/proto-fleet/pull/770), `1e60e9bc`) | Reconciler sequencing (Phase 5) | Event stamping, fan device claim rule at Start, fan-OFF gate, re-assertion, restore path, terminal-path fan ON, `CurtailmentEvent` proto exposure, removal of interim execution blocks | PRs 3, 4 |
 
 Each PR carries its own tests from the Testing section. The site
 commissioning checklist (Hardware review, Gap 1) and the Phase 4 network
@@ -585,19 +581,19 @@ PR merge.
 
 ## Testing
 
-- **Completed through PR 3:** server coverage for infrastructure CRUD,
+- **Completed through PR 5:** server coverage for infrastructure CRUD,
   adapter config validation, endpoint restrictions, handler authorization
   and redaction, response-profile fan persistence/validation, optimistic
   fan-setting guards, device move/delete/site-cascade reference guards, and
   interim automation blocks (including real-Postgres integration tests).
   Client coverage includes the API hook, add/edit/list/error states, driver
   forms, response-profile payload mapping, Infrastructure picker/delays,
-  disabled devices, scope-independent selection, and the live-run block.
-- **Remaining for PRs 4–5:** Modbus writes against the devtools listener;
-  fan claim conflicts; both delay gates; the miner-rollup fan-OFF gate;
-  no-fan passthrough; send-failure alerting; recurtail reset; terminal-path
-  fan ON (`AdminTerminate`/`ForceRelease`); and per-cycle state
-  re-assertion, including recovery after a simulated device restart.
+  disabled devices, scope-independent selection, and live starts. Phase 4
+  added real-protocol simulator coverage, dual-allowlist authorization, and
+  bounded Modbus writes. Phase 5 added claim-conflict, delay-gate,
+  miner-rollup, no-fan, alert, recurtail, terminal recovery, and per-cycle
+  re-assertion coverage, including PostgreSQL integration cases exercised by
+  CI where local database execution was unavailable.
 - Repo hygiene: `just gen` after proto/sqlc/migration changes,
   `go work sync` after the Modbus dependency, feature branch, `just lint`
   before PR.
@@ -632,7 +628,7 @@ PR merge.
 
 ### From 2026-07-09 review
 
-- **Manual profile-prefilled starts cannot carry fan settings as specified** — Phase 5: Reconciler sequencing (P2, feasibility, confidence 75)
+- **Resolved in PR #770: manual profile-prefilled starts carry fan settings.**
 
   The plan says to copy the profile's fan device IDs and delays onto the
   event "at Start", but the domain `StartRequest` has no response-profile
@@ -642,5 +638,5 @@ PR merge.
   `StartCurtailment` request, so fan fields would be silently dropped for
   manually started events from the same profile unless
   `StartCurtailmentRequest`, `StartRequest`, and the client request
-  builders also gain the fields. Decide: extend the manual-start path in
-  v1, or document fan sequencing as automation-only.
+  builders gained those fields, so manual and MQTT starts both stamp the
+  selected fan IDs and delays onto the event.

@@ -248,7 +248,7 @@ In `SingleMinerActionsMenu.tsx`, add "Refresh":
 ## Follow-up
 
 - Live status modal: separate TDD at
-  `docs/plans/2026-06-11-status-modal-live-refresh-tdd.md`. Reuses
+  `docs/plans/archive/2026-06-11-status-modal-live-refresh-tdd.md`. Reuses
   `RefreshMiners` on a ~10s interval while open.
 - Post-command verification refreshes: after `StreamCommandBatchUpdates`
   reports success for status-changing actions (sleep, wake, reboot,

@@ -20,7 +20,7 @@ api-keys, firmware, pools, notifications, server-logs) while two
 built before multi-site landed.
 
 Before the SitePicker flag (`VITE_MULTI_SITE_ENABLED`,
-[`constants/featureFlags.ts`](../../client/src/protoFleet/constants/featureFlags.ts))
+[`constants/featureFlags.ts`](../../../client/src/protoFleet/constants/featureFlags.ts))
 goes broad, every settings subpage needs an explicit decision: honor the
 selected site as a default/filter, or stay deliberately all-sites without
 implying the picker applies.
@@ -28,17 +28,17 @@ implying the picker applies.
 The reusable site-scope toolkit from #516 is the foundation here:
 
 - `useActiveSite({ knownSiteIds })`
-  ([`components/PageHeader/SitePicker/useActiveSite.ts`](../../client/src/protoFleet/components/PageHeader/SitePicker/useActiveSite.ts))
+  ([`components/PageHeader/SitePicker/useActiveSite.ts`](../../../client/src/protoFleet/components/PageHeader/SitePicker/useActiveSite.ts))
   — resolves the active site from URL ∪ store, healing stale selections.
 - `siteFilterFromActive(activeSite)` → `{ siteIds, includeUnassigned, matchNone }`
-  ([`components/PageHeader/SitePicker/siteFilter.ts`](../../client/src/protoFleet/components/PageHeader/SitePicker/siteFilter.ts))
+  ([`components/PageHeader/SitePicker/siteFilter.ts`](../../../client/src/protoFleet/components/PageHeader/SitePicker/siteFilter.ts))
   — the additive filter shape ListRacks/ListGroups/ListMiners already take.
 - `scopedPath(to, activeSite)`
-  ([`routing/siteScope.tsx`](../../client/src/protoFleet/routing/siteScope.tsx))
+  ([`routing/siteScope.tsx`](../../../client/src/protoFleet/routing/siteScope.tsx))
   — preserves scope on outbound navigation.
 - `ActiveSite` store slice, persisted org-wide to `proto-fleet-multi-site`
-  ([`store/types/activeSite.ts`](../../client/src/protoFleet/store/types/activeSite.ts),
-  [`store/useFleetStore.ts`](../../client/src/protoFleet/store/useFleetStore.ts)).
+  ([`store/types/activeSite.ts`](../../../client/src/protoFleet/store/types/activeSite.ts),
+  [`store/useFleetStore.ts`](../../../client/src/protoFleet/store/useFleetStore.ts)).
 
 Dependency: [#520](https://github.com/block/proto-fleet/issues/520) adds
 `site_ids` / `include_unassigned` to `ListGroups` and `ListGroupMembers`
@@ -102,7 +102,7 @@ segment) and intersect via `intersectSiteFilters` — out of scope here.
 Server logs carry **no site-attributable structured data**, so they stay
 org-wide and the picker explicitly does not apply:
 
-- `LogEntry` ([`proto/serverlog/v1/serverlog.proto`](../../proto/serverlog/v1/serverlog.proto))
+- `LogEntry` ([`proto/serverlog/v1/serverlog.proto`](../../../proto/serverlog/v1/serverlog.proto))
   is `id / time / level / message / attrs / source`; `ListServerLogsRequest`
   is `min_level / search_text / since_id / limit`. No `site_id`/`device_id`.
 - The buffer is an in-memory ring (`logging/buffer.go`), not persisted; the
@@ -164,16 +164,16 @@ were built pre-multi-site and fetch globally. Enrich:
    `knownSiteIds` (from a sites fetch or outlet context),
    `const { activeSite } = useActiveSite({ knownSiteIds })`, and
    `const scope = useMemo(() => siteFilterFromActive(activeSite), [activeSite])`.
-2. **`RackSelectionModal`** ([`Schedules/RackSelectionModal.tsx`](../../client/src/protoFleet/features/settings/components/Schedules/RackSelectionModal.tsx))
+2. **`RackSelectionModal`** ([`Schedules/RackSelectionModal.tsx`](../../../client/src/protoFleet/features/settings/components/Schedules/RackSelectionModal.tsx))
    — pass `scope.siteIds` / `scope.includeUnassigned` into the existing
    `listRacks({ ... })` call (line ~28). `listRacks` already accepts these.
    Add `scope` to the effect deps.
 3. **`MinerSelectionModal` / `MinerSelectionList`**
-   ([`components/MinerSelectionList.tsx`](../../client/src/protoFleet/components/MinerSelectionList.tsx))
+   ([`components/MinerSelectionList.tsx`](../../../client/src/protoFleet/components/MinerSelectionList.tsx))
    — thread the filter into `useFleet()` and into its internal
    `listRacks({})` / `listGroups({})` filter-option queries so the facet
    options and the miner list both scope.
-4. **`GroupSelectionModal`** ([`Schedules/GroupSelectionModal.tsx`](../../client/src/protoFleet/features/settings/components/Schedules/GroupSelectionModal.tsx))
+4. **`GroupSelectionModal`** ([`Schedules/GroupSelectionModal.tsx`](../../../client/src/protoFleet/features/settings/components/Schedules/GroupSelectionModal.tsx))
    — **gated on #520.** Once `listGroups` accepts `{ siteIds,
 includeUnassigned }`, pass `scope` through (line ~29). **UX note (from
    #520 proto):** site-filtering groups returns groups that _have a member

@@ -1,8 +1,9 @@
 ---
 title: "Site-scoped curtailment response profiles"
 date: 2026-06-24
-status: draft
+status: completed
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/553
 ---
 
 # Site-scoped curtailment response profiles

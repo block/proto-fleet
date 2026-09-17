@@ -26,6 +26,8 @@ class PlanIndexTest(unittest.TestCase):
         status: str,
         archived: bool = False,
         tracker: str = "",
+        plan_type: str = "plan",
+        title: str = '"Example plan"',
     ) -> Path:
         directory = self.plans_dir / "archive" if archived else self.plans_dir
         path = directory / name
@@ -33,10 +35,10 @@ class PlanIndexTest(unittest.TestCase):
             "\n".join(
                 (
                     "---",
-                    'title: "Example plan"',
+                    f"title: {title}",
                     f"date: {name[:10]}",
                     f"status: {status}",
-                    "type: plan",
+                    f"type: {plan_type}",
                     f"tracker: {tracker}",
                     "---",
                     "",
@@ -96,6 +98,36 @@ class PlanIndexTest(unittest.TestCase):
 
         with self.assertRaisesRegex(plan_index.PlanIndexError, "invalid date"):
             plan_index.parse_plan(path, self.plans_dir)
+
+    def test_rejects_filename_that_does_not_end_with_plan_type(self) -> None:
+        path = self.write_plan(
+            "2026-09-17-example-plan.md", status="draft", plan_type="tdd"
+        )
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "filename must match"):
+            plan_index.parse_plan(path, self.plans_dir)
+
+    def test_rejects_plan_in_nested_directory(self) -> None:
+        path = self.write_plan("2026-09-17-example-plan.md", status="draft")
+        nested_dir = self.plans_dir / "old"
+        nested_dir.mkdir()
+        nested_path = path.rename(nested_dir / path.name)
+
+        with self.assertRaisesRegex(plan_index.PlanIndexError, "must live directly"):
+            plan_index.load_plans(self.plans_dir)
+
+        self.assertTrue(nested_path.exists())
+
+    def test_decodes_escaped_double_quoted_title(self) -> None:
+        path = self.write_plan(
+            "2026-09-17-escaped-title-plan.md",
+            status="draft",
+            title='"Use \\"fast\\" mode at C:\\\\fleet"',
+        )
+
+        plan = plan_index.parse_plan(path, self.plans_dir)
+
+        self.assertEqual(plan.title, 'Use "fast" mode at C:\\fleet')
 
 
 if __name__ == "__main__":

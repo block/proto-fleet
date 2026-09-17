@@ -14,7 +14,7 @@ PR [#516](https://github.com/block/proto-fleet/pull/516) added
 path-based Fleet site scope routing. The router already registers both
 `/activity` and `/:siteScope/activity` (`activity` is a member of
 `SCOPABLE_ROOT_SEGMENTS` in
-[`client/src/protoFleet/routing/siteScope.tsx`](../../client/src/protoFleet/routing/siteScope.tsx)),
+[`client/src/protoFleet/routing/siteScope.tsx`](../../../client/src/protoFleet/routing/siteScope.tsx)),
 and primary navigation preserves the selected site scope when moving to
 Activity. What is missing is the actual filtering: the Activity page
 renders the same org-wide event feed regardless of the route scope.
@@ -23,15 +23,15 @@ Much of the backend plumbing already exists from earlier multi-site
 phases:
 
 - `activity_log.site_id` already exists — added in migration
-  [`000047_add_site_id_to_history_tables.up.sql`](../../server/migrations/000047_add_site_id_to_history_tables.up.sql).
+  [`000047_add_site_id_to_history_tables.up.sql`](../../../server/migrations/000047_add_site_id_to_history_tables.up.sql).
   It is nullable, carries a composite FK to `site(id, org_id)`
   (`ON DELETE SET NULL`), a `CHECK (site_id IS NULL OR organization_id IS NOT NULL)`,
   and the index `idx_activity_log_org_site_created` on
   `(organization_id, site_id, created_at DESC, id DESC)`.
 - `InsertActivityLog` in
-  [`server/sqlc/queries/activity.sql`](../../server/sqlc/queries/activity.sql)
+  [`server/sqlc/queries/activity.sql`](../../../server/sqlc/queries/activity.sql)
   already writes `site_id`, and the domain `Event` struct
-  ([`server/internal/domain/activity/models/models.go`](../../server/internal/domain/activity/models/models.go))
+  ([`server/internal/domain/activity/models/models.go`](../../../server/internal/domain/activity/models/models.go))
   already carries `SiteID *int64`.
 - The client site-scope toolkit from #516 is reusable as-is:
   `useActiveSite`, `siteFilterFromActive`, `intersectSiteFilters`,
@@ -57,7 +57,7 @@ On `activity_log`, `site_id IS NULL` conflates two populations:
    should *not* leak into `/unassigned/activity`.
 2. **Multi-site events that can't fit a single scalar** — device-command
    batches. `logCommandActivity`
-   ([`server/internal/domain/command/service.go`](../../server/internal/domain/command/service.go))
+   ([`server/internal/domain/command/service.go`](../../../server/internal/domain/command/service.go))
    logs one event per batch with only `deviceCount` + `batchID`; a
    batch's device selector can span multiple sites, so a single scalar
    `site_id` cannot represent it. These currently land with `site_id IS NULL`.
@@ -136,7 +136,7 @@ events, `codl` join for batch events).
 ### Filter shape (proto)
 
 Extend `ActivityFilter` in
-[`proto/activity/v1/activity.proto`](../../proto/activity/v1/activity.proto),
+[`proto/activity/v1/activity.proto`](../../../proto/activity/v1/activity.proto),
 mirroring `ListBuildingsRequest` exactly so the semantics and validation
 match the rest of multi-site:
 
@@ -241,13 +241,13 @@ evaluated only for the page's candidate rows.
 
 - Add `SiteIDs []int64` + `IncludeUnassigned bool` to the domain activity
   `Filter`
-  ([`server/internal/domain/activity/...`](../../server/internal/domain/activity/)).
+  ([`server/internal/domain/activity/...`](../../../server/internal/domain/activity/)).
 - Map them into the sqlc params in the store layer — `site_ids` uses the
   **empty-not-nil** array contract (`emptyIfNilInt64`; see the sqlc array
   contract note above), alongside `org_level_categories` from
   `activity/models`.
 - Handler translate layer
-  ([`server/internal/handlers/activity/`](../../server/internal/handlers/activity/))
+  ([`server/internal/handlers/activity/`](../../../server/internal/handlers/activity/))
   copies `filter.site_ids` / `filter.include_unassigned` from the proto
   request into the domain filter, for all three RPCs.
 - Define `OrgLevelCategories()` in `activity/models` (the single source of
@@ -311,7 +311,7 @@ evaluated only for the page's candidate rows.
 ### Client
 
 `ActivityPage`
-([`client/src/protoFleet/features/activity/pages/ActivityPage.tsx`](../../client/src/protoFleet/features/activity/pages/ActivityPage.tsx))
+([`client/src/protoFleet/features/activity/pages/ActivityPage.tsx`](../../../client/src/protoFleet/features/activity/pages/ActivityPage.tsx))
 adopts the canonical #516 consumption pattern already used by `RacksPage`
 / `FleetBuildingsPage`:
 
@@ -328,9 +328,9 @@ route scope is the only entry point), so `intersectSiteFilters` is not
 used here; the scope filter is passed straight through.
 
 Plumb the two new params through the three client API hooks
-([`api/useActivity.ts`](../../client/src/protoFleet/api/useActivity.ts),
-[`api/useExportActivity.ts`](../../client/src/protoFleet/api/useExportActivity.ts),
-[`api/useActivityFilterOptions.ts`](../../client/src/protoFleet/api/useActivityFilterOptions.ts))
+([`api/useActivity.ts`](../../../client/src/protoFleet/api/useActivity.ts),
+[`api/useExportActivity.ts`](../../../client/src/protoFleet/api/useExportActivity.ts),
+[`api/useActivityFilterOptions.ts`](../../../client/src/protoFleet/api/useActivityFilterOptions.ts))
 and into the `ActivityFilter` they build.
 
 **Link scope preservation.** Any link rendered from a row (scope label →

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -48,8 +49,13 @@ class Plan:
 
 
 def _unquote(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        return value[1:-1]
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as error:
+            raise PlanIndexError(f"invalid double-quoted value {value!r}") from error
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
     return value
 
 
@@ -94,7 +100,23 @@ def parse_plan(path: Path, plans_dir: Path) -> Plan:
     if plan_type not in VALID_TYPES:
         raise PlanIndexError(f"{path}: invalid type {plan_type!r}")
 
-    archived = path.parent == plans_dir / "archive"
+    filename_match = re.fullmatch(
+        rf"{re.escape(plan_date)}-([a-z0-9]+(?:-[a-z0-9]+)*)-{plan_type}\.md",
+        path.name,
+    )
+    if not filename_match:
+        raise PlanIndexError(
+            f"{path}: filename must match YYYY-MM-DD-<slug>-{plan_type}.md"
+        )
+
+    if path.parent == plans_dir:
+        archived = False
+    elif path.parent == plans_dir / "archive":
+        archived = True
+    else:
+        raise PlanIndexError(
+            f"{path}: plans must live directly in docs/plans or docs/plans/archive"
+        )
     if archived and status not in ARCHIVED_STATUSES:
         raise PlanIndexError(f"{path}: archived plans must be completed or cancelled")
     if not archived and status not in ACTIVE_STATUSES:
@@ -112,8 +134,7 @@ def parse_plan(path: Path, plans_dir: Path) -> Plan:
 
 
 def load_plans(plans_dir: Path) -> list[Plan]:
-    paths = sorted(path for path in plans_dir.glob("*.md") if path.name != "README.md")
-    paths.extend(sorted((plans_dir / "archive").glob("*.md")))
+    paths = sorted(path for path in plans_dir.rglob("*.md") if path.name != "README.md")
     return [parse_plan(path, plans_dir) for path in paths]
 
 

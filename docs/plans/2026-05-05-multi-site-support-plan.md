@@ -1,7 +1,7 @@
 ---
 title: Multi-site support
 date: 2026-05-05
-status: draft
+status: implementing
 type: plan
 ---
 
@@ -507,7 +507,7 @@ prior plan's `ManageSiteModal` is deprecated (see J3a).
 - **`ManageSiteModal`** — **deprecated.** Network config moves into
   `SiteDetailsModal`; the buildings table lives on the
   `/sites/:id` detail page; building-grid preview is deferred.
-  Existing TDD (`2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`)
+  Existing TDD (`archive/2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`)
   needs reconciliation — see "TDD reconciliation".
 - **`ManageBuildingModal`** — manage rack membership inside a
   building. Header has an "Edit building" button that stacks
@@ -1760,7 +1760,7 @@ Two TDDs were written against the prior `/sites` + `/settings/sites`
 shape and predate the Fleet-page redesign. They need triage before
 PR work continues:
 
-**`docs/plans/2026-05-19-multi-site-phase-1a-pr-1-scaffold-sitepicker-tdd.md`**
+**`docs/plans/archive/2026-05-19-multi-site-phase-1a-pr-1-scaffold-sitepicker-tdd.md`**
 (scaffold + SitePicker). Status: **partially outdated.**
 
 - Reusable: SitePicker component, localStorage keying scheme,
@@ -1775,7 +1775,7 @@ PR work continues:
   section at the top redirecting affected sections to PR 1 in
   this plan.
 
-**`docs/plans/2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`**
+**`docs/plans/archive/2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`**
 (site CRUD modals). Status: **partially outdated.**
 
 - Reusable: `SiteDetailsModal` form schema + validation,
@@ -1835,6 +1835,6 @@ more review attention than a fresh shell.
 - Current auth/RBAC service:
   `server/internal/domain/auth/service.go`
 - Phase 1a PR 1 TDD (partially outdated):
-  `docs/plans/2026-05-19-multi-site-phase-1a-pr-1-scaffold-sitepicker-tdd.md`
+  `docs/plans/archive/2026-05-19-multi-site-phase-1a-pr-1-scaffold-sitepicker-tdd.md`
 - Phase 1a PR 2 TDD (partially outdated):
-  `docs/plans/2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`
+  `docs/plans/archive/2026-05-21-multi-site-phase-1a-pr-2-site-crud-modals-tdd.md`

@@ -1,8 +1,9 @@
 ---
 title: "#229 — Multi-site: building + zone filter on miner list (and rack list)"
 date: 2026-05-14
-status: draft
+status: completed
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/249
 ---
 
 ## Summary

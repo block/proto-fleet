@@ -20,7 +20,7 @@ this PR.
 
 PR 2 wires the site create / edit / delete flow described in master
 plan §J3 of
-[`docs/plans/2026-05-05-multi-site-support-plan.md`](./2026-05-05-multi-site-support-plan.md).
+[`docs/plans/2026-05-05-multi-site-support-plan.md`](../2026-05-05-multi-site-support-plan.md).
 Operators can stand up sites entirely through the UI: the modal
 flow is the only supported way to seed sites going forward. Building
 CRUD lands separately in [#262](https://github.com/block/proto-fleet/issues/262)

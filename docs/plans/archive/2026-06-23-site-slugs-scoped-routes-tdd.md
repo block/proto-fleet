@@ -24,7 +24,7 @@ tracking. Multi-site is **not live yet**, so there are no production sites to
 backfill and no live numeric-scoped URLs to preserve — the numeric route shape
 from #516 is simply replaced, not redirected.
 
-This is a sub-workstream of [Multi-site support](2026-05-05-multi-site-support-plan.md).
+This is a sub-workstream of [Multi-site support](../2026-05-05-multi-site-support-plan.md).
 
 ## Goals
 

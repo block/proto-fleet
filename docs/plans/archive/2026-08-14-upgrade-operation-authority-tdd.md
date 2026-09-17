@@ -1,9 +1,9 @@
 ---
 title: "Make the host authoritative for upgrade operations"
 date: 2026-08-14
-status: implementing
+status: completed
 type: tdd
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/921
 ---
 
 # Make the host authoritative for upgrade operations

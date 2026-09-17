@@ -8,6 +8,15 @@ tracker: https://github.com/block/proto-fleet/issues/745
 
 # Import / Export Site Map (CSV)
 
+## Completion note
+
+[PR #752](https://github.com/block/proto-fleet/pull/752) shipped CSV export
+and placement-update import. The remaining create/remove paths landed through
+the canonical importer work tracked by
+[issue #767](https://github.com/block/proto-fleet/issues/767). Infrastructure
+placement parity was excluded from v1 and remains tracked by
+[issue #748](https://github.com/block/proto-fleet/issues/748).
+
 ## Summary
 
 Let an org **export** its site map — every Site, Building, Rack, and Miner

@@ -1,8 +1,9 @@
 ---
 title: "Live active-curtailment status"
 date: 2026-07-03
-status: implementing
+status: completed
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/658
 ---
 
 # Live active-curtailment status

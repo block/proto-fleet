@@ -1,9 +1,9 @@
 ---
 title: "Schedules: site & building targets + site-filtered selection"
 date: 2026-06-23
-status: implementing
+status: completed
 type: tdd
-tracker: TBD
+tracker: https://github.com/block/proto-fleet/pull/552
 ---
 
 # Schedules: site & building targets + site-filtered selection
@@ -11,7 +11,7 @@ tracker: TBD
 ## Context
 
 The Schedule creation/edit modal's **Apply to** section
-([`ScheduleModal.tsx`](../../client/src/protoFleet/features/settings/components/Schedules/ScheduleModal.tsx))
+([`ScheduleModal.tsx`](../../../client/src/protoFleet/features/settings/components/Schedules/ScheduleModal.tsx))
 lets an operator target a schedule at **Racks**, **Groups**, and **Miners**.
 It does not offer **Sites** or **Buildings**, even though multi-site landed
 (#516) and settings is now site-aware (#524). This plan adds Site and
@@ -21,17 +21,17 @@ SitePicker selection by **filtering** the available targets.
 This builds directly on the #524 toolkit already wired into the modal:
 `useActiveSite({})` → `siteFilterFromActive(activeSite)`, threaded into
 `RackSelectionModal` / `MinerSelectionList`
-([`siteFilter.ts`](../../client/src/protoFleet/components/PageHeader/SitePicker/siteFilter.ts)).
+([`siteFilter.ts`](../../../client/src/protoFleet/components/PageHeader/SitePicker/siteFilter.ts)).
 
 ### Why this is full-stack (the gating fact)
 
 Schedule targets are a closed enum. `ScheduleTargetType`
-([`proto/schedule/v1/schedule.proto:109`](../../proto/schedule/v1/schedule.proto))
+([`proto/schedule/v1/schedule.proto:109`](../../../proto/schedule/v1/schedule.proto))
 is `UNSPECIFIED | RACK | MINER | GROUP`. The modal's buttons map 1:1 to it
 (`buildScheduleRequest`,
-[`scheduleValidation.ts:422`](../../client/src/protoFleet/features/settings/components/Schedules/scheduleValidation.ts)),
+[`scheduleValidation.ts:422`](../../../client/src/protoFleet/features/settings/components/Schedules/scheduleValidation.ts)),
 and the server expands targets → device identifiers **at execution time** in
-[`targets/expand.go`](../../server/internal/domain/schedule/targets/expand.go)
+[`targets/expand.go`](../../../server/internal/domain/schedule/targets/expand.go)
 (called from `processor.go:511`), switching only on rack/group/miner. Adding
 Site/Building buttons in the UI alone would emit targets the server silently
 drops. So this needs a proto change + server expansion + UI.
@@ -100,7 +100,7 @@ string generically). `target_id` carries the decimal site/building id.
 
 Add two cases. Reuse the existing device resolver instead of new SQL:
 `GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, *MinerFilter)`
-([`device.go:195`](../../server/internal/domain/stores/interfaces/device.go))
+([`device.go:195`](../../../server/internal/domain/stores/interfaces/device.go))
 where `MinerFilter` already carries `SiteIDs` / `BuildingIDs` /
 `PairingStatuses` (`device.go:57`).
 
@@ -138,9 +138,9 @@ constraint — no migration.) **Done.**
 ### Power-target conflict filter (done)
 
 `GetRunningPowerTargetScheduleOverlaps`
-([`sqlc/queries/schedule.sql`](../../server/sqlc/queries/schedule.sql)) — the
+([`sqlc/queries/schedule.sql`](../../../server/sqlc/queries/schedule.sql)) — the
 query behind the SET_POWER_TARGET conflict/priority filter
-([`command/schedule_conflict_filter.go`](../../server/internal/domain/command/schedule_conflict_filter.go))
+([`command/schedule_conflict_filter.go`](../../../server/internal/domain/command/schedule_conflict_filter.go))
 — previously resolved only miner/rack/group targets, so a running site/building
 power-target schedule's devices weren't protected from a lower-priority
 override. Extended to resolve **site** (`device.site_id`) and **building**
@@ -180,7 +180,7 @@ building-direct, building-via-rack, and an unscoped control miner. **Done.**
     when `showSiteTarget`, i.e. all-sites mode).
   - `BuildingSelectionModal` lists via
     `useBuildings().listBuildings({ siteIds, includeUnassigned })`
-    ([`buildings.ts`](../../client/src/protoFleet/api/buildings.ts)), passing
+    ([`buildings.ts`](../../../client/src/protoFleet/api/buildings.ts)), passing
     the active-site `scope`.
   - Both prune selected ids absent from the (scoped) list on load, like
     `RackSelectionModal`.

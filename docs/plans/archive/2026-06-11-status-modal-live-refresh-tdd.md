@@ -1,8 +1,9 @@
 ---
 title: "Status modal live refresh"
 date: 2026-06-11
-status: implementing
+status: completed
 type: tdd
+tracker: https://github.com/block/proto-fleet/pull/753
 ---
 
 # Status modal live refresh

@@ -1,8 +1,9 @@
 ---
 title: Release Update Notifications and One-Click Upgrade - Plan
 date: 2026-07-27
-status: draft
+status: completed
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/845
 topic: release-update-notifications
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

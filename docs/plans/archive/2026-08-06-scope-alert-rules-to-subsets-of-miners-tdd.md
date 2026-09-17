@@ -1,9 +1,9 @@
 ---
 title: "Scope alert rules to subsets of miners"
 date: 2026-08-06
-status: implementing
+status: completed
 type: tdd
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/905
 ---
 
 # Scope alert rules to subsets of miners
@@ -12,7 +12,7 @@ tracker:
 
 User-created alert rules (offline / hashrate / temperature) are always
 org-wide. The phase-1 user-rules plan
-(`docs/plans/2026-07-14-user-created-alert-rules-plan.md`) deliberately
+(`docs/plans/archive/2026-07-14-user-created-alert-rules-plan.md`) deliberately
 deferred sub-org scoping, and maintenance windows still reject `site`/`group`
 scopes for the same underlying reason: alert instances only carry
 `organization_id` and `device_id` labels

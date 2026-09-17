@@ -1,7 +1,7 @@
 ---
 title: Granular RBAC with scoped role assignments and custom roles
 date: 2026-05-19
-status: accepted
+status: implementing
 type: plan
 ---
 
