@@ -21,7 +21,7 @@ export async function fetchSessionJson<T>(
 ): Promise<T> {
   const { username, sessionGeneration, isAuthenticated } = useFleetStore.getState().auth;
   const assertCurrentRequest = () => {
-    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    signal?.throwIfAborted();
     const auth = useFleetStore.getState().auth;
     if (
       auth.username !== username ||

@@ -510,6 +510,50 @@ describe("useFirmwareApi", () => {
       expect(mockLogout).not.toHaveBeenCalled();
     });
 
+    it("preserves a custom timeout reason when the catalog request was already aborted", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const controller = new AbortController();
+      const timeout = new Error("Firmware catalog request timed out.");
+      controller.abort(timeout);
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("preserves a custom timeout reason when an in-flight fetch rejects with a generic abort", async () => {
+      const response = deferred<Response>();
+      vi.stubGlobal("fetch", vi.fn().mockReturnValue(response.promise));
+      const controller = new AbortController();
+      const timeout = new Error("Firmware catalog request timed out.");
+      const { result } = renderHook(() => useFirmwareApi());
+      const rejected = expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+      controller.abort(timeout);
+      response.reject(new DOMException("The operation was aborted.", "AbortError"));
+      await rejected;
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it.each([200, 500].flatMap((status) => (["resolves", "rejects"] as const).map((outcome) => ({ status, outcome }))))(
+      "preserves a custom timeout reason when the $status body later $outcome",
+      async ({ status, outcome }) => {
+        const body = deferred<unknown>();
+        const readBody = vi.fn().mockReturnValue(body.promise);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: status === 200, status, json: readBody }));
+        const controller = new AbortController();
+        const timeout = new Error("Firmware catalog request timed out.");
+        const { result } = renderHook(() => useFirmwareApi());
+        const rejected = expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+        await waitFor(() => expect(readBody).toHaveBeenCalledOnce());
+        controller.abort(timeout);
+        if (outcome === "resolves") body.resolve(status === 200 ? { files: [] } : { error: "Old server failure" });
+        else body.reject(new Error("Body decoding failed"));
+        await rejected;
+        expect(mockLogout).not.toHaveBeenCalled();
+      },
+    );
+
     it.each([200, 401])("ignores a canceled request when transport later returns %s", async (status) => {
       const response = deferred<Response>();
       const mockFetch = vi.fn().mockReturnValue(response.promise);
