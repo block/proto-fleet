@@ -65,6 +65,18 @@ const supportsFirmwareAssignment = (manufacturer: string | undefined, model: str
     return target.length <= 255 && /^[!-~](?:[ -~]*[!-~])?$/.test(target);
   });
 
+const supportsFirmwareFileAssignment = (file: FirmwareFileInfo): boolean => {
+  // ResolveFirmwareArtifact requires a version even for legacy catalog files.
+  // Match its Go whitespace trimming and Unicode code-point limit.
+  const version = trimMinerTarget(file.firmware_version ?? "");
+  return (
+    supportsFirmwareAssignment(file.target_manufacturer, file.target_model) &&
+    version !== "" &&
+    !version.includes("\u0000") &&
+    Array.from(version).length <= 255
+  );
+};
+
 interface AcknowledgedAssignment extends AssignmentDraft {
   label: string;
 }
@@ -190,9 +202,7 @@ const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelM
   return key === null || !supportsFirmwareAssignment(group.manufacturer, group.model)
     ? []
     : firmwareFiles.filter(
-        (f) =>
-          supportsFirmwareAssignment(f.target_manufacturer, f.target_model) &&
-          minerTargetKey(f.target_manufacturer, f.target_model) === key,
+        (f) => supportsFirmwareFileAssignment(f) && minerTargetKey(f.target_manufacturer, f.target_model) === key,
       );
 };
 
@@ -447,7 +457,7 @@ const ReleaseChannelManageView = ({
       const targetKey = minerTargetKey(group.manufacturer, group.model);
       const matchingFile =
         file &&
-        supportsFirmwareAssignment(file.target_manufacturer, file.target_model) &&
+        supportsFirmwareFileAssignment(file) &&
         supportsFirmwareAssignment(group.manufacturer, group.model) &&
         targetKey !== null &&
         minerTargetKey(file.target_manufacturer, file.target_model) === targetKey

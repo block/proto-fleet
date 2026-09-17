@@ -568,6 +568,7 @@ describe("release channel firmware assignments", () => {
     ["missing", []],
     ["mismatched", [{ ...replacementFile, target_model: "Other model" }]],
     ["edited", [replacementFile]],
+    ["missing version", [{ ...replacementFile, firmware_version: undefined }]],
   ] as const)("preserves the assigned version when uploaded file metadata is %s", (_, files) => {
     renderManage(assignedChannel("replacement"), undefined, false, [...files]);
     const picker = screen.getByTestId("channel-firmware-select-Rig");
@@ -576,6 +577,64 @@ describe("release channel firmware assignments", () => {
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
     fireEvent.click(picker);
     expect(screen.getByRole("option", { name: "No firmware" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  test.each([
+    { reason: "missing", version: undefined },
+    { reason: "empty", version: "" },
+    { reason: "ASCII whitespace", version: " \t\n " },
+    { reason: "NEL whitespace", version: "\u0085" },
+    { reason: "Unicode whitespace", version: "\u2003\u3000" },
+    { reason: "null character", version: "1.4\u0000.4" },
+    { reason: "over 255 code points", version: "🚀".repeat(256) },
+  ])("does not offer firmware with a $reason version as an assignable file", ({ version }) => {
+    const { onApply } = renderManage(assignedChannel(), undefined, false, [
+      { ...replacementFile, firmware_version: version },
+    ]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "No firmware" })).toBeVisible();
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { reason: "255 Unicode code points after trimming", version: `\u0085${"🚀".repeat(255)}\u3000` },
+    { reason: "Unicode version", version: "版本-🚀" },
+    { reason: "BOM preserved by Go", version: "\uFEFF" },
+    { reason: "NEL around a version", version: "\u00851.4.4\u0085" },
+    { reason: "an internal non-null control", version: "1.4\u0001.4" },
+  ])("accepts firmware with $reason", async ({ version }) => {
+    const { onApply } = renderManage(assignedChannel(), undefined, false, [
+      { ...replacementFile, firmware_version: version },
+    ]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(2);
+    fireEvent.click(options[1]);
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
+    ]);
+  });
+
+  test("allows clearing a saved assignment after its upload loses version metadata", async () => {
+    const { onApply } = renderManage(assignedChannel("replacement"), undefined, false, [
+      { ...replacementFile, firmware_version: undefined },
+    ]);
+    const picker = screen.getByTestId("channel-firmware-select-Rig");
+    expect(picker).toHaveTextContent("1.4.3");
+    fireEvent.click(picker);
+    const clear = screen.getByRole("option", { name: "No firmware" });
+    expect(clear).toHaveAttribute("aria-selected", "false");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.click(clear);
+    expect(picker).toHaveTextContent("No firmware");
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear assignments" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "" }]);
   });
 
   test("keeps the assignment snapshot in the open picker through catalog edits, staging, and discard", () => {
@@ -664,6 +723,52 @@ describe("release channel firmware assignments", () => {
       await act(async () => fireEvent.click(start));
       expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
         { manufacturer: "Proto", model: "Rig", firmwareFileId: "new-rig-file" },
+        { manufacturer: "Proto", model: "Other", firmwareFileId: "other-file" },
+      ]);
+    },
+  );
+
+  test.each([
+    { reason: "missing", version: undefined },
+    { reason: "Go whitespace only", version: "\u0085\u3000" },
+    { reason: "null character", version: "1.4\u0000.4" },
+    { reason: "too many code points", version: "界".repeat(256) },
+  ])(
+    "blocks an open confirmation when a staged version becomes $reason and recovers on refresh",
+    async ({ version }) => {
+      const channel = existingChannel();
+      channel.modelGroups = ["Rig", "Other"].map((model) =>
+        create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+      );
+      const otherFile = { ...replacementFile, id: "other-file", target_model: "Other" };
+      const { onApply, updateFirmwareFiles } = renderManage(channel, undefined, false, [replacementFile, otherFile]);
+      for (const model of ["Rig", "Other"]) {
+        fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
+        fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
+      }
+      const apply = screen.getByTestId("apply-firmware-changes");
+      fireEvent.click(apply);
+      const start = screen.getByRole("button", { name: "Start update" });
+      expect(start).toBeEnabled();
+      updateFirmwareFiles([{ ...replacementFile, firmware_version: version }, otherFile]);
+      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("Firmware details unavailable");
+      expect(screen.getByTestId("channel-firmware-select-Other")).toHaveTextContent("1.4.4");
+      expect(apply).toBeDisabled();
+      expect(start).toBeDisabled();
+      expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent(
+        "Choose valid firmware for every changed model or discard the pending changes.",
+      );
+      fireEvent.click(start);
+      expect(onApply).not.toHaveBeenCalled();
+
+      updateFirmwareFiles([replacementFile, otherFile]);
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("1.4.4");
+      expect(apply).toBeEnabled();
+      expect(start).toBeEnabled();
+      await act(async () => fireEvent.click(start));
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+        { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
         { manufacturer: "Proto", model: "Other", firmwareFileId: "other-file" },
       ]);
     },
