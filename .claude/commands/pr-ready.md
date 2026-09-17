@@ -21,8 +21,11 @@ their impact; do not silently call blocked validation a pass.
 ## Check selection
 
 Use the `justfile`s and affected behavior to choose checks. For code changes,
-run `just lint` and relevant tests; documentation-only changes need link,
-instruction, and formatting checks rather than application suites.
+run `just check-changed` first; it selects the branch-diff lint and typecheck
+jobs that pre-push also runs. Then run relevant targeted tests. Do not repeat
+`just lint` unless a full-repository check is specifically needed.
+Documentation-only changes need link, instruction, and formatting checks
+rather than application suites.
 
 | Changed area | Verification |
 | --- | --- |
