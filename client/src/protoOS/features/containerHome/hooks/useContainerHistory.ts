@@ -33,13 +33,27 @@ export function useContainerHistory(duration: Duration, selections: ContainerHis
       const end = Math.floor(Date.now() / intervalMs) * intervalMs;
       const window: [number, number] = [end - getDurationMs(query.duration), end];
       const accept = beginStoreWrite(`container-home:history:${queryKey}`);
+      const currentSnapshot = (previous: Snapshot | undefined) =>
+        previous?.key === queryKey && previous.adapter === adapter ? previous : undefined;
+      // Keep the displayed period and stale warning until fresh data arrives.
       setSnapshot((previous) => ({
+        ...currentSnapshot(previous),
         key: queryKey,
         adapter,
-        window,
+        window: currentSnapshot(previous)?.window ?? window,
         pending: true,
-        result: previous?.key === queryKey && previous.adapter === adapter ? previous.result : undefined,
       }));
+      const onRefreshFailure = () => {
+        if (!signal.aborted && accept())
+          setSnapshot((previous) => ({
+            ...currentSnapshot(previous),
+            key: queryKey,
+            adapter,
+            window: currentSnapshot(previous)?.window ?? window,
+            pending: false,
+            error: "Could not refresh history. Displayed history may be out of date.",
+          }));
+      };
       await authRetry({
         signal,
         request: (options) =>
@@ -53,19 +67,15 @@ export function useContainerHistory(duration: Duration, selections: ContainerHis
             options,
           ),
         onSuccess: (result) => {
+          // The adapter resolves per-metric failures as unavailable entries.
+          // An empty successful series is valid; no successful series is a failed refresh.
+          if (result.unavailable.length > 0 && !Object.values(result.series).some(Boolean)) {
+            onRefreshFailure();
+            return;
+          }
           if (!signal.aborted && accept()) setSnapshot({ key: queryKey, adapter, result, window, pending: false });
         },
-        onError: () => {
-          if (!signal.aborted && accept())
-            setSnapshot((previous) => ({
-              key: queryKey,
-              adapter,
-              window,
-              pending: false,
-              result: previous?.key === queryKey && previous.adapter === adapter ? previous.result : undefined,
-              error: "Could not refresh history. Displayed history may be out of date.",
-            }));
-        },
+        onError: onRefreshFailure,
       });
     },
     [adapter, authRetry, queryKey],
