@@ -1,0 +1,523 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
+
+import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
+import {
+  type FirmwareAssignment,
+  type PreviewReleaseChannelScopeResponse,
+  type ReleaseChannel,
+  type ReleaseChannelMiner,
+  type ReleaseChannelModelGroup,
+  type ReleaseChannelScope,
+  type Rollout,
+  type RolloutBehavior,
+  type RolloutDevice,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
+import {
+  useAuthErrors,
+  useFleetStore,
+  useIsAuthenticated,
+  useSessionGeneration,
+  useUsername,
+} from "@/protoFleet/store";
+
+// A channel as the UI works with it: the server's channel (scope included)
+// together with its manufacturer/model groups, which the API pages
+// separately (ListReleaseChannelModelGroups) and the hook drains.
+export type ChannelView = ReleaseChannel & { modelGroups: ReleaseChannelModelGroup[] };
+
+// An assignment as the UI stages it: the observed pair the file is for and
+// the file (empty to clear).
+export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
+
+const POLL_INTERVAL_MS = 5000;
+const MINER_NAMES_REFRESH_INTERVAL_MS = 5 * 60_000;
+// Bound each read, including later pages, so a stalled connection cannot
+// hold the refresh lock indefinitely. Large scans get a fresh budget per RPC.
+const POLL_RPC_TIMEOUT_MS = 30_000;
+// Largest pages the server allows; lists are read in as few round
+// trips as possible.
+const DETAIL_PAGE_SIZE = 1000;
+const MODEL_GROUP_PAGE_SIZE = 100;
+
+// Follows a cursor-paged list to its end.
+async function drainPages<T>(fetchPage: (cursor: string) => Promise<{ items: T[]; cursor: string }>): Promise<T[]> {
+  const all: T[] = [];
+  let cursor = "";
+  do {
+    const page = await fetchPage(cursor);
+    all.push(...page.items);
+    cursor = page.cursor;
+  } while (cursor !== "");
+  return all;
+}
+
+interface MinerNamesCache {
+  value: Record<string, string> | null;
+  expiresAt: number;
+  inFlight: Promise<Record<string, string>> | null;
+}
+
+function loadMinerNames(cache: MinerNamesCache): Promise<Record<string, string>> {
+  if (cache.value !== null && Date.now() < cache.expiresAt) return Promise.resolve(cache.value);
+  if (cache.inFlight) return cache.inFlight;
+  const request = drainPages((cursor) =>
+    fleetManagementClient
+      .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
+      .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+  )
+    .catch((error: unknown) => {
+      // Firmware managers need not have miner:read. Clear names when that
+      // permission is denied, and avoid retrying the denied scan every poll.
+      if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
+      throw error;
+    })
+    .then((miners) => {
+      const names = Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name]));
+      cache.value = names;
+      cache.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
+      return names;
+    })
+    .finally(() => {
+      cache.inFlight = null;
+    });
+  cache.inFlight = request;
+  return request;
+}
+
+async function loadRolloutChanges(pollCursor: string): Promise<{ rollouts: Rollout[]; pollCursor: string }> {
+  let nextPollCursor = "";
+  const rollouts = await drainPages(async (cursor) => {
+    // Keep the preceding cycle's watermark fixed until every page succeeds.
+    const response = await rolloutClient.listRollouts(
+      { pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor },
+      { timeoutMs: POLL_RPC_TIMEOUT_MS },
+    );
+    nextPollCursor = response.pollCursor;
+    return { items: response.rollouts, cursor: response.cursor };
+  });
+  return { rollouts, pollCursor: nextPollCursor };
+}
+
+function mergeRollouts(previous: Rollout[], incoming: Rollout[]): Rollout[] {
+  const byId = new Map(previous.map((rollout) => [rollout.id, rollout]));
+  for (const rollout of incoming) {
+    const current = byId.get(rollout.id);
+    // Replays must not regress revisions. Equal revisions can still carry
+    // fresh live telemetry, which is not part of the revisioned header.
+    if (!current || rollout.revision >= current.revision) byId.set(rollout.id, rollout);
+  }
+  return [...byId.values()].sort((a, b) => {
+    const seconds = (b.createdAt?.seconds ?? 0n) - (a.createdAt?.seconds ?? 0n);
+    if (seconds !== 0n) return seconds > 0n ? 1 : -1;
+    const nanos = (b.createdAt?.nanos ?? 0) - (a.createdAt?.nanos ?? 0);
+    if (nanos !== 0) return nanos;
+    return a.id === b.id ? 0 : a.id < b.id ? 1 : -1;
+  });
+}
+
+function rolloutControlRequest(rolloutId: bigint, expectedRevision: bigint) {
+  // Zero disables the server's stale-action guard. Controls must use the
+  // revision the operator saw, never a newer revision from the polling cache.
+  if (!(expectedRevision > 0n)) throw new Error("Refresh the rollout before taking this action.");
+  return { rolloutId, expectedRevision };
+}
+
+// What an operator sets on a channel; the server resolves the scope and
+// validates the behavior.
+export interface ReleaseChannelDraft {
+  name: string;
+  description: string;
+  scope: ReleaseChannelScope;
+  behavior: RolloutBehavior;
+}
+
+export interface ReleaseChannelsApi {
+  channels: ChannelView[];
+  rollouts: Rollout[];
+  // deviceIdentifier -> display name, from fleet snapshots.
+  minerNames: Record<string, string>;
+  isLoading: boolean;
+  // Distinguish a successfully loaded empty fleet from a failed initial read.
+  hasLoaded: boolean;
+  // A read failure preserves the last complete snapshot and any committed write.
+  error: Error | null;
+  refresh: () => Promise<void>;
+  createChannel: (draft: ReleaseChannelDraft) => Promise<ReleaseChannel | undefined>;
+  updateChannel: (channelId: bigint, draft: ReleaseChannelDraft) => Promise<ReleaseChannel | undefined>;
+  deleteChannel: (channelId: bigint) => Promise<void>;
+  // Read-only: does not touch the polled state.
+  previewScope: (scope: ReleaseChannelScope, channelId?: bigint) => Promise<PreviewReleaseChannelScopeResponse>;
+  // Read-only detail lists. The server pages both; these walk every page so
+  // a modal can show the whole set. Filters match observed identities
+  // verbatim.
+  listChannelMiners: (channelId: bigint, manufacturer?: string, model?: string) => Promise<ReleaseChannelMiner[]>;
+  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
+  rollbackFirmware: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout[]>;
+  continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  pauseRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  resumeRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  cancelRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
+  retryFailedDevices: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout | undefined>;
+}
+
+// Fetches release channels and rollouts, polling while mounted so firmware
+// versions and update progress stay live.
+// Loads a channel with its scope and every model group page.
+async function loadChannel(channelId: bigint): Promise<ChannelView | undefined> {
+  const [detail, modelGroups] = await Promise.all([
+    rolloutClient.getReleaseChannel({ channelId }, { timeoutMs: POLL_RPC_TIMEOUT_MS }),
+    drainPages((cursor) =>
+      rolloutClient
+        .listReleaseChannelModelGroups(
+          { channelId, pageSize: MODEL_GROUP_PAGE_SIZE, cursor },
+          { timeoutMs: POLL_RPC_TIMEOUT_MS },
+        )
+        .then((resp) => ({ items: resp.modelGroups, cursor: resp.cursor })),
+    ),
+  ]);
+  return detail.channel ? { ...detail.channel, modelGroups } : undefined;
+}
+
+export function useReleaseChannels(): ReleaseChannelsApi {
+  const { handleAuthErrors } = useAuthErrors();
+  const sessionGeneration = useSessionGeneration();
+  const username = useUsername();
+  const isAuthenticated = useIsAuthenticated();
+  const authSessionIdentity = `${username}:${sessionGeneration}`;
+  const [snapshot, setSnapshot] = useState({
+    authSessionIdentity,
+    channels: [] as ChannelView[],
+    rollouts: [] as Rollout[],
+    minerNames: {} as Record<string, string>,
+    isLoading: true,
+    hasLoaded: false,
+    error: null as Error | null,
+  });
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const sessionRef = useRef<object | null>(null);
+  const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
+  const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
+
+  const isCurrentSession = useCallback(() => {
+    const auth = useFleetStore.getState().auth;
+    return (
+      isAuthenticated &&
+      auth.isAuthenticated &&
+      auth.sessionGeneration === sessionGeneration &&
+      auth.username === username
+    );
+  }, [isAuthenticated, sessionGeneration, username]);
+
+  const fetchState = useCallback(
+    async (session: object) => {
+      const isCurrentRequest = () => sessionRef.current === session && isCurrentSession();
+      try {
+        const previous = rolloutSnapshotRef.current;
+        const [changes, activeRollouts, minerNames] = await Promise.all([
+          loadRolloutChanges(previous.pollCursor),
+          // Telemetry/evidence can change without a header revision. Refresh
+          // active rows separately; this work does not grow with history.
+          previous.pollCursor
+            ? drainPages((cursor) =>
+                rolloutClient
+                  .listRollouts(
+                    { pageSize: DETAIL_PAGE_SIZE, cursor, status: RolloutStatus.ACTIVE },
+                    { timeoutMs: POLL_RPC_TIMEOUT_MS },
+                  )
+                  .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
+              )
+            : Promise.resolve([] as Rollout[]),
+          // Names change far less often than rollout progress. Reuse complete
+          // name scans (and pending scans after a core read fails) for this login.
+          loadMinerNames(minerNamesCacheRef.current),
+        ]);
+        if (!isCurrentRequest()) return;
+        // Read channels after rollouts, so a newly created channel cannot be
+        // mistaken for a deletion when its rollout arrives in this cycle.
+        const channelSummaries = await drainPages((cursor) =>
+          rolloutClient
+            .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
+            .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
+        );
+        if (!isCurrentRequest()) return;
+        // The list carries summaries; scope and groups come per channel.
+        const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
+        if (!isCurrentRequest()) return;
+        const nextChannels = views.filter((view): view is ChannelView => view !== undefined);
+        const channelsById = new Map(nextChannels.map((channel) => [channel.id, channel]));
+        const allRollouts = mergeRollouts(previous.pollCursor ? previous.rollouts : [], [
+          ...changes.rollouts,
+          ...activeRollouts,
+        ])
+          // Channel deletion cascades to rollouts without a delta tombstone.
+          .filter((rollout) => channelsById.has(rollout.channelId))
+          .map((rollout) => ({ ...rollout, channelName: channelsById.get(rollout.channelId)!.name }));
+        // Commit the watermark with the complete UI snapshot. A failure in
+        // any list or channel detail must replay the same delta on retry.
+        rolloutSnapshotRef.current = { rollouts: allRollouts, pollCursor: changes.pollCursor };
+        setSnapshot({
+          authSessionIdentity,
+          channels: nextChannels,
+          rollouts: allRollouts,
+          minerNames,
+          isLoading: false,
+          hasLoaded: true,
+          error: null,
+        });
+      } catch (error) {
+        // A delayed 401 from the previous login must not log out its replacement.
+        if (!isCurrentRequest()) return;
+        const refreshError = error instanceof Error ? error : new Error("Failed to load release channels");
+        setSnapshot((previous) =>
+          previous.authSessionIdentity === authSessionIdentity
+            ? { ...previous, isLoading: false, error: refreshError }
+            : {
+                authSessionIdentity,
+                channels: [],
+                rollouts: [],
+                minerNames: {},
+                isLoading: false,
+                hasLoaded: false,
+                error: refreshError,
+              },
+        );
+        handleAuthErrors({ error });
+        throw error;
+      }
+    },
+    [authSessionIdentity, handleAuthErrors, isCurrentSession],
+  );
+
+  const refresh = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session || !isCurrentSession()) return;
+    // A mutation must read state fetched after it completed. Wait for any
+    // older request (including a failed poll), then start a fresh one.
+    while (inFlightRef.current) {
+      await inFlightRef.current.catch(() => undefined);
+      if (sessionRef.current !== session || !isCurrentSession()) return;
+    }
+    const request = fetchState(session);
+    inFlightRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (inFlightRef.current === request) inFlightRef.current = null;
+    }
+  }, [fetchState, isCurrentSession]);
+
+  useEffect(() => {
+    // A new login needs its own baseline and must not wait for old requests.
+    sessionRef.current = {};
+    inFlightRef.current = null;
+    rolloutSnapshotRef.current = { rollouts: [], pollCursor: "" };
+    // Old requests may finish, but can only populate their old cache object.
+    minerNamesCacheRef.current = { value: null, expiresAt: 0, inFlight: null };
+    const poll = () => {
+      // Timer ticks never queue work behind an existing refresh.
+      if (inFlightRef.current) return;
+      refresh().catch((error) => console.error("Failed to refresh release channels", error));
+    };
+    poll();
+    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+      sessionRef.current = null;
+    };
+  }, [refresh]);
+
+  const withAuthErrors = useCallback(
+    async <T>(request: () => Promise<T>): Promise<T> => {
+      const session = sessionRef.current;
+      if (!session || !isCurrentSession()) {
+        throw new Error("Your session changed. Refresh the page before trying again.");
+      }
+      try {
+        return await request();
+      } catch (error) {
+        // Direct actions need the same logout path as polling. A late failure
+        // from a previous login or an unmounted hook must not end a new session.
+        if (sessionRef.current === session && isCurrentSession()) handleAuthErrors({ error });
+        throw error;
+      }
+    },
+    [handleAuthErrors, isCurrentSession],
+  );
+
+  const refreshAfterMutation = useCallback(async () => {
+    // The write has already committed. Report a follow-up read failure via
+    // error state and retry on the next poll, without inviting a duplicate write.
+    await refresh().catch(() => undefined);
+  }, [refresh]);
+
+  const createChannel = useCallback(
+    async (draft: ReleaseChannelDraft) => {
+      const resp = await withAuthErrors(() =>
+        rolloutClient.createReleaseChannel({
+          ...draft,
+          behavior: rolloutBehaviorForRequest(draft.behavior),
+        }),
+      );
+      await refreshAfterMutation();
+      return resp.channel;
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const updateChannel = useCallback(
+    async (channelId: bigint, draft: ReleaseChannelDraft) => {
+      const resp = await withAuthErrors(() =>
+        rolloutClient.updateReleaseChannel({
+          channelId,
+          ...draft,
+          behavior: rolloutBehaviorForRequest(draft.behavior),
+        }),
+      );
+      await refreshAfterMutation();
+      return resp.channel;
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const deleteChannel = useCallback(
+    async (channelId: bigint) => {
+      await withAuthErrors(() => rolloutClient.deleteReleaseChannel({ channelId }));
+      await refreshAfterMutation();
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const previewScope = useCallback(
+    (scope: ReleaseChannelScope, channelId?: bigint) =>
+      withAuthErrors(() => rolloutClient.previewReleaseChannelScope({ scope, channelId: channelId ?? 0n })),
+    [withAuthErrors],
+  );
+
+  const listChannelMiners = useCallback(
+    (channelId: bigint, manufacturer?: string, model?: string) =>
+      drainPages((cursor) =>
+        withAuthErrors(() =>
+          rolloutClient.listReleaseChannelMiners({
+            channelId,
+            manufacturer: manufacturer ?? "",
+            model: model ?? "",
+            pageSize: DETAIL_PAGE_SIZE,
+            cursor,
+          }),
+        ).then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+      ),
+    [withAuthErrors],
+  );
+
+  const listRolloutDevices = useCallback(
+    (rolloutId: bigint) =>
+      drainPages((cursor) =>
+        withAuthErrors(() => rolloutClient.listRolloutDevices({ rolloutId, pageSize: DETAIL_PAGE_SIZE, cursor })).then(
+          (resp) => ({ items: resp.devices, cursor: resp.cursor }),
+        ),
+      ),
+    [withAuthErrors],
+  );
+
+  const applyFirmware = useCallback(
+    async (channelId: bigint, assignments: AssignmentDraft[]) => {
+      const resp = await withAuthErrors(() =>
+        rolloutClient.applyReleaseChannelFirmware({
+          channelId,
+          assignments: assignments.map((a) => ({
+            manufacturer: a.manufacturer,
+            model: a.model,
+            firmwareFileId: a.firmwareFileId,
+          })),
+        }),
+      );
+      await refreshAfterMutation();
+      return resp.startedRollouts;
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const rollbackFirmware = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      const resp = await withAuthErrors(() => rolloutClient.rollbackReleaseChannelFirmware(request));
+      await refreshAfterMutation();
+      return resp.startedRollouts;
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const continueRollout = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.continueRollout(request));
+      await refreshAfterMutation();
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const pauseRollout = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.pauseRollout(request));
+      await refreshAfterMutation();
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const resumeRollout = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.resumeRollout(request));
+      await refreshAfterMutation();
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const cancelRollout = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.cancelRollout(request));
+      await refreshAfterMutation();
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const retryFailedDevices = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      const resp = await withAuthErrors(() => rolloutClient.retryFailedRolloutDevices(request));
+      await refreshAfterMutation();
+      return resp.rollout;
+    },
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const hasCurrentSnapshot = isAuthenticated && snapshot.authSessionIdentity === authSessionIdentity;
+  return {
+    channels: hasCurrentSnapshot ? snapshot.channels : [],
+    rollouts: hasCurrentSnapshot ? snapshot.rollouts : [],
+    minerNames: hasCurrentSnapshot ? snapshot.minerNames : {},
+    isLoading: isAuthenticated && (!hasCurrentSnapshot || snapshot.isLoading),
+    hasLoaded: hasCurrentSnapshot && snapshot.hasLoaded,
+    error: hasCurrentSnapshot ? snapshot.error : null,
+    refresh,
+    createChannel,
+    updateChannel,
+    deleteChannel,
+    previewScope,
+    listChannelMiners,
+    listRolloutDevices,
+    applyFirmware,
+    rollbackFirmware,
+    continueRollout,
+    pauseRollout,
+    resumeRollout,
+    cancelRollout,
+    retryFailedDevices,
+  };
+}
