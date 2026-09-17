@@ -76,8 +76,8 @@ jobs:
           echo "Detected specs: ${SPEC_FILES}"
           echo "Target tag: ${TARGET_TAG:-<none>}"
 
-  build:
-    name: Build client and plugins
+  build-client:
+    name: Build client
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,9 +89,6 @@ jobs:
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
-
-      - name: Configure Go cache
-        uses: ./.github/actions/go-cache-setup
 
       # Cache the npm download cache (~/.npm), not a built node_modules:
       # restoring node_modules from cache corrupts native optional deps (e.g.
@@ -115,12 +112,30 @@ jobs:
           # Skip lint in CI to avoid import order issues from merged main branch
           npm run build:protoFleet
 
+      - name: Upload client build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-client-dist
+          path: client/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  build-docker-images:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      # Docker cache is computed before the plugin build so the gitignored
-      # `server/plugins/*` binaries (not a Docker build input) don't enter
-      # the hash and spuriously bust the cache.
+      # The gitignored `server/plugins/*` binaries are produced in a separate
+      # job, so they cannot enter this hash and spuriously bust the cache.
       #
       # Scheduled runs skip restore + save so they rebuild against fresh
       # upstream base images without polluting the cache namespace with
@@ -165,6 +180,31 @@ jobs:
           path: /tmp/docker-images
           key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
 
+      - name: Upload Docker images
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images/e2e-images.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build-plugins:
+    name: Build plugins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
       - name: Build plugins for CI (Linux AMD64)
         run: |
           # CI runners use linux/amd64, not arm64
@@ -178,14 +218,6 @@ jobs:
           chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
           echo "Plugins built successfully"
 
-      - name: Upload client build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: protofleet-client-dist
-          path: client/dist
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Upload plugins
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -194,16 +226,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload Docker images
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: protofleet-e2e-docker-images
-          path: /tmp/docker-images/e2e-images.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
   e2e-tests:
-    needs: [detect-specs, build]
+    needs: [detect-specs, build-client, build-docker-images, build-plugins]
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -392,7 +416,7 @@ jobs:
 
   visual-tests:
     name: Visual Tests
-    needs: [build]
+    needs: [build-client, build-docker-images, build-plugins]
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -535,7 +559,11 @@ jobs:
     name: Merge Test Reports
     runs-on: ubuntu-latest
     needs: [e2e-tests, visual-tests]
-    if: ${{ always() && !cancelled() }}
+    if: >-
+      ${{ always() && !cancelled() &&
+          (github.event_name == 'schedule' ||
+           needs.e2e-tests.result == 'failure' ||
+           needs.visual-tests.result == 'failure') }}
     permissions:
       contents: read
     outputs:
