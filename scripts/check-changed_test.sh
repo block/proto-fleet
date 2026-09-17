@@ -69,9 +69,26 @@ while IFS= read -r module; do
   done
 done < <(go work edit -json | jq -r '.Use[].DiskPath')
 
+canonical_skill_names() {
+  find "$1" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort
+}
+
+claude_skill_names() {
+  find "$1" -mindepth 1 -maxdepth 1 -type l -exec basename {} \; | sort
+}
+
+parity_fixture="$(mktemp -d)"
+trap 'rm -rf "$parity_fixture"' EXIT
+mkdir -p "$parity_fixture/.agents/skills/example" "$parity_fixture/.claude/skills"
+ln -s ../../.agents/skills/example "$parity_fixture/.claude/skills/example"
+touch "$parity_fixture/.claude/skills/.DS_Store"
 diff -u \
-  <(find .agents/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort) \
-  <(find .claude/skills -mindepth 1 -maxdepth 1 -exec basename {} \; | sort)
+  <(canonical_skill_names "$parity_fixture/.agents/skills") \
+  <(claude_skill_names "$parity_fixture/.claude/skills")
+
+diff -u \
+  <(canonical_skill_names .agents/skills) \
+  <(claude_skill_names .claude/skills)
 
 for agent_skill in .agents/skills/*; do
   name="${agent_skill##*/}"
