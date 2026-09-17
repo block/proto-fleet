@@ -34,6 +34,8 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     rollouts,
     minerNames,
     isLoading,
+    hasLoaded,
+    error,
     createChannel,
     updateChannel,
     deleteChannel,
@@ -76,7 +78,8 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   // Resolved fresh on every poll so the manage view tracks live progress;
   // falls back to the table if the channel goes.
   const managedChannel = view.kind === "manage" ? channels.find((channel) => channel.id === view.channelId) : undefined;
-  const showBack = view.kind === "create" || managedChannel !== undefined;
+  const awaitingCreatedChannel = view.kind === "manage" && !managedChannel && error !== null;
+  const showBack = view.kind === "create" || managedChannel !== undefined || awaitingCreatedChannel;
 
   return (
     <div className="flex flex-col gap-6">
@@ -93,7 +96,11 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         </button>
       ) : null}
 
-      {view.kind === "create" ? (
+      {!hasLoaded ? (
+        isLoading ? (
+          <div className="text-center text-text-primary-50">Loading release channels...</div>
+        ) : null
+      ) : view.kind === "create" ? (
         <ReleaseChannelManageView
           key="create"
           rollouts={rollouts}
@@ -112,6 +119,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         <ReleaseChannelManageView
           key={managedChannel.id.toString()}
           channel={managedChannel}
+          hasRefreshError={error !== null}
           rollouts={rollouts}
           firmwareFiles={firmwareFiles}
           minerNames={minerNames}
@@ -126,8 +134,8 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
             await applyFirmware(channelId, assignments);
           }}
         />
-      ) : isLoading ? (
-        <div className="text-center text-text-primary-50">Loading release channels...</div>
+      ) : awaitingCreatedChannel ? (
+        <p className="text-text-primary-70">Channel details will appear after a successful refresh.</p>
       ) : channels.length === 0 ? (
         <div className="flex flex-col gap-6">
           <div>

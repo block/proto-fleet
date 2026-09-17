@@ -10,8 +10,9 @@ import FirmwareUploadDialog from "@/protoFleet/features/settings/components/Firm
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { ChevronDown, Edit, Trash } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -371,6 +372,17 @@ const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const retryChannels = () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    // The hook retains the error for the callout if this attempt also fails.
+    channelsApi
+      .refresh()
+      .catch(() => undefined)
+      .finally(() => setIsRetrying(false));
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -385,6 +397,25 @@ const Firmware = () => {
           setSearchParams(key === TAB_RELEASE_CHANNELS ? { tab: RELEASE_CHANNELS_TAB_PARAM } : {}, { replace: true });
         }}
       />
+      {channelsApi.error ? (
+        <div role="alert" aria-busy={isRetrying}>
+          <Callout
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title={
+              channelsApi.hasLoaded
+                ? "Release channels and update status may be out of date"
+                : "Couldn't load release channels and update status"
+            }
+            subtitle={
+              channelsApi.hasLoaded ? "Showing the last loaded data. Retry to refresh it." : channelsApi.error.message
+            }
+            buttonText={isRetrying ? "Retrying..." : "Retry"}
+            buttonOnClick={retryChannels}
+            testId="release-channels-load-error"
+          />
+        </div>
+      ) : null}
       {activeTab === TAB_RELEASE_CHANNELS ? <ReleaseChannelsTab api={channelsApi} /> : <FirmwareFilesSection />}
     </div>
   );

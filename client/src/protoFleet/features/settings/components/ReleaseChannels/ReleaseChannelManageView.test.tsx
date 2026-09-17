@@ -40,6 +40,7 @@ const existingChannel = (): ChannelView => ({
 function renderManage(
   channel: ChannelView | undefined,
   onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(undefined),
+  hasRefreshError = false,
 ) {
   const previewScope = vi.fn().mockResolvedValue(
     create(PreviewReleaseChannelScopeResponseSchema, {
@@ -48,20 +49,25 @@ function renderManage(
       conflictCount: 1,
     }),
   );
-  render(
-    <ReleaseChannelManageView
-      channel={channel}
-      rollouts={[]}
-      firmwareFiles={[]}
-      minerNames={{}}
-      previewScope={previewScope}
-      listChannelMiners={vi.fn().mockResolvedValue([])}
-      listRolloutDevices={vi.fn().mockResolvedValue([])}
-      onSave={onSave}
-      onApply={vi.fn().mockResolvedValue(undefined)}
-    />,
-  );
-  return { onSave, previewScope };
+  const props = {
+    channel,
+    hasRefreshError,
+    rollouts: [],
+    firmwareFiles: [],
+    minerNames: {},
+    previewScope,
+    listChannelMiners: vi.fn().mockResolvedValue([]),
+    listRolloutDevices: vi.fn().mockResolvedValue([]),
+    onSave,
+    onApply: vi.fn().mockResolvedValue(undefined),
+  };
+  const { rerender } = render(<ReleaseChannelManageView {...props} />);
+  return {
+    onSave,
+    previewScope,
+    updateChannel: (nextChannel: ChannelView, refreshError: boolean) =>
+      rerender(<ReleaseChannelManageView {...props} channel={nextChannel} hasRefreshError={refreshError} />),
+  };
 }
 
 describe("release channel saves during scope overlaps", () => {
@@ -122,5 +128,74 @@ describe("release channel saves during scope overlaps", () => {
     expect(save).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe("release channel saves while refresh fails", () => {
+  test("acknowledges a committed draft until reads recover without hiding subsequent edits", async () => {
+    const channel = existingChannel();
+    const { onSave, updateChannel } = renderManage(channel, undefined, true);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
+    const save = screen.getByTestId("save-channel");
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Release channel saved", status: "success" }),
+    );
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenCalledOnce();
+
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "New unsaved description" } });
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "" } });
+    expect(save).toBeDisabled();
+    // The server has the saved name, even though the last read still has
+    // the original name. Reverting to that original value is a new edit.
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: channel.name } });
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
+    expect(save).toBeDisabled();
+
+    updateChannel({ ...channel, name: "Saved name" }, false);
+    expect(save).toBeDisabled();
+    updateChannel({ ...channel, name: "Another operator's name" }, false);
+    expect(save).toBeEnabled();
+    updateChannel({ ...channel, name: "Another operator's name" }, true);
+    expect(save).toBeEnabled();
+  });
+
+  test("does not acknowledge local edits made while the successful save was pending", async () => {
+    const channel = existingChannel();
+    let finishSaving!: () => void;
+    const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishSaving = resolve;
+      }),
+    );
+    const { updateChannel } = renderManage(channel, onSave);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
+    const save = screen.getByTestId("save-channel");
+    fireEvent.click(save);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Next unsaved name" } });
+    updateChannel(channel, true);
+    await act(async () => finishSaving());
+
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Submitted name" }));
+    expect(screen.getByLabelText("Name")).toHaveValue("Next unsaved name");
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
+    expect(save).toBeDisabled();
+  });
+
+  test("leaves a rejected write dirty and retryable", async () => {
+    const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockRejectedValue(new Error("Save rejected"));
+    renderManage(existingChannel(), onSave, true);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    const save = screen.getByTestId("save-channel");
+    fireEvent.click(save);
+
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith({ message: "Save rejected", status: "error" }));
+    expect(save).toBeEnabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
   });
 });

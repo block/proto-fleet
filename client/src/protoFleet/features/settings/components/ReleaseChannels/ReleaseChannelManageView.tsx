@@ -104,6 +104,7 @@ const FirmwarePickerCell = ({ group, firmwareFiles, stagedFileId, onStageFirmwar
 interface ReleaseChannelManageViewProps {
   // Undefined creates a new channel.
   channel?: ChannelView;
+  hasRefreshError?: boolean;
   rollouts: Rollout[];
   firmwareFiles: FirmwareFileInfo[];
   minerNames: Record<string, string>;
@@ -120,6 +121,7 @@ interface ReleaseChannelManageViewProps {
 // applied per model and starts an update paced by the saved behavior.
 const ReleaseChannelManageView = ({
   channel,
+  hasRefreshError = false,
   rollouts,
   firmwareFiles,
   minerNames,
@@ -138,6 +140,11 @@ const ReleaseChannelManageView = ({
   const [behavior, setBehavior] = useState<RolloutBehavior>(() => channel?.behavior ?? defaultBehavior());
   const [preview, setPreview] = useState<PreviewReleaseChannelScopeResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [savedDraft, setSavedDraft] = useState<ReleaseChannelDraft | null>(null);
+
+  // A successful read restores the channel as the source of truth. Do not
+  // carry an old save acknowledgement into a later, unrelated refresh error.
+  if (!hasRefreshError && savedDraft !== null) setSavedDraft(null);
 
   // Staged (unapplied) firmware choices per pair key; absent key = server value.
   const [staged, setStaged] = useState<Record<string, string>>({});
@@ -152,23 +159,28 @@ const ReleaseChannelManageView = ({
     [previewScope, channelId],
   );
 
+  const savedSettings = hasRefreshError && savedDraft ? savedDraft : channel;
   const dirty =
-    channel === undefined ||
-    name.trim() !== channel.name ||
-    description.trim() !== channel.description ||
-    !equals(ReleaseChannelScopeSchema, scope, channel.scope ?? create(ReleaseChannelScopeSchema)) ||
-    !equals(RolloutBehaviorSchema, behavior, channel.behavior ?? create(RolloutBehaviorSchema));
+    savedSettings === undefined ||
+    name.trim() !== savedSettings.name ||
+    description.trim() !== savedSettings.description ||
+    !equals(ReleaseChannelScopeSchema, scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
+    !equals(RolloutBehaviorSchema, behavior, savedSettings.behavior ?? create(RolloutBehaviorSchema));
   const hasConflicts = (preview?.conflicts.length ?? 0) > 0;
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
   const canSave = dirty && name.trim() !== "" && (channel !== undefined || !hasConflicts) && !isSaving;
 
   const handleSave = () => {
+    const submitted = { name: name.trim(), description: description.trim(), scope, behavior };
     setIsSaving(true);
-    onSave({ name: name.trim(), description: description.trim(), scope, behavior })
+    onSave(submitted)
       .then(() => {
+        // Only these submitted values were saved; edits made while waiting
+        // remain dirty even if the follow-up refresh fails.
+        setSavedDraft(submitted);
         pushToast({
-          message: channel ? "Release channel saved" : `Created release channel ${name.trim()}`,
+          message: channel ? "Release channel saved" : `Created release channel ${submitted.name}`,
           status: STATUSES.success,
         });
       })
