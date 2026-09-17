@@ -44,6 +44,27 @@ const propsFor = () => ({
 });
 
 describe("ModelMinersModal detail loading", () => {
+  it("drains each detail list once on mount without queuing a second scan after completion", async () => {
+    const props = propsFor();
+    const members = deferred<ReleaseChannelMiner[]>();
+    const progress = deferred<RolloutDevice[]>();
+    props.listChannelMiners.mockReturnValueOnce(members.promise);
+    props.listRolloutDevices.mockReturnValueOnce(progress.promise);
+    const { rerender } = render(<ModelMinersModal {...props} />);
+    await act(async () => members.resolve([miner]));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    await act(async () => progress.resolve([device]));
+    expect(screen.getByTestId("channel-miner-rig-1")).toHaveTextContent("Updated");
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "false");
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+
+    await act(async () => rerender(<ModelMinersModal {...props} minerNames={{ "rig-1": "Renamed miner" }} />));
+    expect(screen.getByTestId("channel-miner-rig-1")).toHaveTextContent("Renamed miner");
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+  });
+
   it("finishes slow detail scans across repeated summary polls and coalesces one trailing refresh", async () => {
     const props = propsFor();
     const members = deferred<ReleaseChannelMiner[]>();

@@ -318,8 +318,10 @@ const ReleaseChannelManageView = ({
   const isWriting = isSaving || isApplying;
   const nameError = name.trim() === "" ? "Enter a name." : channelTextError(name, "Name", 100);
   const descriptionError = channelTextError(description, "Description", 1000);
+  const isDelegated = behavior.method === RolloutMethod.DELEGATED;
   const canSave =
     dirty &&
+    !isDelegated &&
     !nameError &&
     !descriptionError &&
     scopeValidationErrors(scope).length === 0 &&
@@ -508,6 +510,11 @@ const ReleaseChannelManageView = ({
         title="Update behavior"
         subtext="Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel."
       >
+        {isDelegated ? (
+          <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-save-unavailable">
+            Saving externally controlled channels is not available yet. Choose another update method to save changes.
+          </p>
+        ) : null}
         <RolloutControls
           behavior={behavior}
           onChange={setBehavior}

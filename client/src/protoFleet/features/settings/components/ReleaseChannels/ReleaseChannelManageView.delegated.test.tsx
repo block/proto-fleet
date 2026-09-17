@@ -10,7 +10,6 @@ import {
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
@@ -98,7 +97,7 @@ describe("existing delegated release channels", () => {
     [RolloutOrder.LEAST_EFFICIENT_FIRST, "Least efficient first", RolloutOrder.RANDOM, "Random"],
     [RolloutOrder.UNSPECIFIED, "Least efficient first", RolloutOrder.RANDOM, "Random"],
   ] as const)(
-    "shows order %s and saves a changed order without altering external control",
+    "shows order %s and requires a supported method before saving the changed order",
     async (order, label, nextOrder, nextLabel) => {
       const channel = delegatedChannel(order);
       const onSave = renderManage(channel);
@@ -108,14 +107,19 @@ describe("existing delegated release channels", () => {
       expect(screen.getByRole("option", { name: label })).toHaveAttribute("aria-selected", "true");
       fireEvent.click(screen.getByRole("option", { name: nextLabel }));
       expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
-      expect(screen.getByTestId("save-channel")).toBeEnabled();
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
+      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.getByTestId("delegated-save-unavailable")).toHaveTextContent("Choose another update method");
+      chooseMethod("Single batch");
+      expect(screen.queryByTestId("delegated-save-unavailable")).not.toBeInTheDocument();
+      expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
       await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
       expect(onSave).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
           behavior: create(RolloutBehaviorSchema, {
-            method: RolloutMethod.DELEGATED,
+            method: RolloutMethod.ALL_AT_ONCE,
             order: nextOrder,
-            controllerTimeoutSeconds: 120,
             maxConcurrentOffline: 7,
           }),
         }),
@@ -123,7 +127,7 @@ describe("existing delegated release channels", () => {
     },
   );
 
-  it("displays external control and preserves its valid settings when only the name changes", async () => {
+  it("keeps the saved method visible and blocks unrelated edits until the operator changes it", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
@@ -137,12 +141,26 @@ describe("existing delegated release channels", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed delegated channel" } });
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
 
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
+    chooseMethod("Multiple batches");
+    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ name: "Renamed delegated channel", behavior: channel.behavior }),
+      expect.objectContaining({
+        name: "Renamed delegated channel",
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.BATCHED,
+          order: RolloutOrder.RANDOM,
+          batchSize: 5,
+          maxConcurrentOffline: 7,
+        }),
+      }),
     );
   });
 
-  it("lets an existing delegated channel revert a tentative method change without saving inactive settings", async () => {
+  it("keeps Save blocked after reverting an unsaved switch to external control", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     chooseMethod("Multiple batches");
@@ -156,8 +174,9 @@ describe("existing delegated release channels", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed after reverting" } });
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
 
-    expect(onSave).toHaveBeenCalledOnce();
-    expect(rolloutBehaviorForRequest(onSave.mock.calls[0][0].behavior)).toEqual(channel.behavior);
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    expect(screen.getByTestId("delegated-save-unavailable")).toBeVisible();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it.each(["new", "existing nondelegated"] as const)(
