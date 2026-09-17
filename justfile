@@ -375,13 +375,13 @@ _server-init:
 _client-init force="false":
   #!/usr/bin/env bash
   set -euo pipefail
-  STAMP=.cache/client-deps/package-lock.hash
-  WANT_HASH="$(git hash-object client/package-lock.json)"
+  STAMP=.cache/client-deps/install-inputs.hash
+  WANT_HASH="$(git hash-object client/package.json client/package-lock.json | git hash-object --stdin)"
   if [ "{{force}}" != true ] \
      && [ -d client/node_modules ] \
      && [ -f "$STAMP" ] \
      && [ "$(cat "$STAMP")" = "$WANT_HASH" ]; then
-    echo "Client dependencies match package-lock.json, skipping install."
+    echo "Client dependencies match install manifests, skipping install."
     exit 0
   fi
   registry_args=()
@@ -496,13 +496,13 @@ _build-go-plugins-cross goos goarch outdir force="": _go-work-sync
   set -euo pipefail
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  COMMON_SOURCES="server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum"
+  COMMON_SOURCES="server/sdk/v1 go.work go.work.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum server/go.mod server/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
   rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   mkdir -p {{outdir}}
   built=false
   for plugin in proto antminer; do
     bin="{{outdir}}/${plugin}-plugin"
-    sources="plugin/${plugin} ${COMMON_SOURCES} plugin/${plugin}/go.mod plugin/${plugin}/go.sum"
+    sources="plugin/${plugin} ${COMMON_SOURCES}"
     if [ "$plugin" = "{{force}}" ] \
        || [ ! -f "$bin" ] \
        || [ ! -f "$PLATFORM_MARKER" ] \

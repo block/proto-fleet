@@ -15,6 +15,25 @@ for job in plugin-proto-lint plugin-antminer-lint; do
   done
 done
 
+client_init_recipe="$(just --dry-run _client-init 2>&1)"
+for install_input in client/package.json client/package-lock.json; do
+  if [[ "$client_init_recipe" != *"$install_input"* ]]; then
+    echo "Client dependency fingerprint omits: $install_input" >&2
+    exit 1
+  fi
+done
+
+plugin_build_recipe="$(just --dry-run _build-go-plugins-cross linux arm64 server/plugins 2>&1)"
+while IFS= read -r module; do
+  module="${module#./}"
+  for dependency_file in "$module/go.mod" "$module/go.sum"; do
+    if [ -f "$dependency_file" ] && [[ "$plugin_build_recipe" != *"$dependency_file"* ]]; then
+      echo "Plugin build cache omits workspace dependency: $dependency_file" >&2
+      exit 1
+    fi
+  done
+done < <(go work edit -json | jq -r '.Use[].DiskPath')
+
 diff -u \
   <(find .claude/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort) \
   <(find .agents/skills -mindepth 1 -maxdepth 1 -type l -exec basename {} \; | sort)
