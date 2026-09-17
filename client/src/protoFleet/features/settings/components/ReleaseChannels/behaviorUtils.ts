@@ -54,6 +54,8 @@ export function planReadout(behavior: RolloutBehavior, inScopeCount: number): st
       const pilot = Math.min(behavior.pilotSize, inScopeCount);
       return `Pilot batch of ${pilot.toLocaleString()}, then ${Math.max(inScopeCount - pilot, 0).toLocaleString()} remaining`;
     }
+    case RolloutMethod.DELEGATED:
+      return `${inScopeCount.toLocaleString()} ${inScopeCount === 1 ? "miner" : "miners"} in scope; an external controller decides which miners update and when`;
     default:
       return `${inScopeCount.toLocaleString()} miners in a single batch`;
   }

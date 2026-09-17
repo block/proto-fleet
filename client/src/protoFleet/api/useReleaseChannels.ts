@@ -33,6 +33,7 @@ export type ChannelView = ReleaseChannel & { modelGroups: ReleaseChannelModelGro
 export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
 
 const POLL_INTERVAL_MS = 5000;
+const MINER_NAMES_REFRESH_INTERVAL_MS = 5 * 60_000;
 // Bound each read, including later pages, so a stalled connection cannot
 // hold the refresh lock indefinitely. Large scans get a fresh budget per RPC.
 const POLL_RPC_TIMEOUT_MS = 30_000;
@@ -51,6 +52,39 @@ async function drainPages<T>(fetchPage: (cursor: string) => Promise<{ items: T[]
     cursor = page.cursor;
   } while (cursor !== "");
   return all;
+}
+
+interface MinerNamesCache {
+  value: Record<string, string> | null;
+  expiresAt: number;
+  inFlight: Promise<Record<string, string>> | null;
+}
+
+function loadMinerNames(cache: MinerNamesCache): Promise<Record<string, string>> {
+  if (cache.value !== null && Date.now() < cache.expiresAt) return Promise.resolve(cache.value);
+  if (cache.inFlight) return cache.inFlight;
+  const request = drainPages((cursor) =>
+    fleetManagementClient
+      .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
+      .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+  )
+    .catch((error: unknown) => {
+      // Firmware managers need not have miner:read. Clear names when that
+      // permission is denied, and avoid retrying the denied scan every poll.
+      if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
+      throw error;
+    })
+    .then((miners) => {
+      const names = Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name]));
+      cache.value = names;
+      cache.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
+      return names;
+    })
+    .finally(() => {
+      cache.inFlight = null;
+    });
+  cache.inFlight = request;
+  return request;
 }
 
 async function loadRolloutChanges(pollCursor: string): Promise<{ rollouts: Rollout[]; pollCursor: string }> {
@@ -166,6 +200,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   const inFlightRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<object | null>(null);
   const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
+  const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
 
   const isCurrentSession = useCallback(() => {
     const auth = useFleetStore.getState().auth;
@@ -182,7 +217,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
       const isCurrentRequest = () => sessionRef.current === session && isCurrentSession();
       try {
         const previous = rolloutSnapshotRef.current;
-        const [changes, activeRollouts, miners] = await Promise.all([
+        const [changes, activeRollouts, minerNames] = await Promise.all([
           loadRolloutChanges(previous.pollCursor),
           // Telemetry/evidence can change without a header revision. Refresh
           // active rows separately; this work does not grow with history.
@@ -196,16 +231,9 @@ export function useReleaseChannels(): ReleaseChannelsApi {
                   .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
               )
             : Promise.resolve([] as Rollout[]),
-          drainPages((cursor) =>
-            fleetManagementClient
-              .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
-              .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
-          ).catch((error: unknown) => {
-            // Firmware managers need not have miner:read. Names are optional;
-            // do not retain old names after their permission is revoked.
-            if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
-            throw error;
-          }),
+          // Names change far less often than rollout progress. Reuse complete
+          // name scans (and pending scans after a core read fails) for this login.
+          loadMinerNames(minerNamesCacheRef.current),
         ]);
         if (!isCurrentRequest()) return;
         // Read channels after rollouts, so a newly created channel cannot be
@@ -235,7 +263,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
           authSessionIdentity,
           channels: nextChannels,
           rollouts: allRollouts,
-          minerNames: Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name])),
+          minerNames,
           isLoading: false,
           hasLoaded: true,
           error: null,
@@ -287,6 +315,8 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     sessionRef.current = {};
     inFlightRef.current = null;
     rolloutSnapshotRef.current = { rollouts: [], pollCursor: "" };
+    // Old requests may finish, but can only populate their old cache object.
+    minerNamesCacheRef.current = { value: null, expiresAt: 0, inFlight: null };
     const poll = () => {
       // Timer ticks never queue work behind an existing refresh.
       if (inFlightRef.current) return;

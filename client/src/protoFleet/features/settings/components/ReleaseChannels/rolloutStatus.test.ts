@@ -19,6 +19,7 @@ import {
 import {
   channelUpdateStatus,
   deviceCounts,
+  evidenceScopeLabel,
   failedDevices,
   metricDisplay,
   modelFirmwareLabel,
@@ -32,6 +33,7 @@ import {
   rolloutStageLabel,
   scopeCounts,
   scopeDevices,
+  scopedToBatch,
 } from "./rolloutStatus";
 import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
@@ -40,10 +42,12 @@ import {
   RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutEvidenceSchema,
   RolloutMethod,
   RolloutSchema,
   RolloutStage,
   RolloutState,
+  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const rigGroup = canaryChannel.modelGroups[0];
@@ -166,6 +170,104 @@ describe("device counts and progress", () => {
     expect(failedDevices(devices).map((d) => d.deviceIdentifier)).toEqual(["rig-004"]);
     expect(scopeDevices(activeRigRollout, devices)).toHaveLength(6);
   });
+
+  it.each([RolloutMethod.BATCHED, RolloutMethod.PILOT_THEN_CONTINUE])(
+    "limits REST evidence to unbatched targets while retaining whole-rollout progress for method %s",
+    (method) => {
+      const devices = [
+        create(RolloutDeviceSchema, { deviceIdentifier: "completed-batch", batch: 1, phase: RolloutDevicePhase.DONE }),
+        create(RolloutDeviceSchema, {
+          deviceIdentifier: "drifted-batch",
+          batch: 1,
+          phase: RolloutDevicePhase.IN_PROGRESS,
+        }),
+        create(RolloutDeviceSchema, { deviceIdentifier: "remaining-done", phase: RolloutDevicePhase.DONE }),
+        create(RolloutDeviceSchema, { deviceIdentifier: "late-joiner", phase: RolloutDevicePhase.QUEUED }),
+        create(RolloutDeviceSchema, { deviceIdentifier: "remaining-failed", phase: RolloutDevicePhase.FAILED }),
+        create(RolloutDeviceSchema, { deviceIdentifier: "remaining-excluded", phase: RolloutDevicePhase.EXCLUDED }),
+        create(RolloutDeviceSchema, { deviceIdentifier: "remaining-skipped", phase: RolloutDevicePhase.SKIPPED }),
+      ];
+      const rollout = create(RolloutSchema, {
+        ...activeRigRollout,
+        behavior: create(RolloutBehaviorSchema, { method }),
+        batchCount: 1,
+        stage: RolloutStage.REST,
+        deviceCount: devices.length,
+        deviceCounts: create(RolloutDeviceCountsSchema, {
+          done: 2,
+          inProgress: 1,
+          queued: 1,
+          failed: 1,
+          excluded: 1,
+          skipped: 1,
+        }),
+        currentBatchCounts: create(RolloutDeviceCountsSchema),
+        evidence: create(RolloutEvidenceSchema, { devicesTotal: 5, verified: 1, failed: 1, excluded: 1, skipped: 1 }),
+      });
+
+      const evidenceDevices = scopeDevices(rollout, devices);
+      expect(evidenceDevices.map((device) => device.deviceIdentifier)).toEqual([
+        "remaining-done",
+        "late-joiner",
+        "remaining-failed",
+        "remaining-excluded",
+        "remaining-skipped",
+      ]);
+      expect(evidenceDevices).toHaveLength(rollout.evidence!.devicesTotal);
+      expect(deviceCounts(evidenceDevices)).toMatchObject({ updated: 1, failed: 1, excluded: 1, skipped: 1, total: 3 });
+      expect(scopedToBatch(rollout)).toBe(false);
+      expect(evidenceScopeLabel(rollout)).toBe("Remaining miners");
+      expect(scopeCounts(rollout)).toEqual(deviceCounts(devices));
+      expect(scopeCounts(rollout)).toMatchObject({ updated: 2, updating: 1, failed: 1, total: 5 });
+
+      const completedDevices = devices.map((device) =>
+        create(RolloutDeviceSchema, {
+          ...device,
+          phase:
+            device.phase === RolloutDevicePhase.IN_PROGRESS || device.phase === RolloutDevicePhase.QUEUED
+              ? RolloutDevicePhase.DONE
+              : device.phase,
+        }),
+      );
+      const completed = create(RolloutSchema, {
+        ...rollout,
+        status: RolloutStatus.COMPLETED_WITH_FAILURES,
+        state: RolloutState.COMPLETED_WITH_FAILURES,
+        deviceCounts: create(RolloutDeviceCountsSchema, { done: 4, failed: 1, excluded: 1, skipped: 1 }),
+        evidence: undefined,
+      });
+      expect(scopeDevices(completed, completedDevices)).toBe(completedDevices);
+      expect(evidenceScopeLabel(completed)).toBe("All miners");
+      expect(scopeCounts(completed)).toEqual(deviceCounts(completedDevices));
+    },
+  );
+
+  it.each([RolloutStage.BATCH, RolloutStage.AWAITING_REVIEW, RolloutStage.WAITING])(
+    "keeps evidence and progress on the current positive batch in stage %s",
+    (stage) => {
+      const rollout = create(RolloutSchema, { ...batchedRigRollout, stage });
+      const devices = rolloutDevices[rollout.id.toString()] ?? [];
+      expect(scopedToBatch(rollout)).toBe(true);
+      expect(evidenceScopeLabel(rollout)).toBe("Batch 2 of 3");
+      expect(scopeDevices(rollout, devices).map((device) => device.deviceIdentifier)).toEqual(["rig-003", "rig-004"]);
+      expect(scopeCounts(rollout)).toEqual(deviceCounts(scopeDevices(rollout, devices)));
+    },
+  );
+
+  it.each([RolloutMethod.ALL_AT_ONCE, RolloutMethod.DELEGATED])(
+    "keeps every target in evidence and progress for an unbatched method %s",
+    (method) => {
+      const rollout = create(RolloutSchema, {
+        ...activeRigRollout,
+        behavior: create(RolloutBehaviorSchema, { method }),
+      });
+      const devices = rolloutDevices[activeRigRollout.id.toString()] ?? [];
+      expect(scopedToBatch(rollout)).toBe(false);
+      expect(scopeDevices(rollout, devices)).toBe(devices);
+      expect(evidenceScopeLabel(rollout)).toBe("All miners");
+      expect(scopeCounts(rollout)).toEqual(deviceCounts(devices));
+    },
+  );
 
   it("flags rollouts that need a human", () => {
     expect(rolloutNeedsAttention(gatedRigRollout)).toBe(true);

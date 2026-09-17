@@ -279,20 +279,33 @@ export function rolloutDeviceCounts(rollout: Rollout): RolloutDeviceCounts {
   return countsFromSummary(rollout.deviceCounts);
 }
 
-// Whether the current batch, rather than the whole rollout, governs the
-// rollout right now: while batching, waiting or at the gate.
+// Progress covers the current batch while batching, waiting or at the gate.
+// REST progress covers every target, including earlier batches that drifted.
 export function scopedToBatch(rollout: Rollout): boolean {
-  return isActive(rollout) && rollout.stage !== RolloutStage.REST;
+  return isActive(rollout) && rollout.batchCount > 0 && rollout.stage !== RolloutStage.REST;
 }
 
-// Counts for the miners whose evidence governs the rollout right now.
+// Progress counts, not telemetry evidence counts: REST evidence omits earlier
+// batches, but those targets can still need work and belong in overall progress.
 export function scopeCounts(rollout: Rollout): RolloutDeviceCounts {
   return scopedToBatch(rollout) ? countsFromSummary(rollout.currentBatchCounts) : rolloutDeviceCounts(rollout);
 }
 
-// The subset of a fetched device list that governs the rollout right now.
+// Evidence follows the current batch until REST, then only the unbatched
+// targets. Non-staged rollouts have only unbatched targets. Terminal rollouts
+// have no live evidence; their device lists describe the whole update.
 export function scopeDevices(rollout: Rollout, devices: RolloutDevice[]): RolloutDevice[] {
-  return scopedToBatch(rollout) ? devices.filter((device) => device.batch === rollout.currentBatch + 1) : devices;
+  if (scopedToBatch(rollout)) return devices.filter((device) => device.batch === rollout.currentBatch + 1);
+  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) {
+    return devices.filter((device) => device.batch === 0);
+  }
+  return devices;
+}
+
+export function evidenceScopeLabel(rollout: Rollout): string {
+  if (scopedToBatch(rollout)) return batchLabel(rollout);
+  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) return "Remaining miners";
+  return "All miners";
 }
 
 export function failedDevices(devices: RolloutDevice[]): RolloutDevice[] {
