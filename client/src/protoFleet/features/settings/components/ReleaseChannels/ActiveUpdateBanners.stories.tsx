@@ -44,6 +44,8 @@ export const History: Story = {
   render: () => (
     <div className="min-h-screen bg-surface-base">
       <ChannelHistoryModal
+        historyState={{ status: "ready" }}
+        onRetry={noop}
         channel={canaryChannel}
         rollouts={canaryHistory}
         onView={noop}

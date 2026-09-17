@@ -85,7 +85,7 @@ describe("release channel history on demand", () => {
     const { api, historical } = historyApi();
     const pending = pendingHistory();
     vi.mocked(api.listChannelRollouts).mockReturnValueOnce(pending.promise);
-    const { rerender } = render(<ReleaseChannelsTab api={api} />);
+    const { rerender } = render(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     expect(api.listChannelRollouts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
@@ -93,7 +93,7 @@ describe("release channel history on demand", () => {
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("Loading update history");
     await act(async () => pending.resolve([historical]));
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
-    rerender(<ReleaseChannelsTab api={{ ...api, rollouts: [] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, rollouts: [] }} />);
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
@@ -111,7 +111,7 @@ describe("release channel history on demand", () => {
     const expanded = pendingHistory();
     const managed = pendingHistory();
     vi.mocked(api.listChannelRollouts).mockReturnValueOnce(expanded.promise).mockReturnValueOnce(managed.promise);
-    render(<ReleaseChannelsTab api={api} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
     const expandedSignal = vi.mocked(api.listChannelRollouts).mock.calls[0][1]!;
@@ -135,7 +135,7 @@ describe("release channel history on demand", () => {
     vi.mocked(api.listChannelRollouts)
       .mockRejectedValueOnce(new Error("History service unavailable"))
       .mockResolvedValueOnce([historical]);
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Update history unavailable");
     expect(screen.getByTestId(`channel-history-error-${canaryChannel.id}`)).toHaveTextContent(

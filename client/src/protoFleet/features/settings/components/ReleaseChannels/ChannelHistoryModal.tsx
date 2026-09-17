@@ -9,6 +9,7 @@ import {
   rolloutStatusTone,
 } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
+import type { ChannelHistoryState } from "./useChannelHistory";
 import { type Rollout, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -19,6 +20,8 @@ interface ChannelHistoryModalProps {
   channel: ChannelView;
   // This channel's rollouts, newest first (server order).
   rollouts: Rollout[];
+  historyState: ChannelHistoryState;
+  onRetry: () => void;
   onView: (rollout: Rollout) => void;
   onRollback: (rollout: Rollout) => void;
   onClose: () => void;
@@ -30,7 +33,15 @@ const formatRolloutTimestamp = (timestamp?: Timestamp): string =>
 // Every update a channel has run, newest first, with a way back into each
 // one's detail and a Roll back action while the entry is the pair's current
 // assignment.
-const ChannelHistoryModal = ({ channel, rollouts, onView, onRollback, onClose }: ChannelHistoryModalProps) => {
+const ChannelHistoryModal = ({
+  channel,
+  rollouts,
+  historyState,
+  onRetry,
+  onView,
+  onRollback,
+  onClose,
+}: ChannelHistoryModalProps) => {
   // Rolling an entry back reverses its lineage (A for an A-to-B update, or
   // clearing the firmware for a first assignment) while the entry is still
   // the pair's current assignment generation; older entries get no action.
@@ -45,9 +56,20 @@ const ChannelHistoryModal = ({ channel, rollouts, onView, onRollback, onClose }:
       onDismiss={onClose}
       buttons={[{ text: "Done", variant: variants.primary, onClick: onClose }]}
     >
-      {rollouts.length === 0 ? (
+      {historyState.status === "loading" ? (
+        <p role="status" className="py-4 text-text-primary-50">
+          Loading update history…
+        </p>
+      ) : null}
+      {historyState.status === "error" ? (
+        <div role="alert" className="flex items-center justify-between gap-4 py-4">
+          <p>{historyState.error || "Couldn't load update history"}</p>
+          <Button text="Retry update history" variant={variants.secondary} onClick={onRetry} />
+        </div>
+      ) : null}
+      {rollouts.length === 0 && historyState.status === "ready" ? (
         <div className="py-6 text-center text-text-primary-50">No updates for this channel yet.</div>
-      ) : (
+      ) : rollouts.length > 0 ? (
         <table className="w-full text-left text-200">
           <thead>
             <tr className="text-text-primary-50">
@@ -109,7 +131,7 @@ const ChannelHistoryModal = ({ channel, rollouts, onView, onRollback, onClose }:
             })}
           </tbody>
         </table>
-      )}
+      ) : null}
     </Modal>
   );
 };

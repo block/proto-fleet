@@ -446,7 +446,7 @@ const Firmware = () => {
           key={manageRequest ? `manage-${manageRequest.seq}` : "channels"}
           api={channelsApi}
           initialManagedChannelId={manageRequest?.channelId ?? null}
-          onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rolloutId: rollout.id })}
+          onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rollout })}
           onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />
       ) : (

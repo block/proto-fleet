@@ -227,7 +227,11 @@ const ReleaseChannelsTab = ({
       : managedChannel
         ? [managedChannel.id]
         : expandedChannelIds.filter((id) => visibleChannels.some((channel) => channel.id === id));
-  const history = useChannelHistory({ channelIds: historyChannelIds, rollouts, listChannelRollouts });
+  const history = useChannelHistory({
+    channelIds: historyChannel ? [...historyChannelIds, historyChannel.id] : historyChannelIds,
+    rollouts,
+    listChannelRollouts,
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -390,7 +394,9 @@ const ReleaseChannelsTab = ({
       {historyChannel ? (
         <ChannelHistoryModal
           channel={historyChannel}
-          rollouts={rollouts.filter((rollout) => rollout.channelId === historyChannel.id)}
+          rollouts={history.rollouts.filter((r) => r.channelId === historyChannel.id)}
+          historyState={history.states.get(historyChannel.id) ?? { status: "loading" }}
+          onRetry={() => history.retry(historyChannel.id)}
           onView={(rollout) => {
             setHistoryChannelId(null);
             onViewRollout(rollout);

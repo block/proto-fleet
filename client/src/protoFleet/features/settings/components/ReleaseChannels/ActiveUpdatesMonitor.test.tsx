@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import ActiveUpdatesMonitor from "./ActiveUpdatesMonitor";
+import ActiveUpdatesMonitor, { type MonitorRequest } from "./ActiveUpdatesMonitor";
 import {
   activeRigRollout,
   canaryChannel,
@@ -16,6 +17,7 @@ import { isActive } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import Firmware from "@/protoFleet/features/settings/components/Firmware";
+import { useFleetStore } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
 const { mockUseReleaseChannels, mockListFirmwareFiles } = vi.hoisted(() => ({
@@ -68,6 +70,7 @@ function apiFor(rollout: Rollout) {
     deleteChannel: vi.fn().mockResolvedValue(undefined),
     previewScope: vi.fn().mockResolvedValue(canaryPreview),
     listChannelMiners: vi.fn().mockResolvedValue([]),
+    listChannelRollouts: vi.fn().mockResolvedValue([rollout]),
     listRolloutDevices: vi.fn().mockResolvedValue([]),
     applyFirmware: vi.fn().mockResolvedValue([]),
     rollbackFirmware: vi.fn().mockResolvedValue([]),
@@ -79,7 +82,12 @@ function apiFor(rollout: Rollout) {
   } satisfies ReleaseChannelsApi;
 }
 
+const initialAuth = useFleetStore.getState().auth;
+afterEach(() => useFleetStore.setState({ auth: initialAuth }));
 beforeEach(() => {
+  useFleetStore.setState({
+    auth: { ...initialAuth, isAuthenticated: true, username: "operator", sessionGeneration: 1 },
+  });
   vi.clearAllMocks();
   mockListFirmwareFiles.mockResolvedValue([]);
 });
@@ -95,7 +103,7 @@ describe("rollout controls use the operator's observed revision", () => {
     const api = apiFor(observed);
     const props = {
       api,
-      request: { kind: "view" as const, rolloutId: observed.id },
+      request: { kind: "view" as const, rollout: observed },
       onManageChannel: vi.fn(),
     };
     const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
@@ -118,7 +126,7 @@ describe("rollout controls use the operator's observed revision", () => {
       api[method].mockRejectedValue(stale);
       const props = {
         api,
-        request: { kind: "view" as const, rolloutId: observed.id },
+        request: { kind: "view" as const, rollout: observed },
         onManageChannel: vi.fn(),
       };
       const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
@@ -165,5 +173,66 @@ describe("rollout controls use the operator's observed revision", () => {
     fireEvent.click(within(confirmation).getByRole("button", { name: "Roll back" }));
 
     await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
+  });
+});
+
+describe("on-demand history detail handoff", () => {
+  it("opens a historical update absent from the polling baseline, then follows a newer live revision", async () => {
+    const observed = { ...completedWithFailuresRigRollout, revision: 7n };
+    const api = apiFor(observed);
+    mockUseReleaseChannels.mockReturnValue({ ...api, rollouts: [] });
+    const page = () => (
+      <MemoryRouter initialEntries={["/settings/firmware?tab=release-channels"]}>
+        <Firmware />
+      </MemoryRouter>
+    );
+    const { rerender } = render(page());
+    expect(api.listChannelRollouts).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+    fireEvent.click(screen.getByTestId("channel-history"));
+    fireEvent.click(await screen.findByTestId(`history-view-${observed.id.toString()}`));
+    expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
+    expect(api.listChannelRollouts).toHaveBeenCalledExactlyOnceWith(observed.channelId, expect.any(AbortSignal));
+    mockUseReleaseChannels.mockReturnValue({ ...api, rollouts: [{ ...observed, revision: 8n }] });
+    rerender(page());
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 8n));
+  });
+
+  it("opens the returned successor when its follow-up refresh has not loaded it", async () => {
+    const observed = completedWithFailuresRigRollout;
+    const successor = { ...activeRigRollout, id: observed.id + 1n, model: "Successor model" };
+    const api = apiFor(observed);
+    api.retryFailedDevices.mockResolvedValue(successor);
+    function Harness() {
+      const [request, setRequest] = useState<MonitorRequest | null>({ kind: "view", rollout: observed });
+      return (
+        <ActiveUpdatesMonitor
+          api={{ ...api, rollouts: [] }}
+          request={request}
+          onManageChannel={vi.fn()}
+          onRequestHandled={() => setRequest(null)}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    await waitFor(() => expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument());
+    expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Successor model");
+  });
+
+  it("keeps a newer historical revision and drops its fallback when the channel disappears", async () => {
+    const observed = { ...completedWithFailuresRigRollout, revision: 7n };
+    const api = apiFor(observed);
+    const props = {
+      api: { ...api, rollouts: [{ ...observed, revision: 6n }] },
+      request: { kind: "view" as const, rollout: observed },
+      onManageChannel: vi.fn(),
+    };
+    const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
+    rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, channels: [], rollouts: [] }} />);
+    expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
   });
 });

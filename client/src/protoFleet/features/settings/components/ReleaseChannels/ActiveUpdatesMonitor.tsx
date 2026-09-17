@@ -13,7 +13,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Something another surface asked the monitor to do: open a rollout's
 // detail, or confirm rolling back to one.
-export type MonitorRequest = { kind: "view"; rolloutId: bigint } | { kind: "rollback"; rollout: Rollout };
+export type MonitorRequest = { kind: "view"; rollout: Rollout } | { kind: "rollback"; rollout: Rollout };
 
 interface ActiveUpdatesMonitorProps {
   api: Pick<
@@ -57,8 +57,8 @@ const ActiveUpdatesMonitor = ({
     listRolloutDevices,
     retryFailedDevices,
   } = api;
-  // Rollout open in the update detail modal, resolved live on each poll.
-  const [viewUpdateId, setViewUpdateId] = useState<bigint | null>(null);
+  // Retain the opened or returned snapshot if a subsequent poll fails.
+  const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Rollout | null>(null);
   const [localRollbackTarget, setLocalRollbackTarget] = useState<Rollout | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -73,7 +73,18 @@ const ActiveUpdatesMonitor = ({
   );
   const byId = (id: bigint | null | undefined) =>
     id != null ? rollouts.find((rollout) => rollout.id === id) : undefined;
-  const viewedRollout = byId(request?.kind === "view" ? request.rolloutId : viewUpdateId);
+  // History and successful actions can supply rows absent from the current
+  // poll. Prefer equally recent or newer live rows without losing that detail.
+  const selectedRollout = request?.kind === "view" ? request.rollout : viewUpdate;
+  const selectedSnapshot =
+    selectedRollout && api.channels.some((channel) => channel.id === selectedRollout.channelId)
+      ? selectedRollout
+      : undefined;
+  const currentRollout = byId(selectedSnapshot?.id);
+  const viewedRollout =
+    selectedSnapshot && (!currentRollout || selectedSnapshot.revision > currentRollout.revision)
+      ? selectedSnapshot
+      : currentRollout;
   // Keep the snapshot that opened confirmation, even when polling advances it.
   const rollbackTarget = request?.kind === "rollback" ? request.rollout : localRollbackTarget;
   const setRollbackTarget = (target: Rollout | null) => {
@@ -81,7 +92,7 @@ const ActiveUpdatesMonitor = ({
     if (target === null && request?.kind === "rollback") onRequestHandled?.();
   };
   const closeDetail = () => {
-    setViewUpdateId(null);
+    setViewUpdate(null);
     if (request?.kind === "view") onRequestHandled?.();
   };
 
@@ -115,7 +126,10 @@ const ActiveUpdatesMonitor = ({
   const handleRetry = (rollout: Rollout) =>
     retryFailedDevices(rollout.id, rollout.revision)
       .then((next) => {
-        if (next && next.id !== rollout.id) setViewUpdateId(next.id);
+        if (next && next.id !== rollout.id) {
+          if (request?.kind === "view") onRequestHandled?.();
+          setViewUpdate(next);
+        }
         pushToast({ message: `Retrying failed miners in ${rollout.channelName}`, status: STATUSES.success });
       })
       .catch((error) => {
@@ -148,7 +162,7 @@ const ActiveUpdatesMonitor = ({
       .then((started) => {
         setRollbackTarget(null);
         closeDetail();
-        if (started[0]) setViewUpdateId(started[0].id);
+        if (started[0]) setViewUpdate(started[0]);
         pushToast({
           message: `Rolling ${rollout.model} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`,
           status: STATUSES.success,
@@ -162,7 +176,7 @@ const ActiveUpdatesMonitor = ({
 
   return (
     <>
-      <ActiveUpdateBanners rollouts={activeRollouts} onViewUpdate={(rollout) => setViewUpdateId(rollout.id)} />
+      <ActiveUpdateBanners rollouts={activeRollouts} onViewUpdate={(rollout) => setViewUpdate(rollout)} />
 
       {viewedRollout ? (
         <RolloutDetailModal
