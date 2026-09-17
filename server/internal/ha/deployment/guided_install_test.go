@@ -13,7 +13,33 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
+
+func TestForkReleaseIdentityAndPeerCommand(t *testing.T) {
+	// Build metadata is a linker variable, so this test intentionally does not
+	// run in parallel with other tests using the source-build default.
+	original := releaseinfo.Repository
+	releaseinfo.Repository = "example-owner/fleet-fork"
+	t.Cleanup(func() { releaseinfo.Repository = original })
+	source := testGuidedRelease(t, "v0.2.10", "abc123")
+	metadataPath := filepath.Join(source, "version.txt")
+	metadata, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	_, err = readReleaseIdentity(metadataPath)
+	require.ErrorContains(t, err, "repository")
+	require.NoError(t, os.WriteFile(metadataPath, append(metadata, []byte("\nrelease_repository: example-owner/fleet-fork\n")...), 0o600))
+	identity, err := readReleaseIdentity(metadataPath)
+	require.NoError(t, err)
+	require.Equal(t, releaseinfo.Repository, identity.Repository)
+	command := peerInstallCommand("operator", testHostIPs[1], identity.Version, identity.Repository)
+	require.Contains(t, command, "https://github.com/example-owner/fleet-fork/releases/download/v0.2.10/install.sh")
+	require.Contains(t, command, `sudo bash "$tmp" --ha v0.2.10`)
+	require.NotContains(t, command, "--repo")
+	require.NotContains(t, command, "block/proto-fleet")
+	require.NotContains(t, peerInstallCommand("operator", testHostIPs[1], identity.Version, "owner/repo;id"), "curl")
+}
 
 func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	// Arrange
@@ -87,8 +113,8 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NotContains(t, prompts.String(), "Type COPIED")
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
 	require.NotContains(t, output.String(), testEtcdRootPassword)
-	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[1], "v0.2.10"))
-	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[2], "v0.2.10"))
+	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[1], "v0.2.10", "block/proto-fleet"))
+	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[2], "v0.2.10", "block/proto-fleet"))
 	require.Contains(t, output.String(), "test -f /var/tmp/proto-fleet-ha-host.json")
 	require.Contains(t, output.String(), "releases/download/v0.2.10/install.sh")
 	require.NotContains(t, output.String(), "curl -fsSL https://fleet.proto.xyz/install.sh |")
@@ -320,6 +346,29 @@ func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, "release does not match")
 	require.FileExists(t, bundlePath)
+}
+
+func TestInstallPreparedHostRejectsRepositoryMismatchBeforeHostChanges(t *testing.T) {
+	for _, repository := range []string{"block/proto-fleet", "other-owner/fleet-fork"} {
+		t.Run(repository, func(t *testing.T) {
+			metadata := testBundleMetadata("ha-b")
+			metadata.Repository = repository
+			bundlePath := filepath.Join(t.TempDir(), hostBundleName("ha-b"))
+			writeValidTestBundle(t, bundlePath, metadata)
+			release := clusterMetadata{Version: metadata.Version, Commit: metadata.Commit, Repository: "example-owner/fleet-fork"}
+			deps := guidedInstallDependencies{
+				interfaceForIP: func(string) (string, error) {
+					t.Fatal("repository mismatch reached host preparation")
+					return "", nil
+				},
+			}
+
+			err := installPreparedHost(t.Context(), "unused", bundlePath, release, false, deps)
+
+			require.ErrorContains(t, err, "host bundle release does not match this release")
+			require.FileExists(t, bundlePath)
+		})
+	}
 }
 
 func TestGuidedInstallRejectsUnsafePackagedReleaseVersion(t *testing.T) {

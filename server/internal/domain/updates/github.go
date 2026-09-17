@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	releaseAPIBaseURL = "https://api.github.com/repos/block/proto-fleet"
 	githubAPIVersion  = "2022-11-28"
 	githubMediaType   = "application/vnd.github+json"
 	githubHTTPTimeout = 10 * time.Second
@@ -39,8 +38,8 @@ type githubRelease struct {
 	Draft       bool      `json:"draft"`
 }
 
-// githubClient fetches release metadata. Production always uses the fixed
-// Proto Fleet repository URL; tests inject an httptest URL directly.
+// githubClient fetches release metadata from the selected repository.
+// Tests inject an httptest URL directly.
 type githubClient struct {
 	baseURL    string
 	userAgent  string
@@ -67,10 +66,17 @@ func (e *githubRateLimitError) Error() string {
 
 func newGitHubClient(baseURL, serverVersion string, logger *slog.Logger) *githubClient {
 	return &githubClient{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		userAgent:  "fleetd/" + serverVersion,
-		logger:     logger,
-		httpClient: &http.Client{Timeout: githubHTTPTimeout},
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		userAgent: "fleetd/" + serverVersion,
+		logger:    logger,
+		httpClient: &http.Client{
+			Timeout: githubHTTPTimeout,
+			// Repository transfers/renames require operator action. Do not follow
+			// API redirects to another repository (or a numeric repository ID).
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("release discovery redirects are not allowed")
+			},
+		},
 	}
 }
 

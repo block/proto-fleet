@@ -11,12 +11,45 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/block/proto-fleet/server/internal/updater"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const updaterUmaskTestHelper = "PROTO_FLEET_UPDATER_UMASK_TEST_HELPER"
+
+func TestUpdaterRepositoryCannotBeOverriddenAtRuntime(t *testing.T) {
+	const helper = "PROTO_FLEET_UPDATER_REPOSITORY_TEST_HELPER"
+	if repository := os.Getenv(helper); repository != "" {
+		// Isolate the simulated linker identity and global flag set in a child.
+		releaseinfo.Repository = repository
+		root := t.TempDir()
+		state := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(root, "deployment"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "deployment", "version.txt"), []byte("version: v1.0.0\nrelease_repository: "+repository+"\n"), 0o600))
+		t.Setenv("PROTO_FLEET_RELEASE_REPOSITORY", "other-owner/fleet")
+		t.Setenv("PROTO_FLEET_DOWNLOAD_BASE_URL", "")
+		t.Setenv("PROTO_FLEET_UPDATER_BINARY_PATH", "")
+		os.Args = []string{"proto-fleet-updater", "--repair-startup", "--deployment-mode=standalone", "--install-root=" + root, "--state-dir=" + state, "--socket-path=" + filepath.Join(root, "missing.sock")}
+		flag.CommandLine = flag.NewFlagSet("proto-fleet-updater", flag.ContinueOnError)
+		require.NoError(t, run())
+		pin, err := os.ReadFile(filepath.Join(state, "release-repository"))
+		require.NoError(t, err)
+		require.Equal(t, repository+"\n", string(pin))
+		require.Nil(t, flag.Lookup("release-repository"))
+		require.Error(t, flag.CommandLine.Parse([]string{"--release-repository=other-owner/fleet"}))
+		return
+	}
+	for _, repository := range []string{releaseinfo.DefaultRepository, "example-owner/fleet-fork"} {
+		t.Run(repository, func(t *testing.T) {
+			command := exec.Command(os.Args[0], "-test.run=^TestUpdaterRepositoryCannotBeOverriddenAtRuntime$") //nolint:gosec // The current test executable is trusted.
+			command.Env = append(os.Environ(), helper+"="+repository)
+			output, err := command.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
+}
 
 func TestMainSetsSecureProcessUmask(t *testing.T) {
 	if os.Getenv(updaterUmaskTestHelper) == "1" {

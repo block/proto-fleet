@@ -12,9 +12,40 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const testEtcdRootPassword = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestInstallRejectsConflictingReleaseRepositoryBeforeHostChanges(t *testing.T) {
+	// The linker identity is process-global, so these cases must not run in parallel.
+	original := releaseinfo.Repository
+	releaseinfo.Repository = "example-owner/fleet-fork"
+	t.Cleanup(func() { releaseinfo.Repository = original })
+	for _, metadata := range []string{
+		"version: test\n",
+		"version: test\nrelease_repository: block/proto-fleet\n",
+		"version: test\nrelease_repository: other-owner/fleet-fork\n",
+	} {
+		t.Run(metadata, func(t *testing.T) {
+			source := testInstallRelease(t)
+			require.NoError(t, os.WriteFile(filepath.Join(source, "version.txt"), []byte(metadata), 0o600))
+			var calls []string
+			deps := testInstallerDependencies(source, NodeConfig{}, &calls)
+			deps.validateHost = func(context.Context, string) (NodeConfig, fleetApplicationProfile, error) {
+				t.Fatal("conflicting repository reached host configuration")
+				return NodeConfig{}, nil, nil
+			}
+
+			err := install(t.Context(), InstallOptions{}, deps)
+
+			require.ErrorContains(t, err, "packaged release repository conflicts with the fleet-ha binary identity")
+			require.NotContains(t, strings.Join(calls, "\n"), "apt-get install")
+			require.NotContains(t, strings.Join(calls, "\n"), "sudo install")
+		})
+	}
+}
 
 func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	// Arrange

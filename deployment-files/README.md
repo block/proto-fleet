@@ -60,6 +60,88 @@ The script will:
   in-product one-click upgrades
 - Run the deployment script automatically
 
+## Release repositories and forks
+
+Proto Fleet supports public releases on GitHub.com under a validated
+`owner/repo` identity. Source builds default to `block/proto-fleet`.
+Official releases continue to use that repository. A release built in a fork
+uses the fork for release discovery, downloads, release notes, latest stable
+resolution, and the nightly-channel pointer.
+
+The `install.sh` and `install-fleet-node.sh` assets attached to a release already
+contain their publishing repository. Download them from that repository's
+release page and run them with the desired version. There is no installer
+option to override the repository. The installer does not derive identity from
+a Git checkout, working directory, or its download URL. GitHub Enterprise and arbitrary mirror
+URLs are not supported. Repository values must contain one owner and one repo:
+ASCII letters/digits, owner hyphens, and repository dots/underscores/hyphens;
+URL syntax, whitespace, shell syntax, and `..` are rejected.
+
+Selection and consistency rules:
+
+1. The repository embedded in each binary or packaged installer determines its
+   source. There is no runtime environment-variable or command-line override.
+2. An existing installation's `deployment/version.txt` `release_repository`
+   field must match the packaged identity. Metadata without that field means
+   `block/proto-fleet`, including installations created before this feature.
+   Persisted environment settings must agree with the metadata.
+   Fork installations require installers published by that same fork.
+
+Standalone deployments also persist `PROTO_FLEET_RELEASE_REPOSITORY` in
+`deployment/.env` and `/etc/proto-fleet/updater.env` as consistency markers for
+the installer; they do not configure the server or updater's repository.
+Compose does not pass a repository override to fleetd. The privileged updater
+uses its embedded build identity and checks it against the protected pin in
+`/var/lib/proto-fleet-updater/release-repository`. Application requests contain
+only an operation ID and version, never repository or download authority.
+Legacy `*_DOWNLOAD_BASE_URL` configuration, if present, must exactly match the
+derived GitHub release URL. Conflicting settings stop the operation.
+
+The updater preserves its pin across application upgrades, restart, executable
+replacement, and executable rollback; both the current and previous deployment
+must belong to that source. Downloaded bundle metadata must match before
+activation. Manual runs check metadata against `.env` before host changes.
+HA records the repository in protected base/updater configuration, checks it
+in prepared peer bundles, and downloads peer installers from that repository.
+Fleet Node additionally persists `/etc/fleetnode/release-repository`; its existing
+rollback restores a payload from the same source, and uninstall preserves the
+pin with its configuration. The Windows installer reads
+the selected local archive's metadata, rejects a different installed source
+before extraction, and persists the same environment key inside WSL.
+
+Missing releases, inaccessible sources, and invalid metadata are errors. There
+is no fallback to upstream. Repository transfers/renames and cross-repository
+migrations require a separate operator-planned migration; editing only one
+configuration value is not a supported migration procedure. Normal update
+channel behavior is unchanged: the UI/host updater supports stable and canonical
+RC releases, while the shell installer also resolves nightly builds.
+
+### Building fork releases
+
+Both release and nightly workflows explicitly pass `github.repository` into
+the reusable artifact workflow's required `release_repository` input. The build
+validates it before interpolating linker arguments or metadata, embeds it in
+fleetd, fleet-ha, and fleet-updater, and records it in deployment, server, and
+Fleet Node `version.txt` files. The publishing jobs download staged installer
+assets from `proto-fleet-release-installers`; they do not upload source-default
+installer scripts. Windows uses the selected bundle metadata and does not
+perform release discovery itself.
+
+For custom source builds, use the same validated identity in the Go linker
+setting `github.com/block/proto-fleet/server/internal/releaseinfo.Repository`,
+the `release_repository` metadata field, and the installers staged with:
+
+```bash
+bash deployment-files/scripts/package-release-installers.sh example-owner/fleet-fork /tmp/fleet-release-installers
+```
+
+Repository selection does **not** implement private-repository authentication.
+Release discovery and updater downloads currently make unauthenticated requests;
+Fleet Node also disables implicit curl configuration. CI credentials are used
+only by publishing jobs and are never embedded in artifacts. A private fork
+needs a separately designed and tested authentication flow. Custom internal
+prerelease channels (including `-internal.N`) remain outside this feature.
+
 ## Resetting the SUPER_ADMIN password
 
 If the sole SUPER_ADMIN is locked out, run this from the installed standalone

@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProtoFleet.Installer.Core\ProtoFleet.Installer.Core.csproj" />
+    <ProjectReference Include="..\..\src\ProtoFleet.Installer.Platform.Wsl\ProtoFleet.Installer.Platform.Wsl.csproj" />
   </ItemGroup>
 </Project>

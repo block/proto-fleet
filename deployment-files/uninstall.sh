@@ -355,13 +355,11 @@ resolve_deployment_path() {
       if [[ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" == "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
         print_error "Existing fleet containers were detected, but only via sudo."
         print_error "They are managed by the root Docker daemon, and this script is running as $(id -un)."
-        # Use the pipe form rather than `sudo bash $0` — when the user
-        # invoked us via `bash <(curl ...)` (per README.md), $0 is a
-        # transient /dev/fd/* descriptor that sudo cannot reopen, so the
-        # naive suggestion fails immediately.
+        # A process-substitution path cannot be reopened by sudo. Keep the
+        # selected uninstaller rather than redirecting fork users upstream.
         print_error "Re-run the uninstaller as root (flags preserved):"
         echo ""
-        echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
+        echo "    Save this uninstaller locally and run: sudo bash uninstall.sh$(quoted_rerun_argv)"
         echo ""
         exit 1
       fi
@@ -394,7 +392,7 @@ resolve_deployment_path() {
     if [[ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" == "1" ]]; then
       print_error "(sudo required a password, so the root Docker daemon was not probed."
       print_error " If a root-managed install might exist, re-run as root:"
-      print_error "   curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv))"
+      print_error "   Save this uninstaller locally and run: sudo bash uninstall.sh$(quoted_rerun_argv))"
     fi
     exit 1
   fi
@@ -794,7 +792,7 @@ prepare_host_updater_removal() {
     # Use one privilege boundary for the complete destructive workflow.
     print_error "The host updater is installed; re-run the complete uninstaller as root (flags preserved):"
     echo ""
-    echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
+    echo "    Save this uninstaller locally and run: sudo bash uninstall.sh$(quoted_rerun_argv)"
     echo ""
     return 1
   fi

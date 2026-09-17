@@ -18,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
@@ -145,7 +146,11 @@ func (s *Service) updateStatusForChannel(channel Channel, oneClickAvailable bool
 	if candidate == nil || semver.Compare(candidate.Version, s.currentVersion) <= 0 {
 		return status
 	}
-	command, ok := installCommand(s.cfg.DownloadBaseURL, candidate.Version)
+	cfg := s.cfg
+	if cfg.Validate() != nil {
+		return status
+	}
+	command, ok := installCommand(releaseinfo.Repository, candidate.Version)
 	if !ok {
 		// Defensive: a candidate the command guard rejects is never offered
 		// at all — an offer without a runnable command would be a dead end.
@@ -165,8 +170,23 @@ func (s *Service) executorAvailable(ctx context.Context) bool {
 	}
 	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
-	_, err := s.executor.Status(statusCtx)
-	return err == nil
+	status, err := s.executor.Status(statusCtx)
+	if err != nil {
+		return false
+	}
+	return updaterRepositoryMatches(status)
+}
+
+func updaterRepositoryMatches(status updaterapi.StatusResponse) bool {
+	repository := releaseinfo.Repository
+	if err := releaseinfo.ValidateRepository(repository); err != nil {
+		return false
+	}
+	trustedRepository := status.ReleaseRepository
+	if trustedRepository == "" {
+		trustedRepository = releaseinfo.DefaultRepository
+	}
+	return trustedRepository == repository
 }
 
 // TriggerUpgrade re-derives the eligible offer at mutation time. The browser
@@ -287,6 +307,9 @@ func (s *Service) currentUpgradeReplay(ctx context.Context, operationID, targetV
 			"host updater status could not be confirmed; retry the request",
 		)
 	}
+	if !updaterRepositoryMatches(status) {
+		return updaterapi.Operation{}, false, fleeterror.NewFailedPreconditionError("application and host updater release repositories do not agree")
+	}
 	if status.Operation == nil || status.Operation.ID != operationID {
 		return updaterapi.Operation{}, false, nil
 	}
@@ -315,7 +338,7 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
-	if err != nil || status.Operation == nil {
+	if err != nil || !updaterRepositoryMatches(status) || status.Operation == nil {
 		return updaterapi.Operation{}, false
 	}
 	operation := *status.Operation
@@ -687,16 +710,13 @@ func isCanonicalReleaseTag(tag string) bool {
 }
 
 // installCommand composes the copy-paste upgrade invocation from two
-// independently constrained values. The configured base must exactly match
-// the trusted Proto Fleet release path, and the GitHub-sourced tag must be
-// a canonical stable or RC release tag. The command uses the canonical
-// constant rather than the raw config value, so callers cannot bypass
-// Config.Validate and interpolate shell syntax.
-func installCommand(configuredBaseURL, tag string) (string, bool) {
-	if configuredBaseURL != downloadBaseURL || !isCanonicalReleaseTag(tag) {
+// independently constrained values. The repository and tag have shell-safe
+// grammars even when a caller bypasses Config.Validate.
+func installCommand(repository, tag string) (string, bool) {
+	if releaseinfo.ValidateRepository(repository) != nil || !isCanonicalReleaseTag(tag) {
 		return "", false
 	}
-	installerURL, err := url.JoinPath(downloadBaseURL, tag, "install.sh")
+	installerURL, err := url.JoinPath(releaseinfo.DownloadBaseURL(repository), tag, "install.sh")
 	if err != nil {
 		return "", false
 	}

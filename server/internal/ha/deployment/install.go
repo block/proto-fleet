@@ -18,6 +18,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const (
@@ -129,6 +130,17 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	platform, installed, err := inspectInstallBase(ctx, source, deps)
 	if err != nil {
 		return err
+	}
+	metadata, err := deps.readFile(filepath.Join(source, "version.txt"))
+	if err != nil {
+		return err
+	}
+	repository, err := releaseinfo.RepositoryFromMetadata(metadata)
+	if err != nil {
+		return err
+	}
+	if repository != releaseinfo.Repository {
+		return errors.New("packaged release repository conflicts with the fleet-ha binary identity")
 	}
 	config, applicationProfile, err := deps.validateHost(ctx, options.NodeEnvPath)
 	if err != nil {
@@ -680,7 +692,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	if err := placeFile(ctx, deps, "install node configuration", temp, filepath.Join(configRoot, "node.env"), "0600"); err != nil {
 		return err
 	}
-	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\n", 0o600)
+	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\nPROTO_FLEET_RELEASE_REPOSITORY="+releaseinfo.Repository+"\n", 0o600)
 	if err != nil {
 		return err
 	}
@@ -726,8 +738,8 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 			}
 		}
 		updaterEnv := fmt.Sprintf(
-			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=%s\n",
-			installBase, updaterBinary,
+			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=%s\nPROTO_FLEET_RELEASE_REPOSITORY=%s\n",
+			installBase, updaterBinary, releaseinfo.Repository,
 		)
 		temp, err := writeInstallTemp("updater.env", updaterEnv, 0o600)
 		if err != nil {

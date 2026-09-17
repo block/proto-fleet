@@ -53,7 +53,10 @@ public sealed class DeploymentPreparationService : IDeploymentPreparationService
             tempTarball = CreateTempTarballPath();
             _logSink.Info($"Creating temporary deployment tarball: {tempTarball}");
             CreateTarballFromDirectory(sourceWindowsPath, tempTarball);
-            return await PrepareFromTarballPathAsync(context, tempTarball, cancellationToken);
+            // Resolved local deployment directories may predate version.txt.
+            // Only this transfer archive can omit metadata; release tarballs cannot.
+            return await PrepareFromTarballPathAsync(context, tempTarball, cancellationToken,
+                allowMissingMetadata: !File.Exists(Path.Combine(sourceWindowsPath, "version.txt")));
         }
         catch (Exception ex)
         {
@@ -68,7 +71,8 @@ public sealed class DeploymentPreparationService : IDeploymentPreparationService
     private async Task<InstallerStepResult> PrepareFromTarballPathAsync(
         InstallerContext context,
         string tarballPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowMissingMetadata = false)
     {
         var distro = context.SelectedDistro!;
         var tarballWindowsPath = Path.GetFullPath(tarballPath);
@@ -80,6 +84,53 @@ public sealed class DeploymentPreparationService : IDeploymentPreparationService
         }
 
         var installDirExpr = BuildInstallDirExpression(context.Options.InstallDir);
+        var installedDirectoryCommand = $"INSTALL_DIR={installDirExpr}; " +
+            "DEPLOYMENT_DIR=\"$INSTALL_DIR/deployment\"; " +
+            "if [ ! -f \"$DEPLOYMENT_DIR/docker-compose.yaml\" ] && [ -f \"$INSTALL_DIR/docker-compose.yaml\" ]; then DEPLOYMENT_DIR=\"$INSTALL_DIR\"; fi; ";
+        // Bind the selected local bundle to the existing installation before
+        // extraction can overwrite any installed files. Missing identity in an
+        // older installation means the official repository.
+        var repository = ReleaseSource.FromArchive(tarballWindowsPath, allowMissingMetadata);
+        var installedSource = await _executor.RunInDistroAsync(distro,
+            installedDirectoryCommand +
+            "if [ -f \"$DEPLOYMENT_DIR/docker-compose.yaml\" ]; then " +
+            "printf 'installed\\n'; " +
+            "if [ -e \"$DEPLOYMENT_DIR/version.txt\" ]; then cat \"$DEPLOYMENT_DIR/version.txt\"; fi; " +
+            "else printf 'fresh\\n'; fi",
+            asRoot: false, cancellationToken);
+        if (!installedSource.IsSuccess)
+        {
+            return InstallerStepResult.Failed("Could not read the existing installation's release repository.");
+        }
+        // ProcessCommandRunner rebuilds captured lines with Windows line endings.
+        // Normalize only this transport output, never raw files or archive contents.
+        var installedOutput = installedSource.StandardOutput.Replace("\r\n", "\n", StringComparison.Ordinal);
+        const string installedPrefix = "installed\n";
+        if (installedOutput.StartsWith(installedPrefix, StringComparison.Ordinal))
+        {
+            if (ReleaseSource.FromMetadata(installedOutput[installedPrefix.Length..]) != repository)
+            {
+                return InstallerStepResult.Failed("Release repository differs from the installed source. Cross-repository migration is not supported.");
+            }
+        }
+        else if (installedOutput != "fresh\n")
+        {
+            return InstallerStepResult.Failed("Invalid installation state returned by WSL.");
+        }
+        var installedEnvironment = await _executor.RunInDistroAsync(distro,
+            installedDirectoryCommand +
+            "if [ -e \"$DEPLOYMENT_DIR/.env\" ]; then " +
+            "sed -n '/^[[:space:]]*\\(export[[:space:]]\\{1,\\}\\)\\{0,1\\}PROTO_FLEET_RELEASE_REPOSITORY/p' \"$DEPLOYMENT_DIR/.env\"; fi",
+            asRoot: false, cancellationToken);
+        if (!installedEnvironment.IsSuccess)
+        {
+            return InstallerStepResult.Failed("Could not read existing release repository configuration.");
+        }
+        ReleaseSource.CheckEnvironment(installedEnvironment.StandardOutput, repository);
+        if (!string.IsNullOrWhiteSpace(context.Options.ConfigFilePath))
+        {
+            ReleaseSource.CheckEnvironment(File.ReadAllText(Path.GetFullPath(context.Options.ConfigFilePath)), repository);
+        }
         var extractCmd = "set -e; " +
                          $"INSTALL_DIR={installDirExpr}; " +
                          "BACKUP_ENV=/tmp/protofleet-influx.env.backup; " +

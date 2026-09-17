@@ -50,6 +50,12 @@ from the DHCP pool. Hosts may mix `amd64` and `arm64`; each host downloads the
 correct artifact for its architecture and the installer pins every node to the
 same release.
 
+Fork releases use the publishing repository embedded in the release. Use the
+`install.sh` asset published with the fork's release. The prepared
+host bundles and printed peer commands carry that repository with the exact
+version and commit. Upgrades retain the protected host updater source; they
+cannot change repositories. See [release repository rules](../README.md#release-repositories-and-forks).
+
 ### 1. Prepare and install `ha-a`
 
 From the operator machine, run the public installer on `ha-a`. Replace the SSH
