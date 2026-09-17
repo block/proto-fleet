@@ -139,7 +139,7 @@ describe("Container diagnostics", () => {
       useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
     }
     render(<ContainerDiagnosticView />);
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Circuit breakers" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
     expect(screen.getByText("PDU 1").nextElementSibling).toHaveTextContent(expected);
   });
 
@@ -256,7 +256,7 @@ describe("Container diagnostics", () => {
     useMinerStore.getState().hardware.replaceHardware(initial.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(initial.telemetry);
     render(<ContainerDiagnosticView />);
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
     const labels = [
       "Pump speed",
       "Pump inlet pressure",
@@ -465,14 +465,20 @@ describe("Container diagnostics", () => {
   test("switches among the dry cooler, power, and controls designs", () => {
     render(<ContainerDiagnosticView />);
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
-    expect(screen.getByRole("heading", { name: "Dry cooler" })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("segmented-control"))
+        .getAllByRole("button")
+        .map((tab) => tab.textContent),
+    ).toEqual(["All", "Tanks", "Cooling", "Power", "Controls"]);
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
+    expect(screen.getByRole("heading", { name: "Cooling" })).toBeInTheDocument();
     expect(screen.getByText("50.0 Hz")).toBeInTheDocument();
     expect(screen.getByText("85% PWM")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Tanks" })).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Circuit breakers" }));
-    expect(screen.getByRole("heading", { name: "Circuit breakers" })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("heading", { name: "Power" })).toBeInTheDocument();
     expect(screen.getByText("PDU 1")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("button", { name: "Controls" }));
@@ -583,7 +589,7 @@ describe("Container diagnostics", () => {
   test("uses plant-only telemetry outside All and Tanks", () => {
     render(<ContainerDiagnosticView />);
     expect(useTelemetry).toHaveBeenLastCalledWith({ level: ["hashboard", "miner"] });
-    for (const name of ["Dry cooler", "Circuit breakers", "Controls"]) {
+    for (const name of ["Cooling", "Power", "Controls"]) {
       fireEvent.mouseDown(screen.getByRole("button", { name }));
       expect(useTelemetry).toHaveBeenLastCalledWith({ level: ["miner"] });
     }

@@ -59,8 +59,8 @@ const DiagnosticsPolling = ({ full }: { full: boolean }) => {
 const tabs = [
   { key: "all", title: "All" },
   { key: "tanks", title: "Tanks" },
-  { key: "dry-cooler", title: "Dry cooler" },
-  { key: "power", title: "Circuit breakers" },
+  { key: "dry-cooler", title: "Cooling" },
+  { key: "power", title: "Power" },
   { key: "controls", title: "Controls" },
 ];
 
@@ -506,7 +506,7 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   return (
     <section aria-labelledby="dry-cooler-title">
       <h2 id="dry-cooler-title" className="mb-6 text-heading-200">
-        Dry cooler
+        Cooling
       </h2>
       <dl className="mb-6 grid grid-cols-2 gap-6 laptop:grid-cols-5">
         <Stat label="Pump speed" value={pumpSpeed === undefined ? "—" : `${decimal(pumpSpeed)} Hz`} />
@@ -620,7 +620,7 @@ const distributionStatus = (telemetry: PlantTelemetry | undefined) => {
 const PowerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => (
   <section aria-labelledby="power-diagnostics-title">
     <h2 id="power-diagnostics-title" className="mb-6 text-heading-200">
-      Circuit breakers
+      Power
     </h2>
     <Panel>
       <dl className="grid grid-cols-2 gap-8 tablet:grid-cols-4 desktop:grid-cols-7">
