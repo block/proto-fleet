@@ -53,9 +53,9 @@ changed-checks:
     base="${CHECK_CHANGED_BASE:-origin/main}"
     merge_base="$(git merge-base "$base" HEAD)"
     {
-      git diff --name-only "$merge_base"...HEAD
-      git diff --name-only
-      git diff --cached --name-only
+      git diff --no-renames --name-only "$merge_base"...HEAD
+      git diff --no-renames --name-only
+      git diff --no-renames --cached --name-only
       git ls-files --others --exclude-standard
     } | sort -u
   commands:

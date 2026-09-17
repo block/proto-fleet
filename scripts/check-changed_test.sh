@@ -4,6 +4,15 @@ set -euo pipefail
 lefthook validate
 
 lefthook_config="$(lefthook dump --format json)"
+rename_safe_diffs="$(
+  jq -r '."changed-checks".files' <<<"$lefthook_config" |
+    awk '/git diff --no-renames.*--name-only/ { count++ } END { print count + 0 }'
+)"
+if [ "$rename_safe_diffs" -ne 3 ]; then
+  echo "Changed-path routing must collect both sides of renames" >&2
+  exit 1
+fi
+
 for job in plugin-proto-lint plugin-antminer-lint; do
   for shared_path in server/go.mod server/go.sum 'server/sdk/**'; do
     if ! jq -e --arg job "$job" --arg path "$shared_path" \
