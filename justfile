@@ -384,7 +384,11 @@ _client-init force="false":
     echo "Client dependencies match package-lock.json, skipping install."
     exit 0
   fi
-  (cd client && npm clean-install)
+  registry_args=()
+  if [ -n "${COREPACK_NPM_REGISTRY:-}" ]; then
+    registry_args+=(--registry "$COREPACK_NPM_REGISTRY")
+  fi
+  (cd client && npm clean-install "${registry_args[@]}")
   mkdir -p "$(dirname "$STAMP")"
   printf '%s\n' "$WANT_HASH" > "$STAMP"
 
