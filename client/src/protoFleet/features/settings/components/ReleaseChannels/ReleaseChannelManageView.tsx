@@ -50,6 +50,18 @@ const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
 const delegatedApplyMessage =
   "Firmware updates for externally controlled channels are not available yet. Choose and save another update method before applying firmware.";
+const unsupportedTargetMessage =
+  "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
+
+// FirmwareAssignment is narrower than observed miner and upload metadata.
+// Validate the trimmed values sent to the API without changing identity joins.
+const supportsFirmwareAssignment = (manufacturer: string | undefined, model: string | undefined): boolean =>
+  [manufacturer, model].every((value) => {
+    // JavaScript trims BOMs, but the server's strings.TrimSpace preserves them.
+    if (value?.includes("\uFEFF")) return false;
+    const target = value?.trim() ?? "";
+    return target.length <= 255 && /^[!-~](?:[ -~]*[!-~])?$/.test(target);
+  });
 
 interface AcknowledgedAssignment extends AssignmentDraft {
   label: string;
@@ -165,7 +177,7 @@ interface FirmwarePickerCellProps {
   firmwareFiles: FirmwareFileInfo[];
   stagedFileId: string | undefined;
   acknowledgedAssignment?: AcknowledgedAssignment;
-  invalidSelection: boolean;
+  selectionError?: string;
   onStageFirmware: (group: ReleaseChannelModelGroup, fileId: string) => void;
 }
 
@@ -173,7 +185,13 @@ interface FirmwarePickerCellProps {
 // server's ASCII fold; a group with an unknown identity matches nothing.
 const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] => {
   const key = minerTargetKey(group.manufacturer, group.model);
-  return key === null ? [] : firmwareFiles.filter((f) => minerTargetKey(f.target_manufacturer, f.target_model) === key);
+  return key === null || !supportsFirmwareAssignment(group.manufacturer, group.model)
+    ? []
+    : firmwareFiles.filter(
+        (f) =>
+          supportsFirmwareAssignment(f.target_manufacturer, f.target_model) &&
+          minerTargetKey(f.target_manufacturer, f.target_model) === key,
+      );
 };
 
 const FirmwarePickerCell = ({
@@ -181,7 +199,7 @@ const FirmwarePickerCell = ({
   firmwareFiles,
   stagedFileId,
   acknowledgedAssignment,
-  invalidSelection,
+  selectionError,
   onStageFirmware,
 }: FirmwarePickerCellProps) => {
   const options = useMemo(
@@ -206,6 +224,9 @@ const FirmwarePickerCell = ({
     : group.firmwareChecksum
       ? { value: group.firmwareFileId || null, label: group.firmwareVersion }
       : undefined;
+  const targetError = supportsFirmwareAssignment(group.manufacturer, group.model)
+    ? undefined
+    : unsupportedTargetMessage;
 
   return (
     <div className="grid gap-1">
@@ -217,9 +238,9 @@ const FirmwarePickerCell = ({
         onChange={(value) => onStageFirmware(group, value)}
         testId={`channel-firmware-select-${group.model}`}
       />
-      {invalidSelection ? (
+      {selectionError || targetError ? (
         <p role="alert" className="text-200 text-intent-critical-fill">
-          Selected firmware is unavailable for this model. Choose another version or discard the pending changes.
+          {selectionError || targetError}
         </p>
       ) : null}
     </div>
@@ -396,7 +417,7 @@ const ReleaseChannelManageView = ({
     minersPair !== null ? modelGroups.find((group) => observedPairKey(group) === minersPair) : undefined;
 
   const dirtyAssignmentsByPair = new Map<string, AssignmentDraft>();
-  const invalidSelections = new Set<string>();
+  const invalidSelections = new Map<string, string>();
   for (const group of modelGroups) {
     const key = pairKey(group);
     const fileId = staged[key];
@@ -407,10 +428,19 @@ const ReleaseChannelManageView = ({
       const file = firmwareFiles.find((candidate) => candidate.id === fileId);
       const targetKey = minerTargetKey(group.manufacturer, group.model);
       const matchingFile =
-        file && targetKey !== null && minerTargetKey(file.target_manufacturer, file.target_model) === targetKey
+        file &&
+        supportsFirmwareAssignment(file.target_manufacturer, file.target_model) &&
+        supportsFirmwareAssignment(group.manufacturer, group.model) &&
+        targetKey !== null &&
+        minerTargetKey(file.target_manufacturer, file.target_model) === targetKey
           ? file
           : undefined;
-      if (fileId !== "" && !matchingFile) invalidSelections.add(key);
+      if (fileId !== "" && !matchingFile) {
+        invalidSelections.set(
+          key,
+          "Selected firmware is unavailable for this model. Choose another version or discard the pending changes.",
+        );
+      }
       // A catalog refresh must not retarget or collapse pending changes.
       // Keep invalid choices under the observed model until corrected; the
       // whole Apply remains blocked. Clears use the saved assignment's pair.
@@ -425,8 +455,18 @@ const ReleaseChannelManageView = ({
             : (matchingFile?.target_model ?? group.model),
         firmwareFileId: fileId,
       };
+      if (!supportsFirmwareAssignment(assignment.manufacturer, assignment.model)) {
+        invalidSelections.set(
+          key,
+          "This firmware change requires manufacturer and model names of 1–255 printable ASCII characters. Correct the target identity or discard the pending changes.",
+        );
+      }
       // Several observed spellings can share one canonical assignment.
-      dirtyAssignmentsByPair.set(key, assignment);
+      dirtyAssignmentsByPair.set(key, {
+        ...assignment,
+        manufacturer: assignment.manufacturer.trim(),
+        model: assignment.model.trim(),
+      });
     }
   }
   const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
@@ -640,7 +680,7 @@ const ReleaseChannelManageView = ({
                           firmwareFiles={firmwareFiles}
                           stagedFileId={staged[pairKey(group)]}
                           acknowledgedAssignment={acknowledged}
-                          invalidSelection={invalidSelections.has(pairKey(group))}
+                          selectionError={invalidSelections.get(pairKey(group))}
                           onStageFirmware={(g, fileId) => setStaged((prev) => ({ ...prev, [pairKey(g)]: fileId }))}
                         />
                       </td>

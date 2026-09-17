@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -595,9 +595,162 @@ describe("release channel firmware assignments", () => {
     expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
-      { manufacturer: " PROTO ", model: " rig ", firmwareFileId: "replacement" },
+      { manufacturer: "PROTO", model: "rig", firmwareFileId: "replacement" },
     ]);
   });
+
+  test.each(
+    (["manufacturer", "model"] as const).flatMap((field) =>
+      [
+        { reason: "Unicode", value: "Prötö" },
+        { reason: "internal control", value: "A\u0001B" },
+        { reason: "overlong", value: "A".repeat(256) },
+        { reason: "empty", value: " \t " },
+      ].map(({ reason, value }) => ({ field, reason, value })),
+    ),
+  )("keeps an unsupported $reason $field visible but filters its firmware options", ({ field, value }) => {
+    const channel = existingChannel();
+    const group = create(ReleaseChannelModelGroupSchema, {
+      manufacturer: "Proto",
+      model: "Rig",
+      [field]: value,
+      minerCount: 1,
+    });
+    channel.modelGroups = [group];
+    const catalogField = field === "manufacturer" ? "target_manufacturer" : "target_model";
+    const { onApply } = renderManage(channel, undefined, false, [{ ...replacementFile, [catalogField]: value }]);
+    const row = screen.getByTestId(`model-group-${group.model}`, { normalizer: (text) => text });
+    expect(row).toBeVisible();
+    expect(within(row).getByRole("alert")).toHaveTextContent("1–255 printable ASCII characters");
+    expect(within(row).getByRole("alert")).toHaveTextContent("Correct the miner's reported identity");
+    fireEvent.click(screen.getByTestId(`channel-firmware-select-${group.model}`, { normalizer: (text) => text }));
+    expect(screen.queryByRole("option", { name: /1\.4\.4/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  test.each(["catalog", "observed"])(
+    "does not erase a leading BOM from the %s target to match an ASCII identity",
+    (source) => {
+      const channel = existingChannel();
+      channel.modelGroups = [
+        create(ReleaseChannelModelGroupSchema, {
+          manufacturer: source === "observed" ? "\uFEFFProto" : "Proto",
+          model: "Rig",
+        }),
+      ];
+      const { onApply } = renderManage(channel, undefined, false, [
+        {
+          ...replacementFile,
+          target_manufacturer: source === "catalog" ? "\uFEFFProto" : "Proto",
+        },
+      ]);
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      expect(screen.queryByRole("option", { name: /1\.4\.4/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "No firmware" })).toBeInTheDocument();
+      expect(onApply).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(["manufacturer", "model"] as const)(
+    "accepts 255 printable ASCII characters, punctuation, and internal spaces in %s",
+    async (field) => {
+      const target = `A !~${"B".repeat(251)}`;
+      const channel = existingChannel();
+      const group = create(ReleaseChannelModelGroupSchema, {
+        manufacturer: "Proto",
+        model: "Rig",
+        [field]: ` ${target.toLowerCase()} `,
+        minerCount: 1,
+      });
+      channel.modelGroups = [group];
+      const catalogField = field === "manufacturer" ? "target_manufacturer" : "target_model";
+      const { onApply } = renderManage(channel, undefined, false, [
+        { ...replacementFile, [catalogField]: ` \t${target} \n` },
+      ]);
+      expect(screen.queryByText(/1–255 printable ASCII characters/)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId(`channel-firmware-select-${group.model}`, { normalizer: (text) => text }));
+      fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+        { manufacturer: "Proto", model: "Rig", [field]: target, firmwareFileId: "replacement" },
+      ]);
+    },
+  );
+
+  test("clears using the trimmed saved assignment target while preserving raw observed aliases", async () => {
+    const channel = assignedChannel();
+    channel.modelGroups[0] = {
+      ...channel.modelGroups[0],
+      manufacturer: " PROTO ",
+      model: " rig ",
+      firmwareTargetManufacturer: " Proto ",
+      firmwareTargetModel: " Rig ",
+    };
+    const { onApply } = renderManage(channel);
+    fireEvent.click(screen.getByTestId("channel-firmware-select- rig ", { normalizer: (text) => text }));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "" }]);
+  });
+
+  test.each(["catalog target", "saved clear target"])(
+    "blocks an open confirmation when the %s becomes unsupported without dropping another staged model",
+    async (change) => {
+      const channel = assignedChannel();
+      channel.modelGroups.push(create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model: "Other" }));
+      const otherFile = { ...replacementFile, id: "other-file", target_model: "Other", firmware_version: "2.0.0" };
+      const files = [replacementFile, otherFile];
+      const { onApply, updateFirmwareFiles, updateChannel } = renderManage(channel, undefined, false, files);
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      fireEvent.click(
+        screen.getByRole("option", { name: change === "saved clear target" ? "No firmware" : /1\.4\.4/ }),
+      );
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Other"));
+      fireEvent.click(screen.getByRole("option", { name: /2\.0\.0/ }));
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      const start = screen.getByRole("button", { name: "Start update" });
+      expect(start).toBeEnabled();
+
+      if (change === "catalog target") {
+        updateFirmwareFiles([{ ...replacementFile, target_model: "Ríg" }, otherFile]);
+      } else {
+        updateChannel(
+          {
+            ...channel,
+            modelGroups: [
+              { ...channel.modelGroups[0], firmwareTargetManufacturer: "\uFEFFProto" },
+              channel.modelGroups[1],
+            ],
+          },
+          false,
+        );
+      }
+      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("channel-firmware-select-Other")).toHaveTextContent("2.0.0");
+      expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+      expect(start).toBeDisabled();
+      const row = screen.getByTestId("model-group-Rig");
+      expect(within(row).getByRole("alert")).toHaveTextContent(
+        change === "catalog target" ? "Selected firmware is unavailable" : "Correct the target identity or discard",
+      );
+      fireEvent.click(start);
+      expect(onApply).not.toHaveBeenCalled();
+
+      if (change === "catalog target") updateFirmwareFiles(files);
+      else updateChannel(channel, false);
+      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(start).toBeEnabled();
+      await act(async () => fireEvent.click(start));
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+        { manufacturer: "Proto", model: "Rig", firmwareFileId: change === "saved clear target" ? "" : "replacement" },
+        { manufacturer: "Proto", model: "Other", firmwareFileId: "other-file" },
+      ]);
+    },
+  );
 
   test.each(["assign", "clear"])(
     "sends one %s per canonical pair while preserving distinct model assignments",
