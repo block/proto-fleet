@@ -152,3 +152,151 @@ describe("ModelMinersModal detail loading", () => {
     },
   );
 });
+
+describe("ModelMinersModal assigned firmware status", () => {
+  const assignedChecksum = "a".repeat(64);
+
+  it.each([
+    {
+      name: "matching version and provenance",
+      version: "2.0.0",
+      deployed: assignedChecksum,
+      checksum: assignedChecksum,
+      expected: "On assigned version",
+    },
+    {
+      name: "matching version without provenance",
+      version: "2.0.0",
+      deployed: "",
+      checksum: assignedChecksum,
+      expected: "Not on assigned version",
+    },
+    {
+      name: "the same version from different firmware bytes",
+      version: "2.0.0",
+      deployed: "b".repeat(64),
+      checksum: assignedChecksum,
+      expected: "Not on assigned version",
+    },
+    {
+      name: "matching provenance with a different reported version",
+      version: "1.0.0",
+      deployed: assignedChecksum,
+      checksum: assignedChecksum,
+      expected: "Not on assigned version",
+    },
+    {
+      name: "matching provenance without a reported version",
+      version: "",
+      deployed: assignedChecksum,
+      checksum: assignedChecksum,
+      expected: "Not on assigned version",
+    },
+    {
+      name: "an empty assignment checksum and empty provenance",
+      version: "2.0.0",
+      deployed: "",
+      checksum: "",
+      expected: "Not on assigned version",
+    },
+  ])("handles $name", async ({ version, deployed, checksum, expected }) => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, {
+        ...miner,
+        firmwareVersion: version,
+        lastDeployedFirmwareChecksum: deployed,
+      }),
+    ]);
+    render(
+      <ModelMinersModal
+        {...props}
+        activeRollout={undefined}
+        group={{ ...props.group, firmwareVersion: "2.0.0", firmwareChecksum: checksum }}
+      />,
+    );
+    const row = await screen.findByTestId("channel-miner-rig-1");
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(expected);
+    expect(props.listRolloutDevices).not.toHaveBeenCalled();
+  });
+
+  it("leaves unassigned miners neutral even when they retain firmware provenance", async () => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, { ...miner, lastDeployedFirmwareChecksum: assignedChecksum }),
+    ]);
+    render(
+      <ModelMinersModal
+        {...props}
+        activeRollout={undefined}
+        group={{ ...props.group, firmwareVersion: "", firmwareChecksum: "" }}
+      />,
+    );
+    const row = await screen.findByTestId("channel-miner-rig-1");
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(/^—$/);
+  });
+
+  it.each([
+    { phase: RolloutDevicePhase.IN_PROGRESS, label: "Updating", deployed: assignedChecksum },
+    { phase: RolloutDevicePhase.FAILED, label: "Failed", deployed: assignedChecksum },
+    { phase: RolloutDevicePhase.DONE, label: "Updated", deployed: "" },
+    { phase: RolloutDevicePhase.UNSPECIFIED, label: "On assigned version", deployed: assignedChecksum },
+  ])("preserves the server phase $phase before applying the identity fallback", async ({ phase, label, deployed }) => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, { ...miner, firmwareVersion: "2.0.0", lastDeployedFirmwareChecksum: deployed }),
+    ]);
+    props.listRolloutDevices.mockResolvedValue([create(RolloutDeviceSchema, { ...device, phase })]);
+    render(
+      <ModelMinersModal
+        {...props}
+        group={{ ...props.group, firmwareVersion: "2.0.0", firmwareChecksum: assignedChecksum }}
+      />,
+    );
+    const row = await screen.findByTestId("channel-miner-rig-1");
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(label);
+  });
+});
+
+describe("ModelMinersModal unknown observed identities", () => {
+  it.each([
+    { manufacturer: "", model: "Rig", otherManufacturer: "Proto", otherModel: "Rig" },
+    { manufacturer: "Proto", model: "", otherManufacturer: "Proto", otherModel: "Rig" },
+    { manufacturer: "", model: "", otherManufacturer: "Proto", otherModel: "Rig" },
+  ])(
+    "limits wildcard results to the exact raw group [$manufacturer, $model]",
+    async ({ manufacturer, model, otherManufacturer, otherModel }) => {
+      const props = propsFor();
+      props.listChannelMiners.mockResolvedValue([
+        create(ReleaseChannelMinerSchema, {
+          deviceIdentifier: "other-pair",
+          manufacturer: otherManufacturer,
+          model: otherModel,
+        }),
+        create(ReleaseChannelMinerSchema, { deviceIdentifier: "unknown-pair", manufacturer, model }),
+      ]);
+      render(<ModelMinersModal {...props} activeRollout={undefined} group={{ ...props.group, manufacturer, model }} />);
+
+      expect(await screen.findByTestId("channel-miner-unknown-pair")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-miner-other-pair")).not.toBeInTheDocument();
+      expect(props.listChannelMiners).toHaveBeenCalledExactlyOnceWith(props.channelId, manufacturer, model);
+    },
+  );
+
+  it("shows an empty unknown group when a wildcard read only contains other raw pairs", async () => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, { deviceIdentifier: "known-pair", manufacturer: "Proto", model: "Rig" }),
+    ]);
+    render(
+      <ModelMinersModal
+        {...props}
+        activeRollout={undefined}
+        group={{ ...props.group, manufacturer: "", model: "Rig" }}
+      />,
+    );
+    expect(await screen.findByText("No miners in this model group.")).toBeInTheDocument();
+    expect(screen.queryByTestId("channel-miner-known-pair")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

@@ -25,11 +25,13 @@ import {
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
   type Rollout,
+  RolloutAutomationThresholdsSchema,
   type RolloutBehavior,
   RolloutBehaviorSchema,
   type RolloutDevice,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { AssignmentDraft, ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
@@ -61,6 +63,22 @@ function Section({ title, subtext, children }: { title: string; subtext?: string
       {children}
     </section>
   );
+}
+
+// Observed groups retain spelling and whitespace for their rows and miner reads.
+// Firmware assignments and rollout joins instead use the normalized pairKey.
+const observedPairKey = (group: ReleaseChannelModelGroup): string => JSON.stringify([group.manufacturer, group.model]);
+
+function behaviorForComparison(behavior: RolloutBehavior): RolloutBehavior {
+  const effective = rolloutBehaviorForRequest(behavior);
+  // The server omits empty thresholds. Explicit zero limits remain meaningful.
+  if (
+    effective.thresholds &&
+    equals(RolloutAutomationThresholdsSchema, effective.thresholds, create(RolloutAutomationThresholdsSchema))
+  ) {
+    effective.thresholds = undefined;
+  }
+  return effective;
 }
 
 interface FirmwarePickerCellProps {
@@ -171,7 +189,11 @@ const ReleaseChannelManageView = ({
     name.trim() !== savedSettings.name ||
     description.trim() !== savedSettings.description ||
     !equals(ReleaseChannelScopeSchema, scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
-    !equals(RolloutBehaviorSchema, behavior, savedSettings.behavior ?? create(RolloutBehaviorSchema));
+    !equals(
+      RolloutBehaviorSchema,
+      behaviorForComparison(behavior),
+      behaviorForComparison(savedSettings.behavior ?? create(RolloutBehaviorSchema)),
+    );
   const hasConflicts = (preview?.conflicts.length ?? 0) > 0;
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
@@ -202,7 +224,8 @@ const ReleaseChannelManageView = ({
   const modelGroups = channel?.modelGroups ?? [];
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
-  const minersGroup = minersPair !== null ? modelGroups.find((group) => pairKey(group) === minersPair) : undefined;
+  const minersGroup =
+    minersPair !== null ? modelGroups.find((group) => observedPairKey(group) === minersPair) : undefined;
 
   const stagedValue = (group: ReleaseChannelModelGroup): string =>
     staged[pairKey(group)] !== undefined ? staged[pairKey(group)] : group.firmwareFileId;
@@ -219,14 +242,16 @@ const ReleaseChannelManageView = ({
     };
   };
 
-  const dirtyAssignments = modelGroups
-    .filter((group) => {
-      const fileId = staged[pairKey(group)];
-      return (
-        fileId !== undefined && (fileId !== group.firmwareFileId || (fileId === "" && group.firmwareChecksum !== ""))
-      );
-    })
-    .map(assignmentFor);
+  const dirtyAssignmentsByPair = new Map<string, AssignmentDraft>();
+  for (const group of modelGroups) {
+    const fileId = staged[pairKey(group)];
+    if (fileId !== undefined && (fileId !== group.firmwareFileId || (fileId === "" && group.firmwareChecksum !== ""))) {
+      const assignment = assignmentFor(group);
+      // Several observed spellings can share one canonical assignment.
+      dirtyAssignmentsByPair.set(pairKey(assignment), assignment);
+    }
+  }
+  const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
 
   // Human-readable version for a staged file id, for the dialog summary.
   const versionLabel = (fileId: string): string => {
@@ -361,7 +386,7 @@ const ReleaseChannelManageView = ({
                   const counts = activeRollout ? rolloutDeviceCounts(activeRollout) : undefined;
                   return [
                     <tr
-                      key={pairKey(group)}
+                      key={observedPairKey(group)}
                       className="border-t border-border-5"
                       data-testid={`model-group-${group.model}`}
                     >
@@ -388,7 +413,7 @@ const ReleaseChannelManageView = ({
                             variant={variants.secondary}
                             size={sizes.compact}
                             text="View miners"
-                            onClick={() => setMinersPair(pairKey(group))}
+                            onClick={() => setMinersPair(observedPairKey(group))}
                             testId={`view-miners-${group.model}`}
                           />
                         ) : null}
@@ -396,7 +421,7 @@ const ReleaseChannelManageView = ({
                     </tr>,
                     activeRollout && counts ? (
                       <tr
-                        key={`${pairKey(group)}-progress`}
+                        key={`${observedPairKey(group)}-progress`}
                         data-testid={`model-group-rollout-progress-${group.model}`}
                       >
                         <td className="pb-3" colSpan={5}>

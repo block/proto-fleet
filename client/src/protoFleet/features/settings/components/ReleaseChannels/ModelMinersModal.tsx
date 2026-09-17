@@ -64,7 +64,15 @@ const ModelMinersModal = ({
     ])
       .then(([nextMiners, nextDevices]) => {
         if (cancelled) return;
-        setSnapshot({ context, request, miners: nextMiners, devices: nextDevices, error: null });
+        // Empty identities mean "unknown" in model groups but wildcard in the
+        // list request. Narrow the fully loaded result to this exact raw pair.
+        const groupMiners =
+          request.group.manufacturer === "" || request.group.model === ""
+            ? nextMiners.filter(
+                (miner) => miner.manufacturer === request.group.manufacturer && miner.model === request.group.model,
+              )
+            : nextMiners;
+        setSnapshot({ context, request, miners: groupMiners, devices: nextDevices, error: null });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -139,7 +147,13 @@ const ModelMinersModal = ({
           <tbody className="text-text-primary">
             {miners.map((miner) => {
               const phase = phases[miner.deviceIdentifier];
-              const onTarget = group.firmwareVersion !== "" && miner.firmwareVersion === group.firmwareVersion;
+              // A version string can describe different firmware artifacts.
+              // Match the server's assignment count using deployment provenance.
+              const onTarget =
+                group.firmwareVersion !== "" &&
+                group.firmwareChecksum !== "" &&
+                miner.firmwareVersion === group.firmwareVersion &&
+                miner.lastDeployedFirmwareChecksum === group.firmwareChecksum;
               return (
                 <tr
                   key={miner.deviceIdentifier}

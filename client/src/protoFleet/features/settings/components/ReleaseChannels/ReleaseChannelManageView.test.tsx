@@ -8,6 +8,10 @@ import {
   PreviewReleaseChannelScopeResponseSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
+  RolloutAutomationThresholdsSchema,
+  RolloutBehaviorSchema,
+  RolloutMethod,
+  RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
@@ -73,6 +77,7 @@ function renderManage(
   return {
     onSave,
     onApply: props.onApply,
+    listChannelMiners: props.listChannelMiners,
     previewScope,
     updateChannel: (nextChannel: ChannelView, refreshError: boolean) =>
       rerender(<ReleaseChannelManageView {...props} channel={nextChannel} hasRefreshError={refreshError} />),
@@ -193,6 +198,218 @@ describe("release channel firmware assignments", () => {
     expect(picker).toHaveTextContent("Firmware details unavailable");
     expect(picker).not.toHaveTextContent("No firmware");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+  });
+
+  test.each(["assign", "clear"])(
+    "sends one %s per canonical pair while preserving distinct model assignments",
+    async (action) => {
+      const channel = assignedChannel();
+      channel.modelGroups.push(
+        create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], manufacturer: " PROTO ", model: " rig " }),
+        create(ReleaseChannelModelGroupSchema, {
+          ...channel.modelGroups[0],
+          manufacturer: "BITMAIN",
+          model: "S21",
+          firmwareTargetManufacturer: "Bitmain",
+          firmwareTargetModel: "S21",
+        }),
+      );
+      const s21File = { ...replacementFile, id: "s21-file", target_manufacturer: "Bitmain", target_model: "S21" };
+      const { onApply } = renderManage(channel, undefined, false, [replacementFile, s21File]);
+      for (const model of ["Rig", "S21"]) {
+        fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
+        fireEvent.click(screen.getByRole("option", { name: action === "clear" ? "No firmware" : /1.4.4/ }));
+      }
+      expect(screen.getByTestId("channel-firmware-select- rig ", { normalizer: (value) => value })).toHaveTextContent(
+        action === "clear" ? "No firmware" : "1.4.4",
+      );
+      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      fireEvent.click(screen.getByRole("button", { name: "Start update" }));
+      await waitFor(() =>
+        expect(onApply).toHaveBeenCalledExactlyOnceWith(channel.id, [
+          { manufacturer: "Proto", model: "Rig", firmwareFileId: action === "clear" ? "" : "replacement" },
+          { manufacturer: "Bitmain", model: "S21", firmwareFileId: action === "clear" ? "" : "s21-file" },
+        ]),
+      );
+      await waitFor(() => expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument());
+    },
+  );
+
+  test("opens the miners for the exact observed row when canonical pairs are shared", async () => {
+    const channel = assignedChannel();
+    channel.modelGroups.push(
+      create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], manufacturer: " PROTO ", model: " rig " }),
+    );
+    const { listChannelMiners } = renderManage(channel);
+    fireEvent.click(screen.getByTestId("view-miners- rig ", { normalizer: (value) => value }));
+    await waitFor(() => expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig "));
+  });
+});
+
+describe("effective release channel behavior", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const reviewedBatches = () =>
+    create(RolloutBehaviorSchema, {
+      method: RolloutMethod.BATCHED,
+      order: RolloutOrder.RANDOM,
+      batchSize: 7,
+      reviewAfterEachBatch: true,
+      autoContinueOnHealthyTelemetry: true,
+      stabilizationSeconds: 600,
+      thresholds: { maxHashrateDropPercent: 10, maxNewErrors: 0 },
+      maxConcurrentOffline: 4,
+    });
+
+  test.each([
+    {
+      name: "single batch",
+      change: () => {
+        fireEvent.click(screen.getByTestId("rollout-method"));
+        fireEvent.click(screen.getByRole("option", { name: /^Single batch/ }));
+      },
+      saved: () =>
+        create(RolloutBehaviorSchema, {
+          method: RolloutMethod.ALL_AT_ONCE,
+          order: RolloutOrder.RANDOM,
+          maxConcurrentOffline: 4,
+        }),
+    },
+    {
+      name: "unreviewed batches",
+      change: () => fireEvent.click(screen.getByLabelText("Review after each batch")),
+      saved: () =>
+        create(RolloutBehaviorSchema, {
+          method: RolloutMethod.BATCHED,
+          order: RolloutOrder.RANDOM,
+          batchSize: 7,
+          maxConcurrentOffline: 4,
+        }),
+    },
+    {
+      name: "manual review",
+      change: () => fireEvent.click(screen.getByLabelText("Auto-continue healthy batches")),
+      saved: () =>
+        create(RolloutBehaviorSchema, {
+          method: RolloutMethod.BATCHED,
+          order: RolloutOrder.RANDOM,
+          batchSize: 7,
+          reviewAfterEachBatch: true,
+          maxConcurrentOffline: 4,
+        }),
+    },
+  ])("becomes clean after saving $name while retaining hidden form values", async ({ change, saved }) => {
+    const channel = { ...assignedChannel(), behavior: reviewedBatches() };
+    const { onSave, updateChannel } = renderManage(channel);
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeDisabled();
+    change();
+    expect(save).toBeEnabled();
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledOnce();
+    // The form keeps values for switching back; serialization strips them.
+    expect(onSave.mock.calls[0][0].behavior.thresholds?.maxHashrateDropPercent).toBe(10);
+    updateChannel({ ...channel, behavior: saved() }, false);
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "5" } });
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "4" } });
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    expect(screen.getByTestId("apply-firmware-dialog")).not.toHaveTextContent("Unsaved channel changes");
+  });
+
+  test("ignores retained batch delays and the server's implicit pilot review flag", async () => {
+    const channel = {
+      ...existingChannel(),
+      behavior: create(RolloutBehaviorSchema, {
+        method: RolloutMethod.BATCHED,
+        order: RolloutOrder.RANDOM,
+        batchSize: 7,
+        waitBetweenBatchesSeconds: 120,
+      }),
+    };
+    const { onSave, updateChannel } = renderManage(channel);
+    const save = screen.getByTestId("save-channel");
+    fireEvent.click(screen.getByLabelText("Review after each batch"));
+    await act(async () => fireEvent.click(save));
+    expect(onSave.mock.calls[0][0].behavior.waitBetweenBatchesSeconds).toBe(120);
+    updateChannel(
+      {
+        ...channel,
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.BATCHED,
+          order: RolloutOrder.RANDOM,
+          batchSize: 7,
+          reviewAfterEachBatch: true,
+        }),
+      },
+      false,
+    );
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Review after each batch"));
+    fireEvent.click(screen.getByTestId("rollout-method"));
+    fireEvent.click(screen.getByRole("option", { name: /^Pilot batch/ }));
+    fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "2" } });
+    await act(async () => fireEvent.click(save));
+    updateChannel(
+      {
+        ...channel,
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.PILOT_THEN_CONTINUE,
+          order: RolloutOrder.RANDOM,
+          pilotSize: 2,
+          reviewAfterEachBatch: true,
+        }),
+      },
+      false,
+    );
+    expect(save).toBeDisabled();
+  });
+
+  test("treats empty thresholds as absent while preserving an explicit zero limit", async () => {
+    const behavior = create(RolloutBehaviorSchema, {
+      method: RolloutMethod.BATCHED,
+      order: RolloutOrder.RANDOM,
+      batchSize: 7,
+      reviewAfterEachBatch: true,
+      autoContinueOnHealthyTelemetry: true,
+      stabilizationSeconds: 600,
+      thresholds: { maxHashrateDropPercent: 10 },
+    });
+    const channel = { ...existingChannel(), behavior };
+    const { updateChannel } = renderManage(channel);
+    const save = screen.getByTestId("save-channel");
+    fireEvent.change(screen.getByLabelText("Max hashrate drop (%)"), { target: { value: "" } });
+    await act(async () => fireEvent.click(save));
+    updateChannel(
+      { ...channel, behavior: create(RolloutBehaviorSchema, { ...behavior, thresholds: undefined }) },
+      false,
+    );
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "0" } });
+    expect(save).toBeEnabled();
+    await act(async () => fireEvent.click(save));
+    updateChannel(
+      {
+        ...channel,
+        behavior: create(RolloutBehaviorSchema, {
+          ...behavior,
+          thresholds: create(RolloutAutomationThresholdsSchema, { maxNewErrors: 0 }),
+        }),
+      },
+      false,
+    );
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "" } });
+    expect(save).toBeEnabled();
   });
 });
 
