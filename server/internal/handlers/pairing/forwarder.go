@@ -25,7 +25,7 @@ func newDedupForwarder(send func(*pb.DiscoverResponse) error, onErr func()) *ded
 }
 
 // forward dedupes resp's devices across sources and forwards it. A batch reduced
-// entirely to duplicates (with no error payload) is dropped. Once any Send has
+// entirely to duplicates (with no warning payload) is dropped. Once any Send has
 // failed, forward returns that error without sending again.
 func (f *dedupForwarder) forward(resp *pb.DiscoverResponse) error {
 	f.mu.Lock()
@@ -44,11 +44,11 @@ func (f *dedupForwarder) forward(resp *pb.DiscoverResponse) error {
 			f.seen[key] = struct{}{}
 			deduped = append(deduped, d)
 		}
-		if len(deduped) == 0 && resp.GetError() == "" {
+		if len(deduped) == 0 && resp.GetWarning() == "" {
 			return nil // whole batch was duplicates; nothing to forward
 		}
 		if len(deduped) < len(resp.GetDevices()) {
-			out = &pb.DiscoverResponse{Devices: deduped, Error: resp.GetError()}
+			out = &pb.DiscoverResponse{Devices: deduped, Warning: resp.GetWarning()}
 		}
 	}
 	if err := f.send(out); err != nil {

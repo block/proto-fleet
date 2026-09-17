@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/stretchr/testify/require"
@@ -172,10 +173,15 @@ func TestReleaseChannelQueries_DispatchSuccessUsesExactDurableAudit(t *testing.T
 	batchID := f.scanID(`INSERT INTO command_batch_log (uuid, type, created_by, status, devices_count, payload, organization_id)
 		VALUES ($1, 'FirmwareUpdate', $2, 'PROCESSING', 1, '{"firmware_checksum":"sum"}', $3) RETURNING id`, batchUUID, userID, f.org)
 	require.False(t, readSuccess(), "a queued command has no successful device result")
-	f.exec(`INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, org_id)
-		VALUES ($1, $2, 'FAILED', $3)`, batchID, device.id, f.org)
+	recordResult := func(status sqlc.DeviceCommandStatusEnum) {
+		t.Helper()
+		require.NoError(t, f.q.UpsertCommandOnDeviceLog(t.Context(), sqlc.UpsertCommandOnDeviceLogParams{
+			Uuid: batchUUID, DeviceID: device.id, Status: status, UpdatedAt: time.Now(),
+		}))
+	}
+	recordResult(sqlc.DeviceCommandStatusEnumFAILED)
 	require.False(t, readSuccess(), "a failed install cannot authorize provenance from the existing reported version")
-	f.exec(`UPDATE command_on_device_log SET status = 'SUCCESS' WHERE command_batch_log_id = $1`, batchID)
+	recordResult(sqlc.DeviceCommandStatusEnumSUCCESS)
 	require.True(t, readSuccess(), "durable success works without retaining queue rows")
 
 	otherOrg := f.scanID(`INSERT INTO organization (org_id, name) VALUES ('other-dispatch-org', 'Other dispatch org') RETURNING id`)
@@ -200,9 +206,20 @@ func TestReleaseChannelQueries_DispatchSuccessUsesExactDurableAudit(t *testing.T
 			f.exec(`UPDATE command_on_device_log SET device_id = $1 WHERE command_batch_log_id = $2`, device.id, batchID)
 		}},
 		{"result org", func() {
-			f.exec(`UPDATE command_on_device_log SET org_id = $1 WHERE command_batch_log_id = $2`, otherOrg, batchID)
+			f.exec(`UPDATE command_on_device_log SET org_id = $1, site_id = NULL WHERE command_batch_log_id = $2`, otherOrg, batchID)
 		}, func() {
-			f.exec(`UPDATE command_on_device_log SET org_id = $1 WHERE command_batch_log_id = $2`, f.org, batchID)
+			f.exec(`UPDATE command_on_device_log SET org_id = $1,
+				site_id = (SELECT site_id FROM device WHERE id = $3) WHERE command_batch_log_id = $2`, f.org, batchID, device.id)
+		}},
+		{"missing completion witness", func() {
+			f.exec(`UPDATE device_firmware_deployment SET last_command_batch_uuid = NULL WHERE device_id = $1`, device.id)
+		}, func() {
+			f.exec(`UPDATE device_firmware_deployment SET last_command_batch_uuid = $1 WHERE device_id = $2`, batchUUID, device.id)
+		}},
+		{"unavailable current command", func() {
+			f.exec(`UPDATE device_firmware_deployment SET last_command_batch_uuid = 'missing-current-command' WHERE device_id = $1`, device.id)
+		}, func() {
+			f.exec(`UPDATE device_firmware_deployment SET last_command_batch_uuid = $1 WHERE device_id = $2`, batchUUID, device.id)
 		}},
 	} {
 		mutation.change()

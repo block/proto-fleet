@@ -897,9 +897,8 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "verified above online is rejected",
+			name:     "persisted verification can exceed current online count",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 1},
-			wantErr:  true,
 		},
 		{
 			name:     "unverified baseline hashers need not be hashing",
@@ -1182,6 +1181,24 @@ func TestRolloutPaginationValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "rollout list accepts a poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz"},
+		},
+		{
+			name:    "rollout list accepts a page within a polling cycle",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", Cursor: "page"},
+		},
+		{
+			name:    "rollout list rejects poll cursor with timestamp filter",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: "MTIz", UpdatedAfter: timestamppb.Now()},
+			wantErr: true,
+		},
+		{
+			name:    "rollout list rejects oversized poll cursor",
+			request: &rolloutv1.ListRolloutsRequest{PollCursor: strings.Repeat("c", 101)},
+			wantErr: true,
+		},
+		{
 			name:    "rollout devices accept maximum page",
 			request: &rolloutv1.ListRolloutDevicesRequest{RolloutId: 1, PageSize: 1000},
 		},
@@ -1197,6 +1214,15 @@ func TestRolloutPaginationValidation(t *testing.T) {
 		{
 			name:    "channel miners reject oversized page",
 			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, PageSize: 1001},
+			wantErr: true,
+		},
+		{
+			name:    "channel miners accept maximum cursor length",
+			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, Cursor: strings.Repeat("c", 2048)},
+		},
+		{
+			name:    "channel miners reject oversized cursor",
+			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, Cursor: strings.Repeat("c", 2049)},
 			wantErr: true,
 		},
 		{
@@ -1251,11 +1277,11 @@ func TestRolloutPaginationValidation(t *testing.T) {
 		},
 		{
 			name:    "membership conflicts accept maximum cursor length",
-			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 100)},
+			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 2048)},
 		},
 		{
 			name:    "membership conflicts reject oversized cursor",
-			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 101)},
+			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{Cursor: strings.Repeat("c", 2049)},
 			wantErr: true,
 		},
 	}
@@ -1340,7 +1366,7 @@ func TestBoundedListResponseValidation(t *testing.T) {
 			newElement:      func() proto.Message { return &rolloutv1.ReleaseChannelMiner{} },
 			collectionField: "miners",
 			maxItems:        1000,
-			cursorMaxLen:    100,
+			cursorMaxLen:    2048,
 		},
 		{
 			name:            "rollouts",
@@ -1372,7 +1398,7 @@ func TestBoundedListResponseValidation(t *testing.T) {
 			newElement:      func() proto.Message { return conflict() },
 			collectionField: "conflicts",
 			maxItems:        100,
-			cursorMaxLen:    100,
+			cursorMaxLen:    2048,
 		},
 		{
 			// The events cursor is never empty, so the fixture carries one.

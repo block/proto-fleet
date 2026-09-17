@@ -90,7 +90,7 @@ type AppendFirmwareRolloutDevicesParams struct {
 }
 
 // Adds late joiners: unbatched, unordered (they sort last) and without a
-// baseline, so they are judged on version and being online only. Miners
+// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 // already in the rollout are left as they are.
 func (q *Queries) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error {
 	_, err := q.exec(ctx, q.appendFirmwareRolloutDevicesStmt, appendFirmwareRolloutDevices, arg.RolloutID, pq.Array(arg.DeviceIds))
@@ -192,6 +192,8 @@ const clearReleaseChannelFirmware = `-- name: ClearReleaseChannelFirmware :one
 UPDATE release_channel_firmware
 SET firmware_checksum = '',
     firmware_version = '',
+    previous_firmware_checksum = '',
+    previous_firmware_version = '',
     firmware_target_manufacturer = '',
     firmware_target_model = '',
     assignment_generation = assignment_generation + 1,
@@ -201,7 +203,7 @@ WHERE channel_id = $2
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($3::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($4::text)
   AND firmware_checksum <> ''
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
 `
 
 type ClearReleaseChannelFirmwareParams struct {
@@ -232,7 +234,81 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
 		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
 	)
+	return i, err
+}
+
+const countReleaseChannelFirmwarePreviewMembers = `-- name: CountReleaseChannelFirmwarePreviewMembers :one
+WITH members AS (
+    SELECT COALESCE(dd.firmware_version, '') = $1::text
+           AND COALESCE(dep.firmware_checksum, '') = $2::text
+           AND NOT EXISTS (
+               SELECT 1 FROM queue_message qm
+               WHERE qm.device_id = d.id
+                 AND qm.command_type = 'FirmwareUpdate'
+                 AND qm.status IN ('PENDING', 'PROCESSING')
+                 AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+                     THEN qm.payload->>'firmware_checksum' <> $2::text
+                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($3::text[], '{}')))
+                 END
+           ) AS on_target,
+           EXISTS (
+               SELECT 1 FROM firmware_rollout_suppressed_device s
+               WHERE s.channel_id = m.channel_id
+                 AND s.device_id = d.id
+                 AND s.manufacturer_key = release_channel_pair_key($4::text)
+                 AND s.model_key = release_channel_pair_key($5::text)
+                 AND s.assignment_generation = $6::bigint
+           ) AS suppressed
+    FROM release_channel_member m
+    JOIN device d ON d.id = m.device_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+    WHERE m.org_id = $7
+      AND m.channel_id = $8
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($4::text)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key($5::text)
+)
+SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE on_target)::int AS on_target_count
+FROM members
+`
+
+type CountReleaseChannelFirmwarePreviewMembersParams struct {
+	FirmwareVersion      string
+	FirmwareChecksum     string
+	AssignedFileIds      []string
+	Manufacturer         string
+	Model                string
+	AssignmentGeneration int64
+	OrgID                int64
+	ChannelID            int64
+}
+
+type CountReleaseChannelFirmwarePreviewMembersRow struct {
+	TargetCount   int32
+	OnTargetCount int32
+}
+
+// Both preview counts use one snapshot of the mismatch rule above. A pending
+// foreign command makes a member mismatched even when it reports the assigned
+// version and provenance. Suppression excludes dispatch targets, but does not
+// change whether a member matches the assignment.
+func (q *Queries) CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error) {
+	row := q.queryRow(ctx, q.countReleaseChannelFirmwarePreviewMembersStmt, countReleaseChannelFirmwarePreviewMembers,
+		arg.FirmwareVersion,
+		arg.FirmwareChecksum,
+		pq.Array(arg.AssignedFileIds),
+		arg.Manufacturer,
+		arg.Model,
+		arg.AssignmentGeneration,
+		arg.OrgID,
+		arg.ChannelID,
+	)
+	var i CountReleaseChannelFirmwarePreviewMembersRow
+	err := row.Scan(&i.TargetCount, &i.OnTargetCount)
 	return i, err
 }
 
@@ -454,6 +530,36 @@ func (q *Queries) DeleteReleaseChannelTargets(ctx context.Context, channelID int
 	return err
 }
 
+const deleteReleasedFirmwareRolloutReservations = `-- name: DeleteReleasedFirmwareRolloutReservations :exec
+DELETE FROM firmware_rollout_reservation reservation
+USING device d
+WHERE d.id = reservation.device_id
+  AND (
+      d.deleted_at IS NOT NULL
+      OR NOT EXISTS (
+          SELECT 1 FROM queue_message qm
+          WHERE qm.device_id = reservation.device_id
+            AND qm.command_batch_log_uuid = reservation.batch_uuid
+            AND qm.command_type = 'FirmwareUpdate'
+            AND qm.status IN ('PENDING', 'PROCESSING')
+      )
+      OR (reservation.observed_offline AND EXISTS (
+          SELECT 1 FROM device_status ds
+          WHERE ds.device_id = d.id
+            AND ds.status::text NOT IN ('OFFLINE', 'UNKNOWN', 'UPDATING')
+      ))
+  )
+`
+
+// Offline targets keep an offline slot through their retained rollout target
+// history, so a terminal command no longer needs its reservation row. A live
+// command can also release after an observed offline/online cycle. Keep that
+// observation until recovery, and discard fleet-deleted targets immediately.
+func (q *Queries) DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error {
+	_, err := q.exec(ctx, q.deleteReleasedFirmwareRolloutReservationsStmt, deleteReleasedFirmwareRolloutReservations)
+	return err
+}
+
 const excludeFirmwareRolloutDevices = `-- name: ExcludeFirmwareRolloutDevices :exec
 UPDATE firmware_rollout_device
 SET excluded_at = now()
@@ -477,6 +583,7 @@ WITH locked_rollout AS MATERIALIZED (
     SELECT candidate.id, candidate.created_at, candidate.stage_changed_at, candidate.paused_at
     FROM firmware_rollout AS candidate
     WHERE candidate.id = $2 AND candidate.status = 'active'
+      AND candidate.paused_at IS NULL
     FOR UPDATE
 )
 UPDATE firmware_rollout AS r
@@ -484,7 +591,7 @@ SET status = $1,
     finished_at = GREATEST(locked_rollout.created_at, locked_rollout.stage_changed_at, locked_rollout.paused_at, clock_timestamp()),
     paused_at = NULL
 FROM locked_rollout
-WHERE r.id = locked_rollout.id AND r.status = 'active'
+WHERE r.id = locked_rollout.id AND r.status = 'active' AND r.paused_at IS NULL
 `
 
 type FinishFirmwareRolloutParams struct {
@@ -492,9 +599,11 @@ type FinishFirmwareRolloutParams struct {
 	RolloutID int64
 }
 
-// Ends an active rollout as 'completed' or 'completed_with_failures'.
+// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
+// Recheck the pause under the row lock so stale settled targets cannot complete
+// work after the operator pauses it. Resuming permits a later tick to finish.
 // Record the first terminal time after the header lock, bounded by the
-// rollout's preceding lifecycle events, and clear any active pause.
+// rollout's preceding lifecycle events.
 func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error) {
 	result, err := q.exec(ctx, q.finishFirmwareRolloutStmt, finishFirmwareRollout, arg.Status, arg.RolloutID)
 	if err != nil {
@@ -827,7 +936,7 @@ func (q *Queries) GetReleaseChannel(ctx context.Context, arg GetReleaseChannelPa
 }
 
 const getReleaseChannelFirmware = `-- name: GetReleaseChannelFirmware :one
-SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at FROM release_channel_firmware
+SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version FROM release_channel_firmware
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -852,6 +961,52 @@ func (q *Queries) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseC
 		&i.FirmwareTargetModel,
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
+		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
+	)
+	return i, err
+}
+
+const getReleaseChannelForUpdate = `-- name: GetReleaseChannelForUpdate :one
+SELECT id, org_id, name, description, method, order_by, batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue, stabilization_seconds, max_hashrate_drop_percent, max_efficiency_increase_percent, max_temp_increase_c, max_new_errors, min_sample_coverage_percent, max_concurrent_offline, controller_timeout_seconds, created_by, created_at, updated_at FROM release_channel
+WHERE id = $1 AND org_id = $2
+FOR NO KEY UPDATE
+`
+
+type GetReleaseChannelForUpdateParams struct {
+	ChannelID int64
+	OrgID     int64
+}
+
+// Serialize assignment changes before reading any pair, including pairs with
+// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
+// permits foreign-key checks by concurrent rollout/target inserts.
+func (q *Queries) GetReleaseChannelForUpdate(ctx context.Context, arg GetReleaseChannelForUpdateParams) (ReleaseChannel, error) {
+	row := q.queryRow(ctx, q.getReleaseChannelForUpdateStmt, getReleaseChannelForUpdate, arg.ChannelID, arg.OrgID)
+	var i ReleaseChannel
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Description,
+		&i.Method,
+		&i.OrderBy,
+		&i.BatchSize,
+		&i.PilotSize,
+		&i.WaitBetweenBatchesSeconds,
+		&i.ReviewAfterEachBatch,
+		&i.AutoContinue,
+		&i.StabilizationSeconds,
+		&i.MaxHashrateDropPercent,
+		&i.MaxEfficiencyIncreasePercent,
+		&i.MaxTempIncreaseC,
+		&i.MaxNewErrors,
+		&i.MinSampleCoveragePercent,
+		&i.MaxConcurrentOffline,
+		&i.ControllerTimeoutSeconds,
+		&i.CreatedBy,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -1042,7 +1197,6 @@ func (q *Queries) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDevice
 }
 
 const listFirmwareRolloutDevices = `-- name: ListFirmwareRolloutDevices :many
-
 SELECT rd.device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
@@ -1065,6 +1219,18 @@ SELECT rd.device_id,
              AND result.org_id = r.org_id
              AND result.device_id = rd.device_id
              AND result.status = 'SUCCESS'
+             AND EXISTS (
+                 SELECT 1
+                 FROM command_batch_log current_batch
+                 JOIN command_on_device_log current_result ON current_result.command_batch_log_id = current_batch.id
+                 WHERE current_batch.uuid = dep.last_command_batch_uuid
+                   AND (current_batch.organization_id = r.org_id OR current_batch.organization_id IS NULL)
+                   AND current_batch.type = 'FirmwareUpdate'
+                   AND current_batch.payload->>'firmware_checksum' = r.firmware_checksum
+                   AND current_result.device_id = rd.device_id
+                   AND current_result.org_id = r.org_id
+                   AND current_result.status = 'SUCCESS'
+             )
        ))::boolean AS last_dispatch_succeeded,
        rd.verified_at,
        rd.halted_at,
@@ -1089,6 +1255,7 @@ SELECT rd.device_id,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
+       COALESCE(dep.firmware_version, '')::text AS last_deployed_firmware_version,
        dep.deployed_at AS last_deployed_at,
        COALESCE((
            SELECT array_agg(qm.payload->>'firmware_checksum')
@@ -1166,6 +1333,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	OpenErrors                   int32
 	ErrorsSinceBaseline          int32
 	LastDeployedFirmwareChecksum string
+	LastDeployedFirmwareVersion  string
 	LastDeployedAt               sql.NullTime
 	PendingFirmwareChecksums     []string
 	PendingLegacyFirmwareFileIds []string
@@ -1173,7 +1341,6 @@ type ListFirmwareRolloutDevicesRow struct {
 	InScope                      sql.NullBool
 }
 
-// --- Rollout devices ---
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
 // status, latest telemetry within 15 minutes of this statement, open errors
 // and errors opened since its baseline), provenance, the checksums of pending or processing
@@ -1182,6 +1349,13 @@ type ListFirmwareRolloutDevicesRow struct {
 // Existing targets remain tied to their paired device when firmware changes its
 // reported manufacturer/model: the engine still verifies the update's outcome,
 // but in_scope must be true before dispatching another compatible update.
+// The prior deployed version distinguishes a version change from replacing an
+// artifact with another that reports the same version; the latter requires the
+// latest dispatch's successful command result before recording new provenance.
+// Command completion serializes through the provenance row and retains its
+// exact latest batch identity. That command must also have succeeded for the
+// same immutable checksum: timestamps and historical file IDs cannot prove
+// current artifact identity, and missing command history fails closed.
 // Live health is evidence for the engine's
 // next decision; the persisted columns (verified_at, halted_at, excluded_at)
 // carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1232,6 +1406,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.OpenErrors,
 			&i.ErrorsSinceBaseline,
 			&i.LastDeployedFirmwareChecksum,
+			&i.LastDeployedFirmwareVersion,
 			&i.LastDeployedAt,
 			pq.Array(&i.PendingFirmwareChecksums),
 			pq.Array(&i.PendingLegacyFirmwareFileIds),
@@ -1241,6 +1416,57 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutOfflineSlots = `-- name: ListFirmwareRolloutOfflineSlots :many
+SELECT rd.device_id
+FROM firmware_rollout_device rd
+JOIN firmware_rollout r ON r.id = rd.rollout_id
+JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE r.channel_id = $1
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+UNION
+SELECT reservation.device_id
+FROM firmware_rollout_reservation reservation
+JOIN device d ON d.id = reservation.device_id AND d.deleted_at IS NULL
+WHERE reservation.channel_id = $1
+  AND NOT reservation.observed_offline
+  AND EXISTS (
+      SELECT 1 FROM queue_message qm
+      WHERE qm.device_id = reservation.device_id
+        AND qm.command_batch_log_uuid = reservation.batch_uuid
+        AND qm.command_type = 'FirmwareUpdate'
+        AND qm.status IN ('PENDING', 'PROCESSING')
+  )
+`
+
+// Every historical target can hold an offline slot, regardless of phase or
+// current membership. Actual command reservations persist until their command
+// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
+// Fleet deletion releases both. UNION counts a device only once, including
+// when it was targeted by several rollouts in this channel.
+func (q *Queries) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutOfflineSlotsStmt, listFirmwareRolloutOfflineSlots, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1353,7 +1579,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 }
 
 const listReleaseChannelFirmware = `-- name: ListReleaseChannelFirmware :many
-SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at
+SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version
 FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = $1
@@ -1381,6 +1607,8 @@ func (q *Queries) ListReleaseChannelFirmware(ctx context.Context, orgID int64) (
 			&i.AssignmentGeneration,
 			&i.AssignedBy,
 			&i.UpdatedAt,
+			&i.PreviousFirmwareChecksum,
+			&i.PreviousFirmwareVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -2151,7 +2379,15 @@ func (q *Queries) LockReleaseChannelScopes(ctx context.Context, orgID int64) err
 }
 
 const markFirmwareRolloutDevicesSent = `-- name: MarkFirmwareRolloutDevicesSent :exec
-WITH locked_targets AS MATERIALIZED (
+WITH reservations AS (
+    INSERT INTO firmware_rollout_reservation (channel_id, device_id, batch_uuid)
+    SELECT r.channel_id, device_id, $2::text
+    FROM firmware_rollout r
+    CROSS JOIN unnest($1::bigint[]) AS dispatched(device_id)
+    WHERE r.id = $3
+      AND $2::text <> ''
+    ON CONFLICT (channel_id, device_id, batch_uuid) DO NOTHING
+), locked_targets AS MATERIALIZED (
     SELECT target.rollout_id, target.device_id, target.last_sent_at, target.last_dispatched_at
     FROM firmware_rollout_device AS target
     WHERE target.rollout_id = $3
@@ -2218,6 +2454,29 @@ type MarkFirmwareRolloutDevicesVerifiedParams struct {
 // phase change is a rollout change under the revision rule.
 func (q *Queries) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error {
 	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesVerifiedStmt, markFirmwareRolloutDevicesVerified, arg.RolloutID, pq.Array(arg.DeviceIds))
+	return err
+}
+
+const observeFirmwareRolloutReservationsOffline = `-- name: ObserveFirmwareRolloutReservationsOffline :exec
+
+UPDATE firmware_rollout_reservation reservation
+SET observed_offline = true
+FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+WHERE ($1::bigint IS NULL OR reservation.channel_id = $1)
+  AND reservation.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND NOT reservation.observed_offline
+  AND COALESCE(ds.status::text, '') IN ('', 'OFFLINE', 'UNKNOWN', 'UPDATING')
+`
+
+// --- Rollout devices ---
+// Once an outstanding command's target has been seen offline, its reservation
+// becomes an offline slot. Returning online releases that slot even if command
+// completion arrives later. This observation survives exclusion, cancellation,
+// retries and completed rollout history.
+func (q *Queries) ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error {
+	_, err := q.exec(ctx, q.observeFirmwareRolloutReservationsOfflineStmt, observeFirmwareRolloutReservationsOffline, channelID)
 	return err
 }
 
@@ -2777,14 +3036,16 @@ VALUES (
     $6, $7, 1, $8
 )
 ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
-SET firmware_checksum = EXCLUDED.firmware_checksum,
+SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
+    previous_firmware_version = release_channel_firmware.firmware_version,
+    firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
     firmware_target_manufacturer = EXCLUDED.firmware_target_manufacturer,
     firmware_target_model = EXCLUDED.firmware_target_model,
     assignment_generation = release_channel_firmware.assignment_generation + 1,
     assigned_by = EXCLUDED.assigned_by,
     updated_at = now()
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
 `
 
 type UpsertReleaseChannelFirmwareParams struct {
@@ -2800,7 +3061,9 @@ type UpsertReleaseChannelFirmwareParams struct {
 
 // --- Firmware assignments ---
 // Assigns an artifact to a pair and advances the pair's generation. The
-// stored key keeps the case it was first written with.
+// stored key keeps the case it was first written with. assigned_by is the
+// owning user for enforcement commands, separate from the rollout's audit
+// actor. Reconciliation and retries retain this assignment's owner.
 func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error) {
 	row := q.queryRow(ctx, q.upsertReleaseChannelFirmwareStmt, upsertReleaseChannelFirmware,
 		arg.ChannelID,
@@ -2824,6 +3087,8 @@ func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertRe
 		&i.AssignmentGeneration,
 		&i.AssignedBy,
 		&i.UpdatedAt,
+		&i.PreviousFirmwareChecksum,
+		&i.PreviousFirmwareVersion,
 	)
 	return i, err
 }

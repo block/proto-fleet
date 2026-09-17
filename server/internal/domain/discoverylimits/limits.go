@@ -5,7 +5,7 @@ package discoverylimits
 
 const (
 	// MinIPv4PrefixBits caps the breadth of an individual discovery subnet.
-	MinIPv4PrefixBits = 22
+	MinIPv4PrefixBits = 20
 
 	// MaxScanTargets caps IP addresses per Fleet Node discovery command.
 	MaxScanTargets = 1 << (32 - MinIPv4PrefixBits)

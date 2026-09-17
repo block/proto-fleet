@@ -40,7 +40,9 @@ const (
 	// connections keep backoff growing.
 	stableSessionThreshold = 30 * time.Second
 	probeConcurrency       = 32
-	discoveryReportTimeout = 30 * time.Second
+	// Leave 30s for dispatch and ACK delivery within the server's 12m wait
+	// after the 10m scan budget. This is one budget for all report batches.
+	discoveryReportTimeout = 90 * time.Second
 	maxDevicesPerReport    = 1024 // server enforces max_items=1024
 	maxIPsPerCommand       = discoverylimits.MaxScanTargets
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
@@ -501,7 +503,7 @@ func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, strea
 	// supervisor (a probe ignored ctx). Either way reports already uploaded.
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) || errors.Is(scanErr, context.DeadlineExceeded) {
 		message := fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports))
-		if req.GetNmap() != nil {
+		if req.GetNetworkScan() != nil {
 			message += ". Retry to check other addresses, or narrow the range."
 		}
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, message, logger)
@@ -537,11 +539,15 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		}
 		normalized := make([]netip.Addr, 0, len(ips))
 		seen := make(map[netip.Addr]struct{}, len(ips))
+		var resolutionErr error
 		for _, raw := range ips {
 			addr, err := netscan.ResolveAddr(ctx, raw, r.resolver, true)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, false, fmt.Errorf("resolve IP list: %w", ctx.Err())
+				}
+				if resolutionErr == nil && isDNSResolutionError(err) {
+					resolutionErr = err
 				}
 				logger.Debug("skipping ipList entry", "input", raw, "err", err)
 				continue
@@ -552,9 +558,16 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			}
 		}
 		if len(normalized) == 0 {
+			if resolutionErr != nil {
+				return nil, false, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
+			}
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		return r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		reports, truncated, probeErr := r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		if resolutionErr != nil && !errors.Is(ctx.Err(), context.Canceled) {
+			return reports, truncated, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
+		}
+		return reports, truncated, probeErr
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpRange.GetPorts())
 		if err != nil {
@@ -568,12 +581,12 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
 		}
 		return r.probeTargets(ctx, target.Addresses(), ports, logger)
-	case *pairingpb.DiscoverRequest_Nmap:
-		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		ports, err := r.resolveAndValidatePorts(ctx, m.NetworkScan.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
-		targets, err := r.networkScanTargets(ctx, m.Nmap)
+		targets, err := r.networkScanTargets(ctx, m.NetworkScan)
 		if err != nil {
 			return nil, false, err
 		}

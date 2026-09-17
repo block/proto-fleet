@@ -34,6 +34,7 @@ create_release() {
   local version="$1"
   local extra_entry="${2:-}"
   local unit_marker="${3:-}"
+  local repository="${4:-}"
   local release_dir="$ASSETS_DIR/$version"
   local archive_root="fleetnode-${version}-linux-amd64"
   mkdir -p "$release_dir/$archive_root/plugins"
@@ -44,6 +45,9 @@ create_release() {
   printf '# fixture version: %s\n' "$version" >> "$release_dir/$archive_root/fleetnode-enroll"
   chmod 0755 "$release_dir/$archive_root/fleetnode-enroll"
   printf 'version: %s\n' "$version" > "$release_dir/$archive_root/version.txt"
+  if [[ -n "$repository" ]]; then
+    printf 'release_repository: %s\n' "$repository" >> "$release_dir/$archive_root/version.txt"
+  fi
   cp "$FLEETNODE_DIR/fleet-node.service" "$release_dir/$archive_root/fleet-node.service"
   if [[ -n "$unit_marker" ]]; then
     printf '%s\n' "$unit_marker" >> "$release_dir/$archive_root/fleet-node.service"
@@ -238,6 +242,7 @@ printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 
 run_installer() {
   local version="$1"
+  shift
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
   FAKE_FLEETNODE_LOAD_STATE="${FAKE_FLEETNODE_LOAD_STATE:-not-found}" \
   FAKE_FLEETNODE_ACTIVE_STATE="${FAKE_FLEETNODE_ACTIVE_STATE:-active}" \
@@ -266,7 +271,7 @@ run_installer() {
   FLEETNODE_ARCH=amd64 \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
   FLEETNODE_DOWNLOAD_BASE_URL="file://$ASSETS_DIR/$version" \
-    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleet-node.sh") "$version"
+    bash <(curl --disable --fail --silent --show-error "file://${INSTALLER_PATH:-$FLEETNODE_DIR/install-fleet-node.sh}") "$version" "$@"
 }
 
 run_uninstaller() {
@@ -673,5 +678,44 @@ run_uninstaller
 if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
   fail "idempotent uninstall stopped a unit that systemd could not find"
 fi
+
+# An independent alternate-source installation must retain its pin through
+# successful upgrades, failed activation/rollback, and uninstall/reinstall.
+ROOT_PREFIX="$TEST_DIR/alternate-root"
+mkdir -p "$ROOT_PREFIX/run/systemd/system"
+create_release v2.0.0 "" "" example-owner/fleet-fork
+create_release v2.1.0 "" "" example-owner/fleet-fork
+create_release v2.2.0 "" "" example-owner/fleet-fork
+bash "$FLEETNODE_DIR/../scripts/package-release-installers.sh" example-owner/fleet-fork "$TEST_DIR/alternate-installers"
+INSTALLER_PATH="$TEST_DIR/alternate-installers/install-fleet-node.sh"
+PROTO_FLEET_RELEASE_REPOSITORY=block/proto-fleet run_installer v2.0.0
+assert_file_contains "$ROOT_PREFIX/etc/fleetnode/release-repository" example-owner/fleet-fork
+run_installer v2.1.0
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" 'version: v2.1.0'
+: > "$FAIL_START_ONCE"
+if FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" run_installer v2.2.0 > "$TEST_DIR/alternate-rollback.out" 2>&1; then
+  fail "alternate-source activation failure was accepted"
+fi
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" 'version: v2.1.0'
+assert_file_contains "$ROOT_PREFIX/etc/fleetnode/release-repository" example-owner/fleet-fork
+if run_installer v2.2.0 --repo block/proto-fleet > "$TEST_DIR/alternate-conflict.out" 2>&1; then
+  fail "repository override option was accepted"
+fi
+assert_file_contains "$TEST_DIR/alternate-conflict.out" "Usage: install-fleet-node.sh VERSION"
+if INSTALLER_PATH="$FLEETNODE_DIR/install-fleet-node.sh" run_installer v2.2.0 > "$TEST_DIR/alternate-installer.out" 2>&1; then
+  fail "installed source overrode the packaged installer identity"
+fi
+assert_file_contains "$TEST_DIR/alternate-installer.out" "installed release repository conflicts"
+if run_installer v1.3.0 > "$TEST_DIR/alternate-wrong-bundle.out" 2>&1; then
+  fail "upstream bundle was accepted for alternate installation"
+fi
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
+assert_file_contains "$ROOT_PREFIX/etc/fleetnode/release-repository" example-owner/fleet-fork
+if INSTALLER_PATH="$FLEETNODE_DIR/install-fleet-node.sh" run_installer v1.3.0 > "$TEST_DIR/alternate-pin.out" 2>&1; then
+  fail "retained pin overrode the packaged installer identity"
+fi
+assert_file_contains "$TEST_DIR/alternate-pin.out" "persisted release repository conflicts"
+run_installer v2.2.0
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" 'release_repository: example-owner/fleet-fork'
 
 echo "Fleet Node installer tests passed"

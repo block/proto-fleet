@@ -9,7 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-func TestReleaseChannelQueries_TerminalTransitionsClearPause(t *testing.T) {
+func TestReleaseChannelQueries_TerminalTransitionsRespectPause(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -24,7 +24,7 @@ func TestReleaseChannelQueries_TerminalTransitionsClearPause(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(1), rows)
 			// Simulate the wall clock moving back after the pause. Clearing the
-			// pause must still retain its time as a lower bound on completion.
+			// pause on cancellation must retain its time as a lower bound.
 			f.exec(`UPDATE firmware_rollout SET paused_at = clock_timestamp() + INTERVAL '1 hour', stage_paused_microseconds = 5000000 WHERE id = $1`, rollout)
 			paused, err := f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 			require.NoError(t, err)
@@ -33,6 +33,10 @@ func TestReleaseChannelQueries_TerminalTransitionsClearPause(t *testing.T) {
 			require.NoError(t, mutation.run(t.Context(), f.q, channel, rollout))
 			finished, err := f.q.GetFirmwareRollout(t.Context(), sqlc.GetFirmwareRolloutParams{RolloutID: rollout, OrgID: f.org})
 			require.NoError(t, err)
+			if mutation.status != "canceled" {
+				require.Equal(t, paused, finished, "completion must preserve a committed pause until the operator resumes")
+				return
+			}
 			require.Equal(t, mutation.status, finished.Status)
 			require.Equal(t, mutation.cancelReason, finished.CancelReason)
 			require.False(t, finished.PausedAt.Valid, "terminal rollouts cannot remain paused")

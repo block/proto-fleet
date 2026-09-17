@@ -30,6 +30,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
@@ -56,7 +57,6 @@ const (
 	maxCandidateVersionBytes               = int64(4096)
 	maxRetainedOperationLogs               = 8
 	maxRetainedLogBytes                    = int64(256 << 20)
-	canonicalDownloadBaseURL               = "https://github.com/block/proto-fleet/releases/download"
 	processLockFilename                    = "updater.lock"
 	processLockRetryWindow                 = 250 * time.Millisecond
 	processLockRetryInterval               = 5 * time.Millisecond
@@ -197,7 +197,8 @@ type activationMarker struct {
 }
 
 type Manager struct {
-	cfg Config
+	cfg        Config
+	repository string
 
 	mu               sync.RWMutex
 	operation        *updaterapi.Operation
@@ -629,10 +630,15 @@ func newManager(cfg Config) (*Manager, error) {
 	if cfg.DeploymentMode != DeploymentModeStandalone && cfg.DeploymentMode != DeploymentModeHA {
 		return nil, fmt.Errorf("deployment mode must be standalone or ha")
 	}
+	repository := releaseinfo.Repository
+	if err := releaseinfo.ValidateRepository(repository); err != nil {
+		return nil, fmt.Errorf("release repository: %w", err)
+	}
+	trustedDownloadBaseURL := releaseinfo.DownloadBaseURL(repository)
 	if cfg.DownloadBaseURL == "" {
-		cfg.DownloadBaseURL = canonicalDownloadBaseURL
-	} else if cfg.DownloadBaseURL != canonicalDownloadBaseURL && !cfg.allowTestDownloadBaseURL {
-		return nil, fmt.Errorf("download base URL must use the official GitHub Releases URL")
+		cfg.DownloadBaseURL = trustedDownloadBaseURL
+	} else if cfg.DownloadBaseURL != trustedDownloadBaseURL && !cfg.allowTestDownloadBaseURL {
+		return nil, fmt.Errorf("download base URL must match the configured release repository")
 	}
 	downloadBase, err := url.Parse(cfg.DownloadBaseURL)
 	if err != nil || downloadBase.Scheme != "https" || downloadBase.Host == "" ||
@@ -642,9 +648,15 @@ func newManager(cfg Config) (*Manager, error) {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{
 			Timeout: defaultHTTPTimeout,
-			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("too many release redirects")
+				}
 				if req.URL.Scheme != "https" {
 					return fmt.Errorf("refusing non-HTTPS release redirect")
+				}
+				if req.URL.Hostname() == "github.com" && !strings.HasPrefix(req.URL.String(), trustedDownloadBaseURL+"/") {
+					return fmt.Errorf("refusing redirect to another release repository")
 				}
 				return nil
 			},
@@ -704,6 +716,10 @@ func newManager(cfg Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := pinReleaseRepository(cfg, repository); err != nil {
+		_ = processLock.Close()
+		return nil, err
+	}
 	logRoot, err := openOperationLogRoot(cfg.StateDir)
 	if err != nil {
 		_ = processLock.Close()
@@ -712,6 +728,7 @@ func newManager(cfg Config) (*Manager, error) {
 
 	m := &Manager{
 		cfg:             cfg,
+		repository:      repository,
 		selfUpdateReady: make(chan string, 1),
 		processLock:     processLock,
 		logRoot:         logRoot,
@@ -970,7 +987,7 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 	m.mu.RLock()
 	if m.operation == nil {
 		m.mu.RUnlock()
-		return updaterapi.StatusResponse{}
+		return updaterapi.StatusResponse{ReleaseRepository: m.repository}
 	}
 	snapshot := *m.operation
 	m.mu.RUnlock()
@@ -980,7 +997,7 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 		// a state mutation. The proof is re-evaluated after daemon restarts.
 		snapshot.Acknowledged = true
 	}
-	return updaterapi.StatusResponse{Operation: &snapshot}
+	return updaterapi.StatusResponse{Operation: &snapshot, ReleaseRepository: m.repository}
 }
 
 // failureWasRemediated auto-dismisses a failed operation once the
@@ -1211,6 +1228,9 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	if err != nil {
 		return updaterapi.Operation{}, err
 	}
+	if err := checkDeploymentRepository(filepath.Join(m.cfg.InstallRoot, "deployment"), m.repository); err != nil {
+		return updaterapi.Operation{}, newTriggerError(errTriggerPrecondition, err.Error())
+	}
 	if !semver.IsValid(currentVersion) {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerPrecondition,
@@ -1341,7 +1361,7 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 		m.fail(operationID, fmt.Errorf("persist verification phase: %w", err), recovery)
 		return
 	}
-	// The fixed GitHub Releases origin is the publisher trust anchor. This
+	// The selected GitHub Releases origin is the publisher trust anchor. This
 	// sidecar detects transfer/storage corruption; it is not represented as an
 	// independent publisher signature.
 	if err := verifyChecksum(ctx, archivePath, checksumPath, archiveName); err != nil {
@@ -1407,6 +1427,10 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 	stageDeployment := filepath.Join(stageRoot, "deployment")
 	currentDeployment := filepath.Join(m.cfg.InstallRoot, "deployment")
 	if err := validateStagedRelease(stageDeployment, targetVersion); err != nil {
+		m.fail(operationID, err, recovery)
+		return
+	}
+	if err := checkDeploymentRepository(stageDeployment, m.repository); err != nil {
 		m.fail(operationID, err, recovery)
 		return
 	}

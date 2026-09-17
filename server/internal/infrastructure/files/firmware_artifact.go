@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -65,7 +66,21 @@ func (s *Service) ResolveFirmwareArtifact(fileID string) (artifact FirmwareArtif
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return FirmwareArtifact{}, fleeterror.NewInvalidArgumentErrorf("firmware file %s metadata is incomplete: %v", fileID, err)
 	}
-	checksum, err := computeFileChecksum(filePath)
+	file, err := os.Open(filePath)
+	if err != nil {
+		return FirmwareArtifact{}, fleeterror.NewInternalErrorf("failed to open firmware payload: %v", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return FirmwareArtifact{}, fleeterror.NewInternalErrorf("failed to stat firmware payload: %v", err)
+	}
+	defer func() {
+		if expected, cached := s.lookupFirmwareChecksum(canonical); cached {
+			s.recordFirmwarePayloadVerification(canonical, expected, info, err == nil)
+		}
+	}()
+	checksum, err := firmwareArtifactChecksum(file)
 	if err != nil {
 		return FirmwareArtifact{}, fleeterror.NewInternalErrorf("failed to compute firmware checksum: %v", err)
 	}

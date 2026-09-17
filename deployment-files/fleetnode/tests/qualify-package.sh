@@ -9,7 +9,7 @@ fi
 VERSION="$1"
 PACKAGE_DIR="$2"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-INSTALLER="$SCRIPT_DIR/../install-fleet-node.sh"
+INSTALLER_DIR=""
 DOWNLOAD_URL="file://$PACKAGE_DIR"
 CLEANUP_ALLOWED=0
 WORK_DIR=""
@@ -44,9 +44,14 @@ cleanup() {
     run_installer uninstall >/dev/null 2>&1 || true
   fi
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
+  [[ -z "$INSTALLER_DIR" ]] || rm -rf "$INSTALLER_DIR"
   exit "$status"
 }
 trap cleanup EXIT
+
+INSTALLER_DIR=$(mktemp -d)
+bash "$SCRIPT_DIR/../../scripts/package-release-installers.sh" "${RELEASE_REPOSITORY:-block/proto-fleet}" "$INSTALLER_DIR"
+INSTALLER="$INSTALLER_DIR/install-fleet-node.sh"
 
 for path in /opt/fleetnode /etc/fleetnode /var/lib/fleetnode /etc/systemd/system/fleet-node.service /usr/local/bin/fleetnode-enroll; do
   [[ ! -e "$path" ]] || fail "runner is not clean: $path already exists"
@@ -112,5 +117,6 @@ run_installer uninstall
 sudo test -f /var/lib/fleetnode/state.yaml || fail "uninstall removed state"
 getent passwd fleetnode >/dev/null || fail "uninstall removed the service account"
 
+rm -rf "$INSTALLER_DIR"
 trap - EXIT
 echo "Fleet Node package qualification passed"

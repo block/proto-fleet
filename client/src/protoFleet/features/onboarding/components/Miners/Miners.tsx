@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
@@ -7,6 +8,7 @@ import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
@@ -91,12 +93,20 @@ const Miners = ({
   }, [foundMiners]);
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
   const useCompactHeaderActions = isPhone;
+  const canReadFleetNodes = useHasPermission("fleetnode:read");
   const coverageWarning = remoteDiscoveryWarning ? (
     <Callout
       className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
       intent="warning"
       prefixIcon={<Alert />}
       title={remoteDiscoveryWarning}
+      subtitle={
+        canReadFleetNodes ? (
+          <Link to="/settings/nodes" className="underline">
+            View Fleet Node settings
+          </Link>
+        ) : undefined
+      }
       testId="remote-discovery-warning"
     />
   ) : null;

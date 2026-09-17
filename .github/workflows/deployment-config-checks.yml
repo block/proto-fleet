@@ -47,6 +47,9 @@ jobs:
       - name: Validate installer overlay migration
         run: ./deployment-files/tests/test-install-overlay-migration.sh
 
+      - name: Validate release repository selection and packaged installers
+        run: bash deployment-files/tests/test-release-repository.sh
+
       - name: Validate uninstaller updater cleanup
         run: ./deployment-files/tests/test-uninstall-updater-cleanup.sh
 

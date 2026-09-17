@@ -91,6 +91,15 @@ Uninstall order:
 
 ## Release Bundle Contents
 
+The Windows installer consumes a local bundle, not a GitHub download endpoint.
+It reads `release_repository` from the bundle's `deployment/version.txt` and
+checks the existing WSL installation before extraction. Missing metadata in a
+legacy installation means `block/proto-fleet`; a different repository is
+rejected. The selected source is persisted in the deployment `.env` for update
+consistency checks. Local deployment directories without `version.txt` retain
+the official default; explicitly supplied release tarballs must contain metadata.
+See [release repository rules](../README.md#release-repositories-and-forks).
+
 Release tarball `proto-fleet-<tag>.tar.gz` includes both Windows executables at:
 - `deployment/install/installer.exe`
 - `deployment/install/uninstall.exe`

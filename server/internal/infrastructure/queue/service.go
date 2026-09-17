@@ -62,7 +62,7 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 		deviceIDs[i] = message.deviceID
 		payloads[i] = string(message.payload)
 	}
-	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+	enqueue := func(q sqlc.Querier) error {
 		batchStatus, err := q.LockCommandBatch(ctx, commandBatchLogUUID)
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to lock command batch: %v", err)
@@ -81,7 +81,13 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 			return fleeterror.NewInternalErrorf("failed to enqueue messages: %v", err)
 		}
 		return nil
-	})
+	}
+	// Rollout dispatch joins its caller's transaction so workers cannot see
+	// commands until the matching attempt and reservation are durable too.
+	if q := db.GetTxQueries(ctx); q != nil {
+		return enqueue(q)
+	}
+	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, enqueue)
 }
 
 func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Message, error) {

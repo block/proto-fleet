@@ -263,9 +263,9 @@ const (
 	AckCode_ACK_CODE_PARTIAL AckCode = 2
 	// BAD_REQUEST: malformed payload, missing/invalid mode, invalid targets/ports, limits exceeded.
 	AckCode_ACK_CODE_BAD_REQUEST AckCode = 3
-	// AGENT_INCAPABLE: this agent cannot execute the requested mode (mdns, nmap missing). Retry on a different node.
+	// AGENT_INCAPABLE: this agent cannot execute the requested mode (for example, mDNS). Retry on a different node.
 	AckCode_ACK_CODE_AGENT_INCAPABLE AckCode = 4
-	// SCAN_FAILED: scanning machinery errored (nmap subprocess, etc.).
+	// SCAN_FAILED: the TCP scanner failed (for example, a local socket resource error).
 	AckCode_ACK_CODE_SCAN_FAILED AckCode = 5
 	// REPORT_FAILED: scan finished, report upload to the server failed.
 	AckCode_ACK_CODE_REPORT_FAILED AckCode = 6

@@ -19,6 +19,8 @@ public sealed class EnvConfigurator : IEnvConfigurator
         }
 
         var envPath = Path.Combine(context.DeploymentRootWindowsPath, ".env");
+        var metadataPath = Path.Combine(context.DeploymentRootWindowsPath, "version.txt");
+        var repository = ReleaseSource.FromMetadata(File.Exists(metadataPath) ? File.ReadAllText(metadataPath) : "");
         Dictionary<string, string> values;
 
         if (!string.IsNullOrWhiteSpace(context.Options.ConfigFilePath))
@@ -29,8 +31,8 @@ public sealed class EnvConfigurator : IEnvConfigurator
                 return Task.FromResult(InstallerStepResult.Failed($"Config file '{configPath}' does not exist."));
             }
 
-            File.Copy(configPath, envPath, overwrite: true);
-            values = EnvFile.Parse(envPath);
+            values = EnvFile.Parse(configPath);
+            ReleaseSource.CheckEnvironment(File.ReadAllText(configPath), repository);
             if (!EnvFile.HasRequiredKeys(values, out var missing))
             {
                 return Task.FromResult(InstallerStepResult.Failed($"Provided .env is missing required keys: {string.Join(", ", missing)}"));
@@ -44,24 +46,33 @@ public sealed class EnvConfigurator : IEnvConfigurator
         else if (File.Exists(envPath))
         {
             values = EnvFile.Parse(envPath);
+            ReleaseSource.CheckEnvironment(File.ReadAllText(envPath), repository);
             if (!EnvFile.HasRequiredKeys(values, out _))
             {
                 values = MergeGenerated(values);
-                EnvFile.Write(envPath, values);
                 _logSink.Warn("Existing .env was incomplete. Missing required keys were generated.");
             }
         }
         else
         {
             values = EnvFile.BuildGenerated();
-            EnvFile.Write(envPath, values);
         }
 
         if (!values.ContainsKey("SESSION_COOKIE_SECURE"))
         {
             values["SESSION_COOKIE_SECURE"] = "false";
-            EnvFile.Write(envPath, values);
         }
+
+        // CheckEnvironment accepts exported assignments, but EnvFile preserves
+        // their prefix in the key. Remove that alias before writing one canonical key.
+        foreach (var key in values.Keys.Where(key =>
+            key.StartsWith("export", StringComparison.Ordinal) && key.Length > 6 && char.IsWhiteSpace(key[6]) &&
+            key[6..].TrimStart() == ReleaseSource.EnvironmentKey).ToArray())
+        {
+            values.Remove(key);
+        }
+        values[ReleaseSource.EnvironmentKey] = repository;
+        EnvFile.Write(envPath, values);
 
         return Task.FromResult(InstallerStepResult.Succeeded());
     }

@@ -732,11 +732,12 @@ type Device struct {
 }
 
 type DeviceFirmwareDeployment struct {
-	DeviceID         int64
-	FirmwareChecksum string
-	FirmwareVersion  string
-	RolloutID        sql.NullInt64
-	DeployedAt       time.Time
+	DeviceID             int64
+	FirmwareChecksum     string
+	FirmwareVersion      string
+	RolloutID            sql.NullInt64
+	DeployedAt           time.Time
+	LastCommandBatchUuid sql.NullString
 }
 
 type DeviceMetric struct {
@@ -994,6 +995,13 @@ type FirmwareRolloutDevice struct {
 	BaselineOpenErrors      sql.NullInt32
 	BaselineAt              sql.NullTime
 	AddedAt                 time.Time
+}
+
+type FirmwareRolloutReservation struct {
+	ChannelID       int64
+	DeviceID        int64
+	BatchUuid       string
+	ObservedOffline bool
 }
 
 type FirmwareRolloutSuppressedDevice struct {
@@ -1341,6 +1349,8 @@ type ReleaseChannelFirmware struct {
 	AssignmentGeneration       int64
 	AssignedBy                 int64
 	UpdatedAt                  time.Time
+	PreviousFirmwareChecksum   string
+	PreviousFirmwareVersion    string
 }
 
 type ReleaseChannelMatch struct {
