@@ -19,7 +19,9 @@ interface FirmwarePickerButtonProps {
   options: FirmwareOption[];
   // null retains an assignment whose uploaded file is unavailable; "" clears it.
   value: string | null;
-  unresolvedLabel?: string;
+  // The server snapshots this label when assigning the payload; later catalog
+  // metadata edits do not change either the assignment or its option label.
+  assignment?: { value: string | null; label: string };
   onChange: (value: string) => void;
   testId: string;
 }
@@ -27,14 +29,7 @@ interface FirmwarePickerButtonProps {
 // Button-styled firmware selector for the model group header: the trigger
 // shows the currently selected version and opens a listbox of the available
 // versions. The form-field Select is too heavy for this spot.
-const FirmwarePickerContent = ({
-  label,
-  options,
-  value,
-  unresolvedLabel,
-  onChange,
-  testId,
-}: FirmwarePickerButtonProps) => {
+const FirmwarePickerContent = ({ label, options, value, assignment, onChange, testId }: FirmwarePickerButtonProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -44,6 +39,7 @@ const FirmwarePickerContent = ({
   }, [setPopoverRenderMode]);
 
   const selected = options.find((option) => option.value === value);
+  const selectedLabel = assignment?.value === value ? assignment.label : selected?.label;
 
   return (
     <div className="relative">
@@ -51,7 +47,7 @@ const FirmwarePickerContent = ({
         <Button
           variant={variants.secondary}
           size={sizes.compact}
-          text={selected?.label ?? (value === "" ? "No firmware" : unresolvedLabel || "Firmware details unavailable")}
+          text={value === "" ? "No firmware" : selectedLabel || "Firmware details unavailable"}
           suffixIcon={
             <ChevronDown width="w-3" className={clsx("shrink-0 transition-transform", open && "rotate-180")} />
           }
@@ -90,7 +86,9 @@ const FirmwarePickerContent = ({
               >
                 <Radio selected={value === option.value} />
                 <div className="min-w-0 grow">
-                  <div className="truncate text-emphasis-300">{option.label}</div>
+                  <div className="truncate text-emphasis-300">
+                    {option.value !== "" && assignment?.value === option.value ? assignment.label : option.label}
+                  </div>
                   {option.description ? (
                     <div className="text-200 text-text-primary-70">{option.description}</div>
                   ) : null}

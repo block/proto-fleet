@@ -47,6 +47,14 @@ const MAX_FIRMWARE_ASSIGNMENTS = 100;
 const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
 
+function channelTextError(value: string, label: string, maxLength: number): string | undefined {
+  const submitted = value.trim();
+  if (submitted.includes("\u0000")) return `${label} cannot contain null characters.`;
+  // Protobuf string limits count Unicode code points, not UTF-16 code units.
+  if (Array.from(submitted).length > maxLength) return `${label} must be ${maxLength} characters or fewer.`;
+  return undefined;
+}
+
 // Attention pill with a pulsing dot, shown while an update is ongoing.
 const UpdateActivePill = ({ count, testId }: { count: number; testId?: string }) => (
   <span
@@ -122,10 +130,9 @@ const FirmwarePickerCell = ({
   // The checksum identifies the assignment even when its uploaded file is gone.
   // Keep that state distinct from an explicitly staged clear (the empty string).
   const value = stagedFileId ?? (group.firmwareFileId || (group.firmwareChecksum ? null : ""));
-  const unresolvedLabel =
-    !invalidSelection && (stagedFileId === undefined || stagedFileId === group.firmwareFileId)
-      ? group.firmwareVersion
-      : undefined;
+  const assignment = group.firmwareChecksum
+    ? { value: group.firmwareFileId || null, label: group.firmwareVersion }
+    : undefined;
 
   return (
     <div className="grid gap-1">
@@ -133,7 +140,7 @@ const FirmwarePickerCell = ({
         label={`Firmware for ${pairLabel(group)}`}
         options={options}
         value={value}
-        unresolvedLabel={unresolvedLabel}
+        assignment={assignment}
         onChange={(value) => onStageFirmware(group, value)}
         testId={`channel-firmware-select-${group.model}`}
       />
@@ -221,9 +228,12 @@ const ReleaseChannelManageView = ({
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
   const isWriting = isSaving || isApplying;
+  const nameError = name.trim() === "" ? "Enter a name." : channelTextError(name, "Name", 100);
+  const descriptionError = channelTextError(description, "Description", 1000);
   const canSave =
     dirty &&
-    name.trim() !== "" &&
+    !nameError &&
+    !descriptionError &&
     Object.keys(rolloutBehaviorErrors(behavior)).length === 0 &&
     (channel !== undefined || !hasConflicts) &&
     !isWriting;
@@ -378,6 +388,7 @@ const ReleaseChannelManageView = ({
             label="Name"
             initValue={name}
             onChange={(value) => setName(value)}
+            error={nameError}
             autoFocus={!channel}
           />
           <Textarea
@@ -385,6 +396,7 @@ const ReleaseChannelManageView = ({
             label="Description"
             initValue={description}
             onChange={(value) => setDescription(value)}
+            error={descriptionError}
           />
         </div>
       </Section>

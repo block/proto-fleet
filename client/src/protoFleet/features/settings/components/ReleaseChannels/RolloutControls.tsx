@@ -116,19 +116,17 @@ const RolloutControls = ({
           disabled={disabled}
           testId="rollout-method"
         />
-        {paced ? (
-          <Select
-            id="rollout-order"
-            label="Order"
-            options={orderOptions}
-            value={String(
-              behavior.order === RolloutOrder.UNSPECIFIED ? RolloutOrder.LEAST_EFFICIENT_FIRST : behavior.order,
-            )}
-            onChange={(value) => update({ order: Number(value) as RolloutOrder })}
-            disabled={disabled}
-            testId="rollout-order"
-          />
-        ) : null}
+        <Select
+          id="rollout-order"
+          label="Order"
+          options={orderOptions}
+          value={String(
+            behavior.order === RolloutOrder.UNSPECIFIED ? RolloutOrder.LEAST_EFFICIENT_FIRST : behavior.order,
+          )}
+          onChange={(value) => update({ order: Number(value) as RolloutOrder })}
+          disabled={disabled}
+          testId="rollout-order"
+        />
       </div>
       <p className="text-200 text-text-primary-70">
         {methodHelpText[behavior.method] || methodHelpText[RolloutMethod.ALL_AT_ONCE]}

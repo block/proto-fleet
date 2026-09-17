@@ -458,6 +458,7 @@ describe("release channel firmware assignments", () => {
   test.each([
     ["missing", []],
     ["mismatched", [{ ...replacementFile, target_model: "Other model" }]],
+    ["edited", [replacementFile]],
   ] as const)("preserves the assigned version when uploaded file metadata is %s", (_, files) => {
     renderManage(assignedChannel("replacement"), undefined, false, [...files]);
     const picker = screen.getByTestId("channel-firmware-select-Rig");
@@ -466,6 +467,31 @@ describe("release channel firmware assignments", () => {
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
     fireEvent.click(picker);
     expect(screen.getByRole("option", { name: "No firmware" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  test("keeps the assignment snapshot in the open picker through catalog edits, staging, and discard", () => {
+    const otherFile = { ...replacementFile, id: "different-payload", firmware_version: "1.4.5" };
+    const { updateFirmwareFiles, onApply } = renderManage(assignedChannel("replacement"), undefined, false, [
+      { ...replacementFile, firmware_version: "1.4.3" },
+      otherFile,
+    ]);
+    const picker = screen.getByTestId("channel-firmware-select-Rig");
+    fireEvent.click(picker);
+    updateFirmwareFiles([replacementFile, otherFile]);
+
+    expect(picker).toHaveTextContent("1.4.3");
+    expect(screen.getByRole("option", { name: /^1\.4\.3/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("option", { name: /^1\.4\.4/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /^1\.4\.5/ }));
+    expect(picker).toHaveTextContent("1.4.5");
+    fireEvent.click(picker);
+    expect(screen.getByRole("option", { name: /^1\.4\.3/ })).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(picker).toHaveTextContent("1.4.3");
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
   });
 
   test("keeps a staged replacement explicit when its file metadata disappears", () => {

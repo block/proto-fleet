@@ -37,7 +37,7 @@ describe("FirmwarePickerButton", () => {
         label="Firmware"
         options={options}
         value={null}
-        unresolvedLabel="1.4.3"
+        assignment={{ value: null, label: "1.4.3" }}
         onChange={onChange}
         testId="picker"
       />,
@@ -52,7 +52,7 @@ describe("FirmwarePickerButton", () => {
         label="Firmware"
         options={options}
         value=""
-        unresolvedLabel="1.4.3"
+        assignment={{ value: null, label: "1.4.3" }}
         onChange={onChange}
         testId="picker"
       />,
@@ -60,16 +60,19 @@ describe("FirmwarePickerButton", () => {
     expect(screen.getByTestId("picker")).toHaveTextContent("No firmware");
   });
 
-  test("uses available option metadata and falls back to the assignment when that metadata disappears", () => {
+  test("uses the saved assignment label even when matching catalog metadata changes or disappears", () => {
     const props = {
       label: "Firmware",
       value: "uploaded-file",
-      unresolvedLabel: "1.4.3",
+      assignment: { value: "uploaded-file", label: "1.4.3" },
       onChange: vi.fn(),
       testId: "picker",
     };
     const { rerender } = render(<FirmwarePickerButton {...props} options={options} />);
-    expect(screen.getByTestId("picker")).toHaveTextContent("1.4.4");
+    expect(screen.getByTestId("picker")).toHaveTextContent("1.4.3");
+    fireEvent.click(screen.getByTestId("picker"));
+    expect(screen.getByRole("option", { name: "1.4.3" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("option", { name: "1.4.4" })).not.toBeInTheDocument();
     rerender(<FirmwarePickerButton {...props} options={[options[0]]} />);
     expect(screen.getByTestId("picker")).toHaveTextContent("1.4.3");
   });

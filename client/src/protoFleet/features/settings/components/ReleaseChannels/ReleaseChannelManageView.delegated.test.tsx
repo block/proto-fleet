@@ -25,13 +25,13 @@ vi.mock("@/shared/features/toaster", () => ({
   STATUSES: { success: "success", error: "error" },
 }));
 
-const delegatedChannel = (): ChannelView => ({
+const delegatedChannel = (order = RolloutOrder.RANDOM): ChannelView => ({
   ...create(ReleaseChannelSchema, {
     id: 1n,
     name: "Externally controlled",
     behavior: {
       method: RolloutMethod.DELEGATED,
-      order: RolloutOrder.RANDOM,
+      order,
       maxConcurrentOffline: 7,
       controllerTimeoutSeconds: 120,
     },
@@ -68,6 +68,61 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("existing delegated release channels", () => {
+  it("shows and saves single-batch order when the offline budget throttles dispatch", async () => {
+    const channel = delegatedChannel();
+    channel.behavior = create(RolloutBehaviorSchema, {
+      method: RolloutMethod.ALL_AT_ONCE,
+      order: RolloutOrder.RANDOM,
+      maxConcurrentOffline: 1,
+    });
+    const onSave = renderManage(channel);
+    expect(screen.getByTestId("rollout-order")).toHaveTextContent("Random");
+    expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Pilot batch size (miners)")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("rollout-order"));
+    fireEvent.click(screen.getByRole("option", { name: "Least efficient first" }));
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.ALL_AT_ONCE,
+          order: RolloutOrder.LEAST_EFFICIENT_FIRST,
+          maxConcurrentOffline: 1,
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [RolloutOrder.RANDOM, "Random", RolloutOrder.LEAST_EFFICIENT_FIRST, "Least efficient first"],
+    [RolloutOrder.LEAST_EFFICIENT_FIRST, "Least efficient first", RolloutOrder.RANDOM, "Random"],
+    [RolloutOrder.UNSPECIFIED, "Least efficient first", RolloutOrder.RANDOM, "Random"],
+  ] as const)(
+    "shows order %s and saves a changed order without altering external control",
+    async (order, label, nextOrder, nextLabel) => {
+      const channel = delegatedChannel(order);
+      const onSave = renderManage(channel);
+      expect(screen.getByTestId("rollout-order")).toHaveTextContent(label);
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
+      fireEvent.click(screen.getByTestId("rollout-order"));
+      expect(screen.getByRole("option", { name: label })).toHaveAttribute("aria-selected", "true");
+      fireEvent.click(screen.getByRole("option", { name: nextLabel }));
+      expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
+      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          behavior: create(RolloutBehaviorSchema, {
+            method: RolloutMethod.DELEGATED,
+            order: nextOrder,
+            controllerTimeoutSeconds: 120,
+            maxConcurrentOffline: 7,
+          }),
+        }),
+      );
+    },
+  );
+
   it("displays external control and preserves its valid settings when only the name changes", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
