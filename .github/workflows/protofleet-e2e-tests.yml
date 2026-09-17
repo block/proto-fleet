@@ -562,6 +562,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
           (github.event_name == 'schedule' ||
+           github.event_name == 'workflow_dispatch' ||
            needs.e2e-tests.result == 'failure' ||
            needs.visual-tests.result == 'failure') }}
     permissions:
