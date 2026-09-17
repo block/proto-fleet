@@ -9,7 +9,9 @@ import {
   type RolloutDevice,
   RolloutDevicePhase,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import Modal, { sizes } from "@/shared/components/Modal";
 
 interface ModelMinersModalProps {
@@ -38,38 +40,61 @@ const ModelMinersModal = ({
   listRolloutDevices,
   onClose,
 }: ModelMinersModalProps) => {
-  const [miners, setMiners] = useState<ReleaseChannelMiner[] | null>(null);
-  const [devices, setDevices] = useState<RolloutDevice[]>([]);
-
   const activeRolloutId = activeRollout?.id;
+  const context = JSON.stringify([channelId.toString(), group.manufacturer, group.model, activeRolloutId?.toString()]);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const request = useMemo(
+    () => ({ channelId, group, activeRollout, listChannelMiners, listRolloutDevices, retryAttempt }),
+    [channelId, group, activeRollout, listChannelMiners, listRolloutDevices, retryAttempt],
+  );
+  const [snapshot, setSnapshot] = useState({
+    context,
+    request: null as object | null,
+    miners: null as ReleaseChannelMiner[] | null,
+    devices: [] as RolloutDevice[],
+    error: null as string | null,
+  });
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      listChannelMiners(channelId, group.manufacturer, group.model),
-      activeRolloutId ? listRolloutDevices(activeRolloutId) : Promise.resolve<RolloutDevice[]>([]),
+      request.listChannelMiners(request.channelId, request.group.manufacturer, request.group.model),
+      request.activeRollout
+        ? request.listRolloutDevices(request.activeRollout.id)
+        : Promise.resolve<RolloutDevice[]>([]),
     ])
       .then(([nextMiners, nextDevices]) => {
         if (cancelled) return;
-        setMiners(nextMiners);
-        setDevices(nextDevices);
+        setSnapshot({ context, request, miners: nextMiners, devices: nextDevices, error: null });
       })
-      .catch(() => {
-        if (!cancelled) setMiners((current) => current ?? []);
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setSnapshot((previous) => ({
+          ...(previous.context === context ? previous : { context, miners: null, devices: [] }),
+          request,
+          error: error instanceof Error && error.message ? error.message : "The request failed. Try again.",
+        }));
       });
     return () => {
       cancelled = true;
     };
     // `group` and `activeRollout` are new objects on every poll; refetching
     // on them is what keeps the table live.
-  }, [channelId, group, activeRollout, activeRolloutId, listChannelMiners, listRolloutDevices]);
+  }, [context, request]);
+
+  // Do not display the preceding model's data under a new context, even in the
+  // render before its request settles. Publish both lists together.
+  const current = snapshot.context === context ? snapshot : undefined;
+  const miners = current?.miners ?? null;
+  const isLoading = current?.request !== request;
+  const error = current?.error;
 
   const phases = useMemo(() => {
     const byIdentifier: Record<string, RolloutDevicePhase> = {};
-    for (const device of devices) {
+    for (const device of current?.devices ?? []) {
       byIdentifier[device.deviceIdentifier] = device.phase;
     }
     return byIdentifier;
-  }, [devices]);
+  }, [current?.devices]);
 
   return (
     <Modal
@@ -80,12 +105,30 @@ const ModelMinersModal = ({
       onDismiss={onClose}
       buttons={[{ text: "Done", variant: variants.primary, onClick: onClose }]}
     >
+      {error ? (
+        <div role="alert" aria-busy={isLoading} className="mb-4">
+          <Callout
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title={miners === null ? "Couldn't load miners" : "Miner details may be out of date"}
+            subtitle={miners === null ? error : `${error} Showing the last loaded data.`}
+            buttonText={isLoading ? "Retrying..." : "Retry"}
+            buttonOnClick={() => {
+              if (!isLoading) setRetryAttempt((attempt) => attempt + 1);
+            }}
+          />
+        </div>
+      ) : null}
       {miners === null ? (
-        <p className="py-4 text-200 text-text-primary-50" data-testid="channel-miners-loading">
-          Loading miners…
-        </p>
+        isLoading ? (
+          <p className="py-4 text-200 text-text-primary-50" data-testid="channel-miners-loading">
+            Loading miners…
+          </p>
+        ) : null
+      ) : miners.length === 0 ? (
+        <p className="py-4 text-200 text-text-primary-50">No miners in this model group.</p>
       ) : (
-        <table className="w-full text-left text-200">
+        <table className="w-full text-left text-200" aria-busy={isLoading}>
           <thead>
             <tr className="text-text-primary-50">
               <th className="py-1.5 pr-4 font-normal">Miner</th>

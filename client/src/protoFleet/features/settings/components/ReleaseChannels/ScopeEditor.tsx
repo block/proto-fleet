@@ -16,6 +16,8 @@ import {
   SiteSelectionModal,
 } from "@/protoFleet/components/TargetSelectionModal";
 
+import { useHasPermission } from "@/protoFleet/store";
+
 const PREVIEW_DEBOUNCE_MS = 300;
 
 type SelectionKind = "site" | "building" | "rack" | "group" | "miner";
@@ -44,6 +46,10 @@ const ScopeEditor = ({
   editingExistingChannel = false,
   disabled = false,
 }: ScopeEditorProps): ReactElement => {
+  const canReadSites = useHasPermission("site:read");
+  const canReadRacks = useHasPermission("rack:read");
+  const canReadMiners = useHasPermission("miner:read");
+  const canSelectTargets = canReadSites || canReadRacks || canReadMiners;
   const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
   const [preview, setPreview] = useState<PreviewReleaseChannelScopeResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -88,36 +94,46 @@ const ScopeEditor = ({
   return (
     <div className="flex flex-col gap-3" data-testid="scope-editor">
       <div className="grid">
-        <TargetSelectButton
-          label="Sites"
-          value={getTargetButtonLabel(scope.siteIds.length, "site")}
-          disabled={disabled}
-          onClick={() => setOpenModal("site")}
-        />
-        <TargetSelectButton
-          label="Buildings"
-          value={getTargetButtonLabel(scope.buildingIds.length, "building")}
-          disabled={disabled}
-          onClick={() => setOpenModal("building")}
-        />
-        <TargetSelectButton
-          label="Racks"
-          value={getTargetButtonLabel(scope.rackIds.length, "rack")}
-          disabled={disabled}
-          onClick={() => setOpenModal("rack")}
-        />
-        <TargetSelectButton
-          label="Groups"
-          value={getTargetButtonLabel(scope.groupIds.length, "group")}
-          disabled={disabled}
-          onClick={() => setOpenModal("group")}
-        />
-        <TargetSelectButton
-          label="Miners"
-          value={getTargetButtonLabel(scope.deviceIdentifiers.length, "miner")}
-          disabled={disabled}
-          onClick={() => setOpenModal("miner")}
-        />
+        {canReadSites ? (
+          <TargetSelectButton
+            label="Sites"
+            value={getTargetButtonLabel(scope.siteIds.length, "site")}
+            disabled={disabled}
+            onClick={() => setOpenModal("site")}
+          />
+        ) : null}
+        {canReadSites ? (
+          <TargetSelectButton
+            label="Buildings"
+            value={getTargetButtonLabel(scope.buildingIds.length, "building")}
+            disabled={disabled}
+            onClick={() => setOpenModal("building")}
+          />
+        ) : null}
+        {canReadRacks ? (
+          <TargetSelectButton
+            label="Racks"
+            value={getTargetButtonLabel(scope.rackIds.length, "rack")}
+            disabled={disabled}
+            onClick={() => setOpenModal("rack")}
+          />
+        ) : null}
+        {canReadRacks ? (
+          <TargetSelectButton
+            label="Groups"
+            value={getTargetButtonLabel(scope.groupIds.length, "group")}
+            disabled={disabled}
+            onClick={() => setOpenModal("group")}
+          />
+        ) : null}
+        {canReadMiners ? (
+          <TargetSelectButton
+            label="Miners"
+            value={getTargetButtonLabel(scope.deviceIdentifiers.length, "miner")}
+            disabled={disabled}
+            onClick={() => setOpenModal("miner")}
+          />
+        ) : null}
       </div>
 
       <ScopePreview
@@ -125,48 +141,58 @@ const ScopeEditor = ({
         preview={preview}
         error={previewError}
         editingExistingChannel={editingExistingChannel}
+        canSelectTargets={canSelectTargets}
       />
 
-      <SiteSelectionModal
-        open={openModal === "site"}
-        selectedSiteIds={toStrings(scope.siteIds)}
-        onDismiss={() => setOpenModal(null)}
-        onSave={(selection) => {
-          update({ siteIds: toBigInts(selection.siteIds) });
-          setOpenModal(null);
-        }}
-      />
-      <BuildingSelectionModal
-        open={openModal === "building"}
-        selectedBuildingIds={toStrings(scope.buildingIds)}
-        onDismiss={() => setOpenModal(null)}
-        onSave={(buildingIds) => {
-          update({ buildingIds: toBigInts(buildingIds) });
-          setOpenModal(null);
-        }}
-      />
-      <RackSelectionModal
-        open={openModal === "rack"}
-        selectedRackIds={toStrings(scope.rackIds)}
-        onDismiss={() => setOpenModal(null)}
-        onSave={(rackIds) => {
-          update({ rackIds: toBigInts(rackIds) });
-          setOpenModal(null);
-        }}
-      />
-      <GroupSelectionModal
-        open={openModal === "group"}
-        selectedGroupIds={toStrings(scope.groupIds)}
-        onDismiss={() => setOpenModal(null)}
-        onSave={(groupIds) => {
-          update({ groupIds: toBigInts(groupIds) });
-          setOpenModal(null);
-        }}
-      />
-      {openModal === "miner" ? (
+      {canReadSites && openModal === "site" ? (
+        <SiteSelectionModal
+          open
+          selectedSiteIds={toStrings(scope.siteIds)}
+          onDismiss={() => setOpenModal(null)}
+          onSave={(selection) => {
+            update({ siteIds: toBigInts(selection.siteIds) });
+            setOpenModal(null);
+          }}
+        />
+      ) : null}
+      {canReadSites && openModal === "building" ? (
+        <BuildingSelectionModal
+          open
+          selectedBuildingIds={toStrings(scope.buildingIds)}
+          onDismiss={() => setOpenModal(null)}
+          onSave={(buildingIds) => {
+            update({ buildingIds: toBigInts(buildingIds) });
+            setOpenModal(null);
+          }}
+        />
+      ) : null}
+      {canReadRacks && openModal === "rack" ? (
+        <RackSelectionModal
+          open
+          selectedRackIds={toStrings(scope.rackIds)}
+          onDismiss={() => setOpenModal(null)}
+          onSave={(rackIds) => {
+            update({ rackIds: toBigInts(rackIds) });
+            setOpenModal(null);
+          }}
+        />
+      ) : null}
+      {canReadRacks && openModal === "group" ? (
+        <GroupSelectionModal
+          open
+          selectedGroupIds={toStrings(scope.groupIds)}
+          onDismiss={() => setOpenModal(null)}
+          onSave={(groupIds) => {
+            update({ groupIds: toBigInts(groupIds) });
+            setOpenModal(null);
+          }}
+        />
+      ) : null}
+      {canReadMiners && openModal === "miner" ? (
         <MinerSelectionModal
           open
           selectedMinerIds={scope.deviceIdentifiers}
+          filterConfig={canReadRacks ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setOpenModal(null)}
           onSave={(selection) => {
             update({ deviceIdentifiers: selection.selectedMinerIds });
@@ -184,16 +210,20 @@ const ScopePreview = ({
   preview,
   error,
   editingExistingChannel,
+  canSelectTargets,
 }: {
   scope: ReleaseChannelScope;
   preview: PreviewReleaseChannelScopeResponse | null;
   error: string | null;
   editingExistingChannel: boolean;
+  canSelectTargets: boolean;
 }): ReactElement => {
   if (isScopeEmpty(scope)) {
     return (
       <p className="text-200 text-text-primary-50" data-testid="scope-preview">
-        Select sites, buildings, racks, groups or individual miners. A miner can belong to one release channel.
+        {canSelectTargets
+          ? "Select sites, buildings, racks, groups or individual miners. A miner can belong to one release channel."
+          : "You can save an empty channel. Selecting targets requires permission to view sites, racks or miners."}
       </p>
     );
   }

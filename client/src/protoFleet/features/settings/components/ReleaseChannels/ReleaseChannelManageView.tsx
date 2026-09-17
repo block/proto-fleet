@@ -66,7 +66,7 @@ function Section({ title, subtext, children }: { title: string; subtext?: string
 interface FirmwarePickerCellProps {
   group: ReleaseChannelModelGroup;
   firmwareFiles: FirmwareFileInfo[];
-  stagedFileId: string;
+  stagedFileId: string | undefined;
   onStageFirmware: (group: ReleaseChannelModelGroup, fileId: string) => void;
 }
 
@@ -89,12 +89,18 @@ const FirmwarePickerCell = ({ group, firmwareFiles, stagedFileId, onStageFirmwar
     ],
     [firmwareFiles, group],
   );
+  // The checksum identifies the assignment even when its uploaded file is gone.
+  // Keep that state distinct from an explicitly staged clear (the empty string).
+  const value = stagedFileId ?? (group.firmwareFileId || (group.firmwareChecksum ? null : ""));
+  const unresolvedLabel =
+    stagedFileId === undefined || stagedFileId === group.firmwareFileId ? group.firmwareVersion : undefined;
 
   return (
     <FirmwarePickerButton
       label={`Firmware for ${pairLabel(group)}`}
       options={options}
-      value={stagedFileId}
+      value={value}
+      unresolvedLabel={unresolvedLabel}
       onChange={(value) => onStageFirmware(group, value)}
       testId={`channel-firmware-select-${group.model}`}
     />
@@ -214,7 +220,12 @@ const ReleaseChannelManageView = ({
   };
 
   const dirtyAssignments = modelGroups
-    .filter((group) => stagedValue(group) !== group.firmwareFileId)
+    .filter((group) => {
+      const fileId = staged[pairKey(group)];
+      return (
+        fileId !== undefined && (fileId !== group.firmwareFileId || (fileId === "" && group.firmwareChecksum !== ""))
+      );
+    })
     .map(assignmentFor);
 
   // Human-readable version for a staged file id, for the dialog summary.
@@ -360,7 +371,7 @@ const ReleaseChannelManageView = ({
                         <FirmwarePickerCell
                           group={group}
                           firmwareFiles={firmwareFiles}
-                          stagedFileId={stagedValue(group)}
+                          stagedFileId={staged[pairKey(group)]}
                           onStageFirmware={(g, fileId) => setStaged((prev) => ({ ...prev, [pairKey(g)]: fileId }))}
                         />
                       </td>

@@ -17,7 +17,9 @@ interface FirmwarePickerButtonProps {
   // Accessible name for the trigger, e.g. "Firmware for Rig".
   label: string;
   options: FirmwareOption[];
-  value: string;
+  // null retains an assignment whose uploaded file is unavailable; "" clears it.
+  value: string | null;
+  unresolvedLabel?: string;
   onChange: (value: string) => void;
   testId: string;
 }
@@ -25,7 +27,14 @@ interface FirmwarePickerButtonProps {
 // Button-styled firmware selector for the model group header: the trigger
 // shows the currently selected version and opens a listbox of the available
 // versions. The form-field Select is too heavy for this spot.
-const FirmwarePickerContent = ({ label, options, value, onChange, testId }: FirmwarePickerButtonProps) => {
+const FirmwarePickerContent = ({
+  label,
+  options,
+  value,
+  unresolvedLabel,
+  onChange,
+  testId,
+}: FirmwarePickerButtonProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -42,7 +51,7 @@ const FirmwarePickerContent = ({ label, options, value, onChange, testId }: Firm
         <Button
           variant={variants.secondary}
           size={sizes.compact}
-          text={selected?.label ?? "No firmware"}
+          text={selected?.label ?? (value === "" ? "No firmware" : unresolvedLabel || "Firmware details unavailable")}
           suffixIcon={
             <ChevronDown width="w-3" className={clsx("shrink-0 transition-transform", open && "rotate-180")} />
           }
