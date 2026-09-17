@@ -1,7 +1,7 @@
 ---
 title: "Multi-site: apply site scope to Dashboard data"
 date: 2026-06-20
-status: draft
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/519
 ---

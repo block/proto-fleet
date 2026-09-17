@@ -1,7 +1,7 @@
 ---
 title: "Refactor sitemap import around a canonical resolved plan"
 date: 2026-07-22
-status: draft
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/767
 ---

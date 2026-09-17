@@ -2,7 +2,7 @@
 title: Replace Nmap with shared TCP discovery
 date: 2026-09-09
 tracker: https://github.com/block/proto-fleet/pull/1033
-status: implementing
+status: completed
 type: plan
 ---
 

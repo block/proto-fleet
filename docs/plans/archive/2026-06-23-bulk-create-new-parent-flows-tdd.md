@@ -1,7 +1,7 @@
 ---
 title: "Multi-site UI hardening: create-new parent from bulk/row actions"
 date: 2026-06-23
-status: implementing
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/pull/551
 ---

@@ -1,7 +1,7 @@
 ---
 title: "Multi-site: audit and scope site-aware Settings pages"
 date: 2026-06-23
-status: implementing
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/524
 ---

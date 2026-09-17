@@ -1,7 +1,7 @@
 ---
 title: "Rack-selection UX parity with miner selection in Building Management"
 date: 2026-07-16
-status: draft
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/758
 ---

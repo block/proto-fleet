@@ -1,7 +1,7 @@
 ---
 title: "Curtailment: admit reachable pool-less miners (commandability admission)"
 date: 2026-07-07
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/663
 ---

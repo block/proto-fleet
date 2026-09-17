@@ -1,7 +1,7 @@
 ---
 title: "Multi-site Phase 1a PR 1: scaffold + SitePicker"
 date: 2026-05-19
-status: draft
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/198
 ---

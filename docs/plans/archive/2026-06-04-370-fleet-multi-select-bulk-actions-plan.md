@@ -1,7 +1,7 @@
 ---
 title: "Fleet Sites + Buildings multi-select & bulk actions"
 date: 2026-06-04
-status: draft
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/370
 ---

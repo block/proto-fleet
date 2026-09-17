@@ -1,7 +1,7 @@
 ---
 title: "Multi-site Phase 1a PR 2: site CRUD modals"
 date: 2026-05-21
-status: draft
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/261
 ---

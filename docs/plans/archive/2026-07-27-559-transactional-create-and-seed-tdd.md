@@ -1,7 +1,7 @@
 ---
 title: "Transactional create-and-seed RPCs for building/site create flows"
 date: 2026-07-27
-status: implementing
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/issues/559
 ---

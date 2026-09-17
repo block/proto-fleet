@@ -1,7 +1,7 @@
 ---
 title: Import / Export Site Map (CSV)
 date: 2026-07-14
-status: draft
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/745
 ---

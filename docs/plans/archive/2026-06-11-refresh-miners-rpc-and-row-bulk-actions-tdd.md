@@ -1,8 +1,9 @@
 ---
 title: "RefreshMiners RPC + row refresh action"
 date: 2026-06-11
-status: draft
+status: completed
 type: tdd
+tracker: https://github.com/block/proto-fleet/pull/437
 ---
 
 # RefreshMiners RPC + row refresh action

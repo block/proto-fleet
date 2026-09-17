@@ -1,7 +1,7 @@
 ---
 title: Facility fan curtailment integration
 date: 2026-07-09
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/723
 ---

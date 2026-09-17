@@ -2,7 +2,7 @@
 title: "feat: Pluggable client observability with Datadog RUM + API tracing"
 date: 2026-07-11
 status: proposed
-type: feat
+type: plan
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 execution: code
