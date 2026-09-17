@@ -22,7 +22,7 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers());
 
-test.each(["All", "Dry cooler"])(
+test.each(["All", "Cooling"])(
   "warns about stale readings after a failed %s poll and clears on recovery",
   async (tab) => {
     render(<ContainerDiagnosticView />);
@@ -48,7 +48,7 @@ test("switching scopes cancels full telemetry, polls plant only, and restores fu
   expect(mocks.getCurrentTelemetry).toHaveBeenCalledTimes(1);
   expect(mocks.getCurrentTelemetry.mock.calls[0][0]).toEqual(["hashboard", "miner"]);
   const fullSignal = mocks.getCurrentTelemetry.mock.calls[0][1].signal as AbortSignal;
-  fireEvent.mouseDown(screen.getByRole("button", { name: "Dry cooler" }));
+  fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
   await act(async () => {});
   expect(fullSignal.aborted).toBe(true);
   expect(mocks.getCurrentTelemetry).toHaveBeenCalledTimes(2);
@@ -75,7 +75,7 @@ test("changing tabs aborts an in-flight full snapshot", async () => {
   mocks.getCurrentTelemetry.mockImplementationOnce(() => new Promise(() => {}));
   const view = render(<ContainerDiagnosticView />);
   const signal = mocks.getCurrentTelemetry.mock.calls[0][1].signal as AbortSignal;
-  fireEvent.mouseDown(screen.getByRole("button", { name: "Circuit breakers" }));
+  fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
   await act(async () => {});
   expect(signal.aborted).toBe(true);
   expect(mocks.getCurrentTelemetry.mock.calls[1][0]).toEqual(["miner"]);
