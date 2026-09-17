@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
@@ -23,6 +23,12 @@ const FIRMWARE_REQUEST_TIMEOUT_MS = 30_000;
 // Which surface the tab shows: the channels table, a channel's manage
 // view, or the create form.
 type View = { kind: "list" } | { kind: "manage"; channelId: bigint } | { kind: "create" };
+
+interface AcknowledgedWrites {
+  authSessionIdentity: string;
+  created: { id: bigint; name: string; snapshot: ChannelView[] } | null;
+  deleted: { id: bigint; snapshot: ChannelView[] }[];
+}
 
 interface ReleaseChannelsTabProps {
   // Shared with the active-updates monitor above the tabs, so one poll
@@ -53,7 +59,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   const isAuthenticated = useIsAuthenticated();
   const sessionGeneration = useSessionGeneration();
   const username = useUsername();
-  const authSessionIdentity = JSON.stringify([username, sessionGeneration]);
+  const authSessionIdentity = JSON.stringify([username, sessionGeneration, isAuthenticated]);
   const [firmwareCatalog, setFirmwareCatalog] = useState({
     authSessionIdentity,
     files: null as FirmwareFileInfo[] | null,
@@ -67,6 +73,61 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
   const [view, setView] = useState<View>(() =>
     initialManagedChannelId !== null ? { kind: "manage", channelId: initialManagedChannelId } : { kind: "list" },
   );
+  const [acknowledgedWrites, setAcknowledgedWrites] = useState<AcknowledgedWrites>({
+    authSessionIdentity,
+    created: null,
+    deleted: [],
+  });
+  const currentWrites =
+    isAuthenticated && acknowledgedWrites.authSessionIdentity === authSessionIdentity ? acknowledgedWrites : undefined;
+  const latestSnapshotRef = useRef({ channels, error });
+  latestSnapshotRef.current = { channels, error };
+  const refreshAttemptRef = useRef<{ authSessionIdentity: string } | null>(null);
+  const [refreshingSession, setRefreshingSession] = useState<string | null>(null);
+  const isRefreshingChannels = refreshingSession === authSessionIdentity;
+  const isCurrentSession = () => {
+    const auth = useFleetStore.getState().auth;
+    return auth.isAuthenticated && auth.username === username && auth.sessionGeneration === sessionGeneration;
+  };
+  const visibleChannels = useMemo(
+    () => channels.filter((channel) => !currentWrites?.deleted.some(({ id }) => id === channel.id)),
+    [channels, currentWrites],
+  );
+  if (acknowledgedWrites.authSessionIdentity !== authSessionIdentity) {
+    setAcknowledgedWrites({ authSessionIdentity, created: null, deleted: [] });
+  } else if (hasLoaded && error === null) {
+    // Mutation helpers await a follow-up read. The snapshot at their completion
+    // is the boundary: only a later successful read can confirm an absent ID.
+    const created =
+      acknowledgedWrites.created &&
+      (channels.some(({ id }) => id === acknowledgedWrites.created?.id) ||
+        channels !== acknowledgedWrites.created.snapshot)
+        ? null
+        : acknowledgedWrites.created;
+    const deleted = acknowledgedWrites.deleted.filter(
+      ({ id, snapshot }) => channels === snapshot || channels.some((channel) => channel.id === id),
+    );
+    if (created !== acknowledgedWrites.created || deleted.length !== acknowledgedWrites.deleted.length) {
+      setAcknowledgedWrites({ ...acknowledgedWrites, created, deleted });
+    }
+  }
+  const refreshChannels = async () => {
+    if (refreshAttemptRef.current?.authSessionIdentity === authSessionIdentity || !isCurrentSession()) return;
+    const attempt = { authSessionIdentity };
+    refreshAttemptRef.current = attempt;
+    setRefreshingSession(authSessionIdentity);
+    try {
+      await api.refresh();
+    } catch {
+      // The shared API exposes read failures on the page; keep the committed
+      // write acknowledgement and allow another retry.
+    } finally {
+      if (refreshAttemptRef.current === attempt) {
+        refreshAttemptRef.current = null;
+        setRefreshingSession(null);
+      }
+    }
+  };
   const [channelToDelete, setChannelToDelete] = useState<ChannelView | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const deletingRef = useRef(false);
@@ -150,10 +211,25 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     setIsDeleting(true);
     try {
       await deleteChannel(channelToDelete.id);
+      if (!isCurrentSession()) return;
+      const snapshot = latestSnapshotRef.current;
+      if (snapshot.error !== null || snapshot.channels.some(({ id }) => id === channelToDelete.id)) {
+        setAcknowledgedWrites((previous) => ({
+          authSessionIdentity,
+          created: previous.authSessionIdentity === authSessionIdentity ? previous.created : null,
+          deleted: [
+            ...(previous.authSessionIdentity === authSessionIdentity ? previous.deleted : []).filter(
+              ({ id }) => id !== channelToDelete.id,
+            ),
+            { id: channelToDelete.id, snapshot: snapshot.channels },
+          ],
+        }));
+      }
       pushToast({ message: `Deleted release channel ${channelToDelete.name}`, status: STATUSES.success });
       setChannelToDelete(null);
       setView({ kind: "list" });
     } catch (error) {
+      if (!isCurrentSession()) return;
       pushToast({
         message: error instanceof Error && error.message ? error.message : "Couldn't delete the release channel",
         status: STATUSES.error,
@@ -170,13 +246,38 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
 
   // Resolved fresh on every poll so the manage view tracks live progress;
   // falls back to the table if the channel goes.
-  const managedChannel = view.kind === "manage" ? channels.find((channel) => channel.id === view.channelId) : undefined;
-  const awaitingCreatedChannel = view.kind === "manage" && !managedChannel && error !== null;
+  const managedChannel =
+    view.kind === "manage" ? visibleChannels.find((channel) => channel.id === view.channelId) : undefined;
+  const pendingCreate = currentWrites?.created;
+  const hasPendingWrites = !!pendingCreate || !!currentWrites?.deleted.length;
+  const awaitingCreatedChannel =
+    view.kind === "manage" && !managedChannel && (pendingCreate?.id === view.channelId || error !== null);
   const showBack = view.kind === "create" || managedChannel !== undefined || awaitingCreatedChannel;
+  const openCreate = () => {
+    if (!writeInFlightRef.current) {
+      setView(pendingCreate ? { kind: "manage", channelId: pendingCreate.id } : { kind: "create" });
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6">
       <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
+
+      {hasPendingWrites ? (
+        <Callout
+          intent={intents.information}
+          prefixIcon={<Alert />}
+          title={pendingCreate ? `Created release channel ${pendingCreate.name}` : "Release channel deletion saved"}
+          subtitle={
+            pendingCreate
+              ? "Refresh the channel list to load the saved channel before creating another."
+              : "Deleted channels stay hidden while the updated channel list is unavailable."
+          }
+          buttonText={isRefreshingChannels ? "Refreshing..." : "Refresh channel list"}
+          buttonOnClick={refreshChannels}
+          testId="channel-write-pending"
+        />
+      ) : null}
 
       {currentCatalog?.error ? (
         <div role="alert" aria-busy={currentCatalog.isLoading}>
@@ -228,7 +329,16 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           listRolloutDevices={listRolloutDevices}
           onSave={async (draft) => {
             const created = await createChannel(draft);
-            if (created) setView({ kind: "manage", channelId: created.id });
+            if (!created || !isCurrentSession()) return;
+            const snapshot = latestSnapshotRef.current.channels;
+            setAcknowledgedWrites((previous) => ({
+              authSessionIdentity,
+              created: snapshot.some(({ id }) => id === created.id)
+                ? null
+                : { id: created.id, name: created.name, snapshot },
+              deleted: previous.authSessionIdentity === authSessionIdentity ? previous.deleted : [],
+            }));
+            setView({ kind: "manage", channelId: created.id });
           }}
           onApply={async () => {}}
         />
@@ -254,7 +364,9 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         />
       ) : awaitingCreatedChannel ? (
         <p className="text-text-primary-70">Channel details will appear after a successful refresh.</p>
-      ) : channels.length === 0 ? (
+      ) : pendingCreate && visibleChannels.length === 0 ? (
+        <p className="text-text-primary-70">Channel details will appear after a successful refresh.</p>
+      ) : visibleChannels.length === 0 ? (
         <div className="flex flex-col gap-6">
           <div>
             <Button
@@ -262,9 +374,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
               size={sizes.compact}
               text="Create release channel"
               disabled={isWriting}
-              onClick={() => {
-                if (!writeInFlightRef.current) setView({ kind: "create" });
-              }}
+              onClick={openCreate}
               className="phone:w-full"
               testId="create-release-channel"
             />
@@ -276,11 +386,9 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
         </div>
       ) : (
         <ReleaseChannelsTable
-          channels={channels}
+          channels={visibleChannels}
           rollouts={rollouts}
-          onCreate={() => {
-            if (!writeInFlightRef.current) setView({ kind: "create" });
-          }}
+          onCreate={openCreate}
           onManage={(channel) => {
             if (!writeInFlightRef.current) setView({ kind: "manage", channelId: channel.id });
           }}

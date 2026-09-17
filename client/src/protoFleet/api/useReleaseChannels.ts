@@ -37,17 +37,23 @@ const MINER_NAMES_REFRESH_INTERVAL_MS = 5 * 60_000;
 // Bound each read, including later pages, so a stalled connection cannot
 // hold the refresh lock indefinitely. Large scans get a fresh budget per RPC.
 const POLL_RPC_TIMEOUT_MS = 30_000;
+const DETAIL_RPC_TIMEOUT_MS = 30_000;
 // Largest pages the server allows; lists are read in as few round
 // trips as possible.
 const DETAIL_PAGE_SIZE = 1000;
 const MODEL_GROUP_PAGE_SIZE = 100;
 
 // Follows a cursor-paged list to its end.
-async function drainPages<T>(fetchPage: (cursor: string) => Promise<{ items: T[]; cursor: string }>): Promise<T[]> {
+async function drainPages<T>(
+  fetchPage: (cursor: string) => Promise<{ items: T[]; cursor: string }>,
+  signal?: AbortSignal,
+): Promise<T[]> {
   const all: T[] = [];
   let cursor = "";
   do {
+    signal?.throwIfAborted();
     const page = await fetchPage(cursor);
+    signal?.throwIfAborted();
     all.push(...page.items);
     cursor = page.cursor;
   } while (cursor !== "");
@@ -153,8 +159,13 @@ export interface ReleaseChannelsApi {
   // Read-only detail lists. The server pages both; these walk every page so
   // a modal can show the whole set. Filters match observed identities
   // verbatim.
-  listChannelMiners: (channelId: bigint, manufacturer?: string, model?: string) => Promise<ReleaseChannelMiner[]>;
-  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  listChannelMiners: (
+    channelId: bigint,
+    manufacturer?: string,
+    model?: string,
+    signal?: AbortSignal,
+  ) => Promise<ReleaseChannelMiner[]>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
   rollbackFirmware: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout[]>;
   continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
@@ -331,7 +342,8 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   }, [refresh]);
 
   const withAuthErrors = useCallback(
-    async <T>(request: () => Promise<T>): Promise<T> => {
+    async <T>(request: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
+      signal?.throwIfAborted();
       const session = sessionRef.current;
       if (!session || !isCurrentSession()) {
         throw new Error("Your session changed. Refresh the page before trying again.");
@@ -339,6 +351,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
       try {
         return await request();
       } catch (error) {
+        signal?.throwIfAborted();
         // Direct actions need the same logout path as polling. A late failure
         // from a previous login or an unmounted hook must not end a new session.
         if (sessionRef.current === session && isCurrentSession()) handleAuthErrors({ error });
@@ -398,27 +411,41 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const listChannelMiners = useCallback(
-    (channelId: bigint, manufacturer?: string, model?: string) =>
-      drainPages((cursor) =>
-        withAuthErrors(() =>
-          rolloutClient.listReleaseChannelMiners({
-            channelId,
-            manufacturer: manufacturer ?? "",
-            model: model ?? "",
-            pageSize: DETAIL_PAGE_SIZE,
-            cursor,
-          }),
-        ).then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+    (channelId: bigint, manufacturer?: string, model?: string, signal?: AbortSignal) =>
+      drainPages(
+        (cursor) =>
+          withAuthErrors(
+            () =>
+              rolloutClient.listReleaseChannelMiners(
+                {
+                  channelId,
+                  manufacturer: manufacturer ?? "",
+                  model: model ?? "",
+                  pageSize: DETAIL_PAGE_SIZE,
+                  cursor,
+                },
+                { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+              ),
+            signal,
+          ).then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+        signal,
       ),
     [withAuthErrors],
   );
 
   const listRolloutDevices = useCallback(
-    (rolloutId: bigint) =>
-      drainPages((cursor) =>
-        withAuthErrors(() => rolloutClient.listRolloutDevices({ rolloutId, pageSize: DETAIL_PAGE_SIZE, cursor })).then(
-          (resp) => ({ items: resp.devices, cursor: resp.cursor }),
-        ),
+    (rolloutId: bigint, signal?: AbortSignal) =>
+      drainPages(
+        (cursor) =>
+          withAuthErrors(
+            () =>
+              rolloutClient.listRolloutDevices(
+                { rolloutId, pageSize: DETAIL_PAGE_SIZE, cursor },
+                { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+              ),
+            signal,
+          ).then((resp) => ({ items: resp.devices, cursor: resp.cursor })),
+        signal,
       ),
     [withAuthErrors],
   );

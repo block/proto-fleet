@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import Firmware from "./Firmware";
 import { canaryChannel } from "./ReleaseChannels/ReleaseChannels.fixtures";
 import { ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { useFleetStore } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
 const { mockUseReleaseChannels, mockListFirmwareFiles } = vi.hoisted(() => ({
@@ -62,10 +63,17 @@ const page = (tab = "release-channels") => (
   </MemoryRouter>
 );
 
+const initialAuth = useFleetStore.getState().auth;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockListFirmwareFiles.mockResolvedValue([]);
+  useFleetStore.setState({
+    auth: { ...initialAuth, isAuthenticated: true, username: "operator", sessionGeneration: 1 },
+  });
 });
+
+afterEach(() => useFleetStore.setState({ auth: initialAuth }));
 
 describe("release-channel load errors", () => {
   it("shows the initial failure instead of an empty channel list, then recovers on retry", async () => {

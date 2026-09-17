@@ -462,7 +462,7 @@ export const pairLabel = (pair: { manufacturer: string; model: string }): string
 // trimmed and ASCII-folded like the server, so the observed "proto Rig"
 // meets the canonical "Proto Rig". Unknown identities never match anything.
 export const pairKey = (pair: { manufacturer: string; model: string }): string =>
-  minerTargetKey(pair.manufacturer, pair.model) ?? `\u0000${pair.manufacturer}\u0000${pair.model}`;
+  minerTargetKey(pair.manufacturer, pair.model) ?? JSON.stringify(["unknown", pair.manufacturer, pair.model]);
 
 // Finished outcomes belong to one assignment, even when the same artifact
 // is selected again later. Raw model variants still share its canonical key.

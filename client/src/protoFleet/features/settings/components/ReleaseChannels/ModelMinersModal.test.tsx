@@ -11,6 +11,7 @@ import {
   RolloutDevicePhase,
   RolloutDeviceSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
 
 const initialAuth = useFleetStore.getState().auth;
@@ -38,8 +39,8 @@ const propsFor = () => ({
   group: canaryChannel.modelGroups[0],
   activeRollout: activeRigRollout,
   minerNames: {},
-  listChannelMiners: vi.fn<() => Promise<ReleaseChannelMiner[]>>().mockResolvedValue([miner]),
-  listRolloutDevices: vi.fn<() => Promise<RolloutDevice[]>>().mockResolvedValue([device]),
+  listChannelMiners: vi.fn<ReleaseChannelsApi["listChannelMiners"]>().mockResolvedValue([miner]),
+  listRolloutDevices: vi.fn<ReleaseChannelsApi["listRolloutDevices"]>().mockResolvedValue([device]),
   onClose: vi.fn(),
 });
 
@@ -127,10 +128,36 @@ describe("ModelMinersModal detail loading", () => {
     props.listChannelMiners.mockReturnValueOnce(members.promise);
     const { rerender, unmount } = render(<ModelMinersModal {...props} />);
     rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
+    expect(signal.aborted).toBe(false);
     unmount();
+    expect(signal.aborted).toBe(true);
     await act(async () => members.resolve([miner]));
     expect(props.listChannelMiners).toHaveBeenCalledOnce();
     expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+  });
+
+  it("aborts both lists and discards queued work as soon as the modal is closed", async () => {
+    const props = propsFor();
+    const members = deferred<ReleaseChannelMiner[]>();
+    const progress = deferred<RolloutDevice[]>();
+    props.listChannelMiners.mockReturnValueOnce(members.promise);
+    props.listRolloutDevices.mockReturnValueOnce(progress.promise);
+    const { rerender } = render(<ModelMinersModal {...props} />);
+    rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(signal.aborted).toBe(true);
+    expect(props.onClose).toHaveBeenCalled();
+    await act(async () => {
+      members.resolve([miner]);
+      progress.resolve([device]);
+    });
+    expect(props.listChannelMiners).toHaveBeenCalledOnce();
+    expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it.each(["resolve", "reject"] as const)(
@@ -143,11 +170,14 @@ describe("ModelMinersModal detail loading", () => {
       const current = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise).mockReturnValueOnce(current.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
       act(() => {
         useFleetStore.setState({
           auth: { ...initialAuth, username: "new-operator", sessionGeneration: initialAuth.sessionGeneration + 1 },
         });
       });
+      expect(obsoleteSignal.aborted).toBe(true);
+      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => {
@@ -195,8 +225,9 @@ describe("ModelMinersModal detail loading", () => {
         canaryChannel.id,
         props.group.manufacturer,
         props.group.model,
+        expect.any(AbortSignal),
       );
-      expect(props.listRolloutDevices).toHaveBeenLastCalledWith(activeRigRollout.id);
+      expect(props.listRolloutDevices).toHaveBeenLastCalledWith(activeRigRollout.id, expect.any(AbortSignal));
     },
   );
 
@@ -249,6 +280,7 @@ describe("ModelMinersModal detail loading", () => {
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
       await waitFor(() => expect(props.listChannelMiners).toHaveBeenCalledTimes(2));
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
 
       const next = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(next.promise);
@@ -260,6 +292,8 @@ describe("ModelMinersModal detail loading", () => {
           changedContext === "rollout" ? { ...activeRigRollout, id: activeRigRollout.id + 1n } : activeRigRollout,
       };
       rerender(<ModelMinersModal {...nextProps} />);
+      expect(obsoleteSignal.aborted).toBe(true);
+      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => next.resolve([create(ReleaseChannelMinerSchema, { deviceIdentifier: "new-context" })]));
@@ -401,7 +435,12 @@ describe("ModelMinersModal unknown observed identities", () => {
 
       expect(await screen.findByTestId("channel-miner-unknown-pair")).toBeInTheDocument();
       expect(screen.queryByTestId("channel-miner-other-pair")).not.toBeInTheDocument();
-      expect(props.listChannelMiners).toHaveBeenCalledExactlyOnceWith(props.channelId, manufacturer, model);
+      expect(props.listChannelMiners).toHaveBeenCalledExactlyOnceWith(
+        props.channelId,
+        manufacturer,
+        model,
+        expect.any(AbortSignal),
+      );
     },
   );
 

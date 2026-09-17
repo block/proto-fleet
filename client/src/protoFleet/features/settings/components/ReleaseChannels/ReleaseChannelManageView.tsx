@@ -37,7 +37,10 @@ import {
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { AssignmentDraft, ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
-import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
+import {
+  minerTargetKey,
+  trimMinerTarget,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog from "@/shared/components/Dialog";
@@ -57,9 +60,7 @@ const unsupportedTargetMessage =
 // Validate the trimmed values sent to the API without changing identity joins.
 const supportsFirmwareAssignment = (manufacturer: string | undefined, model: string | undefined): boolean =>
   [manufacturer, model].every((value) => {
-    // JavaScript trims BOMs, but the server's strings.TrimSpace preserves them.
-    if (value?.includes("\uFEFF")) return false;
-    const target = value?.trim() ?? "";
+    const target = trimMinerTarget(value ?? "");
     return target.length <= 255 && /^[!-~](?:[ -~]*[!-~])?$/.test(target);
   });
 
@@ -255,8 +256,13 @@ interface ReleaseChannelManageViewProps {
   firmwareFiles: FirmwareFileInfo[];
   minerNames: Record<string, string>;
   previewScope: (scope: ReleaseChannelScope, channelId?: bigint) => Promise<PreviewReleaseChannelScopeResponse>;
-  listChannelMiners: (channelId: bigint, manufacturer?: string, model?: string) => Promise<ReleaseChannelMiner[]>;
-  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  listChannelMiners: (
+    channelId: bigint,
+    manufacturer?: string,
+    model?: string,
+    signal?: AbortSignal,
+  ) => Promise<ReleaseChannelMiner[]>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onDelete?: (channel: ChannelView) => void;
   onApply: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[] | void>;
@@ -464,8 +470,8 @@ const ReleaseChannelManageView = ({
       // Several observed spellings can share one canonical assignment.
       dirtyAssignmentsByPair.set(key, {
         ...assignment,
-        manufacturer: assignment.manufacturer.trim(),
-        model: assignment.model.trim(),
+        manufacturer: trimMinerTarget(assignment.manufacturer),
+        model: trimMinerTarget(assignment.model),
       });
     }
   }

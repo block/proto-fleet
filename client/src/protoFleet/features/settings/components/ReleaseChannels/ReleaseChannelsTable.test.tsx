@@ -159,6 +159,29 @@ describe("release channel update summary", () => {
 });
 
 describe("release channel model row identity", () => {
+  it("isolates BOM models from active ASCII updates while joining Go whitespace aliases", () => {
+    const modelGroups = ["Rig", "\uFEFFRig", "Rig\u0085"].map((model) =>
+      create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+    );
+    render(
+      <ReleaseChannelsTable
+        channels={[{ ...canaryChannel, modelGroups }]}
+        rollouts={[activeRigRollout]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+    expect(screen.getByTestId("model-status-Canary-\uFEFFRig", { normalizer: (text) => text })).toHaveTextContent(
+      /^No firmware assigned$/,
+    );
+    const canonicalStatus = screen.getByTestId("model-status-Canary-Rig").textContent;
+    expect(canonicalStatus).not.toBe("No firmware assigned");
+    expect(screen.getByTestId("model-status-Canary-Rig\u0085", { normalizer: (text) => text }).textContent).toBe(
+      canonicalStatus,
+    );
+  });
+
   it.each([
     {
       name: "colon-containing identities",

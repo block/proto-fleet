@@ -2,9 +2,12 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { canaryChannel, firmwareFiles } from "./ReleaseChannels.fixtures";
+import { canaryChannel, firmwareFiles, productionChannel } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTab from "./ReleaseChannelsTab";
-import { PreviewReleaseChannelScopeResponseSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelSchema,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
@@ -198,6 +201,144 @@ describe("release channel deletion coordination", () => {
     expect(pushToast).toHaveBeenLastCalledWith({ message: "Deleted release channel Canary", status: "success" });
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
+});
+
+describe("acknowledged channel writes", () => {
+  it("keeps multiple committed deletions hidden until each is confirmed by a successful snapshot", async () => {
+    const api = { ...apiFor(), channels: [canaryChannel, productionChannel] };
+    const deleted = deferredWrite();
+    api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
+    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    fireEvent.click(deleteConfirm());
+    const failed = { ...api, error: new Error("Refresh failed") };
+    rerender(<ReleaseChannelsTab api={failed} initialManagedChannelId={canaryChannel.id} />);
+    await act(async () => deleted.resolve());
+    expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("manage-channel-Production")).toBeInTheDocument();
+    // An unrelated successful-looking render still contains the deleted row.
+    rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels] }} />);
+    await flush();
+    expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("manage-channel-Production"));
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    await act(async () => fireEvent.click(deleteConfirm()));
+    rerender(<ReleaseChannelsTab api={{ ...failed, channels: [...api.channels] }} />);
+    await flush();
+    expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
+    expect(api.deleteChannel).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
+
+    rerender(<ReleaseChannelsTab api={{ ...api, channels: [productionChannel] }} />);
+    await flush();
+    expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
+    expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
+    rerender(<ReleaseChannelsTab api={{ ...api, channels: [] }} />);
+    expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
+    expect(screen.getByText("No release channels")).toBeInTheDocument();
+  });
+
+  it.each([false, true])(
+    "blocks another create after Back while the committed channel is pending (existing channels: %s)",
+    async (hasExisting) => {
+      const api = { ...apiFor(), channels: hasExisting ? [canaryChannel] : [] };
+      const committed = deferredWrite();
+      const created = create(ReleaseChannelSchema, { id: 12n, name: "Created once" });
+      api.createChannel = vi.fn(async () => {
+        await committed.promise;
+        return created;
+      });
+      const { rerender } = render(<ReleaseChannelsTab api={api} />);
+      await flush();
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: created.name } });
+      fireEvent.click(screen.getByTestId("save-channel"));
+      // An older poll finishes while the mutation's own follow-up read is pending.
+      const olderSnapshot = [...api.channels];
+      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      const failed = { ...api, channels: olderSnapshot, error: new Error("Refresh failed") };
+      rerender(<ReleaseChannelsTab api={failed} />);
+      await act(async () => committed.resolve());
+      expect(screen.getByText("Channel details will appear after a successful refresh.")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("back-to-channels"));
+      expect(screen.queryByText("No release channels")).not.toBeInTheDocument();
+      expect(screen.getByTestId("channel-write-pending")).toHaveTextContent(created.name);
+      const createButton = screen.queryByTestId("create-release-channel");
+      if (createButton) fireEvent.click(createButton);
+      expect(screen.queryByTestId("release-channel-new")).not.toBeInTheDocument();
+      expect(api.createChannel).toHaveBeenCalledOnce();
+
+      // Clearing an error without a newer snapshot does not confirm the create.
+      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
+      const retry = deferredWrite();
+      api.refresh = vi.fn().mockReturnValue(retry.promise);
+      rerender(<ReleaseChannelsTab api={{ ...failed, refresh: api.refresh }} />);
+      fireEvent.click(screen.getByRole("button", { name: "Refresh channel list" }));
+      fireEvent.click(screen.getByRole("button", { name: "Refreshing..." }));
+      expect(api.refresh).toHaveBeenCalledOnce();
+      await act(async () => retry.reject(new Error("Still unavailable")));
+      expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
+
+      rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }} />);
+      expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
+      if (screen.queryByTestId("back-to-channels")) fireEvent.click(screen.getByTestId("back-to-channels"));
+      await flush();
+      expect(screen.getByTestId("channel-row-Created once")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+      expect(screen.getByTestId("release-channel-new")).toBeInTheDocument();
+      expect(api.createChannel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not carry a deleted-channel acknowledgement into a replacement session", async () => {
+    const api = apiFor();
+    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    await act(async () => fireEvent.click(deleteConfirm()));
+    expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
+    act(() => useFleetStore.setState({ auth: { ...useFleetStore.getState().auth, sessionGeneration: 2 } }));
+    rerender(<ReleaseChannelsTab api={api} />);
+    await flush();
+    expect(screen.getByTestId("channel-row-Canary")).toBeInTheDocument();
+    expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
+  });
+
+  it.each(["create", "delete"] as const)(
+    "ignores a late %s acknowledgement after the session changes",
+    async (operation) => {
+      const api = apiFor();
+      const committed = deferredWrite();
+      const created = create(ReleaseChannelSchema, { id: 12n, name: "Old session channel" });
+      api.createChannel = vi.fn(async () => {
+        await committed.promise;
+        return created;
+      });
+      api.deleteChannel = vi.fn().mockReturnValue(committed.promise);
+      render(<ReleaseChannelsTab api={api} />);
+      await flush();
+      if (operation === "create") {
+        fireEvent.click(screen.getByTestId("create-release-channel"));
+        fireEvent.change(screen.getByLabelText("Name"), { target: { value: created.name } });
+        fireEvent.click(screen.getByTestId("save-channel"));
+      } else {
+        fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+        fireEvent.click(screen.getByTestId("delete-channel"));
+        fireEvent.click(deleteConfirm());
+      }
+      act(() => useFleetStore.setState({ auth: { ...useFleetStore.getState().auth, sessionGeneration: 2 } }));
+      await act(async () => committed.resolve());
+      expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("back-to-channels"));
+      await flush();
+      expect(screen.getByTestId("channel-row-Canary")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+      expect(screen.getByTestId("release-channel-new")).toBeInTheDocument();
+    },
+  );
 });
 
 describe("release channel firmware catalog", () => {

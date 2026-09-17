@@ -25,6 +25,7 @@ import {
   modelFirmwareLabel,
   modelUpdateStatus,
   pacingSummary,
+  pairKey,
   rolloutDeviceCounts,
   rolloutNeedsAttention,
   rolloutOutcomeLabel,
@@ -35,6 +36,7 @@ import {
   scopeDevices,
   scopedToBatch,
 } from "./rolloutStatus";
+
 import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
@@ -50,6 +52,18 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
+describe("release channel target keys", () => {
+  it("isolates missing identity halves from each other and from observed controls", () => {
+    const pairs = [
+      { manufacturer: "", model: "Rig" },
+      { manufacturer: "Rig", model: "" },
+      { manufacturer: "\u0000", model: "Rig" },
+      { manufacturer: "a\u0000b", model: "c" },
+      { manufacturer: "a", model: "b\u0000c" },
+    ];
+    expect(new Set(pairs.map(pairKey)).size).toBe(pairs.length);
+  });
+});
 const rigGroup = canaryChannel.modelGroups[0];
 
 describe("current assignment completion status", () => {

@@ -680,6 +680,44 @@ describe("release channel firmware assignments", () => {
     },
   );
 
+  test("keeps a BOM identity separate when staging and applying a valid model beside it", async () => {
+    const channel = existingChannel();
+    channel.modelGroups = ["Rig", "\uFEFFRig"].map((model) =>
+      create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model, minerCount: 1 }),
+    );
+    const { onApply } = renderManage(channel, undefined, false, [replacementFile]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
+    expect(screen.getByTestId("channel-firmware-select-\uFEFFRig", { normalizer: (text) => text })).toHaveTextContent(
+      "No firmware",
+    );
+    expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
+    ]);
+  });
+
+  test("joins NEL-padded observed and catalog targets and submits their trimmed identity", async () => {
+    const channel = existingChannel();
+    channel.modelGroups = [
+      create(ReleaseChannelModelGroupSchema, { manufacturer: "\u0085proto", model: "rig\u0085", minerCount: 1 }),
+    ];
+    const { onApply } = renderManage(channel, undefined, false, [
+      { ...replacementFile, target_manufacturer: "Proto\u0085", target_model: "\u0085Rig" },
+    ]);
+    expect(screen.queryByText(/1–255 printable ASCII characters/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("channel-firmware-select-rig\u0085", { normalizer: (text) => text }));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
+    ]);
+  });
+
   test("clears using the trimmed saved assignment target while preserving raw observed aliases", async () => {
     const channel = assignedChannel();
     channel.modelGroups[0] = {
@@ -795,7 +833,9 @@ describe("release channel firmware assignments", () => {
     );
     const { listChannelMiners } = renderManage(channel);
     fireEvent.click(screen.getByTestId("view-miners- rig ", { normalizer: (value) => value }));
-    await waitFor(() => expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig "));
+    await waitFor(() =>
+      expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig ", expect.any(AbortSignal)),
+    );
   });
 });
 

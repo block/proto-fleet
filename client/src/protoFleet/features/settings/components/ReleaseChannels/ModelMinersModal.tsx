@@ -21,8 +21,13 @@ interface ModelMinersModalProps {
   group: ReleaseChannelModelGroup;
   activeRollout: Rollout | undefined;
   minerNames: Record<string, string>;
-  listChannelMiners: (channelId: bigint, manufacturer?: string, model?: string) => Promise<ReleaseChannelMiner[]>;
-  listRolloutDevices: (rolloutId: bigint) => Promise<RolloutDevice[]>;
+  listChannelMiners: (
+    channelId: bigint,
+    manufacturer?: string,
+    model?: string,
+    signal?: AbortSignal,
+  ) => Promise<ReleaseChannelMiner[]>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onClose: () => void;
 }
 
@@ -70,6 +75,7 @@ const ModelMinersModal = ({
     ],
   );
   const refreshRef = useRef<(() => void) | null>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
   const [snapshot, setSnapshot] = useState({
     context,
     isLoading: true,
@@ -81,6 +87,7 @@ const ModelMinersModal = ({
     let cancelled = false;
     let running = false;
     let queued = false;
+    let controller: AbortController | null = null;
     const isCurrent = () => {
       const auth = useFleetStore.getState().auth;
       return (
@@ -97,6 +104,8 @@ const ModelMinersModal = ({
         return;
       }
       running = true;
+      controller = new AbortController();
+      const { signal } = controller;
       setSnapshot((previous) => ({
         ...(previous.context === context ? previous : { context, miners: null, devices: [], error: null }),
         isLoading: true,
@@ -104,9 +113,9 @@ const ModelMinersModal = ({
       // A failed list must not release the scan while the other paginated
       // list is still running. Publish only a complete pair of results.
       void Promise.allSettled([
-        context.listChannelMiners(context.channelId, context.manufacturer, context.model),
+        context.listChannelMiners(context.channelId, context.manufacturer, context.model, signal),
         context.activeRolloutId !== undefined
-          ? context.listRolloutDevices(context.activeRolloutId)
+          ? context.listRolloutDevices(context.activeRolloutId, signal)
           : Promise.resolve<RolloutDevice[]>([]),
       ]).then(([members, progress]) => {
         if (!isCurrent()) return;
@@ -134,6 +143,7 @@ const ModelMinersModal = ({
           }));
         }
         running = false;
+        controller = null;
         if (queued) {
           queued = false;
           refresh();
@@ -141,9 +151,16 @@ const ModelMinersModal = ({
       });
     };
     refreshRef.current = refresh;
-    return () => {
+    const cancel = () => {
       cancelled = true;
+      queued = false;
+      controller?.abort();
+    };
+    cancelRef.current = cancel;
+    return () => {
+      cancel();
       refreshRef.current = null;
+      cancelRef.current = null;
     };
   }, [context]);
 
@@ -169,14 +186,19 @@ const ModelMinersModal = ({
     return byIdentifier;
   }, [current?.devices]);
 
+  const handleClose = () => {
+    cancelRef.current?.();
+    onClose();
+  };
+
   return (
     <Modal
       open
       size={sizes.large}
       title={`${pairLabel(group)} miners`}
       description={channelName}
-      onDismiss={onClose}
-      buttons={[{ text: "Done", variant: variants.primary, onClick: onClose }]}
+      onDismiss={handleClose}
+      buttons={[{ text: "Done", variant: variants.primary, onClick: handleClose }]}
     >
       {error ? (
         <div role="alert" aria-busy={isLoading} className="mb-4">
