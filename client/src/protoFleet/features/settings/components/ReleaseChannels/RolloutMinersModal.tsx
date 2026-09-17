@@ -1,7 +1,15 @@
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import { type DeltaIntent, failedDevices, metricDisplay, type MetricKind, scopeDevices } from "./rolloutStatus";
+import {
+  type DeltaIntent,
+  evidenceScopeLabel,
+  failedDevices,
+  isActive,
+  metricDisplay,
+  type MetricKind,
+  scopeDevices,
+} from "./rolloutStatus";
 import { type Rollout, type RolloutDevice, RolloutDevicePhase } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import List from "@/shared/components/List";
@@ -205,12 +213,17 @@ const RolloutMinersModal = ({
   );
   const visibleRows = filter === "failed" ? rows.filter((row) => row.device.phase === RolloutDevicePhase.FAILED) : rows;
   const failedCount = failedDevices(devices ?? []).length;
+  const evidenceCount = scopeDevices(rollout, devices ?? []).length;
   const summary =
     devices === null
       ? "Loading miners…"
       : filter === "failed"
         ? `${failedCount.toLocaleString()} ${failedCount === 1 ? "miner" : "miners"} failed to update`
-        : `${rows.length.toLocaleString()} miners in this update, ${scopeDevices(rollout, devices).length.toLocaleString()} in the current batch`;
+        : `${rows.length.toLocaleString()} miners in this update${
+            isActive(rollout)
+              ? `; evidence scope: ${evidenceScopeLabel(rollout).toLowerCase()} (${evidenceCount.toLocaleString()} ${evidenceCount === 1 ? "miner" : "miners"})`
+              : ""
+          }`;
 
   const colConfig: ColConfig<MinerRow, string, MinerColumn> = {
     miner: { component: (row) => <MinerCell row={row} model={rollout.model} />, width: "w-[220px]", allowWrap: true },

@@ -4,12 +4,13 @@ import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
 import RolloutMinersModal, { type RolloutMinerFilter } from "./RolloutMinersModal";
 import {
+  batchLabel,
   type DeltaIntent,
+  evidenceScopeLabel,
   failedCount,
   formatDurationSeconds,
   isActive as isActiveRollout,
   isAwaitingReview,
-  isBatchStage,
   canRollBack as isCurrentGeneration,
   isPaused,
   isStaged,
@@ -22,6 +23,7 @@ import {
   rolloutProgressSegments,
   rolloutStageLabel,
   scopeCounts,
+  scopedToBatch,
 } from "./rolloutStatus";
 import {
   type Rollout,
@@ -411,12 +413,13 @@ const RolloutDetailModal = ({
                     <StatBlock
                       label="Back online"
                       value={`${evidence.online} of ${evidence.devicesTotal}`}
+                      detail={`Evidence: ${evidenceScopeLabel(rollout).toLowerCase()}`}
                       testId="evidence-online"
                     />
                     <StatBlock
                       label="Hashing"
                       value={`${evidence.hashing} of ${evidence.devicesTotal}`}
-                      detail={`was ${evidence.baselineHashing} before the update`}
+                      detail={`${evidenceScopeLabel(rollout)}; was ${evidence.baselineHashing} before the update`}
                       testId="evidence-hashing"
                     />
                   </>
@@ -431,7 +434,7 @@ const RolloutDetailModal = ({
             <div className="mt-10 grid gap-3" data-testid="rollout-detail-progress">
               <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                 <div className="text-200 text-text-primary-50">
-                  {`${isBatchStage(rollout) || awaitingReview ? `${rolloutStageLabel(rollout)}: ` : ""}${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated (${counts.percent}%)`}
+                  {`${scopedToBatch(rollout) ? batchLabel(rollout) : "Overall progress"}: ${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated (${counts.percent}%)`}
                 </div>
                 <div className="text-right text-200 text-text-primary">
                   {active && startedAtMs !== undefined ? (
@@ -467,6 +470,9 @@ const RolloutDetailModal = ({
 
             {active && evidence ? (
               <div className="mt-10" data-testid="rollout-evidence">
+                <div className="mb-4 text-200 text-text-primary-50">
+                  {`Telemetry evidence: ${evidenceScopeLabel(rollout).toLowerCase()} (${minersNoun(evidence.devicesTotal)})`}
+                </div>
                 <PerformanceStrip evidence={evidence} />
               </div>
             ) : null}
