@@ -141,6 +141,17 @@ developer_workflows:
   - scripts/check-changed.sh
   - scripts/check-changed_test.sh
 
+plans:
+  - *global
+  - docs/plans/**
+  - docs/development/planning.md
+  - scripts/plan_index.py
+  - scripts/plan_index_test.py
+  - .agents/skills/plan/**
+  - .agents/skills/plan-conventions/**
+  - AGENTS.md
+  - justfile
+
 protofleet_e2e:
   - *global
   - client/.npmrc

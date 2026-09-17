@@ -13,6 +13,11 @@ authorized transition reaches `completed` or `cancelled`, move the document
 to `docs/plans/archive/` using `git mv` (a normal move for an untracked file).
 Do not ask the user to perform the associated move. Preserve inbound links.
 
+After creating, changing, or archiving a plan, run `just plan-index` and
+inspect the regenerated `docs/plans/README.md`. Verify the lifecycle rules and
+generated inventory with `just check-plan-hygiene`; commit the index with the
+plan change.
+
 For new documents, select only the matching template:
 
 - [TDD](templates/tdd.md): technical design, alternatives, risks, test plan.

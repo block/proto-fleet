@@ -37,6 +37,7 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 | Setup / local app | `just setup` / `just dev` |
 | Generate / lint / format | `just gen` / `just lint` / `just format` |
 | Check changed areas | `just check-changed` |
+| Plan index / validation | `just plan-index` / `just check-plan-hygiene` |
 | Rebuild a plugin for Docker | `just rebuild-plugin <proto\|antminer\|virtual\|asicrs>` |
 | Plugin contracts | `just test-contract` |
 | ProtoFleet / ProtoOS E2E | `just test-e2e-fleet` / `just test-e2e-protoos` |

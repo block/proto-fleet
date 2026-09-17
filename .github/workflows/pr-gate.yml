@@ -33,6 +33,7 @@ jobs:
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
       developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
+      plans: ${{ github.event_name != 'pull_request' || steps.filter.outputs.plans == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
     steps:
@@ -178,6 +179,21 @@ jobs:
       - name: Test developer workflows
         run: just test-developer-workflows
 
+  plan-hygiene:
+    name: Plan Hygiene
+    needs: changes
+    if: needs.changes.outputs.plans == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Hermit
+        uses: ./.github/actions/hermit-setup
+      - name: Test and verify plan index
+        run: just check-plan-hygiene
+
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
@@ -231,6 +247,7 @@ jobs:
       - windows-checks
       - powershell-lint
       - developer-workflow-tests
+      - plan-hygiene
       - protofleet-e2e-tests
       - protoos-e2e-tests
       - review-policy-tests
