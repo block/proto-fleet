@@ -16,6 +16,7 @@ import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
 
 const { listFirmwareFiles, pushToast } = vi.hoisted(() => ({ listFirmwareFiles: vi.fn(), pushToast: vi.fn() }));
+const historyActions = { onViewRollout: vi.fn(), onRollbackRollout: vi.fn() };
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({ useFirmwareApi: () => ({ listFirmwareFiles }) }));
 vi.mock("@/shared/features/toaster", () => ({
@@ -162,7 +163,7 @@ describe("release channel deletion coordination", () => {
       await refreshed.promise;
       return undefined;
     });
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
     fireEvent.click(screen.getByTestId("delete-channel"));
@@ -195,7 +196,7 @@ describe("release channel deletion coordination", () => {
       await applied.promise;
       return [];
     });
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
@@ -223,7 +224,7 @@ describe("release channel deletion coordination", () => {
     const api = apiFor();
     const deleted = deferredWrite();
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     openPicker();
@@ -405,7 +406,7 @@ describe("acknowledged channel writes", () => {
 describe("release channel firmware catalog", () => {
   it("retries an initial failure once and accepts an empty catalog without losing the draft", async () => {
     listFirmwareFiles.mockRejectedValueOnce(new Error("Catalog unavailable"));
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load firmware files");
     expect(screen.getByRole("alert")).toHaveTextContent("Catalog unavailable");
@@ -431,7 +432,9 @@ describe("release channel firmware catalog", () => {
 
   it("refreshes uploads, deletions, and retargets while preserving the open form and staged clear", async () => {
     const api = apiFor();
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     const nameInput = screen.getByLabelText("Name");
     fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
@@ -446,7 +449,11 @@ describe("release channel firmware catalog", () => {
     ]);
 
     rerender(
-      <ReleaseChannelsTab api={{ ...api, channels: [...api.channels] }} initialManagedChannelId={canaryChannel.id} />,
+      <ReleaseChannelsTab
+        {...historyActions}
+        api={{ ...api, channels: [...api.channels] }}
+        initialManagedChannelId={canaryChannel.id}
+      />,
     );
     await poll();
 
@@ -460,7 +467,7 @@ describe("release channel firmware catalog", () => {
   });
 
   it("retains the last complete catalog on a refresh failure and recovers on the next poll", async () => {
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     listFirmwareFiles.mockRejectedValueOnce(new Error("Temporary outage"));
@@ -481,7 +488,7 @@ describe("release channel firmware catalog", () => {
     "blocks a staged file that is %s during polling and recovers through the picker without losing the draft",
     async (change) => {
       const api = apiFor();
-      render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+      render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
       await flush();
       const nameInput = screen.getByLabelText("Name");
       fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
@@ -529,7 +536,7 @@ describe("release channel firmware catalog", () => {
   );
 
   it.each(["resolve", "reject"] as const)("ignores an obsolete request's late %s after a new login", async (result) => {
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     const obsolete = deferredCatalog();
@@ -564,7 +571,7 @@ describe("release channel firmware catalog", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
     );
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     expect(screen.getByText("Loading firmware files...")).toBeInTheDocument();
     await poll();
 
@@ -582,7 +589,7 @@ describe("release channel firmware catalog", () => {
   it("aborts pending requests and stops polling on unmount or logout", async () => {
     const pending = deferredCatalog();
     listFirmwareFiles.mockReturnValueOnce(pending.promise);
-    const { unmount } = render(<ReleaseChannelsTab api={apiFor()} />);
+    const { unmount } = render(<ReleaseChannelsTab {...historyActions} api={apiFor()} />);
     const signal = listFirmwareFiles.mock.calls[0][0] as AbortSignal;
     unmount();
     expect(signal.aborted).toBe(true);
@@ -591,7 +598,7 @@ describe("release channel firmware catalog", () => {
     expect(listFirmwareFiles).toHaveBeenCalledOnce();
 
     act(() => useFleetStore.getState().auth.logout());
-    render(<ReleaseChannelsTab api={apiFor()} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} />);
     await poll();
     expect(listFirmwareFiles).toHaveBeenCalledOnce();
   });
