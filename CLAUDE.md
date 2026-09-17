@@ -1,6 +1,6 @@
 See [AGENTS.md](./AGENTS.md) for canonical guidance and task-specific references.
-Repository skills live under `.claude/skills/` and are exposed unchanged to
-other agents through `.agents/skills/`.
+Canonical repository skills live under `.agents/skills/`; Claude discovers
+them through the per-skill links in `.claude/skills/`.
 
 When addressing review feedback, re-check each finding against the current
 target code before treating it as already addressed. Complete scoped fixes

@@ -15,9 +15,9 @@ require reading the full repo map or every skill.
 | Client features, routes, or E2E | [client/AGENTS.md](client/AGENTS.md), [client README](client/README.md) |
 | Server logic, SQL, or monitoring | [server/AGENTS.md](server/AGENTS.md), [server README](server/README.md) |
 | Proto contracts, including SDK protos | [proto/AGENTS.md](proto/AGENTS.md) |
-| Proto, SQL, or generator configuration changes | [Code generation skill](.claude/skills/code-generation/SKILL.md) |
-| Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.claude/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
-| Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.claude/skills/) for contract tests, fixtures, or ASIC-rs builds |
+| Proto, SQL, or generator configuration changes | [Code generation skill](.agents/skills/code-generation/SKILL.md) |
+| Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.agents/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
+| Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.agents/skills/) for contract tests, fixtures, or ASIC-rs builds |
 | Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
 | PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness command](.claude/commands/pr-ready.md) |
 | Plans, TDDs, or PRDs | [Planning conventions](docs/development/planning.md) |
@@ -48,7 +48,7 @@ shows the full surface; setup options are in CONTRIBUTING.md.
   `client/src/protoOS/api/generatedApi.ts`. Edit sources and run `just gen`;
   commit source and generated output together.
 - Deployed migrations are immutable. Use a new migration with both up and
-  down files. See the [migration skill](.claude/skills/migration-immutability/SKILL.md)
+  down files. See the [migration skill](.agents/skills/migration-immutability/SKILL.md)
   when deciding whether an existing migration can change.
 - **Visual snapshot baselines are approval-gated.** Do not run the ProtoFleet
   visual snapshot refresh/overwrite flow unless the developer explicitly
@@ -80,10 +80,10 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 
 ## Agent tooling
 
-Repository skills live in `.claude/skills/`; their descriptions identify when
-to load them. `.agents/skills/` exposes those same definitions to other agents
-through per-skill links. Do not copy or fork instructions between discovery
-directories. `CLAUDE.md` is a thin entry point. Keep
+Canonical repository skills live in `.agents/skills/`; their descriptions
+identify when to load them. `.claude/skills/` exposes those same definitions to
+Claude through per-skill links. Do not copy or fork instructions between
+discovery directories. `CLAUDE.md` is a thin entry point. Keep
 `.claude/settings.local.json` private. Claude invokes these workflows as
 `/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`, `/release-notes`, and
 `/plan`; Codex uses the corresponding `$name`.

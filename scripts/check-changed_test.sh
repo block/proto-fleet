@@ -24,6 +24,15 @@ for job in plugin-proto-lint plugin-antminer-lint; do
   done
 done
 
+for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antminer-lint; do
+  if ! jq -e --arg job "$job" \
+    '."changed-checks".commands[$job].glob | index("justfile")' \
+    <<<"$lefthook_config" >/dev/null; then
+    echo "$job does not run when justfile changes" >&2
+    exit 1
+  fi
+done
+
 client_init_recipe="$(just --dry-run _client-init 2>&1)"
 for install_input in client/package.json client/package-lock.json; do
   if [[ "$client_init_recipe" != *"$install_input"* ]]; then
@@ -44,21 +53,33 @@ while IFS= read -r module; do
 done < <(go work edit -json | jq -r '.Use[].DiskPath')
 
 diff -u \
-  <(find .claude/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort) \
-  <(find .agents/skills -mindepth 1 -maxdepth 1 -type l -exec basename {} \; | sort)
+  <(find .agents/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort) \
+  <(find .claude/skills -mindepth 1 -maxdepth 1 -exec basename {} \; | sort)
 
-for claude_skill in .claude/skills/*; do
-  name="${claude_skill##*/}"
-  codex_skill=".agents/skills/$name"
-  if [ ! -L "$codex_skill" ]; then
-    echo "Codex skill is not a symlink: $codex_skill" >&2
+for agent_skill in .agents/skills/*; do
+  name="${agent_skill##*/}"
+  claude_skill=".claude/skills/$name"
+  if [ -L "$agent_skill" ] || [ ! -d "$agent_skill" ]; then
+    echo "Canonical agent skill is not a directory: $agent_skill" >&2
     exit 1
   fi
-  if ! grep -q "^name: $name$" "$claude_skill/SKILL.md"; then
-    echo "Skill name does not match its directory: $claude_skill" >&2
+  if ! grep -q "^name: $name$" "$agent_skill/SKILL.md"; then
+    echo "Skill name does not match its directory: $agent_skill" >&2
     exit 1
   fi
-  cmp "$claude_skill/SKILL.md" "$codex_skill/SKILL.md"
+  if [ ! -L "$claude_skill" ]; then
+    echo "Claude skill is not a symlink: $claude_skill" >&2
+    exit 1
+  fi
+  expected_target="../../.agents/skills/$name"
+  if [ "$(readlink "$claude_skill")" != "$expected_target" ]; then
+    echo "Claude skill does not link to its canonical definition: $claude_skill" >&2
+    exit 1
+  fi
+  if [ ! -f "$claude_skill/SKILL.md" ]; then
+    echo "Claude skill symlink does not resolve: $claude_skill" >&2
+    exit 1
+  fi
 done
 
 echo "developer workflow configuration and agent skill parity passed"

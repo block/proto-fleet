@@ -74,10 +74,13 @@ changed-checks:
         - "buf.yaml"
         - "buf.lock"
         - "buf.gen.yaml"
+        - "justfile"
       run: just _lint-protos
 
     client-check:
-      glob: "client/**"
+      glob:
+        - "client/**"
+        - "justfile"
       run: just _check-client
 
     server-lint:
@@ -85,6 +88,7 @@ changed-checks:
         - "server/**"
         - "go.work"
         - "go.work.sum"
+        - "justfile"
       run: just _lint-server
 
     plugin-proto-lint:
@@ -95,6 +99,7 @@ changed-checks:
         - "server/sdk/**"
         - "go.work"
         - "go.work.sum"
+        - "justfile"
       run: cd plugin/proto && golangci-lint run -c .golangci.yaml
 
     plugin-antminer-lint:
@@ -105,6 +110,7 @@ changed-checks:
         - "server/sdk/**"
         - "go.work"
         - "go.work.sum"
+        - "justfile"
       run: cd plugin/antminer && golangci-lint run -c .golangci.yaml
 
     developer-workflow-tests:
