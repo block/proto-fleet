@@ -19,7 +19,7 @@ require reading the full repo map or every skill.
 | Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.agents/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
 | Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.agents/skills/) for contract tests, fixtures, or ASIC-rs builds |
 | Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
-| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness command](.claude/commands/pr-ready.md) |
+| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness skill](.agents/skills/pr-ready/SKILL.md) |
 | Plans, TDDs, or PRDs | [Planning conventions](docs/development/planning.md) |
 
 Before debugging or changing a documented fragile subsystem, search

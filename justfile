@@ -376,6 +376,7 @@ _client-init force="false":
   #!/usr/bin/env bash
   set -euo pipefail
   STAMP=.cache/client-deps/install-inputs.hash
+  TREE_LOCK=client/node_modules/.package-lock.json
   INSTALL_PLATFORM="${npm_config_platform:-${NPM_CONFIG_PLATFORM:-$(node -p 'process.platform')}}"
   INSTALL_ARCH="${npm_config_arch:-${NPM_CONFIG_ARCH:-$(node -p 'process.arch')}}"
   INSTALL_LIBC="${npm_config_libc:-${NPM_CONFIG_LIBC:-}}"
@@ -389,13 +390,20 @@ _client-init force="false":
         "platform=$INSTALL_PLATFORM" \
         "arch=$INSTALL_ARCH" \
         "libc=$INSTALL_LIBC" \
+        "include=dev" \
         "include=optional"
     } | git hash-object --stdin
   )"
+  TREE_HASH=""
+  if [ -f "$TREE_LOCK" ]; then
+    TREE_HASH="$(git hash-object "$TREE_LOCK")"
+  fi
   if [ "{{force}}" != true ] \
      && [ -d client/node_modules ] \
      && [ -f "$STAMP" ] \
-     && [ "$(cat "$STAMP")" = "$WANT_HASH" ]; then
+     && [ "$(sed -n '1p' "$STAMP")" = "$WANT_HASH" ] \
+     && [ -n "$TREE_HASH" ] \
+     && [ "$(sed -n '2p' "$STAMP")" = "$TREE_HASH" ]; then
     echo "Client dependencies match install manifests, skipping install."
     exit 0
   fi
@@ -404,9 +412,10 @@ _client-init force="false":
     registry_args+=(--registry "$COREPACK_NPM_REGISTRY")
   fi
   rm -f "$STAMP"
-  (cd client && npm clean-install --include=optional "${registry_args[@]}")
+  (cd client && npm clean-install --include=dev --include=optional "${registry_args[@]+"${registry_args[@]}"}")
+  TREE_HASH="$(git hash-object "$TREE_LOCK")"
   mkdir -p "$(dirname "$STAMP")"
-  printf '%s\n' "$WANT_HASH" > "$STAMP"
+  printf '%s\n%s\n' "$WANT_HASH" "$TREE_HASH" > "$STAMP"
 
 [working-directory: 'packages/proto-python-gen']
 _python-gen-init:
@@ -511,7 +520,7 @@ _build-go-plugins-cross goos goarch outdir force="": _go-work-sync
   set -euo pipefail
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  COMMON_SOURCES="server/sdk/v1 go.work go.work.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum server/go.mod server/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
+  COMMON_SOURCES="server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum"
   rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   mkdir -p {{outdir}}
   built=false

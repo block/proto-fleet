@@ -15,5 +15,5 @@ that duplicates server logic and never executes in production. Say
 While a contract is unmerged it carries no history: no `reserved` numbers
 or names and no compatibility values; renumber instead.
 
-Use the [generation skill](../.claude/skills/code-generation/SKILL.md) for
+Use the [generation skill](../.agents/skills/code-generation/SKILL.md) for
 source or Buf configuration changes. Commit source and generated output together.

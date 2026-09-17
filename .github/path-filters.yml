@@ -125,6 +125,21 @@ powershell:
   - *global
   - "**/*.ps1"
 
+developer_workflows:
+  - .agents/**
+  - .claude/**
+  - .github/actions/hermit-setup/**
+  - .github/path-filters.yml
+  - .github/review-policy.json
+  - .github/workflows/pr-gate.yml
+  - "**/AGENTS.md"
+  - CLAUDE.md
+  - CONTRIBUTING.md
+  - justfile
+  - lefthook.yml
+  - scripts/check-changed.sh
+  - scripts/check-changed_test.sh
+
 protofleet_e2e:
   - *global
   - client/.npmrc

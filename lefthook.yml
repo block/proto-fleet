@@ -52,10 +52,18 @@ changed-checks:
     set -e
     base="${CHECK_CHANGED_BASE:-origin/main}"
     merge_base="$(git merge-base "$base" HEAD)"
+    changed_paths() {
+      git diff --no-renames --name-status "$@" |
+        awk -F '\t' '
+          $1 == "D" { deleted = 1 }
+          { print substr($0, index($0, "\t") + 1) }
+          END { if (deleted) print "justfile" }
+        '
+    }
     {
-      git diff --no-renames --name-only "$merge_base"...HEAD
-      git diff --no-renames --name-only
-      git diff --no-renames --cached --name-only
+      changed_paths "$merge_base"...HEAD
+      changed_paths
+      changed_paths --cached
       git ls-files --others --exclude-standard
     } | sort -u
   commands:
@@ -117,7 +125,11 @@ changed-checks:
       glob:
         - ".agents/**"
         - ".claude/**"
-        - "AGENTS.md"
+        - ".github/actions/hermit-setup/**"
+        - ".github/path-filters.yml"
+        - ".github/review-policy.json"
+        - ".github/workflows/pr-gate.yml"
+        - "**/AGENTS.md"
         - "CLAUDE.md"
         - "CONTRIBUTING.md"
         - "justfile"

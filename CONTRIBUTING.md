@@ -72,12 +72,15 @@ The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ru
 
 ### Pre-Push Checks
 
-The pre-push hooks also run repository checks before a branch can be pushed:
+The pre-push hook runs checks selected from committed, staged, unstaged, and
+untracked files. It always checks diff whitespace, then routes affected paths to:
 
-- `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
-- `server`: `golangci-lint run -c .golangci.yaml`
-- `plugin/proto`: `golangci-lint run -c .golangci.yaml`
-- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
+- Protobuf linting
+- Client linting and TypeScript typechecking
+- Server linting
+- Proto plugin linting
+- Antminer plugin linting
+- Developer-workflow configuration and shared-agent-skill parity tests
 
 ## Git Workflow
 
