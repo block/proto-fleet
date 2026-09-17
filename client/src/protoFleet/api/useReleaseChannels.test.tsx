@@ -161,6 +161,7 @@ function capturePollingTimer() {
 }
 
 const pollOptions = { timeoutMs: 30_000 };
+const channelLoadOptions = { ...pollOptions, signal: expect.any(AbortSignal) };
 
 function expireMinerNames() {
   const now = Date.now();
@@ -326,6 +327,166 @@ describe("useReleaseChannels", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it("bounds channel hydration across summary pages, retains paged groups, and preserves list order", async () => {
+    capturePollingTimer();
+    const channels = Array.from({ length: 9 }, (_, index) =>
+      create(ReleaseChannelSchema, { id: BigInt(index + 1), name: `Channel ${index + 1}` }),
+    );
+    mockListReleaseChannels.mockImplementation(({ cursor }) =>
+      Promise.resolve({ channels: cursor ? channels.slice(5) : channels.slice(0, 5), cursor: cursor ? "" : "next" }),
+    );
+    const details = new Map<bigint, ReturnType<typeof deferred<{ channel: typeof canary }>>>();
+    const groups = new Map<bigint, ReturnType<typeof deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>>>();
+    let active = 0;
+    let maximum = 0;
+    const track = <T,>(request: Promise<T>) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      return request.finally(() => {
+        active -= 1;
+      });
+    };
+    mockGetReleaseChannel.mockImplementation(({ channelId }) => {
+      const pending = deferred<{ channel: typeof canary }>();
+      details.set(channelId, pending);
+      return track(pending.promise);
+    });
+    mockListReleaseChannelModelGroups.mockImplementation(({ channelId, cursor }) => {
+      if (!cursor) return track(Promise.resolve({ modelGroups: [rigGroup], cursor: "groups-2" }));
+      const pending = deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>();
+      groups.set(channelId, pending);
+      return track(pending.promise);
+    });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(groups.size).toBe(4));
+    expect(details.size).toBe(4);
+    expect(maximum).toBeLessThanOrEqual(8);
+    await act(async () => details.get(2n)!.resolve({ channel: channels[1] }));
+    expect(details.size).toBe(4); // Its paginated groups still own the worker slot.
+    await act(async () => groups.get(2n)!.resolve({ modelGroups: [rigGroup], cursor: "" }));
+    expect(details.size).toBe(5);
+    expect(result.current.channels).toEqual([]);
+    expect(result.current.hasLoaded).toBe(false);
+    for (let pass = 0; pass < 4 && !result.current.hasLoaded; pass += 1) {
+      await act(async () => {
+        for (const [id, pending] of details) pending.resolve({ channel: channels[Number(id) - 1] });
+        for (const pending of groups.values()) pending.resolve({ modelGroups: [rigGroup], cursor: "" });
+      });
+    }
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.channels.map(({ id }) => id)).toEqual(channels.map(({ id }) => id));
+    expect(result.current.channels.every(({ modelGroups }) => modelGroups.length === 2)).toBe(true);
+    expect(maximum).toBeLessThanOrEqual(8);
+    expect(active).toBe(0);
+    expect(mockListReleaseChannels.mock.calls.map(([request]) => request.cursor)).toEqual(["", "next"]);
+  });
+
+  it.each(["channel detail", "model groups"])(
+    "drains a failed %s read before retrying and preserves the snapshot and watermark",
+    async (failedRead) => {
+      const poll = capturePollingTimer();
+      mockListRollouts.mockResolvedValue(
+        create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "saved" }),
+      );
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const previous = { channels: result.current.channels, rollouts: result.current.rollouts };
+      const channels = Array.from({ length: 9 }, (_, index) =>
+        create(ReleaseChannelSummarySchema, { id: BigInt(index + 1) }),
+      );
+      mockListReleaseChannels.mockResolvedValue({ channels, cursor: "" });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { pollCursor: "uncommitted" }));
+      const details = Array.from({ length: 4 }, () => deferred<{ channel: typeof canary }>());
+      const groups = Array.from({ length: 4 }, () => deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>());
+      const signals: AbortSignal[] = [];
+      mockGetReleaseChannel.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return details[Number(channelId) - 1].promise;
+      });
+      mockListReleaseChannelModelGroups.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return groups[Number(channelId) - 1].promise;
+      });
+      const failure = new ConnectError("channel detail failed", Code.Unavailable);
+      let rejected!: Promise<void>;
+      await act(async () => {
+        rejected = expect(result.current.refresh()).rejects.toBe(failure);
+      });
+      expect(signals).toHaveLength(8);
+      await act(async () => {
+        if (failedRead === "channel detail") details[0].reject(failure);
+        else groups[0].reject(failure);
+      });
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      const polls = mockListRollouts.mock.calls.length;
+      await act(async () => poll());
+      expect(mockListRollouts).toHaveBeenCalledTimes(polls);
+      expect(result.current.error).toBeNull();
+      await act(async () => {
+        for (const pending of details) pending.resolve({ channel: canary });
+        for (const pending of groups) pending.resolve({ modelGroups: [], cursor: "must-not-load" });
+        await rejected;
+      });
+      expect(signals).toHaveLength(8);
+      expect(result.current.error).toBe(failure);
+      expect(result.current.channels).toBe(previous.channels);
+      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: failure });
+      mockListReleaseChannels.mockResolvedValue({ channels: [canarySummary], cursor: "" });
+      mockGetReleaseChannel.mockResolvedValue({ channel: canary });
+      mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rigGroup], cursor: "" });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(mockListRollouts).toHaveBeenCalledWith({ pageSize: 1000, cursor: "", pollCursor: "saved" }, pollOptions);
+      expect(result.current.error).toBeNull();
+      expect(result.current.channels).toEqual([canaryView]);
+    },
+  );
+
+  it.each(["unmount", "new login"])(
+    "cancels queued channel work after %s and ignores a late authentication error",
+    async (change) => {
+      capturePollingTimer();
+      const channels = Array.from({ length: 9 }, (_, index) =>
+        create(ReleaseChannelSummarySchema, { id: BigInt(index + 1) }),
+      );
+      mockListReleaseChannels.mockResolvedValue({ channels, cursor: "" });
+      const details = Array.from({ length: 4 }, () => deferred<{ channel: typeof canary }>());
+      const groups = Array.from({ length: 4 }, () => deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>());
+      const signals: AbortSignal[] = [];
+      mockGetReleaseChannel.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return details[Number(channelId) - 1].promise;
+      });
+      mockListReleaseChannelModelGroups.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return groups[Number(channelId) - 1].promise;
+      });
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(signals).toHaveLength(8));
+      if (change === "unmount") unmount();
+      else {
+        mockListReleaseChannels.mockResolvedValue({ channels: [canarySummary], cursor: "" });
+        mockGetReleaseChannel.mockResolvedValue({ channel: canary });
+        mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rigGroup], cursor: "" });
+        mockAuth.sessionGeneration += 1;
+        rerender();
+        await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      }
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      await act(async () => {
+        details[0].reject(new ConnectError("old login expired", Code.Unauthenticated));
+        for (const pending of details) pending.resolve({ channel: canary });
+        for (const pending of groups) pending.resolve({ modelGroups: [], cursor: "must-not-load" });
+      });
+      expect(mockGetReleaseChannel).toHaveBeenCalledTimes(change === "unmount" ? 4 : 5);
+      expect(mockListReleaseChannelModelGroups).toHaveBeenCalledTimes(change === "unmount" ? 4 : 5);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+      if (change === "new login") expect(result.current.channels).toEqual([canaryView]);
+    },
+  );
 
   it("times out a stalled delta page through Connect, preserves its watermark, and recovers on the next poll", async () => {
     const poll = capturePollingTimer();
@@ -1382,7 +1543,7 @@ describe("useReleaseChannels", () => {
             return channel;
           });
       });
-      expect(mockGetReleaseChannel).not.toHaveBeenCalledWith({ channelId: 2n }, pollOptions);
+      expect(mockGetReleaseChannel).not.toHaveBeenCalledWith({ channelId: 2n }, channelLoadOptions);
       expect(creationCompleted).toBe(false);
       expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
 
@@ -1416,10 +1577,10 @@ describe("useReleaseChannels", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.channels).toEqual([canaryView]);
-    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 1n }, pollOptions);
+    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 1n }, channelLoadOptions);
     expect(mockListReleaseChannelModelGroups).toHaveBeenCalledWith(
       { channelId: 1n, pageSize: 100, cursor: "" },
-      pollOptions,
+      channelLoadOptions,
     );
     expect(result.current.rollouts).toEqual([rollout]);
     expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
@@ -1812,10 +1973,10 @@ describe("useReleaseChannels", () => {
     expect(result.current.channels).toEqual(expectedViews);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(1, { pageSize: 1000, cursor: "" }, pollOptions);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(2, { pageSize: 1000, cursor: "page-2" }, pollOptions);
-    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n }, pollOptions);
+    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n }, channelLoadOptions);
     expect(mockListReleaseChannelModelGroups).toHaveBeenCalledWith(
       { channelId: 2n, pageSize: 100, cursor: "" },
-      pollOptions,
+      channelLoadOptions,
     );
 
     await act(async () => {

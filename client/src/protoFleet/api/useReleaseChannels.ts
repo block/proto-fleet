@@ -42,6 +42,9 @@ const DETAIL_RPC_TIMEOUT_MS = 30_000;
 // trips as possible.
 const DETAIL_PAGE_SIZE = 1000;
 const MODEL_GROUP_PAGE_SIZE = 100;
+// Each channel runs its detail read and sequential group pages together.
+// Four workers therefore issue at most eight hydration RPCs at a time.
+const CHANNEL_LOAD_CONCURRENCY = 4;
 
 // Follows a cursor-paged list to its end.
 async function drainPages<T>(
@@ -175,24 +178,74 @@ export interface ReleaseChannelsApi {
   retryFailedDevices: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout | undefined>;
 }
 
-// Fetches release channels and rollouts, polling while mounted so firmware
-// versions and update progress stay live.
-// Loads a channel with its scope and every model group page.
-async function loadChannel(channelId: bigint): Promise<ChannelView | undefined> {
-  const [detail, modelGroups] = await Promise.all([
-    rolloutClient.getReleaseChannel({ channelId }, { timeoutMs: POLL_RPC_TIMEOUT_MS }),
-    drainPages((cursor) =>
-      rolloutClient
-        .listReleaseChannelModelGroups(
-          { channelId, pageSize: MODEL_GROUP_PAGE_SIZE, cursor },
-          { timeoutMs: POLL_RPC_TIMEOUT_MS },
-        )
-        .then((resp) => ({ items: resp.modelGroups, cursor: resp.cursor })),
-    ),
-  ]);
-  return detail.channel ? { ...detail.channel, modelGroups } : undefined;
+// Keep hydration bounded while retaining list order and publishing only a
+// complete scan. Failure cancels peers and drains them before releasing the
+// refresh lock, including both branches of every started channel read.
+async function loadChannels(
+  channelIds: bigint[],
+  controller: AbortController,
+  isCurrentRequest: () => boolean,
+): Promise<(ChannelView | undefined)[]> {
+  const { signal } = controller;
+  const checkCurrent = () => {
+    if (!isCurrentRequest()) controller.abort();
+    signal.throwIfAborted();
+  };
+  let failed = false;
+  let firstError: unknown;
+  const fail = (error: unknown) => {
+    if (!failed) {
+      failed = true;
+      firstError = error;
+    }
+    controller.abort();
+  };
+  const loadChannel = async (channelId: bigint): Promise<ChannelView | undefined> => {
+    checkCurrent();
+    const requests = [
+      rolloutClient.getReleaseChannel({ channelId }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal }),
+      drainPages((cursor) => {
+        checkCurrent();
+        return rolloutClient
+          .listReleaseChannelModelGroups(
+            { channelId, pageSize: MODEL_GROUP_PAGE_SIZE, cursor },
+            { timeoutMs: POLL_RPC_TIMEOUT_MS, signal },
+          )
+          .then((resp) => ({ items: resp.modelGroups, cursor: resp.cursor }));
+      }, signal),
+    ] as const;
+    try {
+      const [detail, modelGroups] = await Promise.all(requests);
+      checkCurrent();
+      return detail.channel ? { ...detail.channel, modelGroups } : undefined;
+    } catch (error) {
+      fail(error);
+      await Promise.allSettled(requests);
+      throw error;
+    }
+  };
+  const views = new Array<ChannelView | undefined>(channelIds.length);
+  let nextIndex = 0;
+  await Promise.allSettled(
+    Array.from({ length: Math.min(CHANNEL_LOAD_CONCURRENCY, channelIds.length) }, async () => {
+      try {
+        while (nextIndex < channelIds.length) {
+          checkCurrent();
+          const index = nextIndex++;
+          views[index] = await loadChannel(channelIds[index]);
+        }
+      } catch (error) {
+        fail(error);
+      }
+    }),
+  );
+  if (failed) throw firstError;
+  checkCurrent();
+  return views;
 }
 
+// Fetches release channels and rollouts, polling while mounted so firmware
+// versions and update progress stay live.
 export function useReleaseChannels(): ReleaseChannelsApi {
   const { handleAuthErrors } = useAuthErrors();
   const sessionGeneration = useSessionGeneration();
@@ -210,6 +263,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   });
   const inFlightRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<object | null>(null);
+  const channelLoadControllerRef = useRef<AbortController | null>(null);
   const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
   const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
 
@@ -256,7 +310,18 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         );
         if (!isCurrentRequest()) return;
         // The list carries summaries; scope and groups come per channel.
-        const views = await Promise.all(channelSummaries.map((summary) => loadChannel(summary.id)));
+        const controller = new AbortController();
+        channelLoadControllerRef.current = controller;
+        let views: (ChannelView | undefined)[];
+        try {
+          views = await loadChannels(
+            channelSummaries.map((summary) => summary.id),
+            controller,
+            isCurrentRequest,
+          );
+        } finally {
+          if (channelLoadControllerRef.current === controller) channelLoadControllerRef.current = null;
+        }
         if (!isCurrentRequest()) return;
         const nextChannels = views.filter((view): view is ChannelView => view !== undefined);
         const channelsById = new Map(nextChannels.map((channel) => [channel.id, channel]));
@@ -338,6 +403,8 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     return () => {
       clearInterval(timer);
       sessionRef.current = null;
+      channelLoadControllerRef.current?.abort();
+      channelLoadControllerRef.current = null;
     };
   }, [refresh]);
 
