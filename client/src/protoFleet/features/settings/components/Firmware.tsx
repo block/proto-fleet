@@ -447,7 +447,7 @@ const Firmware = () => {
           api={channelsApi}
           initialManagedChannelId={manageRequest?.channelId ?? null}
           onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rolloutId: rollout.id })}
-          onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rolloutId: rollout.id })}
+          onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />
       ) : (
         <FirmwareFilesSection />

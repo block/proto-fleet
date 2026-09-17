@@ -13,7 +13,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Something another surface asked the monitor to do: open a rollout's
 // detail, or confirm rolling back to one.
-export type MonitorRequest = { kind: "view" | "rollback"; rolloutId: bigint };
+export type MonitorRequest = { kind: "view"; rolloutId: bigint } | { kind: "rollback"; rollout: Rollout };
 
 interface ActiveUpdatesMonitorProps {
   api: Pick<
@@ -74,7 +74,8 @@ const ActiveUpdatesMonitor = ({
   const byId = (id: bigint | null | undefined) =>
     id != null ? rollouts.find((rollout) => rollout.id === id) : undefined;
   const viewedRollout = byId(request?.kind === "view" ? request.rolloutId : viewUpdateId);
-  const rollbackTarget = request?.kind === "rollback" ? (byId(request.rolloutId) ?? null) : localRollbackTarget;
+  // Keep the snapshot that opened confirmation, even when polling advances it.
+  const rollbackTarget = request?.kind === "rollback" ? request.rollout : localRollbackTarget;
   const setRollbackTarget = (target: Rollout | null) => {
     setLocalRollbackTarget(target);
     if (target === null && request?.kind === "rollback") onRequestHandled?.();
@@ -85,7 +86,7 @@ const ActiveUpdatesMonitor = ({
   };
 
   const handleContinue = (rollout: Rollout) =>
-    continueRollout(rollout.id)
+    continueRollout(rollout.id, rollout.revision)
       .then(() => {
         pushToast({
           message: `Continuing ${rollout.model} update in ${rollout.channelName}`,
@@ -97,7 +98,7 @@ const ActiveUpdatesMonitor = ({
       });
 
   const togglePause = (rollout: Rollout, pause: boolean) =>
-    (pause ? pauseRollout(rollout.id) : resumeRollout(rollout.id))
+    (pause ? pauseRollout(rollout.id, rollout.revision) : resumeRollout(rollout.id, rollout.revision))
       .then(() => {
         pushToast({
           message: `${pause ? "Paused" : "Resumed"} ${rollout.model} update in ${rollout.channelName}`,
@@ -112,7 +113,7 @@ const ActiveUpdatesMonitor = ({
       });
 
   const handleRetry = (rollout: Rollout) =>
-    retryFailedDevices(rollout.id)
+    retryFailedDevices(rollout.id, rollout.revision)
       .then((next) => {
         if (next && next.id !== rollout.id) setViewUpdateId(next.id);
         pushToast({ message: `Retrying failed miners in ${rollout.channelName}`, status: STATUSES.success });
@@ -125,7 +126,7 @@ const ActiveUpdatesMonitor = ({
     if (!cancelTarget) return;
     const rollout = cancelTarget;
     setIsBusy(true);
-    cancelRollout(rollout.id)
+    cancelRollout(rollout.id, rollout.revision)
       .then(() => {
         setCancelTarget(null);
         pushToast({
@@ -143,7 +144,7 @@ const ActiveUpdatesMonitor = ({
     if (!rollbackTarget) return;
     const rollout = rollbackTarget;
     setIsBusy(true);
-    rollbackFirmware(rollout.id)
+    rollbackFirmware(rollout.id, rollout.revision)
       .then((started) => {
         setRollbackTarget(null);
         closeDetail();
