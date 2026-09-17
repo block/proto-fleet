@@ -114,6 +114,148 @@ const replacementFile: FirmwareFileInfo = {
   firmware_version: "1.4.4",
 };
 
+function deferredWrite() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("release channel write ordering", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const stageClear = () => {
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+  };
+
+  const chooseBatches = (batchSize: string) => {
+    fireEvent.click(screen.getByTestId("rollout-method"));
+    fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
+    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: batchSize } });
+  };
+
+  test("confirms acknowledged pacing after a failed refresh without treating newer or rejected drafts as saved", async () => {
+    const channel = assignedChannel();
+    const write = deferredWrite();
+    const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValueOnce(write.promise);
+    const { updateChannel, onApply } = renderManage(channel, onSave);
+    chooseBatches("3");
+    stageClear();
+    const save = screen.getByTestId("save-channel");
+    const apply = screen.getByTestId("apply-firmware-changes");
+    fireEvent.click(save);
+    expect(apply).toBeDisabled();
+    fireEvent.click(apply);
+    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "8" } });
+    updateChannel(channel, true);
+    await act(async () => write.resolve());
+    expect(onSave.mock.calls[0][0].behavior.batchSize).toBe(3);
+    expect(save).toBeEnabled();
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(dialog).toHaveTextContent("Pacing: batches of 3, back to back.");
+    expect(dialog).not.toHaveTextContent("batches of 8");
+    expect(dialog).toHaveTextContent("Unsaved channel changes");
+
+    onSave.mockRejectedValueOnce(new Error("Newer save rejected"));
+    await act(async () => fireEvent.click(save));
+    expect(dialog).toHaveTextContent("Pacing: batches of 3, back to back.");
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(8);
+    expect(save).toBeEnabled();
+
+    const refreshed = {
+      ...channel,
+      behavior: create(RolloutBehaviorSchema, {
+        method: RolloutMethod.BATCHED,
+        order: RolloutOrder.LEAST_EFFICIENT_FIRST,
+        batchSize: 5,
+      }),
+    };
+    updateChannel(refreshed, false);
+    expect(dialog).toHaveTextContent("Pacing: batches of 5, back to back.");
+    updateChannel(refreshed, true);
+    expect(dialog).toHaveTextContent("Pacing: batches of 5, back to back.");
+    expect(dialog).not.toHaveTextContent("batches of 3");
+  });
+
+  test("blocks an already-open confirmation during save and permits retry after save rejection", async () => {
+    const channel = assignedChannel();
+    const write = deferredWrite();
+    const onSave = vi
+      .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
+      .mockResolvedValue(undefined)
+      .mockReturnValueOnce(write.promise);
+    const { onApply } = renderManage(channel, onSave, true);
+    stageClear();
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    chooseBatches("7");
+    const save = screen.getByTestId("save-channel");
+    const start = screen.getByRole("button", { name: "Start update" });
+    fireEvent.click(save);
+    expect(start).toBeDisabled();
+    fireEvent.click(start);
+    expect(onApply).not.toHaveBeenCalled();
+    await act(async () => write.reject(new Error("Settings rejected")));
+    expect(start).toBeEnabled();
+    expect(save).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: single batch.");
+    expect(pushToast).toHaveBeenCalledWith({ message: "Settings rejected", status: "error" });
+
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(save).toBeDisabled();
+    expect(start).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: batches of 7, back to back.");
+    await act(async () => fireEvent.click(start));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "" }]);
+  });
+
+  test.each(["success", "failure"])("blocks settings saves until an in-flight apply ends in %s", async (outcome) => {
+    const { onApply, onSave } = renderManage(assignedChannel());
+    const write = deferredWrite();
+    onApply.mockReturnValueOnce(write.promise);
+    stageClear();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const save = screen.getByTestId("save-channel");
+    const start = screen.getByRole("button", { name: "Start update" });
+    fireEvent.click(start);
+    expect(save).toBeDisabled();
+    expect(start).toBeDisabled();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+    fireEvent.click(save);
+    fireEvent.click(start);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Newer unsaved name" } });
+    await act(async () => {
+      if (outcome === "success") write.resolve();
+      else write.reject(new Error("Apply rejected"));
+    });
+    expect(save).toBeEnabled();
+    if (outcome === "failure") {
+      expect(start).toBeEnabled();
+      expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
+      await act(async () => fireEvent.click(start));
+      expect(onApply).toHaveBeenCalledTimes(2);
+      expect(onApply.mock.calls[1]).toEqual(onApply.mock.calls[0]);
+    }
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Newer unsaved name" }));
+  });
+});
+
 describe("release channel firmware assignments", () => {
   beforeEach(() => {
     // Give the real portal a visible anchor in jsdom's otherwise empty layout.

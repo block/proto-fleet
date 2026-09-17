@@ -93,7 +93,7 @@ const ReleaseChannelsTable = ({ channels, rollouts, onCreate, onManage }: Releas
           { id: channelKey, kind: "channel" as const, channel },
           ...(expandedChannelIds.has(channelKey)
             ? channel.modelGroups.map((group) => ({
-                id: `${channelKey}:${group.manufacturer}:${group.model}`,
+                id: JSON.stringify([channelKey, group.manufacturer, group.model]),
                 kind: "model" as const,
                 channel,
                 group,

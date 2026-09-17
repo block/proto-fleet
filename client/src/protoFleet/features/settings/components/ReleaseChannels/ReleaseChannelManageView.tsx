@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
 import { defaultBehavior } from "./behaviorUtils";
@@ -173,6 +173,8 @@ const ReleaseChannelManageView = ({
   // Staged (unapplied) firmware choices per pair key; absent key = server value.
   const [staged, setStaged] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
+  // Serialize settings and firmware writes, including clicks before React rerenders.
+  const writeInFlightRef = useRef(false);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   // Pair whose miner table is open in the "View miners" modal.
   const [minersPair, setMinersPair] = useState<string | null>(null);
@@ -197,25 +199,32 @@ const ReleaseChannelManageView = ({
   const hasConflicts = (preview?.conflicts.length ?? 0) > 0;
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
-  const canSave = dirty && name.trim() !== "" && (channel !== undefined || !hasConflicts) && !isSaving;
+  const isWriting = isSaving || isApplying;
+  const canSave = dirty && name.trim() !== "" && (channel !== undefined || !hasConflicts) && !isWriting;
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (writeInFlightRef.current || !canSave) return;
     const submitted = { name: name.trim(), description: description.trim(), scope, behavior };
+    writeInFlightRef.current = true;
     setIsSaving(true);
-    onSave(submitted)
-      .then(() => {
-        // Only these submitted values were saved; edits made while waiting
-        // remain dirty even if the follow-up refresh fails.
-        setSavedDraft(submitted);
-        pushToast({
-          message: channel ? "Release channel saved" : `Created release channel ${submitted.name}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't save the release channel", status: STATUSES.error });
-      })
-      .finally(() => setIsSaving(false));
+    try {
+      await onSave(submitted);
+      // Only these submitted values were saved; edits made while waiting
+      // remain dirty even if the follow-up refresh fails.
+      setSavedDraft(submitted);
+      pushToast({
+        message: channel ? "Release channel saved" : `Created release channel ${submitted.name}`,
+        status: STATUSES.success,
+      });
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error && error.message ? error.message : "Couldn't save the release channel",
+        status: STATUSES.error,
+      });
+    } finally {
+      writeInFlightRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   const channelRollouts = channel ? rollouts.filter((r) => r.channelId === channel.id) : [];
@@ -260,19 +269,24 @@ const ReleaseChannelManageView = ({
     return file?.firmware_version || file?.filename || "unknown version";
   };
 
-  const handleApply = () => {
-    if (!channel) return;
+  const handleApply = async () => {
+    if (writeInFlightRef.current || !channel || dirtyAssignments.length === 0) return;
+    writeInFlightRef.current = true;
     setIsApplying(true);
-    onApply(channel.id, dirtyAssignments)
-      .then(() => {
-        setStaged({});
-        setShowApplyDialog(false);
-        pushToast({ message: "Firmware changes applied", status: STATUSES.success });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't apply firmware changes", status: STATUSES.error });
-      })
-      .finally(() => setIsApplying(false));
+    try {
+      await onApply(channel.id, dirtyAssignments);
+      setStaged({});
+      setShowApplyDialog(false);
+      pushToast({ message: "Firmware changes applied", status: STATUSES.success });
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error && error.message ? error.message : "Couldn't apply firmware changes",
+        status: STATUSES.error,
+      });
+    } finally {
+      writeInFlightRef.current = false;
+      setIsApplying(false);
+    }
   };
 
   const inScopeCount = preview?.minerCount ?? channel?.minerCount ?? 0;
@@ -469,7 +483,10 @@ const ReleaseChannelManageView = ({
                   variant={variants.primary}
                   size={sizes.compact}
                   text="Apply changes"
-                  onClick={() => setShowApplyDialog(true)}
+                  disabled={isWriting}
+                  onClick={() => {
+                    if (!writeInFlightRef.current) setShowApplyDialog(true);
+                  }}
                   testId="apply-firmware-changes"
                 />
               </div>
@@ -495,7 +512,7 @@ const ReleaseChannelManageView = ({
         <Dialog
           open={showApplyDialog}
           title="Start firmware update?"
-          subtitle={`One update starts per changed model in ${channel.name}. Pacing: ${pacingSummary(channel.behavior).toLowerCase()}.`}
+          subtitle={`One update starts per changed model in ${channel.name}. Pacing: ${pacingSummary(savedSettings?.behavior).toLowerCase()}.`}
           testId="apply-firmware-dialog"
           onDismiss={() => {
             if (!isApplying) setShowApplyDialog(false);
@@ -511,6 +528,7 @@ const ReleaseChannelManageView = ({
               text: "Start update",
               variant: variants.primary,
               onClick: handleApply,
+              disabled: isWriting || dirtyAssignments.length === 0,
               loading: isApplying,
             },
           ]}
