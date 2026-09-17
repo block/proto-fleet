@@ -281,6 +281,21 @@ const mutationCases: {
   },
 ];
 
+const paginatedActionCases = [
+  {
+    name: "channel miners",
+    rpc: mockListReleaseChannelMiners,
+    call: (api: ReleaseChannelsApi) => api.listChannelMiners(1n, "Proto", "Rig"),
+    firstPage: { miners: [], cursor: "details-2" },
+  },
+  {
+    name: "rollout devices",
+    rpc: mockListRolloutDevices,
+    call: (api: ReleaseChannelsApi) => api.listRolloutDevices(9n),
+    firstPage: { devices: [], cursor: "details-2" },
+  },
+];
+
 describe("useReleaseChannels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -484,6 +499,7 @@ describe("useReleaseChannels", () => {
       expect(result.current.rollouts).toBe(previous.rollouts);
       expect(result.current.minerNames).toBe(previous.miners);
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: refreshError });
 
       rpc.mockClear();
       const writeError = new ConnectError("write rejected", Code.FailedPrecondition);
@@ -495,6 +511,151 @@ describe("useReleaseChannels", () => {
       expect(rpc).toHaveBeenCalledTimes(1);
       expect(mockListRollouts).toHaveBeenCalledTimes(readsAfterFailure);
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
+      expect(result.current.error).toBe(refreshError);
+      expect(result.current.channels).toBe(previous.channels);
+      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(result.current.minerNames).toBe(previous.miners);
+    },
+  );
+
+  it.each(mutationCases)(
+    "$name handles an authentication failure and rethrows the original write error",
+    async ({ rpc, call }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const error = new ConnectError("session expired during write", Code.Unauthenticated);
+      rpc.mockRejectedValueOnce(error);
+      await act(async () => {
+        await expect(call(result.current)).rejects.toBe(error);
+      });
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+      expect(mockListRollouts).toHaveBeenCalledTimes(1);
+      expect(mockListReleaseChannels).toHaveBeenCalledTimes(1);
+      expect(mockGetReleaseChannel).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBeNull();
+      expect(result.current.hasLoaded).toBe(true);
+    },
+  );
+
+  it.each(["replaced session", "replaced session before rerender", "unmounted hook"])(
+    "does not handle a delayed mutation authentication failure from a %s",
+    async (oldContext) => {
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const pendingWrite = deferred<object>();
+      mockCancelRollout.mockReturnValueOnce(pendingWrite.promise);
+      let mutation!: Promise<void>;
+      await act(async () => {
+        mutation = result.current.cancelRollout(9n, 1n);
+      });
+      expect(mockCancelRollout).toHaveBeenCalledTimes(1);
+      if (oldContext === "unmounted hook") {
+        unmount();
+      } else {
+        mockAuth.sessionGeneration += 1;
+        if (oldContext === "replaced session") {
+          rerender();
+          await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+        }
+      }
+      const readsBeforeRejection = mockListRollouts.mock.calls.length;
+      const error = new ConnectError("previous session expired during write", Code.Unauthenticated);
+      const rejection = expect(mutation).rejects.toBe(error);
+      await act(async () => {
+        pendingWrite.reject(error);
+        await rejection;
+      });
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+      expect(mockListRollouts).toHaveBeenCalledTimes(readsBeforeRejection);
+      expect(mockCancelRollout).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("handles a follow-up read authentication failure once without rejecting or resending a committed mutation", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    mockCancelRollout.mockResolvedValue({});
+    const error = new ConnectError("session expired after write", Code.Unauthenticated);
+    mockListRollouts.mockRejectedValueOnce(error);
+    await act(async () => {
+      await expect(result.current.cancelRollout(9n, 1n)).resolves.toBeUndefined();
+    });
+    expect(mockCancelRollout).toHaveBeenCalledTimes(1);
+    expect(mockListRollouts).toHaveBeenCalledTimes(2);
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+    expect(result.current.error).toBe(error);
+  });
+
+  it("does not dispatch saved mutation callbacks after session replacement", async () => {
+    const { result, rerender } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previousApi = result.current;
+    mockAuth.sessionGeneration += 1;
+    rerender();
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    for (const { call, rpc } of mutationCases) {
+      await expect(call(previousApi)).rejects.toThrow("Your session changed. Refresh the page before trying again.");
+      expect(rpc).not.toHaveBeenCalled();
+    }
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    expect(mockListRollouts).toHaveBeenCalledTimes(2);
+
+    mockCancelRollout.mockResolvedValue({});
+    await act(async () => {
+      await result.current.cancelRollout(9n, 1n);
+    });
+    expect(mockCancelRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 1n });
+    expect(mockListRollouts).toHaveBeenCalledTimes(3);
+  });
+
+  it("handles scope-preview authentication failures without refreshing or hiding the original error", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const error = new ConnectError("preview authentication expired", Code.Unauthenticated);
+    mockPreviewReleaseChannelScope.mockRejectedValueOnce(error);
+    await expect(result.current.previewScope(create(ReleaseChannelScopeSchema), 1n)).rejects.toBe(error);
+    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledTimes(1);
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+    expect(mockListRollouts).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each(paginatedActionCases)(
+    "handles authentication failures on later $name pages without returning partial details",
+    async ({ rpc, call, firstPage }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const error = new ConnectError("details authentication expired", Code.Unauthenticated);
+      rpc.mockResolvedValueOnce(firstPage).mockRejectedValueOnce(error);
+      await expect(call(result.current)).rejects.toBe(error);
+      expect(rpc.mock.calls.map(([request]) => request.cursor)).toEqual(["", "details-2"]);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+      expect(mockListRollouts).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBeNull();
+    },
+  );
+
+  it.each(paginatedActionCases)(
+    "stops paging $name when the session changes between responses",
+    async ({ rpc, call, firstPage }) => {
+      const { result, rerender } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const page = deferred<typeof firstPage>();
+      rpc.mockReturnValueOnce(page.promise);
+      const details = call(result.current);
+      expect(rpc).toHaveBeenCalledTimes(1);
+      mockAuth.sessionGeneration += 1;
+      rerender();
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const rejection = expect(details).rejects.toThrow("Your session changed. Refresh the page before trying again.");
+      await act(async () => {
+        page.resolve(firstPage);
+        await rejection;
+      });
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+      expect(mockListRollouts).toHaveBeenCalledTimes(2);
     },
   );
 
@@ -697,6 +858,7 @@ describe("useReleaseChannels", () => {
       );
     }
     expect(rpc).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
     expect(mockListRollouts).toHaveBeenCalledTimes(1);
   });
 

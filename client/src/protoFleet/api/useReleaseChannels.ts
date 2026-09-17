@@ -330,6 +330,24 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     };
   }, [refresh]);
 
+  const withAuthErrors = useCallback(
+    async <T>(request: () => Promise<T>): Promise<T> => {
+      const session = sessionRef.current;
+      if (!session || !isCurrentSession()) {
+        throw new Error("Your session changed. Refresh the page before trying again.");
+      }
+      try {
+        return await request();
+      } catch (error) {
+        // Direct actions need the same logout path as polling. A late failure
+        // from a previous login or an unmounted hook must not end a new session.
+        if (sessionRef.current === session && isCurrentSession()) handleAuthErrors({ error });
+        throw error;
+      }
+    },
+    [handleAuthErrors, isCurrentSession],
+  );
+
   const refreshAfterMutation = useCallback(async () => {
     // The write has already committed. Report a follow-up read failure via
     // error state and retry on the next poll, without inviting a duplicate write.
@@ -338,135 +356,145 @@ export function useReleaseChannels(): ReleaseChannelsApi {
 
   const createChannel = useCallback(
     async (draft: ReleaseChannelDraft) => {
-      const resp = await rolloutClient.createReleaseChannel({
-        ...draft,
-        behavior: rolloutBehaviorForRequest(draft.behavior),
-      });
+      const resp = await withAuthErrors(() =>
+        rolloutClient.createReleaseChannel({
+          ...draft,
+          behavior: rolloutBehaviorForRequest(draft.behavior),
+        }),
+      );
       await refreshAfterMutation();
       return resp.channel;
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const updateChannel = useCallback(
     async (channelId: bigint, draft: ReleaseChannelDraft) => {
-      const resp = await rolloutClient.updateReleaseChannel({
-        channelId,
-        ...draft,
-        behavior: rolloutBehaviorForRequest(draft.behavior),
-      });
+      const resp = await withAuthErrors(() =>
+        rolloutClient.updateReleaseChannel({
+          channelId,
+          ...draft,
+          behavior: rolloutBehaviorForRequest(draft.behavior),
+        }),
+      );
       await refreshAfterMutation();
       return resp.channel;
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const deleteChannel = useCallback(
     async (channelId: bigint) => {
-      await rolloutClient.deleteReleaseChannel({ channelId });
+      await withAuthErrors(() => rolloutClient.deleteReleaseChannel({ channelId }));
       await refreshAfterMutation();
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const previewScope = useCallback(
     (scope: ReleaseChannelScope, channelId?: bigint) =>
-      rolloutClient.previewReleaseChannelScope({ scope, channelId: channelId ?? 0n }),
-    [],
+      withAuthErrors(() => rolloutClient.previewReleaseChannelScope({ scope, channelId: channelId ?? 0n })),
+    [withAuthErrors],
   );
 
   const listChannelMiners = useCallback(
     (channelId: bigint, manufacturer?: string, model?: string) =>
       drainPages((cursor) =>
-        rolloutClient
-          .listReleaseChannelMiners({
+        withAuthErrors(() =>
+          rolloutClient.listReleaseChannelMiners({
             channelId,
             manufacturer: manufacturer ?? "",
             model: model ?? "",
             pageSize: DETAIL_PAGE_SIZE,
             cursor,
-          })
-          .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+          }),
+        ).then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
       ),
-    [],
+    [withAuthErrors],
   );
 
   const listRolloutDevices = useCallback(
     (rolloutId: bigint) =>
       drainPages((cursor) =>
-        rolloutClient
-          .listRolloutDevices({ rolloutId, pageSize: DETAIL_PAGE_SIZE, cursor })
-          .then((resp) => ({ items: resp.devices, cursor: resp.cursor })),
+        withAuthErrors(() => rolloutClient.listRolloutDevices({ rolloutId, pageSize: DETAIL_PAGE_SIZE, cursor })).then(
+          (resp) => ({ items: resp.devices, cursor: resp.cursor }),
+        ),
       ),
-    [],
+    [withAuthErrors],
   );
 
   const applyFirmware = useCallback(
     async (channelId: bigint, assignments: AssignmentDraft[]) => {
-      const resp = await rolloutClient.applyReleaseChannelFirmware({
-        channelId,
-        assignments: assignments.map((a) => ({
-          manufacturer: a.manufacturer,
-          model: a.model,
-          firmwareFileId: a.firmwareFileId,
-        })),
-      });
-      await refreshAfterMutation();
-      return resp.startedRollouts;
-    },
-    [refreshAfterMutation],
-  );
-
-  const rollbackFirmware = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const resp = await rolloutClient.rollbackReleaseChannelFirmware(
-        rolloutControlRequest(rolloutId, expectedRevision),
+      const resp = await withAuthErrors(() =>
+        rolloutClient.applyReleaseChannelFirmware({
+          channelId,
+          assignments: assignments.map((a) => ({
+            manufacturer: a.manufacturer,
+            model: a.model,
+            firmwareFileId: a.firmwareFileId,
+          })),
+        }),
       );
       await refreshAfterMutation();
       return resp.startedRollouts;
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
+  );
+
+  const rollbackFirmware = useCallback(
+    async (rolloutId: bigint, expectedRevision: bigint) => {
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      const resp = await withAuthErrors(() => rolloutClient.rollbackReleaseChannelFirmware(request));
+      await refreshAfterMutation();
+      return resp.startedRollouts;
+    },
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const continueRollout = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
-      await rolloutClient.continueRollout(rolloutControlRequest(rolloutId, expectedRevision));
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.continueRollout(request));
       await refreshAfterMutation();
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const pauseRollout = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
-      await rolloutClient.pauseRollout(rolloutControlRequest(rolloutId, expectedRevision));
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.pauseRollout(request));
       await refreshAfterMutation();
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const resumeRollout = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
-      await rolloutClient.resumeRollout(rolloutControlRequest(rolloutId, expectedRevision));
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.resumeRollout(request));
       await refreshAfterMutation();
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const cancelRollout = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
-      await rolloutClient.cancelRollout(rolloutControlRequest(rolloutId, expectedRevision));
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      await withAuthErrors(() => rolloutClient.cancelRollout(request));
       await refreshAfterMutation();
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const retryFailedDevices = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
-      const resp = await rolloutClient.retryFailedRolloutDevices(rolloutControlRequest(rolloutId, expectedRevision));
+      const request = rolloutControlRequest(rolloutId, expectedRevision);
+      const resp = await withAuthErrors(() => rolloutClient.retryFailedRolloutDevices(request));
       await refreshAfterMutation();
       return resp.rollout;
     },
-    [refreshAfterMutation],
+    [refreshAfterMutation, withAuthErrors],
   );
 
   const hasCurrentSnapshot = isAuthenticated && snapshot.authSessionIdentity === authSessionIdentity;
