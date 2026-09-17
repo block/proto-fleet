@@ -603,6 +603,36 @@ validate_install_directory_chain() {
   done
 }
 
+# Release payloads (the host updater and HA operator) must be executable here.
+# Keep the historical /tmp default, but allow an explicit trusted parent on
+# hosts where /tmp is noexec. Never adopt a caller-supplied directory as the
+# cleanup target: mktemp allocates a new private child beneath it.
+create_install_download_dir() {
+  local parent="${1:-}" canonical trusted_uid
+  if [ -z "$parent" ]; then
+    # /tmp is a system symlink on macOS; resolve only this built-in default.
+    parent=$(cd /tmp && pwd -P) || return 1
+  fi
+  case "$parent" in
+    /*) ;;
+    *) echo "❌ Temporary directory must be an absolute path: $parent" >&2; return 1 ;;
+  esac
+  while [ "$parent" != / ] && [ "${parent%/}" != "$parent" ]; do
+    parent="${parent%/}"
+  done
+  if [ ! -d "$parent" ] || [ -L "$parent" ]; then
+    echo "❌ Temporary directory must be an existing, non-symlink directory: $parent" >&2
+    return 1
+  fi
+  # Unlike an installation tree, privileged bootstrap scratch must not trust
+  # SUDO_UID-owned paths: those payloads may subsequently run as root.
+  trusted_uid=$(id -u) || return 1
+  validate_install_directory_chain "$parent" "$trusted_uid" 0 || return 1
+  canonical=$(cd "$parent" && pwd -P) || return 1
+  validate_install_directory_chain "$canonical" "$trusted_uid" 0 || return 1
+  (umask 077; mktemp -d "${canonical%/}/proto-fleet-install.XXXXXX")
+}
+
 prepare_fresh_install_path() {
   local selected="$1"
   local normalized nearest_existing canonical canonical_target missing_suffix trusted_uid
@@ -1795,6 +1825,8 @@ Pass "nightly" to install the latest successful nightly prerelease.
 Options:
   --ha                     Install the three-node high-availability profile.
   --install-dir PATH       Use PATH without prompting.
+  --temp-dir PATH          Existing trusted directory for temporary release
+                           files; must allow execution (default: /tmp).
   --non-interactive        Fail instead of prompting; for an existing install
                            with a complete deployment .env.
 You can override by doing, e.g.:
@@ -1900,6 +1932,7 @@ check_page_size() {
 NON_INTERACTIVE=0
 HA_INSTALL=0
 REQUESTED_INSTALL_DIR=""
+REQUESTED_TEMP_DIR=""
 REQUESTED_VERSION=""
 
 while [ "$#" -gt 0 ]; do
@@ -1911,6 +1944,14 @@ while [ "$#" -gt 0 ]; do
     --install-dir)
       [ "$#" -ge 2 ] || { echo "Error: --install-dir requires a path." >&2; usage; }
       REQUESTED_INSTALL_DIR="$2"
+      shift 2
+      ;;
+    --temp-dir)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || {
+        echo "Error: --temp-dir requires a nonempty path." >&2
+        usage
+      }
+      REQUESTED_TEMP_DIR="$2"
       shift 2
       ;;
     --non-interactive)
@@ -2100,7 +2141,7 @@ esac
 
 TAR_NAME="proto-fleet-${VERSION}-${ARCH}.tar.gz"
 URL="${GITHUB_RELEASES_URL}/download/${VERSION}/${TAR_NAME}"
-DOWNLOAD_DIR=$(mktemp -d /tmp/proto-fleet-install.XXXXXX) || {
+DOWNLOAD_DIR=$(create_install_download_dir "$REQUESTED_TEMP_DIR") || {
   echo "❌ Could not create a private release-download directory." >&2
   exit 1
 }
