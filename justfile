@@ -23,7 +23,7 @@ check: lint
 check-changed base="origin/main":
   scripts/check-changed.sh --base {{quote(base)}}
 
-# test developer workflow routing without running the routed toolchains
+# validate developer workflow configuration and shared agent skills
 test-developer-workflows:
   scripts/check-changed_test.sh
   just --list >/dev/null

@@ -1,4 +1,5 @@
 ---
+name: pr-describe
 description: Write or update a PR description that lets reviewers judge the architecture and technical decisions without reading low-level code — high-level mechanism, mermaid diagrams, and a code-area map.
 argument-hint: "(optional: PR number/URL; defaults to current branch PR or draft body)"
 ---
@@ -65,7 +66,7 @@ describe what the code does, not the decisions made getting there.
    `client/`, `plugin/`, `proto/`, `migrations/`, `packages/proto-python-gen/`).
 
    Compute reviewable counts using the exclusions and rename/binary rules in
-   the [PR standard](../../docs/development/pr-descriptions.md#counting-the-reviewable-diff).
+   the [PR standard](../../../docs/development/pr-descriptions.md#counting-the-reviewable-diff).
    For a numbered PR, save its aggregate `gh pr diff <number> -R <owner>/<repo>`
    output and use `git apply --numstat` on that diff. Do not use `--patch`,
    which supplies per-commit patches and can count the same edit repeatedly.
@@ -89,7 +90,7 @@ describe what the code does, not the decisions made getting there.
    the back-and-forth of how the work was planned).
 
 3. Draft the description using the complete
-   [PR description standard](../../docs/development/pr-descriptions.md).
+   [PR description standard](../../../docs/development/pr-descriptions.md).
    Use the same resolved target, diff, reviewable counts, and stack context
    throughout. Include validation evidence and explicit gaps.
 

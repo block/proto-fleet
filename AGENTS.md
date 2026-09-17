@@ -80,8 +80,10 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 
 ## Agent tooling
 
-Repository skills and Claude commands live in `.claude/`; their descriptions
-identify when to load them. Other agents can read the linked skills directly.
-`CLAUDE.md` is a thin entry point. Keep `.claude/settings.local.json` private.
-Commands include `/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`,
-`/release-notes`, and `/plan`.
+Repository skills live in `.claude/skills/`; their descriptions identify when
+to load them. `.agents/skills/` exposes those same definitions to other agents
+through per-skill links. Do not copy or fork instructions between discovery
+directories. `CLAUDE.md` is a thin entry point. Keep
+`.claude/settings.local.json` private. Claude invokes these workflows as
+`/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`, `/release-notes`, and
+`/plan`; Codex uses the corresponding `$name`.

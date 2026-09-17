@@ -115,7 +115,8 @@ Prefixes:
 Follow the [PR description standard](docs/development/pr-descriptions.md),
 including the reviewable diff, architecture, diagrams, and validation evidence.
 Scale the detail to the change while retaining the required structure.
-Claude Code users can generate a conforming description with `/pr-describe`.
+Claude Code users can generate a conforming description with `/pr-describe`;
+Codex users can run the same shared skill with `$pr-describe`.
 
 ## Cross-Component Workflows
 

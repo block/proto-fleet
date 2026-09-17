@@ -1,4 +1,5 @@
 ---
+name: pr-ready
 description: Verify a branch, resolve in-scope failures, and prepare its PR description; publish only when requested.
 argument-hint: "(optional: audit only, or explicit request to open the PR)"
 ---
@@ -12,7 +13,7 @@ the diff. Include working-tree changes in local readiness checks; do not use
 can be reviewed, but local test results are not evidence for that remote head.
 
 Complete applicable checks and produce a description following the
-[PR standard](../../docs/development/pr-descriptions.md). For implementation
+[PR standard](../../../docs/development/pr-descriptions.md). For implementation
 work, fix lint/test/generation failures caused by the requested change and
 rerun affected checks. For an explicit audit-only request, inspect and report
 without editing. Report unrelated failures or unavailable prerequisites with
@@ -32,11 +33,11 @@ rather than application suites.
 | Server behavior | `cd server && just test`, or affected Go packages |
 | Client behavior | Affected Vitest tests via `cd client && npm test -- --run`; typecheck when types/imports change |
 | Miner protocol or shared fake rigs | `just test-contract`; relevant E2E when changed behavior is consumed there |
-| ASIC-rs, Rust SDK, or `server/sdk/v1/pb/` | [ASIC-rs build guidance](../skills/asicrs-build/SKILL.md), then affected contract coverage |
-| Proto/schema/query or generator config | [Generation skill](../skills/code-generation/SKILL.md), affected consumer tests |
-| Python generator | [Packaging skill](../skills/python-gen-tarball/SKILL.md); `just package` includes its tests |
+| ASIC-rs, Rust SDK, or `server/sdk/v1/pb/` | [ASIC-rs build guidance](../asicrs-build/SKILL.md), then affected contract coverage |
+| Proto/schema/query or generator config | [Generation skill](../code-generation/SKILL.md), affected consumer tests |
+| Python generator | [Packaging skill](../python-gen-tarball/SKILL.md); `just package` includes its tests |
 | Python SDK | `cd server/sdk/v1/python && just test` |
-| Playwright coverage | [E2E skill](../skills/proto-fleet-playwright-e2e/SKILL.md) |
+| Playwright coverage | [E2E skill](../proto-fleet-playwright-e2e/SKILL.md) |
 
 Check applicable scoped guidance for client boundaries, migration
 immutability, Go workspace sync, and generated artifacts. Do not load every

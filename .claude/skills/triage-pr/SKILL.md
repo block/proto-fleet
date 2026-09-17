@@ -1,14 +1,16 @@
 ---
+name: triage-pr
 description: Triage a pull request — fetch metadata, check status, summarize failing CI logs, ingest reviewer comments, and propose next steps.
 argument-hint: <pr-number-or-url>
 ---
 
-Triage PR `$ARGUMENTS`. Goal: give the user a one-screen status read so
+Triage the PR number or URL supplied with the skill invocation. Save it as
+`pr_ref`. Goal: give the user a one-screen status read so
 they can decide what to do next without reading the GitHub UI.
 
 ## Steps
 
-1. **Validate `$ARGUMENTS` before any shell call.** The argument must
+1. **Validate `pr_ref` before any shell call.** The argument must
    match exactly one of:
    - Bare PR number: `^[0-9]+$`
    - Canonical GitHub PR URL:
@@ -19,23 +21,23 @@ they can decide what to do next without reading the GitHub UI.
    `[A-Za-z0-9._-]`). If neither matches, stop and ask the user for a
    clean identifier.
 
-   When passing `$ARGUMENTS` to a shell command, ALWAYS double-quote it
-   (`gh pr view "$ARGUMENTS"`, not `gh pr view $ARGUMENTS`). The regex
+   When passing `pr_ref` to a shell command, ALWAYS double-quote it
+   (`gh pr view "$pr_ref"`, not `gh pr view $pr_ref`). The regex
    is the first defense; the quote is the second. **After step 2, prefer
    JSON-derived values** (`number`, parsed `owner`/`repo` from the `url`
-   field) over re-using `$ARGUMENTS` for any further API call.
+   field) over re-using `pr_ref` for any further API call.
 2. Fetch PR metadata:
-   `gh pr view "$ARGUMENTS" --json number,title,state,isDraft,mergeable,mergeStateStatus,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,url`
+   `gh pr view "$pr_ref" --json number,title,state,isDraft,mergeable,mergeStateStatus,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,url`
 
    Capture from the response:
-   - `number` — the canonical PR number (use this, not `$ARGUMENTS`, in
+   - `number` — the canonical PR number (use this, not `pr_ref`, in
      URL paths going forward)
    - `owner` and `repo` — parsed from the `url` field (which is
      `https://github.com/<owner>/<repo>/pull/<n>`). The URL is gh's
      output, not user input, so it's safe to parse via shell parameter
      expansion or `sed`.
 3. Fetch check status:
-   `gh pr checks "$ARGUMENTS"`
+   `gh pr checks "$pr_ref"`
 4. Summarize in this shape:
    - **PR**: number, title, author, branch
    - **State**: open/closed/merged, draft, mergeable status
@@ -43,21 +45,21 @@ they can decide what to do next without reading the GitHub UI.
    - **CI**: count of pending / failing / passing checks. Name the failing
      ones explicitly.
 5. For each failing check, fetch logs:
-   - Get the run URL via `gh pr checks "$ARGUMENTS" --json name,state,link`
+   - Get the run URL via `gh pr checks "$pr_ref" --json name,state,link`
      and filter where `state == "FAILURE"`. The integer after `/runs/` in
      the `link` URL is the run ID.
    - Fetch failing logs: `gh run view <run-id> --log-failed`. Identify
      the root-cause line — test name, lint rule, or compile error.
      Surface that, not the full log.
 6. Map failing checks to likely culprit areas using the PR diff:
-   `gh pr diff "$ARGUMENTS" --name-only` — match against the workflow
+   `gh pr diff "$pr_ref" --name-only` — match against the workflow
    that failed (e.g. `protofleet-server-checks.yml` failing with `server/`
    diffs is straightforward; failing without `server/` diffs is suspicious).
 7. **Pull and triage reviewer feedback.** Use the JSON-derived `owner`,
    `repo`, and `number` from step 2:
    - Line comments: `gh api "repos/$owner/$repo/pulls/$number/comments"`
    - Issue comments: `gh api "repos/$owner/$repo/issues/$number/comments"`
-   - Reviews: `gh pr view "$ARGUMENTS" --json reviews`
+   - Reviews: `gh pr view "$pr_ref" --json reviews`
 
    Dedupe findings that appear from multiple sources (the same path:line
    flagged by both Copilot and Codex is one finding, not two). For each
