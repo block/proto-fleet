@@ -33,6 +33,9 @@ export type ChannelView = ReleaseChannel & { modelGroups: ReleaseChannelModelGro
 export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
 
 const POLL_INTERVAL_MS = 5000;
+// Bound each read, including later pages, so a stalled connection cannot
+// hold the refresh lock indefinitely. Large scans get a fresh budget per RPC.
+const POLL_RPC_TIMEOUT_MS = 30_000;
 // Largest pages the server allows; lists are read in as few round
 // trips as possible.
 const DETAIL_PAGE_SIZE = 1000;
@@ -54,7 +57,10 @@ async function loadRolloutChanges(pollCursor: string): Promise<{ rollouts: Rollo
   let nextPollCursor = "";
   const rollouts = await drainPages(async (cursor) => {
     // Keep the preceding cycle's watermark fixed until every page succeeds.
-    const response = await rolloutClient.listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor });
+    const response = await rolloutClient.listRollouts(
+      { pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor },
+      { timeoutMs: POLL_RPC_TIMEOUT_MS },
+    );
     nextPollCursor = response.pollCursor;
     return { items: response.rollouts, cursor: response.cursor };
   });
@@ -129,10 +135,13 @@ export interface ReleaseChannelsApi {
 // Loads a channel with its scope and every model group page.
 async function loadChannel(channelId: bigint): Promise<ChannelView | undefined> {
   const [detail, modelGroups] = await Promise.all([
-    rolloutClient.getReleaseChannel({ channelId }),
+    rolloutClient.getReleaseChannel({ channelId }, { timeoutMs: POLL_RPC_TIMEOUT_MS }),
     drainPages((cursor) =>
       rolloutClient
-        .listReleaseChannelModelGroups({ channelId, pageSize: MODEL_GROUP_PAGE_SIZE, cursor })
+        .listReleaseChannelModelGroups(
+          { channelId, pageSize: MODEL_GROUP_PAGE_SIZE, cursor },
+          { timeoutMs: POLL_RPC_TIMEOUT_MS },
+        )
         .then((resp) => ({ items: resp.modelGroups, cursor: resp.cursor })),
     ),
   ]);
@@ -180,13 +189,16 @@ export function useReleaseChannels(): ReleaseChannelsApi {
           previous.pollCursor
             ? drainPages((cursor) =>
                 rolloutClient
-                  .listRollouts({ pageSize: DETAIL_PAGE_SIZE, cursor, status: RolloutStatus.ACTIVE })
+                  .listRollouts(
+                    { pageSize: DETAIL_PAGE_SIZE, cursor, status: RolloutStatus.ACTIVE },
+                    { timeoutMs: POLL_RPC_TIMEOUT_MS },
+                  )
                   .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
               )
             : Promise.resolve([] as Rollout[]),
           drainPages((cursor) =>
             fleetManagementClient
-              .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor })
+              .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
               .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
           ).catch((error: unknown) => {
             // Firmware managers need not have miner:read. Names are optional;
@@ -200,7 +212,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         // mistaken for a deletion when its rollout arrives in this cycle.
         const channelSummaries = await drainPages((cursor) =>
           rolloutClient
-            .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor })
+            .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
             .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
         );
         if (!isCurrentRequest()) return;
