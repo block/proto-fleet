@@ -361,6 +361,30 @@ describe("MDK v2 CT1 normalization", () => {
     ]);
   });
 
+  test("honors per-pool activity in weighted mode without enabling disabled pools", () => {
+    const pools = toCanonicalPools(
+      {
+        pools: [
+          { id: "1", enabled: true },
+          { id: "2", enabled: true },
+          { id: "3", enabled: false },
+          { id: "4", enabled: true },
+        ],
+      },
+      {
+        weightedMode: true,
+        activePoolId: "1",
+        pools: [
+          { poolId: "1", connState: V2PoolConnState.POOL_CONN_STATE_ACTIVE, isActive: true },
+          { poolId: "2", connState: V2PoolConnState.POOL_CONN_STATE_IDLE, isActive: true },
+          { poolId: "3", connState: V2PoolConnState.POOL_CONN_STATE_IDLE, isActive: true },
+          { poolId: "4", connState: V2PoolConnState.POOL_CONN_STATE_IDLE, isActive: false },
+        ],
+      },
+    );
+    expect(pools.map(({ status }) => status)).toEqual(["Active", "Active", "Disabled", "Idle"]);
+  });
+
   test("normalizes the container hierarchy, board telemetry, and plant telemetry", () => {
     const result = toCanonicalContainer(
       map,

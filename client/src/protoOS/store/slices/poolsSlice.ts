@@ -4,6 +4,8 @@ import type { MinerStore } from "../useMinerStore";
 
 export interface PoolsSlice extends PoolsState {
   setPoolsInfo: (poolsInfo: PoolInfo[] | undefined) => void;
+  setPending: (pending: boolean) => void;
+  setError: (error: string) => void;
 }
 
 export const createPoolsSlice: StateCreator<
@@ -14,6 +16,30 @@ export const createPoolsSlice: StateCreator<
 > = (set) => ({
   resourceByOwner: new Map(),
   byOwner: new Map(),
+  setPending: (pending) =>
+    set((state) => {
+      const previous = state.pools.resourceByOwner.get(ROOT_MODULE_KEY);
+      // Keep a failure visible during retries, until a successful response clears it.
+      if (pending && previous?.status !== "error") {
+        state.pools.resourceByOwner.set(ROOT_MODULE_KEY, { status: "loading", updatedAtMs: previous?.updatedAtMs });
+      } else if (!pending && previous?.status === "loading") {
+        state.pools.resourceByOwner.set(
+          ROOT_MODULE_KEY,
+          previous.updatedAtMs === undefined
+            ? { status: "idle" }
+            : { status: "ready", updatedAtMs: previous.updatedAtMs },
+        );
+      }
+    }),
+  setError: (message) =>
+    set((state) => {
+      const previous = state.pools.resourceByOwner.get(ROOT_MODULE_KEY);
+      state.pools.resourceByOwner.set(ROOT_MODULE_KEY, {
+        status: "error",
+        updatedAtMs: previous?.updatedAtMs,
+        error: { code: "POOLS", message, retryable: true },
+      });
+    }),
   setPoolsInfo: (poolsInfo) =>
     set(
       (state) => {

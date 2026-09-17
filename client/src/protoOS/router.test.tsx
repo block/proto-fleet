@@ -19,6 +19,7 @@ vi.mock("./routePrefetch", () => {
   return {
     importContainerHome: () => Promise.resolve({ default: ({ tab }: { tab: string }) => <div>container {tab}</div> }),
     importContainerModules: route("modules"),
+    importContainerPools: route("pool statistics"),
     importContainerTanks: route("tanks"),
     importDiagnosticView: route("systems"),
     importEfficiency: route("efficiency"),
@@ -93,6 +94,19 @@ vi.mock("@/shared/components/ProgressCircular", () => ({
 }));
 
 describe("ProtoOS router", () => {
+  test.each(["", "/miners/ct1"])("keeps Pools scoped to containers under %s", async (root) => {
+    mocks.minerRoot = root;
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    const routes = root ? [{ path: root, children: routerConfig }] : routerConfig;
+    const router = createMemoryRouter(routes, { initialEntries: [`${root}/pools`] });
+    const view = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(screen.getByText("pool statistics")).toBeInTheDocument());
+    view.unmount();
+    mocks.systemInfo = { identity: { deviceType: "rig" } };
+    const rig = createMemoryRouter(routes, { initialEntries: [`${root}/pools`] });
+    render(<RouterProvider router={rig} />);
+    await waitFor(() => expect(rig.state.location.pathname).toBe(`${root}/hashrate`));
+  });
   beforeEach(() => {
     mocks.minerRoot = "";
     mocks.systemInfo = undefined;

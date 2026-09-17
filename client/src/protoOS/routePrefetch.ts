@@ -20,6 +20,7 @@ export const importDiagnosticView = () =>
 export const importLogs = () => import("@/protoOS/pages/MinerLogs");
 export const importContainerTanks = () => import("@/protoOS/features/tanks");
 export const importContainerModules = () => import("@/protoOS/features/modules");
+export const importContainerPools = () => import("@/protoOS/features/pools/PoolStatisticsPage");
 export const importContainerHome = () => import("@/protoOS/features/containerHome/ContainerHomePage");
 export const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
 export const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
@@ -59,6 +60,7 @@ export const containerRoutePrefetch: readonly RouteImporter[] = [
   importContainerHome,
   importContainerTanks,
   importContainerModules,
+  importContainerPools,
 ];
 
 // Section tier for protoFleet — embeds this router under /miners/:id/*.

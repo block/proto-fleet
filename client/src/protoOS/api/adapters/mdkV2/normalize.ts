@@ -222,8 +222,9 @@ export const toCanonicalOperationalStatus = (
   };
 };
 
-const poolStatus = (enabled: boolean | undefined, state: V2PoolConnState | undefined) => {
+const poolStatus = (enabled: boolean | undefined, state: V2PoolConnState | undefined, isActive?: boolean) => {
   if (enabled === false) return "Disabled";
+  if (isActive === true) return "Active";
   switch (state) {
     case V2PoolConnState.POOL_CONN_STATE_ACTIVE:
       return "Active";
@@ -252,7 +253,11 @@ export const toCanonicalPools = (
       url: pool.url,
       username: pool.username,
       priority: pool.priority ?? index,
-      status: poolStatus(pool.enabled, pool.id === undefined ? undefined : diagnosticsById.get(pool.id)?.connState),
+      status: poolStatus(
+        pool.enabled,
+        pool.id === undefined ? undefined : diagnosticsById.get(pool.id)?.connState,
+        pool.id === undefined ? undefined : diagnosticsById.get(pool.id)?.isActive,
+      ),
       difficulty: pool.id === undefined ? undefined : diagnosticsById.get(pool.id)?.currentDifficulty,
     }))
     .sort((left, right) => left.priority - right.priority);

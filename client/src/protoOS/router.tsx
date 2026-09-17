@@ -5,6 +5,7 @@ import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject } from "re
 import {
   importContainerHome,
   importContainerModules,
+  importContainerPools,
   importContainerTanks,
   importDiagnosticView,
   importEfficiency,
@@ -56,6 +57,7 @@ const DiagnosticView = lazy(importDiagnosticView);
 const Logs = lazy(importLogs);
 const ContainerTanks = lazy(importContainerTanks);
 const ContainerModules = lazy(importContainerModules);
+const ContainerPools = lazy(importContainerPools);
 const Onboarding = lazy(importOnboarding);
 const OnboardingWelcome = lazy(importOnboardingWelcome);
 const OnboardingVerify = lazy(importOnboardingVerify);
@@ -235,6 +237,17 @@ export const routerConfig: CustomRouteObject[] = [
     calloutTopSpacing: true,
     ContentLayout: FullScreenContentLayout,
   }),
+  createRoute(
+    "pools",
+    <ContainerRoute>
+      <ContainerPools />
+    </ContainerRoute>,
+    {
+      title: "Pools",
+      hideErrors: true,
+      ContentLayout: FullScreenContentLayout,
+    },
+  ),
   createRoute("systems", <DiagnosticView />, {
     title: "Systems",
     hideErrors: true,

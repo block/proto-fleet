@@ -58,6 +58,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Pool configuration and runtime diagnostics.
 	mux.HandleFunc("GET /api/v2/pools", h.handlePools)
 	mux.HandleFunc("GET /api/v2/pools/diagnostics", h.handlePoolDiagnostics)
+	mux.HandleFunc("GET /api/v2/telemetry/shares/history", h.handlePoolShareHistory)
 
 	// Scoped mining writes.
 	mux.HandleFunc("POST /api/v2/mining/scoped/power", h.handleScopedPower)
@@ -730,15 +731,25 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
-func (h *RESTApiHandler) handlePools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, listPoolsResponse{Pools: []poolDTO{{
+func demoPools() []poolDTO {
+	return []poolDTO{{
 		ID:       1,
 		Name:     defaultPoolName,
 		URL:      defaultActivePool,
 		Username: defaultPoolUsername,
 		Priority: 0,
 		Enabled:  true,
-	}}})
+	}, {
+		ID: 2, Name: "Backup 1", URL: "stratum+tcp://backup1.example.com:3333",
+		Username: defaultPoolUsername, Priority: 1, Enabled: true,
+	}, {
+		ID: 3, Name: "Backup 2", URL: "stratum+tcp://backup2.example.com:3333",
+		Username: defaultPoolUsername, Priority: 2, Enabled: true,
+	}}
+}
+
+func (h *RESTApiHandler) handlePools(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, listPoolsResponse{Pools: demoPools()})
 }
 
 func (h *RESTApiHandler) handlePoolDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -753,16 +764,24 @@ func (h *RESTApiHandler) handlePoolDiagnostics(w http.ResponseWriter, r *http.Re
 		id := int64str(1)
 		activePoolID = &id
 	}
-	writeJSON(w, http.StatusOK, poolDiagnosticsResponse{
-		ActivePoolID: activePoolID,
-		Pools: []poolDiagnostics{{
-			PoolID:     1,
-			PoolName:   defaultPoolName,
-			ConnState:  state,
-			IsActive:   active,
+	var diagnostics []poolDiagnostics
+	for _, pool := range demoPools() {
+		connectionState := "POOL_CONN_STATE_IDLE"
+		if pool.ID == 1 {
+			connectionState = state
+		}
+		diagnostics = append(diagnostics, poolDiagnostics{
+			PoolID:     pool.ID,
+			PoolName:   pool.Name,
+			ConnState:  connectionState,
+			IsActive:   pool.ID == 1 && active,
 			IsReady:    true,
 			Difficulty: 2048,
-		}},
+		})
+	}
+	writeJSON(w, http.StatusOK, poolDiagnosticsResponse{
+		ActivePoolID: activePoolID,
+		Pools:        diagnostics,
 	})
 }
 

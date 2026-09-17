@@ -48,6 +48,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
         <>
           <NavigationItem id={navigationItems.tanks} text="Tanks" onClick={handleClick} pageName={pageName} />
           <NavigationItem id={navigationItems.modules} text="Modules" onClick={handleClick} pageName={pageName} />
+          <NavigationItem id={navigationItems.pools} text="Pools" onClick={handleClick} pageName={pageName} />
         </>
       ) : null}
       <NavigationItem id={navigationItems.logs} text="Logs" onClick={handleClick} pageName={pageName} />

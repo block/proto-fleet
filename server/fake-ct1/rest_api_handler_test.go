@@ -268,8 +268,8 @@ func TestPools(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var pools listPoolsResponse
 	getJSON(t, srv, "/api/v2/pools", &pools)
-	if len(pools.Pools) != 1 {
-		t.Fatalf("pools = %d, want 1", len(pools.Pools))
+	if len(pools.Pools) != 3 {
+		t.Fatalf("pools = %d, want 3", len(pools.Pools))
 	}
 	if pools.Pools[0].URL != defaultActivePool || !pools.Pools[0].Enabled {
 		t.Errorf("pool = %+v, want enabled default pool", pools.Pools[0])
@@ -277,8 +277,20 @@ func TestPools(t *testing.T) {
 
 	var diagnostics poolDiagnosticsResponse
 	getJSON(t, srv, "/api/v2/pools/diagnostics", &diagnostics)
-	if len(diagnostics.Pools) != 1 || diagnostics.Pools[0].ConnState != "POOL_CONN_STATE_ACTIVE" {
-		t.Errorf("diagnostics = %+v, want one active pool", diagnostics.Pools)
+	if len(diagnostics.Pools) != 3 || diagnostics.Pools[0].ConnState != "POOL_CONN_STATE_ACTIVE" {
+		t.Fatalf("diagnostics = %+v, want primary active and two backups", diagnostics.Pools)
+	}
+	for i, pool := range pools.Pools {
+		if pool.ID != int64str(i+1) || pool.Priority != int32(i) || !pool.Enabled {
+			t.Errorf("pool %d = %+v, want stable ID, ordered priority and enabled", i, pool)
+		}
+		diagnostic := diagnostics.Pools[i]
+		if diagnostic.PoolID != pool.ID || diagnostic.PoolName != pool.Name {
+			t.Errorf("diagnostic %+v does not match pool %+v", diagnostic, pool)
+		}
+		if i > 0 && (diagnostic.ConnState != "POOL_CONN_STATE_IDLE" || diagnostic.IsActive || !diagnostic.IsReady) {
+			t.Errorf("backup diagnostic = %+v, want ready standby", diagnostic)
+		}
 	}
 	if diagnostics.ActivePoolID == nil || *diagnostics.ActivePoolID != 1 {
 		t.Errorf("activePoolId = %v, want 1", diagnostics.ActivePoolID)
@@ -290,8 +302,13 @@ func TestPools(t *testing.T) {
 	if stopped.ActivePoolID != nil {
 		t.Errorf("activePoolId = %v, want omitted while stopped", *stopped.ActivePoolID)
 	}
-	if len(stopped.Pools) != 1 || stopped.Pools[0].ConnState != "POOL_CONN_STATE_IDLE" || stopped.Pools[0].IsActive {
-		t.Errorf("diagnostics = %+v, want one idle pool", stopped.Pools)
+	if len(stopped.Pools) != 3 {
+		t.Fatalf("diagnostics = %+v, want three idle pools", stopped.Pools)
+	}
+	for _, pool := range stopped.Pools {
+		if pool.ConnState != "POOL_CONN_STATE_IDLE" || pool.IsActive {
+			t.Errorf("diagnostic = %+v, want idle pool", pool)
+		}
 	}
 }
 

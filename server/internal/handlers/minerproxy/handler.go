@@ -584,6 +584,7 @@ var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "mining/target-power", requiresAuth: false},
 	{method: http.MethodGet, rest: "telemetry/container", requiresAuth: false},
 	{method: http.MethodGet, rest: "telemetry/timeseries", requiresAuth: false},
+	{method: http.MethodGet, rest: "telemetry/shares/history", requiresAuth: false},
 	{method: http.MethodGet, rest: "pools", requiresAuth: false},
 	{method: http.MethodGet, rest: "pools/diagnostics", requiresAuth: false},
 	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
