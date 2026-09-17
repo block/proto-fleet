@@ -27,7 +27,7 @@ import {
   RolloutStatus,
   UpdateReleaseChannelRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
+import { type ReleaseChannelsApi, useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import { defaultBehavior } from "@/protoFleet/features/settings/components/ReleaseChannels/behaviorUtils";
 
 const {
@@ -164,6 +164,86 @@ const revisionActions = [
   ["retryFailedDevices", mockRetryFailedRolloutDevices, RetryFailedRolloutDevicesRequestSchema],
 ] as const;
 
+const mutationDraft = {
+  name: "Canary",
+  description: "",
+  scope: create(ReleaseChannelScopeSchema),
+  behavior: defaultBehavior(),
+};
+const startedRollouts = [rollout];
+const mutationCases: {
+  name: string;
+  rpc: typeof mockCreateReleaseChannel;
+  call: (api: ReleaseChannelsApi) => Promise<unknown>;
+  response: object;
+  expected: unknown;
+}[] = [
+  {
+    name: "create",
+    rpc: mockCreateReleaseChannel,
+    call: (api) => api.createChannel(mutationDraft),
+    response: { channel: canary },
+    expected: canary,
+  },
+  {
+    name: "update",
+    rpc: mockUpdateReleaseChannel,
+    call: (api) => api.updateChannel(1n, mutationDraft),
+    response: { channel: canary },
+    expected: canary,
+  },
+  {
+    name: "delete",
+    rpc: mockDeleteReleaseChannel,
+    call: (api) => api.deleteChannel(1n),
+    response: {},
+    expected: undefined,
+  },
+  {
+    name: "apply",
+    rpc: mockApplyReleaseChannelFirmware,
+    call: (api) => api.applyFirmware(1n, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "fw-2" }]),
+    response: { startedRollouts },
+    expected: startedRollouts,
+  },
+  {
+    name: "rollback",
+    rpc: mockRollbackReleaseChannelFirmware,
+    call: (api) => api.rollbackFirmware(9n, 1n),
+    response: { startedRollouts },
+    expected: startedRollouts,
+  },
+  {
+    name: "continue",
+    rpc: mockContinueRollout,
+    call: (api) => api.continueRollout(9n, 1n),
+    response: {},
+    expected: undefined,
+  },
+  { name: "pause", rpc: mockPauseRollout, call: (api) => api.pauseRollout(9n, 1n), response: {}, expected: undefined },
+  {
+    name: "resume",
+    rpc: mockResumeRollout,
+    call: (api) => api.resumeRollout(9n, 1n),
+    response: {},
+    expected: undefined,
+  },
+  {
+    name: "cancel",
+    rpc: mockCancelRollout,
+    call: (api) => api.cancelRollout(9n, 1n),
+    response: {},
+    expected: undefined,
+  },
+  {
+    name: "retry",
+    rpc: mockRetryFailedRolloutDevices,
+    call: (api) => api.retryFailedDevices(9n, 1n),
+    response: { rollout },
+    expected: rollout,
+  },
+];
+
 describe("useReleaseChannels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -172,6 +252,8 @@ describe("useReleaseChannels", () => {
     mockAuth.username = "operator";
     mockListReleaseChannels.mockResolvedValue(create(ListReleaseChannelsResponseSchema, { channels: [canarySummary] }));
     mockGetReleaseChannel.mockResolvedValue({ channel: canary });
+    mockCreateReleaseChannel.mockResolvedValue({ channel: canary });
+    mockUpdateReleaseChannel.mockResolvedValue({ channel: canary });
     mockListReleaseChannelModelGroups.mockResolvedValue(
       create(ListReleaseChannelModelGroupsResponseSchema, { modelGroups: [rigGroup], cursor: "" }),
     );
@@ -184,6 +266,199 @@ describe("useReleaseChannels", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each(mutationCases)(
+    "$name preserves a successful write result when refresh fails, but propagates write failures",
+    async ({ rpc, call, response, expected }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const previous = {
+        channels: result.current.channels,
+        rollouts: result.current.rollouts,
+        miners: result.current.minerNames,
+      };
+      rpc.mockResolvedValue(response);
+      const refreshError = new ConnectError("refresh unavailable after write", Code.Unavailable);
+      mockListRollouts.mockRejectedValueOnce(refreshError);
+      const detailReads = mockGetReleaseChannel.mock.calls.length;
+      await act(async () => {
+        expect(await call(result.current)).toBe(expected);
+      });
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe(refreshError);
+      expect(result.current.hasLoaded).toBe(true);
+      expect(result.current.channels).toBe(previous.channels);
+      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(result.current.minerNames).toBe(previous.miners);
+      expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
+
+      rpc.mockClear();
+      const writeError = new ConnectError("write rejected", Code.FailedPrecondition);
+      rpc.mockRejectedValueOnce(writeError);
+      const readsAfterFailure = mockListRollouts.mock.calls.length;
+      await act(async () => {
+        await expect(call(result.current)).rejects.toBe(writeError);
+      });
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(mockListRollouts).toHaveBeenCalledTimes(readsAfterFailure);
+      expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
+    },
+  );
+
+  it("distinguishes a failed first load from stale loaded data and clears errors after recovery", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const initialError = new ConnectError("initial read unavailable", Code.Unavailable);
+    mockListRollouts.mockRejectedValueOnce(initialError);
+    const { result } = renderHook(() => useReleaseChannels());
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.hasLoaded).toBe(false);
+    expect(result.current.error).toBeNull();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe(initialError);
+    expect(result.current.hasLoaded).toBe(false);
+    expect(result.current.channels).toEqual([]);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasLoaded).toBe(true);
+    const channels = result.current.channels;
+    const laterError = new Error("later read unavailable");
+    mockListRollouts.mockRejectedValueOnce(laterError);
+    await act(async () => {
+      await expect(result.current.refresh()).rejects.toBe(laterError);
+    });
+    expect(result.current.error).toBe(laterError);
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.channels).toBe(channels);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasLoaded).toBe(true);
+  });
+
+  it("clears previous-session load errors while the new session is still loading", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const error = new ConnectError("old session expired", Code.Unauthenticated);
+    mockListRollouts.mockRejectedValueOnce(error);
+    const { result, rerender } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe(error);
+    expect(result.current.hasLoaded).toBe(false);
+    expect(mockHandleAuthErrors).toHaveBeenCalledWith({ error });
+    const baseline = deferred<ListRolloutsResponse>();
+    mockListRollouts.mockReturnValueOnce(baseline.promise);
+    mockAuth.sessionGeneration += 1;
+    rerender();
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasLoaded).toBe(false);
+    expect(result.current.isLoading).toBe(true);
+    await act(async () => {
+      baseline.resolve(create(ListRolloutsResponseSchema));
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasLoaded).toBe(true);
+  });
+
+  it("serializes two mutation refreshes behind an old poll without regressing state or the polling cursor", async () => {
+    const poll = capturePollingTimer();
+    const first = create(RolloutSchema, { ...rollout, revision: 1n });
+    const second = create(RolloutSchema, { ...rollout, id: 10n, revision: 1n });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [first, second], pollCursor: "initial-token" }),
+    );
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const oldPoll = deferred<ListRolloutsResponse>();
+    const firstRefresh = deferred<ListRolloutsResponse>();
+    const secondRefresh = deferred<ListRolloutsResponse>();
+    const responses = [oldPoll, firstRefresh, secondRefresh];
+    const cursors: string[] = [];
+    mockListRollouts.mockImplementation(({ status, pollCursor }) => {
+      if (status === RolloutStatus.ACTIVE) return Promise.resolve(create(ListRolloutsResponseSchema));
+      cursors.push(pollCursor);
+      return (
+        responses[cursors.length - 1]?.promise ??
+        Promise.resolve(create(ListRolloutsResponseSchema, { pollCursor: "last-token" }))
+      );
+    });
+    await act(async () => {
+      poll();
+    });
+    expect(cursors).toEqual(["initial-token"]);
+
+    const cancel = deferred<object>();
+    const pause = deferred<object>();
+    mockCancelRollout.mockReturnValueOnce(cancel.promise);
+    mockPauseRollout.mockReturnValueOnce(pause.promise);
+    let firstDone = false;
+    let secondDone = false;
+    let firstMutation!: Promise<void>;
+    let secondMutation!: Promise<void>;
+    await act(async () => {
+      firstMutation = result.current.cancelRollout(9n, 1n).then(() => {
+        firstDone = true;
+      });
+      secondMutation = result.current.pauseRollout(10n, 1n).then(() => {
+        secondDone = true;
+      });
+    });
+    expect(mockCancelRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 1n });
+    expect(mockPauseRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 10n, expectedRevision: 1n });
+    await act(async () => {
+      cancel.resolve({});
+      pause.resolve({});
+    });
+    expect(firstDone).toBe(false);
+    expect(secondDone).toBe(false);
+    expect(cursors).toEqual(["initial-token"]);
+
+    await act(async () => {
+      oldPoll.resolve(create(ListRolloutsResponseSchema, { rollouts: [first, second], pollCursor: "old-poll-token" }));
+    });
+    await waitFor(() => expect(cursors).toHaveLength(2));
+    expect(cursors).toEqual(["initial-token", "old-poll-token"]);
+    expect(firstDone).toBe(false);
+    expect(secondDone).toBe(false);
+    const canceled = create(RolloutSchema, { ...first, revision: 2n, status: RolloutStatus.CANCELED });
+    await act(async () => {
+      firstRefresh.resolve(
+        create(ListRolloutsResponseSchema, { rollouts: [canceled], pollCursor: "first-mutation-token" }),
+      );
+      await firstMutation;
+    });
+    await waitFor(() => expect(cursors).toHaveLength(3));
+    expect(cursors[2]).toBe("first-mutation-token");
+    expect(firstDone).toBe(true);
+    expect(secondDone).toBe(false);
+    expect(result.current.rollouts.map((r) => [r.id, r.revision])).toEqual([
+      [10n, 1n],
+      [9n, 2n],
+    ]);
+
+    const paused = create(RolloutSchema, { ...second, revision: 2n });
+    await act(async () => {
+      secondRefresh.resolve(
+        create(ListRolloutsResponseSchema, { rollouts: [paused], pollCursor: "second-mutation-token" }),
+      );
+      await secondMutation;
+    });
+    expect(result.current.rollouts.map((r) => [r.id, r.revision])).toEqual([
+      [10n, 2n],
+      [9n, 2n],
+    ]);
+    expect(secondDone).toBe(true);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(cursors[3]).toBe("second-mutation-token");
+    expect(result.current.rollouts.map((r) => [r.id, r.revision])).toEqual([
+      [10n, 2n],
+      [9n, 2n],
+    ]);
   });
 
   it.each(revisionActions)(
@@ -504,7 +779,7 @@ describe("useReleaseChannels", () => {
             return channel;
           });
       });
-      expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n });
+      expect(mockGetReleaseChannel).not.toHaveBeenCalledWith({ channelId: 2n });
       expect(creationCompleted).toBe(false);
       expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
 
@@ -944,7 +1219,7 @@ describe("useReleaseChannels", () => {
     await act(async () => {
       created = await result.current.createChannel(draft);
     });
-    expect(created).toEqual(canaryView);
+    expect(created).toEqual(canary);
     expect(mockCreateReleaseChannel).toHaveBeenCalledWith(draft);
     expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
   });
