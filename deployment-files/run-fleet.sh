@@ -21,6 +21,7 @@ COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.y
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+RELEASE_REPOSITORY="${PROTO_FLEET_RELEASE_REPOSITORY:-}"
 source "$PROJECT_ROOT/scripts/compose-project.sh"
 source "$PROJECT_ROOT/scripts/docker-daemon.sh"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
@@ -721,6 +722,43 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
     echo "Error: --preflight-only and --skip-build cannot be combined." >&2
     exit 1
 fi
+
+# Bind manual runs and updater preflight to the packaged source before host changes.
+release_metadata=""
+if [ -e "$PROJECT_ROOT/version.txt" ]; then
+    release_metadata=$(cat "$PROJECT_ROOT/version.txt") || exit 1
+fi
+packaged_repository=$(printf '%s\n' "$release_metadata" | awk '
+    /^[[:space:]]*release_repository/ {
+        count++
+        if ($0 !~ /^release_repository: /) exit 2
+        sub(/^release_repository: /, ""); value=$0
+    }
+    END { if (count > 1) exit 2; if (count == 0) print "block/proto-fleet"; else print value }
+') || {
+    echo "Error: invalid release repository metadata." >&2
+    exit 1
+}
+if [[ ! "$packaged_repository" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] \
+    || [[ "$packaged_repository" == *-/* || "$packaged_repository" == *..* ]]; then
+    echo "Error: invalid packaged release repository." >&2
+    exit 1
+fi
+if persisted_repository=$(compose_env_last_value PROTO_FLEET_RELEASE_REPOSITORY true); then
+    if [ "$persisted_repository" != "$packaged_repository" ]; then
+        echo "Error: persisted release repository conflicts with the release bundle; source changes are not supported." >&2
+        exit 1
+    fi
+else
+    repository_status=$?
+    [ "$repository_status" = 1 ] || { echo "Error: invalid release source configuration." >&2; exit 1; }
+fi
+if [ -n "$RELEASE_REPOSITORY" ] && [ "$RELEASE_REPOSITORY" != "$packaged_repository" ]; then
+    echo "Error: environment release repository conflicts with the release bundle." >&2
+    exit 1
+fi
+RELEASE_REPOSITORY="$packaged_repository"
+export PROTO_FLEET_RELEASE_REPOSITORY="$RELEASE_REPOSITORY"
 
 validate_runner_env_values || exit 1
 validate_database_overrides_are_persisted || exit 1
@@ -2237,7 +2275,8 @@ if ! atomic_set_env_values \
     ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
     ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
     ENABLE_TRACING "$ENABLE_TRACING" \
-    ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"; then
+    ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES" \
+    PROTO_FLEET_RELEASE_REPOSITORY "$RELEASE_REPOSITORY"; then
     echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
     exit 1
 fi

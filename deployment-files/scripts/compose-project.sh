@@ -33,6 +33,7 @@ parse_compose_env_value() {
 # syntax that cannot be interpreted without risking divergence from Compose.
 compose_env_last_value() {
     local key="$1" line normalized parsed found=false
+    local unique="${2:-false}"
     local assignment_re="^${key}[[:space:]]*[:=](.*)$"
     local malformed_re="^${key}([[:space:]]|$)"
 
@@ -47,6 +48,7 @@ compose_env_last_value() {
                 ;;
         esac
         if [[ "$normalized" =~ $assignment_re ]]; then
+            [ "$unique" != true ] || [ "$found" != true ] || return 2
             parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
             found=true
         elif [[ "$normalized" =~ $malformed_re ]]; then

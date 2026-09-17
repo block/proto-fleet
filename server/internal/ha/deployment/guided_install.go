@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"golang.org/x/term"
+
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const (
@@ -35,6 +37,7 @@ var (
 )
 
 type clusterMetadata struct {
+	Repository  string
 	Version     string
 	Commit      string
 	DatabaseAIP string
@@ -44,6 +47,7 @@ type clusterMetadata struct {
 }
 
 type bundleMetadata struct {
+	Repository    string `json:"release_repository,omitempty"`
 	FormatVersion int    `json:"format_version"`
 	Role          string `json:"role"`
 	NodeIP        string `json:"node_ip"`
@@ -295,9 +299,9 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err != nil {
 		return err
 	}
-	if bundle.Metadata.Version != release.Version || bundle.Metadata.Commit != release.Commit {
-		return fmt.Errorf("host bundle release does not match this release: bundle=%s@%s local=%s@%s",
-			bundle.Metadata.Version, bundle.Metadata.Commit, release.Version, release.Commit)
+	if bundle.Metadata.Version != release.Version || bundle.Metadata.Commit != release.Commit || bundle.Metadata.Repository != release.Repository {
+		return fmt.Errorf("host bundle release does not match this release: bundle=%s:%s@%s local=%s:%s@%s",
+			bundle.Metadata.Repository, bundle.Metadata.Version, bundle.Metadata.Commit, release.Repository, release.Version, release.Commit)
 	}
 	networkInterface, err := deps.interfaceForIP(bundle.Metadata.NodeIP)
 	if err != nil {
@@ -397,6 +401,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata, environme
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
 		nodeIP := map[string]string{"ha-a": metadata.DatabaseAIP, "ha-b": metadata.DatabaseBIP, "ha-c": metadata.WitnessIP}[role]
 		bundleMetadata := bundleMetadata{
+			Repository:    metadata.Repository,
 			FormatVersion: bundleFormatVersion, Role: role, NodeIP: nodeIP,
 			DatabaseAIP: metadata.DatabaseAIP, DatabaseBIP: metadata.DatabaseBIP,
 			WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP,
@@ -457,6 +462,9 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return preparedHostBundle{}, errors.New("host bundle rejected: invalid JSON after the bundle document")
 	}
+	if bundle.Metadata.Repository == "" {
+		bundle.Metadata.Repository = releaseinfo.DefaultRepository
+	}
 	if err := validateBundleMetadata(bundle.Metadata); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
 	}
@@ -499,6 +507,11 @@ func serviceCAFingerprint(contents []byte) (string, error) {
 }
 
 func validateBundleMetadata(metadata bundleMetadata) error {
+	if metadata.Repository != "" {
+		if err := releaseinfo.ValidateRepository(metadata.Repository); err != nil {
+			return err
+		}
+	}
 	if metadata.FormatVersion != bundleFormatVersion {
 		return fmt.Errorf("unsupported format version %d", metadata.FormatVersion)
 	}
@@ -537,6 +550,13 @@ func readReleaseIdentity(path string) (clusterMetadata, error) {
 		return clusterMetadata{}, fmt.Errorf("read packaged release identity: %w", err)
 	}
 	var identity clusterMetadata
+	identity.Repository, err = releaseinfo.RepositoryFromMetadata(contents)
+	if err != nil {
+		return clusterMetadata{}, err
+	}
+	if identity.Repository != releaseinfo.Repository {
+		return clusterMetadata{}, errors.New("packaged release repository conflicts with the fleet-ha binary identity")
+	}
 	for line := range strings.SplitSeq(string(contents), "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
@@ -604,12 +624,15 @@ func installAction(installed bool) string {
 
 func printPeerInstallCommands(output io.Writer, username string, metadata clusterMetadata) error {
 	return writeInstallerOutput(output, "\nRun these commands from your operator machine:\n%s\n%s\n",
-		peerInstallCommand(username, metadata.DatabaseBIP, metadata.Version),
-		peerInstallCommand(username, metadata.WitnessIP, metadata.Version))
+		peerInstallCommand(username, metadata.DatabaseBIP, metadata.Version, metadata.Repository),
+		peerInstallCommand(username, metadata.WitnessIP, metadata.Version, metadata.Repository))
 }
 
-func peerInstallCommand(username, address, version string) string {
-	installerURL := fmt.Sprintf("https://github.com/block/proto-fleet/releases/download/%s/install.sh", version)
+func peerInstallCommand(username, address, version, repository string) string {
+	if releaseinfo.ValidateRepository(repository) != nil {
+		return "Invalid release repository; cannot generate peer installation command."
+	}
+	installerURL := fmt.Sprintf("%s/%s/install.sh", releaseinfo.DownloadBaseURL(repository), version)
 	return fmt.Sprintf(`ssh -t %s@%s 'test -f /var/tmp/proto-fleet-ha-host.json || { echo "Prepared HA bundle is missing: /var/tmp/proto-fleet-ha-host.json" >&2; exit 1; }; tmp=$(mktemp /var/tmp/proto-fleet-install.sh.XXXXXX) || exit; trap "rm -f $tmp" EXIT; curl -fsSL %s -o "$tmp" && sudo bash "$tmp" --ha %s'`,
 		username, address, installerURL, version)
 }

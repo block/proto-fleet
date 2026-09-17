@@ -48,6 +48,10 @@ jobs:
         shell: powershell
         run: dotnet build deployment-files/windows/ProtoFleet.Installer.sln -c Release --no-restore
 
+      - name: Test installer
+        shell: powershell
+        run: dotnet test deployment-files/windows/tests/ProtoFleet.Installer.Tests/ProtoFleet.Installer.Tests.csproj -c Release --no-build --no-restore
+
       - name: Validate installer and uninstaller packaging
         shell: powershell
         working-directory: ./deployment-files/windows

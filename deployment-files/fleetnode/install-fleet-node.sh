@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PACKAGED_RELEASE_REPOSITORY="block/proto-fleet"
+validate_release_repository() {
+  local repository="$1"
+  [[ "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] \
+    && [[ "$repository" != *-/* ]] && [[ "$repository" != *..* ]]
+}
+
+# Parse data only: never source configuration or release metadata as shell.
+release_repository_from_metadata() {
+  local contents="$1" repository
+  repository=$(printf '%s\n' "$contents" | awk '
+    /^[[:space:]]*release_repository/ {
+      count++
+      if ($0 !~ /^release_repository: /) exit 2
+      sub(/^release_repository: /, "")
+      value=$0
+    }
+    END { if (count > 1) exit 2; if (count == 0) print "block/proto-fleet"; else print value }
+  ') || return 1
+  validate_release_repository "$repository" || return 1
+  printf '%s' "$repository"
+}
+
 DOWNLOAD_BASE_URL="${FLEETNODE_DOWNLOAD_BASE_URL:-}"
 TEST_MODE="${FLEETNODE_TEST_MODE:-0}"
 ROOT_PREFIX="${FLEETNODE_ROOT_PREFIX:-}"
@@ -37,25 +60,27 @@ installation, enroll the node and then enable and start the service.
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    uninstall) ACTION=uninstall; shift ;;
+    -*) usage >&2; exit 2 ;;
+    *)
+      [[ -z "$VERSION" ]] || { usage >&2; exit 2; }
+      VERSION="$1"
+      shift
+      ;;
+  esac
+done
+if [[ "$ACTION" == install ]]; then
+  [[ -n "$VERSION" ]] || { usage >&2; exit 2; }
+  if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == latest ]]; then
+    echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
+    exit 2
+  fi
+elif [[ -n "$VERSION" ]]; then
+  usage >&2; exit 2
 fi
-case "${1:-}" in
-  uninstall)
-    ACTION=uninstall
-    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
-    ;;
-  "") usage >&2; exit 2 ;;
-  *)
-    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
-    VERSION="$1"
-    if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == "latest" ]]; then
-      echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
-      exit 2
-    fi
-    ;;
-esac
 if [[ "$TEST_MODE" == "0" ]]; then
   if [[ -n "$ROOT_PREFIX" || -n "${FLEETNODE_ARCH:-}" || -n "$DOWNLOAD_BASE_URL" || -n "${FLEETNODE_SYSTEMCTL:-}" ]]; then
     echo "Fleet Node installer overrides are restricted to automated tests" >&2
@@ -112,9 +137,6 @@ ARCHIVE_NAME=""
 if [[ "$ACTION" == "install" ]]; then
   ARCHIVE_ROOT="fleetnode-${VERSION}-linux-${ARCH}"
   ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
-fi
-if [[ "$ACTION" == "install" && -z "$DOWNLOAD_BASE_URL" ]]; then
-  DOWNLOAD_BASE_URL="https://github.com/block/proto-fleet/releases/download/${VERSION}"
 fi
 
 for command in install flock "$SYSTEMCTL"; do
@@ -430,6 +452,36 @@ if [[ "$ACTION" == "uninstall" ]]; then
   exit 0
 fi
 
+RELEASE_REPOSITORY="$PACKAGED_RELEASE_REPOSITORY"
+validate_release_repository "$RELEASE_REPOSITORY" || { echo "invalid packaged repository" >&2; exit 1; }
+installed_repository=""
+if [[ -e "$PROGRAM_DIR" ]]; then
+  installed_repository="block/proto-fleet"
+fi
+if [[ -f "$PROGRAM_DIR/version.txt" ]]; then
+  installed_metadata=$(as_root cat "$PROGRAM_DIR/version.txt") || { echo "cannot read installed release metadata" >&2; exit 1; }
+  installed_repository=$(release_repository_from_metadata "$installed_metadata") || {
+    echo "invalid installed release repository" >&2; exit 1;
+  }
+fi
+if [[ -n "$installed_repository" && "$installed_repository" != "$RELEASE_REPOSITORY" ]]; then
+  echo "installed release repository conflicts with this packaged installer" >&2; exit 1
+fi
+source_config="$CONFIG_DIR/release-repository"
+if as_root test -e "$source_config" || as_root test -L "$source_config"; then
+  as_root test -f "$source_config" && ! as_root test -L "$source_config" || {
+    echo "release repository configuration must be a regular file" >&2; exit 1;
+  }
+  persisted_repository=$(as_root cat "$source_config")
+  validate_release_repository "$persisted_repository" || { echo "invalid persisted release repository" >&2; exit 1; }
+  if [[ "$persisted_repository" != "$RELEASE_REPOSITORY" ]]; then
+    echo "persisted release repository conflicts with this packaged installer" >&2; exit 1
+  fi
+fi
+if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+  DOWNLOAD_BASE_URL="https://github.com/$RELEASE_REPOSITORY/releases/download/$VERSION"
+fi
+
 echo "Downloading Fleet Node $VERSION for linux/$ARCH..."
 curl_options=(
   --disable
@@ -501,6 +553,10 @@ while IFS= read -r -d '' path; do
     *) echo "archive contains an unexpected entry: $relative_path" >&2; exit 1 ;;
   esac
 done < <(find "$source_dir" -mindepth 1 -print0)
+bundle_repository=$(release_repository_from_metadata "$(cat "$source_dir/version.txt")") || { echo "invalid release repository metadata" >&2; exit 1; }
+if [[ "$bundle_repository" != "$RELEASE_REPOSITORY" ]]; then
+  echo "release bundle repository conflicts with selected source" >&2; exit 1
+fi
 if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
   echo "Fleet Node archive metadata does not match requested version '$VERSION'" >&2
   exit 1
@@ -573,6 +629,8 @@ as_root rm -rf "$incoming" "$previous"
 as_root install -d -m 0755 "$incoming" "$incoming/plugins"
 as_root install -m 0755 "$source_dir/fleetnode" "$incoming/fleetnode"
 as_root install -m 0755 "$source_dir/fleetnode-enroll" "$incoming/fleetnode-enroll"
+printf '%s\n' "$RELEASE_REPOSITORY" > "$work_dir/release-repository"
+as_root install -m 0644 "$work_dir/release-repository" "$CONFIG_DIR/release-repository"
 as_root install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
 as_root install -m 0644 "$source_dir/fleet-node.service" "$incoming/fleet-node.service"
 as_root install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"

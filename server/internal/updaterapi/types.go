@@ -44,7 +44,8 @@ type Operation struct {
 }
 
 type StatusResponse struct {
-	Operation *Operation `json:"operation,omitempty"`
+	Operation         *Operation `json:"operation,omitempty"`
+	ReleaseRepository string     `json:"release_repository,omitempty"`
 }
 
 type TriggerRequest struct {

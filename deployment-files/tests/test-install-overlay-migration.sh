@@ -637,8 +637,8 @@ fi
 
 requested_disk_line=$(grep -n '&& \[ -n "\$REQUESTED_INSTALL_DIR" \]' "$INSTALL_SCRIPT" | cut -d: -f1)
 interactive_selection_line=$(grep -n 'INSTALL_DIR="\${custom_dir:-\$DEFAULT_INSTALL_DIR}"' "$INSTALL_SCRIPT" | cut -d: -f1)
-selected_promotion_line=$(grep -n '^if ! promote_selected_install_if_existing "\$INSTALL_DIR"; then$' "$INSTALL_SCRIPT" | cut -d: -f1)
-resolve_selected_line=$(grep -n '^if ! INSTALL_DIR=$(resolve_selected_install_path' "$INSTALL_SCRIPT" | cut -d: -f1)
+selected_promotion_line=$(grep -n '^[[:space:]]*if ! promote_selected_install_if_existing "\$INSTALL_DIR"; then$' "$INSTALL_SCRIPT" | cut -d: -f1)
+resolve_selected_line=$(grep -n '^[[:space:]]*if ! INSTALL_DIR=$(resolve_selected_install_path' "$INSTALL_SCRIPT" | cut -d: -f1)
 if [ -n "$requested_disk_line" ] \
   && [ -n "$interactive_selection_line" ] \
   && [ -n "$selected_promotion_line" ] \
@@ -696,7 +696,7 @@ fi
 
 # Keep the fail-closed check ahead of every operation that can inspect,
 # disable, or replace the existing deployment.
-guard_line=$(grep -n '^if ! guard_selected_install_when_sudo_blocked' "$INSTALL_SCRIPT" | cut -d: -f1)
+guard_line=$(grep -n '^[[:space:]]*if ! guard_selected_install_when_sudo_blocked' "$INSTALL_SCRIPT" | cut -d: -f1)
 capture_line=$(grep -n '^if ! capture_previous_run_options' "$INSTALL_SCRIPT" | cut -d: -f1)
 extract_line=$(grep -n '^extract_and_cd ' "$INSTALL_SCRIPT" | cut -d: -f1)
 if [ -n "$guard_line" ] && [ "$guard_line" -lt "$capture_line" ] && [ "$guard_line" -lt "$extract_line" ]; then
@@ -1022,6 +1022,50 @@ if (
 else
   fail "private updater validation runtime cleanup is incomplete"
 fi
+
+for source_case in matching repository download-url pin; do
+  if (
+    configured_root="$TEST_TMP/source-check-$source_case"
+    mkdir -p "$configured_root" "$configured_root/state"
+    UPDATER_ENV_PATH="$configured_root/updater.env"
+    UPDATER_STATE_DIR="$configured_root/state"
+    RELEASE_REPOSITORY=example-owner/fleet-fork
+    repository="$RELEASE_REPOSITORY"
+    download_url="https://github.com/$RELEASE_REPOSITORY/releases/download"
+    pin="$RELEASE_REPOSITORY"
+    expected_error=""
+    case "$source_case" in
+      repository)
+        repository=block/proto-fleet
+        expected_error='host updater repository conflicts'
+        ;;
+      download-url)
+        download_url=https://github.com/block/proto-fleet/releases/download
+        expected_error='host updater download URL conflicts'
+        ;;
+      pin)
+        pin=block/proto-fleet
+        expected_error='host updater persisted source conflicts'
+        ;;
+    esac
+    escaped_root=${configured_root//\\/\\\\}
+    escaped_root=${escaped_root//\"/\\\"}
+    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\nPROTO_FLEET_RELEASE_REPOSITORY="%s"\nPROTO_FLEET_DOWNLOAD_BASE_URL="%s"\n' \
+      "$escaped_root" "$repository" "$download_url" > "$UPDATER_ENV_PATH"
+    printf '%s\n' "$pin" > "$UPDATER_STATE_DIR/release-repository"
+    if [ "$source_case" = matching ]; then
+      verify_existing_updater_ownership_with "$configured_root"
+    else
+      ! verify_existing_updater_ownership_with "$configured_root" \
+        > /dev/null 2> "$configured_root/error" \
+        && grep -Fq "$expected_error" "$configured_root/error"
+    fi
+  ); then
+    pass "host updater source consistency: $source_case"
+  else
+    fail "host updater source consistency: $source_case"
+  fi
+done
 
 if (
   configured_root="$TEST_TMP/configured-updater-root"

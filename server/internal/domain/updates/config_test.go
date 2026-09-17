@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const downloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
+
 func validConfig() Config {
 	return Config{
 		CheckInterval:   time.Hour,
