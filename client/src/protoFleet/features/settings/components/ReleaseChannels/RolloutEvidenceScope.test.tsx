@@ -66,7 +66,7 @@ describe("rollout evidence scope", () => {
     expect(
       await screen.findByText("4 miners in this update; evidence scope: remaining miners (2 miners)"),
     ).toBeInTheDocument();
-    expect(screen.getByText("batch-one")).toBeInTheDocument();
+    expect(await screen.findByText("batch-one")).toBeInTheDocument();
     expect(screen.getByText("batch-two")).toBeInTheDocument();
     expect(screen.getByText("late-joiner")).toBeInTheDocument();
     expect(listRolloutDevices).toHaveBeenCalledExactlyOnceWith(restRollout.id);
@@ -138,6 +138,6 @@ describe("rollout evidence scope", () => {
     expect(await screen.findByText("4 miners in this update")).toBeInTheDocument();
     expect(screen.queryByText(/evidence scope/)).not.toBeInTheDocument();
     expect(screen.queryByText(/current batch/)).not.toBeInTheDocument();
-    expect(within(screen.getByTestId("rollout-miners-modal")).getByText("batch-one")).toBeInTheDocument();
+    expect(await within(screen.getByTestId("rollout-miners-modal")).findByText("batch-one")).toBeInTheDocument();
   });
 });
