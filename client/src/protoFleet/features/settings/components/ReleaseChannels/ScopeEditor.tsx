@@ -1,5 +1,5 @@
-import { type ReactElement, useEffect, useState } from "react";
-import { create, equals } from "@bufbuild/protobuf";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 
 import { isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/protoFleet/components/TargetSelectionModal";
 
 import { useHasPermission } from "@/protoFleet/store";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 const PREVIEW_DEBOUNCE_MS = 300;
 
@@ -25,8 +26,14 @@ type SelectionKind = "site" | "building" | "rack" | "group" | "miner";
 const toStrings = (ids: bigint[]): string[] => ids.map((id) => id.toString());
 const toBigInts = (ids: string[]): bigint[] => ids.map((id) => BigInt(id));
 
-interface PreviewSnapshot {
+interface PreviewRequest {
   scope: ReleaseChannelScope;
+  load: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
+  attempt: number;
+}
+
+interface PreviewSnapshot {
+  request: PreviewRequest;
   value: PreviewReleaseChannelScopeResponse;
 }
 
@@ -56,12 +63,16 @@ const ScopeEditor = ({
   const canReadMiners = useHasPermission("miner:read");
   const canSelectTargets = canReadSites || canReadRacks || canReadMiners;
   const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const request = useMemo(
+    () => ({ scope, load: previewScope, attempt: previewAttempt }),
+    [scope, previewScope, previewAttempt],
+  );
   const [lastPreview, setLastPreview] = useState<PreviewSnapshot | null>(null);
-  const [previewError, setPreviewError] = useState<{ scope: ReleaseChannelScope; message: string } | null>(null);
+  const [previewError, setPreviewError] = useState<{ request: PreviewRequest; message: string } | null>(null);
   const validationErrors = scopeValidationErrors(scope);
-  const previewMatchesScope = lastPreview !== null && equals(ReleaseChannelScopeSchema, lastPreview.scope, scope);
-  const currentError =
-    previewError && equals(ReleaseChannelScopeSchema, previewError.scope, scope) ? previewError.message : null;
+  const previewMatchesScope = lastPreview?.request === request;
+  const currentError = previewError?.request === request ? previewError.message : null;
   const preview = previewMatchesScope && !currentError && validationErrors.length === 0 ? lastPreview.value : null;
 
   const update = (patch: Partial<ReleaseChannelScope>) =>
@@ -73,20 +84,21 @@ const ScopeEditor = ({
   useEffect(() => {
     let cancelled = false;
     onPreview?.(null);
-    if (isScopeEmpty(scope) || scopeValidationErrors(scope).length > 0) return;
+    if (isScopeEmpty(request.scope) || scopeValidationErrors(request.scope).length > 0) return;
     const timer = setTimeout(() => {
-      previewScope(scope)
+      request
+        .load(request.scope)
         .then((result) => {
           if (cancelled) return;
-          setLastPreview({ scope, value: result });
+          setLastPreview({ request, value: result });
           setPreviewError(null);
           onPreview?.(result);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
           setPreviewError({
-            scope,
-            message: error instanceof Error ? error.message : "Couldn't resolve the selection",
+            request,
+            message: error instanceof Error && error.message ? error.message : "Couldn't resolve the selection",
           });
           onPreview?.(null);
         });
@@ -98,7 +110,7 @@ const ScopeEditor = ({
     // onPreview is a notification callback; re-resolving when the parent
     // re-renders with a new function identity would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, previewScope]);
+  }, [request]);
 
   return (
     <div className="flex flex-col gap-3" data-testid="scope-editor">
@@ -153,6 +165,11 @@ const ScopeEditor = ({
         previousPreview={preview ? null : lastPreview}
         editingExistingChannel={editingExistingChannel}
         canSelectTargets={canSelectTargets}
+        retryDisabled={disabled}
+        onRetry={() => {
+          onPreview?.(null);
+          setPreviewAttempt((attempt) => attempt + 1);
+        }}
       />
 
       {canReadSites && openModal === "site" ? (
@@ -224,6 +241,8 @@ const ScopePreview = ({
   previousPreview,
   editingExistingChannel,
   canSelectTargets,
+  retryDisabled,
+  onRetry,
 }: {
   scope: ReleaseChannelScope;
   preview: PreviewReleaseChannelScopeResponse | null;
@@ -232,6 +251,8 @@ const ScopePreview = ({
   previousPreview: PreviewSnapshot | null;
   editingExistingChannel: boolean;
   canSelectTargets: boolean;
+  retryDisabled: boolean;
+  onRetry: () => void;
 }): ReactElement => {
   if (isScopeEmpty(scope)) {
     return (
@@ -252,13 +273,32 @@ const ScopePreview = ({
             ))}
           </div>
         ) : error ? (
-          <p className="text-intent-critical-fill">{error}</p>
+          <>
+            <p role="alert" className="text-intent-critical-fill">
+              {error}
+            </p>
+            {!editingExistingChannel ? (
+              <p className="text-text-primary-50">
+                Resolve this selection before creating the channel, or clear it to create an empty channel.
+              </p>
+            ) : null}
+            <Button
+              text="Retry preview"
+              variant={variants.secondary}
+              size={sizes.compact}
+              onClick={onRetry}
+              disabled={retryDisabled}
+            />
+          </>
         ) : (
-          <p className="text-text-primary-50">Resolving {scopeSummary(scope)}…</p>
+          <p className="text-text-primary-50">
+            Resolving {scopeSummary(scope)}…
+            {!editingExistingChannel ? " Wait for the preview before creating the channel." : ""}
+          </p>
         )}
         {previousPreview ? (
           <p className="text-text-primary-50">
-            Last valid preview: {scopeSummary(previousPreview.scope)} · covers{" "}
+            Last valid preview: {scopeSummary(previousPreview.request.scope)} · covers{" "}
             {previousPreview.value.minerCount.toLocaleString()}{" "}
             {previousPreview.value.minerCount === 1 ? "miner" : "miners"}.
           </p>

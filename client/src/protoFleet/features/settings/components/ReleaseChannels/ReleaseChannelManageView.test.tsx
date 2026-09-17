@@ -18,11 +18,12 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
+import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
-  useHasPermission: () => true,
+  useHasPermission: vi.fn(() => true),
 }));
 
 // Keep the management view and debounced scope preview real; the shared
@@ -1340,6 +1341,166 @@ describe("release channel scope synchronization", () => {
         scope: create(ReleaseChannelScopeSchema, { siteIds: [2n] }),
       }),
     );
+  });
+});
+
+describe("new release channel scope verification", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(useHasPermission).mockReturnValue(true);
+  });
+
+  const tick = (ms = 300) => act(async () => vi.advanceTimersByTimeAsync(ms));
+  const chooseSite = (choice = "Choose site 2") => {
+    fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
+    fireEvent.click(screen.getByRole("button", { name: choice }));
+  };
+  const pendingPreview = () => {
+    let resolve!: (value: PreviewReleaseChannelScopeResponse) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<PreviewReleaseChannelScopeResponse>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+  const cleanPreview = () => create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 1 });
+
+  test("waits through debounce and pending resolution before creating a nonempty channel", async () => {
+    const { onSave, previewScope } = renderManage(undefined);
+    const pending = pendingPreview();
+    previewScope.mockReturnValue(pending.promise);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel" } });
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeEnabled();
+    chooseSite();
+    expect(save).toBeDisabled();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Wait for the preview before creating the channel.");
+    fireEvent.click(save);
+    await tick(299);
+    expect(previewScope).not.toHaveBeenCalled();
+    expect(save).toBeDisabled();
+    await tick(1);
+    expect(previewScope).toHaveBeenCalledOnce();
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(cleanPreview()));
+    expect(save).toBeEnabled();
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "New channel", scope: expect.objectContaining({ siteIds: [2n] }) }),
+    );
+  });
+
+  test("keeps creation blocked after a failed preview and retries the same selection", async () => {
+    const { onSave, previewScope } = renderManage(undefined);
+    const retry = pendingPreview();
+    previewScope.mockRejectedValueOnce(new Error("Preview unavailable")).mockReturnValueOnce(retry.promise);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel" } });
+    chooseSite();
+    await tick();
+    expect(screen.getByRole("alert")).toHaveTextContent("Preview unavailable");
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("clear it to create an empty channel");
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
+    expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
+    expect(save).toBeDisabled();
+    await tick();
+    expect(previewScope).toHaveBeenCalledTimes(2);
+    expect(previewScope.mock.calls[1][0]).toBe(previewScope.mock.calls[0][0]);
+    expect(save).toBeDisabled();
+    await act(async () => retry.resolve(cleanPreview()));
+    expect(save).toBeEnabled();
+  });
+
+  test("invalidates prior success and ignores late responses after changing or returning to a scope", async () => {
+    const { onSave, previewScope } = renderManage(undefined);
+    const oldPending = pendingPreview();
+    const currentPending = pendingPreview();
+    previewScope
+      .mockResolvedValueOnce(cleanPreview())
+      .mockReturnValueOnce(oldPending.promise)
+      .mockReturnValueOnce(currentPending.promise);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel" } });
+    chooseSite();
+    await tick();
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeEnabled();
+    chooseSite("Choose sites 2 and 1");
+    expect(save).toBeDisabled();
+    await tick();
+    chooseSite();
+    expect(save).toBeDisabled();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Last valid preview");
+    await tick();
+    await act(async () => oldPending.resolve(cleanPreview()));
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    await act(async () => currentPending.resolve(cleanPreview()));
+    expect(save).toBeEnabled();
+  });
+
+  test("allows an empty selection without waiting for a pending preview", async () => {
+    const { onSave, previewScope } = renderManage(undefined);
+    const pending = pendingPreview();
+    previewScope.mockReturnValue(pending.promise);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Empty channel" } });
+    chooseSite();
+    await tick();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    chooseSite("Clear sites");
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await act(async () =>
+      pending.resolve(
+        create(PreviewReleaseChannelScopeResponseSchema, {
+          conflictCount: 1,
+          conflicts: [{ channelId: 2n, channelName: "Canary", minerCount: 1 }],
+        }),
+      ),
+    );
+    expect(screen.queryByTestId("scope-conflicts")).not.toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ scope: create(ReleaseChannelScopeSchema) }),
+    );
+  });
+
+  test("creates an empty channel without catalog-read permission or preview requests", async () => {
+    vi.mocked(useHasPermission).mockReturnValue(false);
+    const { onSave, previewScope } = renderManage(undefined);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Empty channel" } });
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("You can save an empty channel.");
+    expect(screen.queryByRole("button", { name: /^Sites / })).not.toBeInTheDocument();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await tick();
+    expect(previewScope).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "Empty channel", scope: create(ReleaseChannelScopeSchema) }),
+    );
+  });
+
+  test("allows existing-channel edits while preview is pending or failed", async () => {
+    const { onSave, previewScope } = renderManage(existingChannel());
+    const pending = pendingPreview();
+    previewScope.mockReturnValue(pending.promise);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
+    const save = screen.getByTestId("save-channel");
+    expect(save).toBeEnabled();
+    await tick();
+    expect(save).toBeEnabled();
+    await act(async () => pending.reject(new Error("Preview unavailable")));
+    expect(save).toBeEnabled();
+    await act(async () => fireEvent.click(save));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Renamed" }));
   });
 });
 

@@ -20,7 +20,7 @@ import {
   rolloutProgressSummary,
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
-import { rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
+import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelMiner,
@@ -309,7 +309,11 @@ const ReleaseChannelManageView = ({
   const [description, setDescription] = useState(channel?.description ?? "");
   const [scope, setScope] = useState<ReleaseChannelScope>(() => channel?.scope ?? create(ReleaseChannelScopeSchema));
   const [behavior, setBehavior] = useState<RolloutBehavior>(() => channel?.behavior ?? defaultBehavior());
-  const [preview, setPreview] = useState<PreviewReleaseChannelScopeResponse | null>(null);
+  const [preview, setPreview] = useState<{
+    scope: ReleaseChannelScope;
+    load: (scope: ReleaseChannelScope) => Promise<PreviewReleaseChannelScopeResponse>;
+    value: PreviewReleaseChannelScopeResponse;
+  } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savedDraft, setSavedDraft] = useState<{
     settings: ReleaseChannelDraft;
@@ -343,6 +347,11 @@ const ReleaseChannelManageView = ({
   const previewForChannel = useCallback(
     (candidate: ReleaseChannelScope) => previewScope(candidate, channelId),
     [previewScope, channelId],
+  );
+  const handlePreview = useCallback(
+    (value: PreviewReleaseChannelScopeResponse | null) =>
+      setPreview(value ? { scope, load: previewForChannel, value } : null),
+    [scope, previewForChannel],
   );
 
   const savedSettings =
@@ -380,7 +389,10 @@ const ReleaseChannelManageView = ({
       behaviorForComparison(behavior),
       behaviorForComparison(savedSettings.behavior ?? create(RolloutBehaviorSchema)),
     );
-  const hasConflicts = (preview?.conflicts.length ?? 0) > 0;
+  const currentPreview = preview?.scope === scope && preview.load === previewForChannel ? preview.value : null;
+  const canCreateInScope =
+    isScopeEmpty(scope) ||
+    (currentPreview !== null && currentPreview.conflictCount === 0 && currentPreview.conflicts.length === 0);
   // Preview totals cannot distinguish retained overlaps from new ones. The
   // server compares exact conflict relations when updating an existing channel.
   const isWriting = isSaving || isApplying || (writeLock?.isLocked ?? false);
@@ -394,7 +406,7 @@ const ReleaseChannelManageView = ({
     !descriptionError &&
     scopeValidationErrors(scope).length === 0 &&
     Object.keys(rolloutBehaviorErrors(behavior)).length === 0 &&
-    (channel !== undefined || !hasConflicts) &&
+    (channel !== undefined || canCreateInScope) &&
     !isWriting;
 
   const handleSave = async () => {
@@ -661,7 +673,7 @@ const ReleaseChannelManageView = ({
           scope={scope}
           onChange={setScope}
           previewScope={previewForChannel}
-          onPreview={setPreview}
+          onPreview={handlePreview}
           editingExistingChannel={channel !== undefined}
         />
       </Section>

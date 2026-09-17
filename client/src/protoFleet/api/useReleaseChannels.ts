@@ -50,12 +50,15 @@ const CHANNEL_LOAD_CONCURRENCY = 4;
 async function drainPages<T>(
   fetchPage: (cursor: string) => Promise<{ items: T[]; cursor: string }>,
   signal?: AbortSignal,
+  checkCurrent?: () => void,
 ): Promise<T[]> {
   const all: T[] = [];
   let cursor = "";
   do {
+    checkCurrent?.();
     signal?.throwIfAborted();
     const page = await fetchPage(cursor);
+    checkCurrent?.();
     signal?.throwIfAborted();
     all.push(...page.items);
     cursor = page.cursor;
@@ -69,21 +72,31 @@ interface MinerNamesCache {
   inFlight: Promise<Record<string, string>> | null;
 }
 
-function loadMinerNames(cache: MinerNamesCache): Promise<Record<string, string>> {
+function loadMinerNames(
+  cache: MinerNamesCache,
+  signal: AbortSignal,
+  checkCurrent: () => void,
+): Promise<Record<string, string>> {
+  checkCurrent();
   if (cache.value !== null && Date.now() < cache.expiresAt) return Promise.resolve(cache.value);
   if (cache.inFlight) return cache.inFlight;
-  const request = drainPages((cursor) =>
-    fleetManagementClient
-      .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
-      .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+  const request = drainPages(
+    (cursor) =>
+      fleetManagementClient
+        .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
+        .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+    signal,
+    checkCurrent,
   )
     .catch((error: unknown) => {
+      checkCurrent();
       // Firmware managers need not have miner:read. Clear names when that
       // permission is denied, and avoid retrying the denied scan every poll.
       if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
       throw error;
     })
     .then((miners) => {
+      checkCurrent();
       const names = Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name]));
       cache.value = names;
       cache.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
@@ -96,17 +109,25 @@ function loadMinerNames(cache: MinerNamesCache): Promise<Record<string, string>>
   return request;
 }
 
-async function loadRolloutChanges(pollCursor: string): Promise<{ rollouts: Rollout[]; pollCursor: string }> {
+async function loadRolloutChanges(
+  pollCursor: string,
+  signal: AbortSignal,
+  checkCurrent: () => void,
+): Promise<{ rollouts: Rollout[]; pollCursor: string }> {
   let nextPollCursor = "";
-  const rollouts = await drainPages(async (cursor) => {
-    // Keep the preceding cycle's watermark fixed until every page succeeds.
-    const response = await rolloutClient.listRollouts(
-      { pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor },
-      { timeoutMs: POLL_RPC_TIMEOUT_MS },
-    );
-    nextPollCursor = response.pollCursor;
-    return { items: response.rollouts, cursor: response.cursor };
-  });
+  const rollouts = await drainPages(
+    async (cursor) => {
+      // Keep the preceding cycle's watermark fixed until every page succeeds.
+      const response = await rolloutClient.listRollouts(
+        { pageSize: DETAIL_PAGE_SIZE, cursor, pollCursor },
+        { timeoutMs: POLL_RPC_TIMEOUT_MS, signal },
+      );
+      nextPollCursor = response.pollCursor;
+      return { items: response.rollouts, cursor: response.cursor };
+    },
+    signal,
+    checkCurrent,
+  );
   return { rollouts, pollCursor: nextPollCursor };
 }
 
@@ -263,7 +284,8 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   });
   const inFlightRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<object | null>(null);
-  const channelLoadControllerRef = useRef<AbortController | null>(null);
+  const pollControllerRef = useRef<AbortController | null>(null);
+  const namesControllerRef = useRef<AbortController | null>(null);
   const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
   const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
 
@@ -280,49 +302,66 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   const fetchState = useCallback(
     async (session: object) => {
       const isCurrentRequest = () => sessionRef.current === session && isCurrentSession();
+      const namesController = namesControllerRef.current;
+      if (!namesController) return;
+      const controller = new AbortController();
+      const { signal } = controller;
+      pollControllerRef.current = controller;
+      const checkSession = () => {
+        if (!isCurrentRequest()) namesController.abort();
+        namesController.signal.throwIfAborted();
+      };
+      const checkCurrent = () => {
+        checkSession();
+        signal.throwIfAborted();
+      };
+      const coreRequests: Promise<unknown>[] = [];
       try {
+        checkCurrent();
         const previous = rolloutSnapshotRef.current;
-        const [changes, activeRollouts, minerNames] = await Promise.all([
-          loadRolloutChanges(previous.pollCursor),
-          // Telemetry/evidence can change without a header revision. Refresh
-          // active rows separately; this work does not grow with history.
-          previous.pollCursor
-            ? drainPages((cursor) =>
+        const changesRequest = loadRolloutChanges(previous.pollCursor, signal, checkCurrent);
+        // Telemetry/evidence can change without a header revision. Refresh
+        // active rows separately; this work does not grow with history.
+        const activeRequest = previous.pollCursor
+          ? drainPages(
+              (cursor) =>
                 rolloutClient
                   .listRollouts(
                     { pageSize: DETAIL_PAGE_SIZE, cursor, status: RolloutStatus.ACTIVE },
-                    { timeoutMs: POLL_RPC_TIMEOUT_MS },
+                    { timeoutMs: POLL_RPC_TIMEOUT_MS, signal },
                   )
                   .then((resp) => ({ items: resp.rollouts, cursor: resp.cursor })),
-              )
-            : Promise.resolve([] as Rollout[]),
+              signal,
+              checkCurrent,
+            )
+          : Promise.resolve([] as Rollout[]);
+        coreRequests.push(changesRequest, activeRequest);
+        const [changes, activeRollouts, minerNames] = await Promise.all([
+          changesRequest,
+          activeRequest,
           // Names change far less often than rollout progress. Reuse complete
           // name scans (and pending scans after a core read fails) for this login.
-          loadMinerNames(minerNamesCacheRef.current),
+          loadMinerNames(minerNamesCacheRef.current, namesController.signal, checkSession),
         ]);
-        if (!isCurrentRequest()) return;
+        checkCurrent();
         // Read channels after rollouts, so a newly created channel cannot be
         // mistaken for a deletion when its rollout arrives in this cycle.
-        const channelSummaries = await drainPages((cursor) =>
-          rolloutClient
-            .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS })
-            .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
+        const channelSummaries = await drainPages(
+          (cursor) =>
+            rolloutClient
+              .listReleaseChannels({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
+              .then((resp) => ({ items: resp.channels, cursor: resp.cursor })),
+          signal,
+          checkCurrent,
         );
-        if (!isCurrentRequest()) return;
+        checkCurrent();
         // The list carries summaries; scope and groups come per channel.
-        const controller = new AbortController();
-        channelLoadControllerRef.current = controller;
-        let views: (ChannelView | undefined)[];
-        try {
-          views = await loadChannels(
-            channelSummaries.map((summary) => summary.id),
-            controller,
-            isCurrentRequest,
-          );
-        } finally {
-          if (channelLoadControllerRef.current === controller) channelLoadControllerRef.current = null;
-        }
-        if (!isCurrentRequest()) return;
+        const views = await loadChannels(
+          channelSummaries.map((summary) => summary.id),
+          controller,
+          isCurrentRequest,
+        );
+        checkCurrent();
         const nextChannels = views.filter((view): view is ChannelView => view !== undefined);
         const channelsById = new Map(nextChannels.map((channel) => [channel.id, channel]));
         const allRollouts = mergeRollouts(previous.pollCursor ? previous.rollouts : [], [
@@ -345,6 +384,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
           error: null,
         });
       } catch (error) {
+        // Hold the refresh lock until all core reads settle. The session-owned
+        // names scan remains reusable after a core failure, but cleanup cancels it.
+        controller.abort();
+        await Promise.allSettled(coreRequests);
         // A delayed 401 from the previous login must not log out its replacement.
         if (!isCurrentRequest()) return;
         const refreshError = error instanceof Error ? error : new Error("Failed to load release channels");
@@ -363,6 +406,8 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         );
         handleAuthErrors({ error });
         throw error;
+      } finally {
+        if (pollControllerRef.current === controller) pollControllerRef.current = null;
       }
     },
     [authSessionIdentity, handleAuthErrors, isCurrentSession],
@@ -391,8 +436,9 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     sessionRef.current = {};
     inFlightRef.current = null;
     rolloutSnapshotRef.current = { rollouts: [], pollCursor: "" };
-    // Old requests may finish, but can only populate their old cache object.
+    // Keep each login's completed and pending name scans isolated.
     minerNamesCacheRef.current = { value: null, expiresAt: 0, inFlight: null };
+    namesControllerRef.current = new AbortController();
     const poll = () => {
       // Timer ticks never queue work behind an existing refresh.
       if (inFlightRef.current) return;
@@ -403,8 +449,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     return () => {
       clearInterval(timer);
       sessionRef.current = null;
-      channelLoadControllerRef.current?.abort();
-      channelLoadControllerRef.current = null;
+      pollControllerRef.current?.abort();
+      pollControllerRef.current = null;
+      namesControllerRef.current?.abort();
+      namesControllerRef.current = null;
     };
   }, [refresh]);
 
