@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
+import { fetchSessionJson } from "@/protoFleet/api/fetchSessionJson";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
 import { useLogout } from "@/protoFleet/store";
 
@@ -214,27 +215,12 @@ export const useFirmwareApi = () => {
 
   const listFirmwareFiles = useCallback(
     async (signal?: AbortSignal): Promise<FirmwareFileInfo[]> => {
-      const response = await fetch(`${API_BASE}/files`, {
-        method: "GET",
-        credentials: "include",
+      const data = await fetchSessionJson<{ files?: FirmwareFileInfo[] }>(`${API_BASE}/files`, {
         signal,
+        logout,
+        errorMessage: "Failed to list firmware files",
       });
-
-      if (response.status === 401) {
-        logout();
-        throw new Error("Session expired. Please log in again.");
-      }
-
-      if (!response.ok) {
-        const message = await extractFetchError(
-          response,
-          `Failed to list firmware files: ${response.status} ${response.statusText}`,
-        );
-        throw new Error(message);
-      }
-
-      const data = await response.json();
-      return (data.files ?? []) as FirmwareFileInfo[];
+      return data.files ?? [];
     },
     [logout],
   );

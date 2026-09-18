@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 
-import { gatesAfterBatch, planReadout } from "./behaviorUtils";
+import { planReadout } from "./behaviorUtils";
 import {
   activeRigRollout,
   batchedAutoBehavior,
@@ -17,14 +18,19 @@ import {
   singleBatchBehavior,
 } from "./ReleaseChannels.fixtures";
 import {
+  activeRolloutForGroup,
+  channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
   evidenceScopeLabel,
   failedDevices,
+  hasUnavailableAssignedFirmware,
+  lastFinishedByChannelAssignment,
   metricDisplay,
   modelFirmwareLabel,
   modelUpdateStatus,
   pacingSummary,
+  pairKey,
   rolloutDeviceCounts,
   rolloutNeedsAttention,
   rolloutOutcomeLabel,
@@ -35,6 +41,7 @@ import {
   scopeDevices,
   scopedToBatch,
 } from "./rolloutStatus";
+
 import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
@@ -49,8 +56,98 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 
-const rigGroup = canaryChannel.modelGroups[0];
+describe("release channel target keys", () => {
+  it("isolates missing identity halves from each other and from observed controls", () => {
+    const pairs = [
+      { manufacturer: "", model: "Rig" },
+      { manufacturer: "Rig", model: "" },
+      { manufacturer: "\u0000", model: "Rig" },
+      { manufacturer: "a\u0000b", model: "c" },
+      { manufacturer: "a", model: "b\u0000c" },
+    ];
+    expect(new Set(pairs.map(pairKey)).size).toBe(pairs.length);
+  });
+});
+const rigGroup = { ...canaryChannel.modelGroups[0], activeRolloutId: 0n, assignmentGeneration: 1n };
+
+describe("active rollout identity", () => {
+  const group = {
+    ...rigGroup,
+    activeRolloutId: activeRigRollout.id,
+    assignmentGeneration: activeRigRollout.assignmentGeneration,
+  };
+  it.each([
+    { channelId: 99n },
+    { manufacturer: "Other" },
+    { model: "Other" },
+    { assignmentGeneration: 99n },
+    { status: RolloutStatus.COMPLETED },
+  ])("does not attach an inconsistent rollout summary (%#)", (patch) => {
+    const rollout = { ...activeRigRollout, ...patch };
+    expect(activeRolloutForGroup(1n, group, new Map([[rollout.id, rollout]]))).toBeUndefined();
+  });
+  it("joins normalized observed aliases only to the reported active ID", () => {
+    const rollouts = new Map([
+      [activeRigRollout.id, activeRigRollout],
+      [gatedRigRollout.id, gatedRigRollout],
+    ]);
+    expect(activeRolloutForGroup(1n, { ...group, manufacturer: " proto ", model: " rig " }, rollouts)).toBe(
+      activeRigRollout,
+    );
+    expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 0n }, rollouts)).toBeUndefined();
+    expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 999n }, rollouts)).toBeUndefined();
+  });
+});
+
+describe("current assignment completion status", () => {
+  it("indexes by finish time regardless of creation/input order and isolates channel and assignment history", () => {
+    const olderFinish = create(RolloutSchema, {
+      ...completedRigRollout,
+      id: 10n,
+      createdAt: timestampFromMs(2000),
+      finishedAt: timestampFromMs(3000),
+    });
+    const laterFinish = create(RolloutSchema, {
+      ...olderFinish,
+      id: 11n,
+      manufacturer: " proto ",
+      model: " rig ",
+      createdAt: timestampFromMs(1000),
+      finishedAt: timestampFromMs(4000),
+      status: RolloutStatus.COMPLETED_WITH_FAILURES,
+    });
+    const otherChannel = { ...olderFinish, id: 12n, channelId: 99n };
+    const otherAssignment = { ...olderFinish, id: 13n, assignmentGeneration: 99n };
+    const canceled = {
+      ...laterFinish,
+      id: 14n,
+      status: RolloutStatus.CANCELED,
+      finishedAt: timestampFromMs(5000),
+    };
+    const rows = [olderFinish, laterFinish, otherChannel, otherAssignment, canceled, activeRigRollout];
+    for (const input of [rows, [...rows].reverse()]) {
+      const latest = lastFinishedByChannelAssignment(input);
+      expect(latest.size).toBe(3);
+      expect(latest.get(channelAssignmentKey(olderFinish.channelId, olderFinish))).toBe(laterFinish);
+      expect(latest.get(channelAssignmentKey(otherChannel.channelId, otherChannel))).toBe(otherChannel);
+      expect(latest.get(channelAssignmentKey(otherAssignment.channelId, otherAssignment))).toBe(otherAssignment);
+    }
+  });
+
+  it("does not carry an old assignment's failures into the current assignment", () => {
+    expect(
+      modelUpdateStatus({ ...rigGroup, assignmentGeneration: 2n }, undefined, completedWithFailuresRigRollout),
+    ).toEqual({ label: "2 of 6 on target", tone: "none" });
+  });
+
+  it("does not credit the current assignment with an old assignment's completion date", () => {
+    expect(
+      modelUpdateStatus({ ...rigGroup, assignmentGeneration: 2n, onTargetCount: 6 }, undefined, completedRigRollout),
+    ).toEqual({ label: "Up to date", tone: "completed" });
+  });
+});
 
 describe("rolloutStageLabel", () => {
   it("uses the design's stage vocabulary", () => {
@@ -278,6 +375,40 @@ describe("device counts and progress", () => {
 });
 
 describe("channel and model status", () => {
+  it("distinguishes an unavailable assignment from an unassigned or available model", () => {
+    expect(hasUnavailableAssignedFirmware({ ...rigGroup, firmwareAvailable: false, firmwareFileId: "" })).toBe(true);
+    expect(hasUnavailableAssignedFirmware(rigGroup)).toBe(false);
+    expect(hasUnavailableAssignedFirmware(canaryChannel.modelGroups[1])).toBe(false);
+  });
+
+  it.each([
+    { name: "active", rollout: activeRigRollout },
+    { name: "paused", rollout: pausedRigRollout },
+    { name: "reviewing", rollout: gatedRigRollout },
+    { name: "settled", rollout: undefined },
+  ])("surfaces unavailable assigned firmware for a $name model", ({ rollout }) => {
+    const group = {
+      ...rigGroup,
+      firmwareFileId: "",
+      firmwareAvailable: false,
+      onTargetCount: rigGroup.minerCount,
+    };
+    expect(modelUpdateStatus(group, rollout, completedRigRollout)).toEqual({
+      label: "Assigned firmware unavailable",
+      tone: "attention",
+    });
+  });
+
+  it("surfaces an unavailable assignment even before its current rollout summary arrives", () => {
+    expect(
+      modelUpdateStatus(
+        { ...rigGroup, activeRolloutId: 99n, firmwareAvailable: false, firmwareFileId: "" },
+        undefined,
+        undefined,
+      ),
+    ).toEqual({ label: "Assigned firmware unavailable", tone: "attention" });
+  });
+
   it("describes the model's active update", () => {
     expect(modelUpdateStatus(rigGroup, activeRigRollout, undefined)).toEqual({
       label: "Updating, 2 of 6",

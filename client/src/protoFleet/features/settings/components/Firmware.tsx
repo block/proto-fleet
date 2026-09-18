@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { ChevronDown, Edit, Trash } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -131,7 +136,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   };
 }
 
-const Firmware = () => {
+const FirmwareFilesSection = () => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -347,6 +352,79 @@ const Firmware = () => {
         onDismiss={() => setShowDeleteAllDialog(false)}
         isSubmitting={isDeletingAll}
       />
+    </div>
+  );
+};
+
+const TAB_FILES = "files";
+const TAB_RELEASE_CHANNELS = "releaseChannels";
+export const RELEASE_CHANNELS_TAB_PARAM = "release-channels";
+
+const firmwareTabs = [
+  { key: TAB_FILES, title: "Files" },
+  { key: TAB_RELEASE_CHANNELS, title: "Release channels" },
+];
+
+// Mount channel polling only while this tab has a consumer.
+const ReleaseChannelsSection = () => {
+  const channelsApi = useReleaseChannels();
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const retryChannels = () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    // The hook retains the error for the callout if this attempt also fails.
+    channelsApi
+      .refresh()
+      .catch(() => undefined)
+      .finally(() => setIsRetrying(false));
+  };
+
+  return (
+    <>
+      {channelsApi.error ? (
+        <div role="alert" aria-busy={isRetrying}>
+          <Callout
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title={
+              channelsApi.hasLoaded
+                ? "Release channels and update status may be out of date"
+                : "Couldn't load release channels and update status"
+            }
+            subtitle={
+              channelsApi.hasLoaded ? "Showing the last loaded data. Retry to refresh it." : channelsApi.error.message
+            }
+            buttonText={isRetrying ? "Retrying..." : "Retry"}
+            buttonOnClick={retryChannels}
+            testId="release-channels-load-error"
+          />
+        </div>
+      ) : null}
+      <ReleaseChannelsTab api={channelsApi} />
+    </>
+  );
+};
+
+// Keep the active tab in the URL so other surfaces can deep-link here.
+const Firmware = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SegmentedControl
+        // SegmentedControl is uncontrolled; remount it when navigation
+        // (rather than a click) changes the URL-derived tab.
+        key={activeTab}
+        className="self-start"
+        segments={firmwareTabs}
+        initialSegmentKey={activeTab}
+        onSelect={(key) => {
+          setSearchParams(key === TAB_RELEASE_CHANNELS ? { tab: RELEASE_CHANNELS_TAB_PARAM } : {}, { replace: true });
+        }}
+      />
+      {activeTab === TAB_RELEASE_CHANNELS ? <ReleaseChannelsSection /> : <FirmwareFilesSection />}
     </div>
   );
 };

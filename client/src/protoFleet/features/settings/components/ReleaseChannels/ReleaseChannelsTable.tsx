@@ -1,0 +1,242 @@
+import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
+
+import { ModelStatusCell, StatusCell } from "./channelStatus";
+import {
+  activeRolloutForGroup,
+  channelAssignmentKey,
+  channelUpdateStatus,
+  hasUnavailableAssignedFirmware,
+  lastFinishedByChannelAssignment,
+  modelFirmwareLabel,
+  pairKey,
+  pairLabel,
+} from "./rolloutStatus";
+import type { ChannelHistoryState } from "./useChannelHistory";
+import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
+import { ChevronDown } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+
+interface ReleaseChannelsTableProps {
+  channels: ChannelView[];
+  rollouts: Rollout[];
+  onCreate: () => void;
+  onManage: (channel: ChannelView) => void;
+  onExpandedChannelIdsChange?: (ids: bigint[]) => void;
+  historyStates?: ReadonlyMap<bigint, ChannelHistoryState>;
+}
+
+interface ChannelRow {
+  id: string;
+  kind: "channel";
+  channel: ChannelView;
+}
+
+interface ModelRow {
+  id: string;
+  kind: "model";
+  channel: ChannelView;
+  group: ReleaseChannelModelGroup;
+}
+
+type ChannelTableRow = ChannelRow | ModelRow;
+type ChannelColumn = "name" | "miners" | "firmware" | "status" | "actions";
+
+const channelColumns: ChannelColumn[] = ["name", "miners", "firmware", "status", "actions"];
+
+const channelColTitles: ColTitles<ChannelColumn> = {
+  name: "Release channel",
+  miners: "Miners",
+  firmware: "Firmware",
+  status: "Update status",
+  actions: "",
+};
+
+// The release channels overview on the shared List: one disclosure row per
+// channel with aggregate counts, and per-model rows carrying firmware targets
+// and update state.
+const ReleaseChannelsTable = ({
+  channels,
+  rollouts,
+  onCreate,
+  onManage,
+  onExpandedChannelIdsChange,
+  historyStates,
+}: ReleaseChannelsTableProps) => {
+  const [expandedChannelIds, setExpandedChannelIds] = useState(() => new Set<string>());
+  useEffect(() => {
+    onExpandedChannelIdsChange?.(
+      channels.filter((channel) => expandedChannelIds.has(channel.id.toString())).map((channel) => channel.id),
+    );
+  }, [channels, expandedChannelIds, onExpandedChannelIdsChange]);
+  useEffect(() => () => onExpandedChannelIdsChange?.([]), [onExpandedChannelIdsChange]);
+
+  const rolloutsById = useMemo(() => new Map(rollouts.map((rollout) => [rollout.id, rollout])), [rollouts]);
+  const lastFinished = useMemo(() => lastFinishedByChannelAssignment(rollouts), [rollouts]);
+
+  const rows = useMemo<ChannelTableRow[]>(
+    () =>
+      channels.flatMap((channel) => {
+        const channelKey = channel.id.toString();
+        return [
+          { id: channelKey, kind: "channel" as const, channel },
+          ...(expandedChannelIds.has(channelKey)
+            ? channel.modelGroups.map((group) => ({
+                id: JSON.stringify([channelKey, group.manufacturer, group.model]),
+                kind: "model" as const,
+                channel,
+                group,
+              }))
+            : []),
+        ];
+      }),
+    [channels, expandedChannelIds],
+  );
+
+  const toggleChannel = (channelKey: string) => {
+    setExpandedChannelIds((current) => {
+      const next = new Set(current);
+      if (next.has(channelKey)) next.delete(channelKey);
+      else next.add(channelKey);
+      return next;
+    });
+  };
+
+  // Raw model variants share a canonical rollout, which contributes only once.
+  const channelStatus = (channel: ChannelView) => {
+    const active = new Map<bigint, Rollout>();
+    const unavailableAssignments = new Set<string>();
+    let refreshing = false;
+    for (const group of channel.modelGroups) {
+      if (hasUnavailableAssignedFirmware(group)) unavailableAssignments.add(pairKey(group));
+      const rollout = activeRolloutForGroup(channel.id, group, rolloutsById);
+      if (group.activeRolloutId > 0n && !rollout) refreshing = true;
+      if (rollout) active.set(rollout.id, rollout);
+    }
+    const status = refreshing
+      ? { label: "Refreshing update status", tone: "active" as const }
+      : channelUpdateStatus([...active.values()]);
+    if (unavailableAssignments.size === 0) return status;
+    const unavailable = `${unavailableAssignments.size} firmware ${unavailableAssignments.size === 1 ? "assignment" : "assignments"} unavailable`;
+    return {
+      label: refreshing || active.size > 0 ? `${unavailable}; ${status.label}` : unavailable,
+      tone: "attention" as const,
+    };
+  };
+
+  const colConfig: ColConfig<ChannelTableRow, string, ChannelColumn> = {
+    name: {
+      component: (row) => {
+        if (row.kind === "channel") {
+          const channelKey = row.channel.id.toString();
+          const isExpanded = expandedChannelIds.has(channelKey);
+          return (
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.channel.name} models`}
+              data-testid={`channel-toggle-${row.channel.name}`}
+              className="flex min-w-0 cursor-pointer items-center gap-2 text-emphasis-300 text-text-primary"
+              onClick={() => toggleChannel(channelKey)}
+            >
+              <ChevronDown width="w-3" className={clsx("shrink-0 transition-transform", !isExpanded && "-rotate-90")} />
+              <span className="truncate" data-testid={`channel-row-${row.channel.name}`}>
+                {row.channel.name}
+              </span>
+            </button>
+          );
+        }
+        return (
+          <span
+            className="ml-5 block min-w-0 truncate border-l border-border-5 pl-5 text-300 text-text-primary"
+            data-testid={`model-row-${row.channel.name}-${row.group.model}`}
+          >
+            {pairLabel(row.group)}
+          </span>
+        );
+      },
+      width: "w-72",
+    },
+    miners: {
+      component: (row) =>
+        row.kind === "channel" ? (
+          <span data-testid={`channel-miners-${row.channel.name}`}>{row.channel.minerCount.toLocaleString()}</span>
+        ) : (
+          row.group.minerCount.toLocaleString()
+        ),
+      width: "w-32",
+    },
+    firmware: {
+      component: (row) =>
+        row.kind === "channel"
+          ? `${row.channel.modelGroups.length} ${row.channel.modelGroups.length === 1 ? "model" : "models"}`
+          : modelFirmwareLabel(row.group),
+      width: "w-64",
+    },
+    status: {
+      component: (row) =>
+        row.kind === "channel" ? (
+          <StatusCell status={channelStatus(row.channel)} emphasized testId={`channel-status-${row.channel.name}`} />
+        ) : (
+          <ModelStatusCell
+            group={row.group}
+            activeRollout={activeRolloutForGroup(row.channel.id, row.group, rolloutsById)}
+            lastFinished={lastFinished.get(channelAssignmentKey(row.channel.id, row.group))}
+            historyState={historyStates ? (historyStates.get(row.channel.id) ?? { status: "loading" }) : undefined}
+            testId={`model-status-${row.channel.name}-${row.group.model}`}
+          />
+        ),
+      width: "w-64",
+    },
+    actions: {
+      component: (row) =>
+        row.kind === "channel" ? (
+          <div className="flex justify-end">
+            <Button
+              ariaLabel={`Manage ${row.channel.name}`}
+              text="Manage"
+              variant={variants.secondary}
+              size={sizes.compact}
+              onClick={() => onManage(row.channel)}
+              testId={`manage-channel-${row.channel.name}`}
+            />
+          </div>
+        ) : null,
+      width: "w-32",
+    },
+  };
+
+  return (
+    <div className="flex flex-col gap-6" data-testid="channels-table">
+      <div>
+        <Button
+          variant={variants.primary}
+          size={sizes.compact}
+          text="Create release channel"
+          onClick={onCreate}
+          className="phone:w-full"
+          testId="create-release-channel"
+        />
+      </div>
+      <List<ChannelTableRow, string, ChannelColumn>
+        activeCols={channelColumns}
+        colTitles={channelColTitles}
+        colConfig={colConfig}
+        items={rows}
+        itemKey="id"
+        total={channels.length}
+        itemName={{ singular: "release channel", plural: "release channels" }}
+        applyColumnWidthsToCells
+        stickyFirstColumn={false}
+      />
+      <div className="text-300 text-text-primary-70">
+        Expand a release channel to inspect each model's last or current update.
+      </div>
+    </div>
+  );
+};
+
+export default ReleaseChannelsTable;

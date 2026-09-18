@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 
 import { methodHelpText, methodLabels, orderLabels } from "./rolloutStatus";
 import {
@@ -8,6 +8,7 @@ import {
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch, hasSampledLimit, rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 
 // Behavior a new channel starts with: a single batch, least efficient first,
 // no ceiling on miners offline. Batch sizing and thresholds carry sensible
@@ -32,14 +33,121 @@ export const orderOptions = [RolloutOrder.LEAST_EFFICIENT_FIRST, RolloutOrder.RA
   label: orderLabels[order],
 }));
 
-export const isPacedMethod = (method: RolloutMethod): boolean =>
-  method === RolloutMethod.BATCHED || method === RolloutMethod.PILOT_THEN_CONTINUE;
+export function behaviorForComparison(behavior: RolloutBehavior): RolloutBehavior {
+  const effective = rolloutBehaviorForRequest(behavior);
+  // The server omits empty thresholds. Explicit zero limits remain meaningful.
+  if (
+    effective.thresholds &&
+    equals(RolloutAutomationThresholdsSchema, effective.thresholds, create(RolloutAutomationThresholdsSchema))
+  )
+    effective.thresholds = undefined;
+  return effective;
+}
 
-// Whether a finished batch holds for review (and so whether auto-continue
-// and its thresholds apply).
-export const gatesAfterBatch = (behavior: RolloutBehavior): boolean =>
-  behavior.method === RolloutMethod.PILOT_THEN_CONTINUE ||
-  (behavior.method === RolloutMethod.BATCHED && behavior.reviewAfterEachBatch);
+const scalarBehaviorFields = [
+  "method",
+  "order",
+  "batchSize",
+  "pilotSize",
+  "waitBetweenBatchesSeconds",
+  "reviewAfterEachBatch",
+  "autoContinueOnHealthyTelemetry",
+  "stabilizationSeconds",
+  "maxConcurrentOffline",
+  "controllerTimeoutSeconds",
+] as const;
+
+// Rebase untouched fields, including retained inactive values and NaN drafts.
+export function rebaseBehavior(
+  draft: RolloutBehavior,
+  previous: RolloutBehavior,
+  incoming: RolloutBehavior,
+): RolloutBehavior {
+  if (equals(RolloutBehaviorSchema, previous, incoming)) return draft;
+  const thresholds = create(RolloutAutomationThresholdsSchema);
+  const merged: RolloutBehavior = { ...draft, thresholds };
+  const rebaseScalar = <K extends (typeof scalarBehaviorFields)[number]>(field: K) => {
+    if (Object.is(draft[field], previous[field])) merged[field] = incoming[field];
+  };
+  scalarBehaviorFields.forEach(rebaseScalar);
+  for (const field of [
+    "maxHashrateDropPercent",
+    "maxEfficiencyIncreasePercent",
+    "maxTemperatureIncreaseCelsius",
+    "maxNewErrors",
+    "minSampleCoveragePercent",
+  ] as const) {
+    thresholds[field] = Object.is(draft.thresholds?.[field], previous.thresholds?.[field])
+      ? incoming.thresholds?.[field]
+      : draft.thresholds?.[field];
+  }
+  return merged;
+}
+
+export type RolloutNumericField =
+  | "batchSize"
+  | "pilotSize"
+  | "waitBetweenBatchesSeconds"
+  | "stabilizationSeconds"
+  | "maxConcurrentOffline"
+  | "maxHashrateDropPercent"
+  | "maxEfficiencyIncreasePercent"
+  | "maxTemperatureIncreaseCelsius"
+  | "minSampleCoveragePercent"
+  | "maxNewErrors";
+
+const MAX_INT32 = 2_147_483_647;
+const integerError = (value: number, minimum = 0): string | undefined => {
+  if (minimum === 1 && value < 1) return "Enter at least 1 miner.";
+  return Number.isInteger(value) && value >= minimum && value <= MAX_INT32
+    ? undefined
+    : `Enter a whole number from ${minimum} to 2,147,483,647.`;
+};
+
+// Validate only fields the selected method will send. Hidden draft values stay
+// available for correction if the operator switches back to that method.
+export function rolloutBehaviorErrors(behavior: RolloutBehavior): Partial<Record<RolloutNumericField, string>> {
+  const errors: Partial<Record<RolloutNumericField, string>> = {};
+  const checkInteger = (field: RolloutNumericField, value: number, minimum = 0) => {
+    const error = integerError(value, minimum);
+    if (error) errors[field] = error;
+  };
+  const checkDuration = (field: "waitBetweenBatchesSeconds" | "stabilizationSeconds", value: number) => {
+    if (integerError(value)) {
+      errors[field] = "Enter a duration in whole seconds from 0 to 2,147,483,647 seconds.";
+    }
+  };
+  checkInteger("maxConcurrentOffline", behavior.maxConcurrentOffline);
+  if (behavior.method === RolloutMethod.BATCHED) {
+    checkInteger("batchSize", behavior.batchSize, 1);
+    if (!behavior.reviewAfterEachBatch) checkDuration("waitBetweenBatchesSeconds", behavior.waitBetweenBatchesSeconds);
+  }
+  if (behavior.method === RolloutMethod.PILOT_THEN_CONTINUE) checkInteger("pilotSize", behavior.pilotSize, 1);
+  if (gatesAfterBatch(behavior) && behavior.autoContinueOnHealthyTelemetry) {
+    checkDuration("stabilizationSeconds", behavior.stabilizationSeconds);
+    const thresholds = behavior.thresholds;
+    for (const field of [
+      "maxHashrateDropPercent",
+      "maxEfficiencyIncreasePercent",
+      "maxTemperatureIncreaseCelsius",
+    ] as const) {
+      const value = thresholds?.[field];
+      if (value === undefined) continue;
+      if (!Number.isFinite(value) || value < 0 || (field === "maxHashrateDropPercent" && value > 100)) {
+        errors[field] =
+          field === "maxHashrateDropPercent" ? "Enter a number from 0 to 100." : "Enter a finite number of 0 or more.";
+      }
+    }
+    if (thresholds?.maxNewErrors !== undefined) checkInteger("maxNewErrors", thresholds.maxNewErrors);
+    if (hasSampledLimit(thresholds) && thresholds?.minSampleCoveragePercent !== undefined) {
+      const coverage = thresholds.minSampleCoveragePercent;
+      if (!Number.isFinite(coverage) || coverage <= 0 || coverage > 100) {
+        errors.minSampleCoveragePercent = "Enter a number greater than 0 and at most 100.";
+      }
+    }
+  }
+  return errors;
+}
 
 // Live plan readout: "~3 batches of 10" for the miners currently in scope.
 export function planReadout(behavior: RolloutBehavior, inScopeCount: number): string | null {

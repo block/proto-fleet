@@ -1,13 +1,15 @@
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFirmwareApi";
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
+const auth = { username: "operator", sessionGeneration: 1, isAuthenticated: true };
 const firmwareTarget = { targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "v2.0.0" };
 
 vi.mock("@/protoFleet/store", () => ({
   useLogout: () => mockLogout,
+  useFleetStore: { getState: () => ({ auth }) },
 }));
 
 vi.mock("@/protoFleet/api/useFileUpload", async (importOriginal) => ({
@@ -74,6 +76,7 @@ describe("validateFirmwareFile", () => {
 describe("useFirmwareApi", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(auth, { username: "operator", sessionGeneration: 1, isAuthenticated: true });
     _resetConfigCache();
   });
 
@@ -371,6 +374,16 @@ describe("useFirmwareApi", () => {
   });
 
   describe("listFirmwareFiles", () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, resolve, reject };
+    }
+
     it("sends GET with credentials and returns file list", async () => {
       const mockFiles = [
         {
@@ -419,7 +432,11 @@ describe("useFirmwareApi", () => {
       expect(files).toEqual([]);
     });
 
-    it("calls logout on 401 response", async () => {
+    it("reports session expiry even when logging out changes the current session", async () => {
+      mockLogout.mockImplementationOnce(() => {
+        auth.username = "";
+        auth.isAuthenticated = false;
+      });
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -447,6 +464,221 @@ describe("useFirmwareApi", () => {
 
       const { result } = renderHook(() => useFirmwareApi());
       await expect(result.current.listFirmwareFiles()).rejects.toThrow("Failed to list firmware files");
+    });
+
+    it.each([
+      { name: "same user logs in again", change: () => auth.sessionGeneration++ },
+      { name: "user changes", change: () => (auth.username = "replacement") },
+      { name: "user logs out", change: () => (auth.isAuthenticated = false) },
+    ])("does not log out the current session when $name before an old 401 arrives", async ({ change }) => {
+      const response = deferred<Response>();
+      vi.stubGlobal("fetch", vi.fn().mockReturnValue(response.promise));
+      const { result } = renderHook(() => useFirmwareApi());
+      const request = result.current.listFirmwareFiles();
+      const rejected = expect(request).rejects.toThrow("Your session changed");
+      change();
+      response.resolve(new Response(null, { status: 401 }));
+      await rejected;
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("rejects an old catalog but keeps the stable callback usable in the new session", async () => {
+      const response = deferred<Response>();
+      const mockFetch = vi.fn().mockReturnValueOnce(response.promise);
+      vi.stubGlobal("fetch", mockFetch);
+      const { result, rerender } = renderHook(() => useFirmwareApi());
+      const listFiles = result.current.listFirmwareFiles;
+      const rejected = expect(listFiles()).rejects.toThrow("Your session changed");
+      auth.sessionGeneration++;
+      response.resolve(Response.json({ files: [{ id: "old-session-file" }] }));
+      await rejected;
+      rerender();
+      expect(result.current.listFirmwareFiles).toBe(listFiles);
+      mockFetch.mockResolvedValueOnce(Response.json({ files: [{ id: "current-file" }] }));
+      await expect(listFiles()).resolves.toEqual([{ id: "current-file" }]);
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("does not dispatch an already-aborted catalog request", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const controller = new AbortController();
+      controller.abort();
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("preserves a custom timeout reason when the catalog request was already aborted", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const controller = new AbortController();
+      const timeout = new Error("Firmware catalog request timed out.");
+      controller.abort(timeout);
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("preserves a custom timeout reason when an in-flight fetch rejects with a generic abort", async () => {
+      const response = deferred<Response>();
+      vi.stubGlobal("fetch", vi.fn().mockReturnValue(response.promise));
+      const controller = new AbortController();
+      const timeout = new Error("Firmware catalog request timed out.");
+      const { result } = renderHook(() => useFirmwareApi());
+      const rejected = expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+      controller.abort(timeout);
+      response.reject(new DOMException("The operation was aborted.", "AbortError"));
+      await rejected;
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it.each([200, 500].flatMap((status) => (["resolves", "rejects"] as const).map((outcome) => ({ status, outcome }))))(
+      "preserves a custom timeout reason when the $status body later $outcome",
+      async ({ status, outcome }) => {
+        const body = deferred<unknown>();
+        const readBody = vi.fn().mockReturnValue(body.promise);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: status === 200, status, json: readBody }));
+        const controller = new AbortController();
+        const timeout = new Error("Firmware catalog request timed out.");
+        const { result } = renderHook(() => useFirmwareApi());
+        const rejected = expect(result.current.listFirmwareFiles(controller.signal)).rejects.toBe(timeout);
+        await waitFor(() => expect(readBody).toHaveBeenCalledOnce());
+        controller.abort(timeout);
+        if (outcome === "resolves") body.resolve(status === 200 ? { files: [] } : { error: "Old server failure" });
+        else body.reject(new Error("Body decoding failed"));
+        await rejected;
+        expect(mockLogout).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([200, 401])("ignores a canceled request when transport later returns %s", async (status) => {
+      const response = deferred<Response>();
+      const mockFetch = vi.fn().mockReturnValue(response.promise);
+      vi.stubGlobal("fetch", mockFetch);
+      const controller = new AbortController();
+      const { result } = renderHook(() => useFirmwareApi());
+      const rejected = expect(result.current.listFirmwareFiles(controller.signal)).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ signal: controller.signal }),
+      );
+      controller.abort();
+      response.resolve(Response.json({ files: [{ id: "abandoned-file" }] }, { status }));
+      await rejected;
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it.each(["session changes", "request is canceled"])(
+      "rejects a catalog body if the %s while it is read",
+      async (change) => {
+        const body = deferred<{ files: { id: string }[] }>();
+        const readBody = vi.fn().mockReturnValue(body.promise);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: readBody }));
+        const controller = new AbortController();
+        const { result } = renderHook(() => useFirmwareApi());
+        const request = result.current.listFirmwareFiles(controller.signal);
+        const rejected = expect(request).rejects.toThrow();
+        // The fetch continuation has started body parsing, before it settles.
+        await waitFor(() => expect(readBody).toHaveBeenCalledOnce());
+        if (change === "session changes") auth.sessionGeneration++;
+        else controller.abort();
+        body.resolve({ files: [{ id: "obsolete-body" }] });
+        await rejected;
+        expect(mockLogout).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["session changes", "request is canceled"])(
+      "rejects an error body if the %s while it is read",
+      async (change) => {
+        const body = deferred<{ error: string }>();
+        const readBody = vi.fn().mockReturnValue(body.promise);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, json: readBody }));
+        const controller = new AbortController();
+        const { result } = renderHook(() => useFirmwareApi());
+        const request = result.current.listFirmwareFiles(controller.signal);
+        const rejected =
+          change === "session changes"
+            ? expect(request).rejects.toThrow("Your session changed")
+            : expect(request).rejects.toMatchObject({ name: "AbortError" });
+        await waitFor(() => expect(readBody).toHaveBeenCalledOnce());
+        if (change === "session changes") auth.sessionGeneration++;
+        else controller.abort();
+        body.resolve({ error: "Failure from the abandoned request" });
+        await rejected;
+        expect(mockLogout).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      (["fetch", "successful response body"] as const).flatMap((stage) =>
+        (["unchanged", "session changes", "request is canceled"] as const).map((change) => ({ stage, change })),
+      ),
+    )("handles a rejected $stage with the request $change", async ({ stage, change }) => {
+      const transport = deferred<Response>();
+      const body = deferred<unknown>();
+      const readBody = vi.fn().mockReturnValue(body.promise);
+      const fetchMock =
+        stage === "fetch"
+          ? vi.fn().mockReturnValue(transport.promise)
+          : vi.fn().mockResolvedValue({ ok: true, status: 200, json: readBody });
+      vi.stubGlobal("fetch", fetchMock);
+      const controller = new AbortController();
+      const failure = new TypeError(`Original ${stage} failure`);
+      const { result } = renderHook(() => useFirmwareApi());
+      const request = result.current.listFirmwareFiles(controller.signal);
+      const rejected =
+        change === "unchanged"
+          ? expect(request).rejects.toBe(failure)
+          : change === "session changes"
+            ? expect(request).rejects.toThrow("Your session changed")
+            : expect(request).rejects.toMatchObject({ name: "AbortError" });
+      await waitFor(() => expect(stage === "fetch" ? fetchMock : readBody).toHaveBeenCalledOnce());
+      if (change === "session changes") auth.sessionGeneration++;
+      else if (change === "request is canceled") controller.abort();
+      if (stage === "fetch") transport.reject(failure);
+      else body.reject(failure);
+      await rejected;
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it.each(
+      [200, 500].flatMap((status) =>
+        (["session changes", "request is canceled"] as const).map((change) => ({ status, change })),
+      ),
+    )("does not decode an obsolete $status response when the $change", async ({ status, change }) => {
+      const transport = deferred<Response>();
+      vi.stubGlobal("fetch", vi.fn().mockReturnValue(transport.promise));
+      const response = Response.json({ files: [], error: "Old failure" }, { status });
+      const readBody = vi.spyOn(response, "json");
+      const controller = new AbortController();
+      const { result } = renderHook(() => useFirmwareApi());
+      const request = result.current.listFirmwareFiles(controller.signal);
+      const rejected =
+        change === "session changes"
+          ? expect(request).rejects.toThrow("Your session changed")
+          : expect(request).rejects.toMatchObject({ name: "AbortError" });
+      if (change === "session changes") auth.sessionGeneration++;
+      else controller.abort();
+      transport.resolve(response);
+      await rejected;
+      expect(readBody).not.toHaveBeenCalled();
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it("preserves a current server error after reading its body", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(Response.json({ error: "Catalog storage unavailable" }, { status: 503 })),
+      );
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles()).rejects.toThrow("Catalog storage unavailable");
+      expect(mockLogout).not.toHaveBeenCalled();
     });
   });
 

@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
@@ -14,6 +14,8 @@ import {
   type ListRolloutsResponse,
   ListRolloutsResponseSchema,
   PauseRolloutRequestSchema,
+  PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelMinerSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
   ReleaseChannelScopeSchema,
@@ -22,6 +24,7 @@ import {
   RetryFailedRolloutDevicesRequestSchema,
   RollbackReleaseChannelFirmwareRequestSchema,
   RolloutBehaviorSchema,
+  RolloutDeviceSchema,
   RolloutMethod,
   RolloutOrder,
   RolloutSchema,
@@ -31,6 +34,7 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { type ReleaseChannelsApi, useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import { defaultBehavior } from "@/protoFleet/features/settings/components/ReleaseChannels/behaviorUtils";
+import ModelMinersModal from "@/protoFleet/features/settings/components/ReleaseChannels/ModelMinersModal";
 
 const {
   mockListReleaseChannels,
@@ -157,14 +161,15 @@ function capturePollingTimer() {
   return () => poll();
 }
 
-const pollOptions = { timeoutMs: 30_000 };
+const pollOptions = { timeoutMs: 30_000, signal: expect.any(AbortSignal) };
+const channelLoadOptions = pollOptions;
 
 function expireMinerNames() {
   const now = Date.now();
   vi.spyOn(Date, "now").mockReturnValue(now + 5 * 60 * 1000 + 1);
 }
 
-function stalledRolloutTransport(firstPage?: ListRolloutsResponse) {
+function stalledRolloutTransport(firstPage?: ListRolloutsResponse | Response) {
   const signals: AbortSignal[] = [];
   const client = createClient(
     RolloutService,
@@ -174,6 +179,7 @@ function stalledRolloutTransport(firstPage?: ListRolloutsResponse) {
         if (firstPage) {
           const page = firstPage;
           firstPage = undefined;
+          if (page instanceof Response) return page;
           return new Response(JSON.stringify(toJson(ListRolloutsResponseSchema, page)), {
             headers: { "Content-Type": "application/json" },
           });
@@ -285,13 +291,13 @@ const paginatedActionCases = [
   {
     name: "channel miners",
     rpc: mockListReleaseChannelMiners,
-    call: (api: ReleaseChannelsApi) => api.listChannelMiners(1n, "Proto", "Rig"),
+    call: (api: ReleaseChannelsApi, signal?: AbortSignal) => api.listChannelMiners(1n, "Proto", "Rig", signal),
     firstPage: { miners: [], cursor: "details-2" },
   },
   {
     name: "rollout devices",
     rpc: mockListRolloutDevices,
-    call: (api: ReleaseChannelsApi) => api.listRolloutDevices(9n),
+    call: (api: ReleaseChannelsApi, signal?: AbortSignal) => api.listRolloutDevices(9n, signal),
     firstPage: { devices: [], cursor: "details-2" },
   },
 ];
@@ -306,6 +312,8 @@ describe("useReleaseChannels", () => {
     mockGetReleaseChannel.mockResolvedValue({ channel: canary });
     mockCreateReleaseChannel.mockResolvedValue({ channel: canary });
     mockUpdateReleaseChannel.mockResolvedValue({ channel: canary });
+    mockListReleaseChannelMiners.mockResolvedValue({ miners: [], cursor: "" });
+    mockListRolloutDevices.mockResolvedValue({ devices: [], cursor: "" });
     mockListReleaseChannelModelGroups.mockResolvedValue(
       create(ListReleaseChannelModelGroupsResponseSchema, { modelGroups: [rigGroup], cursor: "" }),
     );
@@ -320,6 +328,344 @@ describe("useReleaseChannels", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it.each(
+    (["delta", "active", "channel list", "miner names"] as const).flatMap((stage) =>
+      (["unmount", "new login", "new login before rerender"] as const).map((change) => ({ stage, change })),
+    ),
+  )("stops $stage pagination after $change", async ({ stage, change }) => {
+    capturePollingTimer();
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "saved" }),
+    );
+    const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    if (stage === "miner names") expireMinerNames();
+    const rpc =
+      stage === "channel list"
+        ? mockListReleaseChannels
+        : stage === "miner names"
+          ? mockListMinerStateSnapshots
+          : mockListRollouts;
+    const page = deferred<object>();
+    const original = rpc.getMockImplementation()!;
+    let signal: AbortSignal | undefined;
+    rpc.mockImplementation((request, options) => {
+      const matches =
+        stage === "delta"
+          ? request.status !== RolloutStatus.ACTIVE
+          : stage === "active"
+            ? request.status === RolloutStatus.ACTIVE
+            : true;
+      if (matches && !signal) {
+        signal = options.signal;
+        return page.promise;
+      }
+      return original(request, options);
+    });
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = result.current.refresh();
+    });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    if (change === "unmount") unmount();
+    else {
+      mockAuth.sessionGeneration += 1;
+      if (change === "new login") {
+        rerender();
+        await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      }
+    }
+    if (change !== "new login before rerender") expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      page.resolve({
+        cursor: "must-not-load",
+        channels: [canarySummary],
+        rollouts: [rollout],
+        pollCursor: "must-not-commit",
+        miners: [{ deviceIdentifier: "old-login", name: "Stale name" }],
+      });
+      await refresh;
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(rpc.mock.calls.some(([request]) => request.cursor === "must-not-load")).toBe(false);
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    if (change === "new login before rerender") {
+      rerender();
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    }
+    if (change !== "unmount") {
+      expect(result.current.channels).toEqual([canaryView]);
+      expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+      expect(result.current.error).toBeNull();
+    }
+  });
+
+  it.each(["delta", "active"] as const)(
+    "aborts and drains core siblings after a %s failure without abandoning cached names",
+    async (failedRead) => {
+      const poll = capturePollingTimer();
+      mockListRollouts.mockResolvedValue(
+        create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "saved" }),
+      );
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const previous = {
+        channels: result.current.channels,
+        rollouts: result.current.rollouts,
+        names: result.current.minerNames,
+      };
+      expireMinerNames();
+      const delta = deferred<ListRolloutsResponse>();
+      const active = deferred<ListRolloutsResponse>();
+      const names = deferred<{ miners: { deviceIdentifier: string; name: string }[]; cursor: string }>();
+      const coreSignals: AbortSignal[] = [];
+      let namesSignal: AbortSignal | undefined;
+      mockListRollouts.mockImplementation(({ status }, { signal }) => {
+        coreSignals.push(signal);
+        return status === RolloutStatus.ACTIVE ? active.promise : delta.promise;
+      });
+      mockListMinerStateSnapshots.mockImplementationOnce((_request, { signal }) => {
+        namesSignal = signal;
+        return names.promise;
+      });
+      const failure = new ConnectError("polling read failed", Code.Unavailable);
+      let rejection!: Promise<void>;
+      await act(async () => {
+        rejection = expect(result.current.refresh()).rejects.toBe(failure);
+      });
+      expect(coreSignals).toHaveLength(2);
+      await act(async () => {
+        if (failedRead === "delta") delta.reject(failure);
+        else active.reject(failure);
+      });
+      expect(coreSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(namesSignal?.aborted).toBe(false);
+      expect(result.current.error).toBeNull();
+      const calls = mockListRollouts.mock.calls.length;
+      await act(async () => poll());
+      expect(mockListRollouts).toHaveBeenCalledTimes(calls);
+      await act(async () => {
+        const latePage = create(ListRolloutsResponseSchema, {
+          rollouts: [rollout],
+          cursor: "must-not-load",
+          pollCursor: "must-not-commit",
+        });
+        delta.resolve(latePage);
+        active.resolve(latePage);
+        await rejection;
+      });
+      expect(result.current.error).toBe(failure);
+      expect(result.current.channels).toBe(previous.channels);
+      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(result.current.minerNames).toBe(previous.names);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: failure });
+      expect(mockListRollouts.mock.calls.some(([request]) => request.cursor === "must-not-load")).toBe(false);
+      await act(async () => {
+        names.resolve({ miners: [{ deviceIdentifier: "rig-001", name: "Fresh name" }], cursor: "" });
+      });
+      mockListRollouts.mockResolvedValue(
+        create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "next" }),
+      );
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(mockListRollouts).toHaveBeenCalledWith({ pageSize: 1000, cursor: "", pollCursor: "saved" }, pollOptions);
+      expect(result.current.error).toBeNull();
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+      expect(result.current.minerNames).toEqual({ "rig-001": "Fresh name" });
+    },
+  );
+
+  it("aborts an initial polling request through Connect on unmount without waiting for its deadline", async () => {
+    const stalled = stalledRolloutTransport();
+    mockListRollouts.mockImplementation(stalled.client.listRollouts);
+    const { unmount } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(stalled.signals).toHaveLength(1));
+    await act(async () => unmount());
+    expect(stalled.signals[0].aborted).toBe(true);
+    expect(mockListReleaseChannels).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it("ignores an abandoned names scan's late authentication failure after a new login", async () => {
+    const names = deferred<never>();
+    let oldSignal: AbortSignal | undefined;
+    mockListMinerStateSnapshots.mockImplementationOnce((_request, { signal }) => {
+      oldSignal = signal;
+      return names.promise;
+    });
+    const { result, rerender } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(oldSignal).toBeInstanceOf(AbortSignal));
+    mockAuth.sessionGeneration += 1;
+    rerender();
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => names.reject(new ConnectError("old login expired", Code.Unauthenticated)));
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("bounds channel hydration across summary pages, retains paged groups, and preserves list order", async () => {
+    capturePollingTimer();
+    const channels = Array.from({ length: 9 }, (_, index) =>
+      create(ReleaseChannelSchema, { id: BigInt(index + 1), name: `Channel ${index + 1}` }),
+    );
+    mockListReleaseChannels.mockImplementation(({ cursor }) =>
+      Promise.resolve({ channels: cursor ? channels.slice(5) : channels.slice(0, 5), cursor: cursor ? "" : "next" }),
+    );
+    const details = new Map<bigint, ReturnType<typeof deferred<{ channel: typeof canary }>>>();
+    const groups = new Map<bigint, ReturnType<typeof deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>>>();
+    let active = 0;
+    let maximum = 0;
+    const track = <T,>(request: Promise<T>) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      return request.finally(() => {
+        active -= 1;
+      });
+    };
+    mockGetReleaseChannel.mockImplementation(({ channelId }) => {
+      const pending = deferred<{ channel: typeof canary }>();
+      details.set(channelId, pending);
+      return track(pending.promise);
+    });
+    mockListReleaseChannelModelGroups.mockImplementation(({ channelId, cursor }) => {
+      if (!cursor) return track(Promise.resolve({ modelGroups: [rigGroup], cursor: "groups-2" }));
+      const pending = deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>();
+      groups.set(channelId, pending);
+      return track(pending.promise);
+    });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(groups.size).toBe(4));
+    expect(details.size).toBe(4);
+    expect(maximum).toBeLessThanOrEqual(8);
+    await act(async () => details.get(2n)!.resolve({ channel: channels[1] }));
+    expect(details.size).toBe(4); // Its paginated groups still own the worker slot.
+    await act(async () => groups.get(2n)!.resolve({ modelGroups: [rigGroup], cursor: "" }));
+    expect(details.size).toBe(5);
+    expect(result.current.channels).toEqual([]);
+    expect(result.current.hasLoaded).toBe(false);
+    for (let pass = 0; pass < 4 && !result.current.hasLoaded; pass += 1) {
+      await act(async () => {
+        for (const [id, pending] of details) pending.resolve({ channel: channels[Number(id) - 1] });
+        for (const pending of groups.values()) pending.resolve({ modelGroups: [rigGroup], cursor: "" });
+      });
+    }
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.channels.map(({ id }) => id)).toEqual(channels.map(({ id }) => id));
+    expect(result.current.channels.every(({ modelGroups }) => modelGroups.length === 2)).toBe(true);
+    expect(maximum).toBeLessThanOrEqual(8);
+    expect(active).toBe(0);
+    expect(mockListReleaseChannels.mock.calls.map(([request]) => request.cursor)).toEqual(["", "next"]);
+  });
+
+  it.each(["channel detail", "model groups"])(
+    "drains a failed %s read before retrying and preserves the snapshot and watermark",
+    async (failedRead) => {
+      const poll = capturePollingTimer();
+      mockListRollouts.mockResolvedValue(
+        create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "saved" }),
+      );
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const previous = { channels: result.current.channels, rollouts: result.current.rollouts };
+      const channels = Array.from({ length: 9 }, (_, index) =>
+        create(ReleaseChannelSummarySchema, { id: BigInt(index + 1) }),
+      );
+      mockListReleaseChannels.mockResolvedValue({ channels, cursor: "" });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { pollCursor: "uncommitted" }));
+      const details = Array.from({ length: 4 }, () => deferred<{ channel: typeof canary }>());
+      const groups = Array.from({ length: 4 }, () => deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>());
+      const signals: AbortSignal[] = [];
+      mockGetReleaseChannel.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return details[Number(channelId) - 1].promise;
+      });
+      mockListReleaseChannelModelGroups.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return groups[Number(channelId) - 1].promise;
+      });
+      const failure = new ConnectError("channel detail failed", Code.Unavailable);
+      let rejected!: Promise<void>;
+      await act(async () => {
+        rejected = expect(result.current.refresh()).rejects.toBe(failure);
+      });
+      expect(signals).toHaveLength(8);
+      await act(async () => {
+        if (failedRead === "channel detail") details[0].reject(failure);
+        else groups[0].reject(failure);
+      });
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      const polls = mockListRollouts.mock.calls.length;
+      await act(async () => poll());
+      expect(mockListRollouts).toHaveBeenCalledTimes(polls);
+      expect(result.current.error).toBeNull();
+      await act(async () => {
+        for (const pending of details) pending.resolve({ channel: canary });
+        for (const pending of groups) pending.resolve({ modelGroups: [], cursor: "must-not-load" });
+        await rejected;
+      });
+      expect(signals).toHaveLength(8);
+      expect(result.current.error).toBe(failure);
+      expect(result.current.channels).toBe(previous.channels);
+      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: failure });
+      mockListReleaseChannels.mockResolvedValue({ channels: [canarySummary], cursor: "" });
+      mockGetReleaseChannel.mockResolvedValue({ channel: canary });
+      mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rigGroup], cursor: "" });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(mockListRollouts).toHaveBeenCalledWith({ pageSize: 1000, cursor: "", pollCursor: "saved" }, pollOptions);
+      expect(result.current.error).toBeNull();
+      expect(result.current.channels).toEqual([canaryView]);
+    },
+  );
+
+  it.each(["unmount", "new login"])(
+    "cancels queued channel work after %s and ignores a late authentication error",
+    async (change) => {
+      capturePollingTimer();
+      const channels = Array.from({ length: 9 }, (_, index) =>
+        create(ReleaseChannelSummarySchema, { id: BigInt(index + 1) }),
+      );
+      mockListReleaseChannels.mockResolvedValue({ channels, cursor: "" });
+      const details = Array.from({ length: 4 }, () => deferred<{ channel: typeof canary }>());
+      const groups = Array.from({ length: 4 }, () => deferred<{ modelGroups: (typeof rigGroup)[]; cursor: string }>());
+      const signals: AbortSignal[] = [];
+      mockGetReleaseChannel.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return details[Number(channelId) - 1].promise;
+      });
+      mockListReleaseChannelModelGroups.mockImplementation(({ channelId }, { signal }) => {
+        signals.push(signal);
+        return groups[Number(channelId) - 1].promise;
+      });
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(signals).toHaveLength(8));
+      if (change === "unmount") unmount();
+      else {
+        mockListReleaseChannels.mockResolvedValue({ channels: [canarySummary], cursor: "" });
+        mockGetReleaseChannel.mockResolvedValue({ channel: canary });
+        mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rigGroup], cursor: "" });
+        mockAuth.sessionGeneration += 1;
+        rerender();
+        await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      }
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      await act(async () => {
+        details[0].reject(new ConnectError("old login expired", Code.Unauthenticated));
+        for (const pending of details) pending.resolve({ channel: canary });
+        for (const pending of groups) pending.resolve({ modelGroups: [], cursor: "must-not-load" });
+      });
+      expect(mockGetReleaseChannel).toHaveBeenCalledTimes(change === "unmount" ? 4 : 5);
+      expect(mockListReleaseChannelModelGroups).toHaveBeenCalledTimes(change === "unmount" ? 4 : 5);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+      if (change === "new login") expect(result.current.channels).toEqual([canaryView]);
+    },
+  );
 
   it("times out a stalled delta page through Connect, preserves its watermark, and recovers on the next poll", async () => {
     const poll = capturePollingTimer();
@@ -620,6 +966,214 @@ describe("useReleaseChannels", () => {
     expect(mockListRollouts).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBeNull();
   });
+
+  it("does not send an already-aborted scope preview", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const controller = new AbortController();
+    const reason = new Error("Scope preview was replaced");
+    controller.abort(reason);
+    await expect(
+      result.current.previewScope(create(ReleaseChannelScopeSchema), undefined, controller.signal),
+    ).rejects.toBe(reason);
+    expect(mockPreviewReleaseChannelScope).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it("times out a stalled scope preview through Connect and allows retry without refreshing the snapshot", async () => {
+    capturePollingTimer();
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previous = { channels: result.current.channels, rollouts: result.current.rollouts };
+    const stalled = stalledRolloutTransport();
+    mockPreviewReleaseChannelScope.mockImplementation(stalled.client.previewReleaseChannelScope);
+    const scope = create(ReleaseChannelScopeSchema, { siteIds: [1n] });
+    const controller = new AbortController();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let rejected!: Promise<void>;
+    await act(async () => {
+      rejected = expect(result.current.previewScope(scope, 1n, controller.signal)).rejects.toMatchObject({
+        code: Code.DeadlineExceeded,
+      });
+    });
+    expect(stalled.signals).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTimeAsync(29_999));
+    expect(stalled.signals[0].aborted).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+    });
+    expect(stalled.signals[0].aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+    const preview = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 5 });
+    mockPreviewReleaseChannelScope.mockResolvedValue(preview);
+    await expect(result.current.previewScope(scope, 1n, controller.signal)).resolves.toEqual(preview);
+    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledTimes(2);
+    expect(mockPreviewReleaseChannelScope).toHaveBeenLastCalledWith(
+      { scope, channelId: 1n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
+    expect(mockListRollouts).toHaveBeenCalledOnce();
+    expect(result.current.channels).toBe(previous.channels);
+    expect(result.current.rollouts).toBe(previous.rollouts);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each(
+    (["canceled", "new login", "new login before rerender", "unmounted"] as const).flatMap((context) =>
+      (["success", "401"] as const).map((outcome) => ({ context, outcome })),
+    ),
+  )(
+    "rejects a late scope preview $outcome when $context without logging out the current session",
+    async ({ context, outcome }) => {
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const oldPreview = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 99 });
+      const response = deferred<typeof oldPreview>();
+      mockPreviewReleaseChannelScope.mockReturnValueOnce(response.promise);
+      const controller = new AbortController();
+      const reason = new Error("Scope preview was replaced");
+      const authenticationError = new ConnectError("Old preview login expired", Code.Unauthenticated);
+      const request = result.current.previewScope(create(ReleaseChannelScopeSchema), 1n, controller.signal);
+      const rejected =
+        context === "canceled"
+          ? expect(request).rejects.toBe(reason)
+          : outcome === "401"
+            ? expect(request).rejects.toBe(authenticationError)
+            : expect(request).rejects.toThrow("Your session changed");
+      if (context === "canceled") controller.abort(reason);
+      else if (context === "unmounted") unmount();
+      else {
+        mockAuth.sessionGeneration += 1;
+        if (context === "new login") {
+          rerender();
+          await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+        }
+      }
+      if (outcome === "401") response.reject(authenticationError);
+      else response.resolve(oldPreview);
+      await rejected;
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(paginatedActionCases)(
+    "times out a stalled $name page through Connect and makes the modal retry usable",
+    async ({ name, rpc }) => {
+      capturePollingTimer();
+      const previousMiner = create(ReleaseChannelMinerSchema, { deviceIdentifier: "previous", firmwareVersion: "1.0" });
+      mockListReleaseChannelMiners.mockResolvedValue({ miners: [previousMiner], cursor: "" });
+      mockListRolloutDevices.mockResolvedValue({
+        devices: [create(RolloutDeviceSchema, { deviceIdentifier: "previous" })],
+        cursor: "",
+      });
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const props = {
+        channelId: 1n,
+        channelName: "Canary",
+        group: rigGroup,
+        activeRollout: rollout,
+        minerNames: {},
+        listChannelMiners: result.current.listChannelMiners,
+        listRolloutDevices: result.current.listRolloutDevices,
+        onClose: vi.fn(),
+      };
+      const { rerender } = render(<ModelMinersModal {...props} />);
+      await screen.findByTestId("channel-miner-previous");
+      const key = name === "channel miners" ? "miners" : "devices";
+      const stalled = stalledRolloutTransport(
+        Response.json({ [key]: [{ deviceIdentifier: "partial" }], cursor: "stalled-page" }),
+      );
+      rpc.mockImplementation(
+        name === "channel miners" ? stalled.client.listReleaseChannelMiners : stalled.client.listRolloutDevices,
+      );
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await act(async () => rerender(<ModelMinersModal {...props} group={{ ...rigGroup }} />));
+      expect(stalled.signals).toHaveLength(1);
+      expect(screen.getByTestId("channel-miner-previous")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-miner-partial")).not.toBeInTheDocument();
+      await act(async () => vi.advanceTimersByTimeAsync(30_000));
+      expect(stalled.signals[0].aborted).toBe(true);
+      expect(screen.getByRole("alert")).toHaveTextContent("Showing the last loaded data");
+      expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+      expect(screen.getByTestId("channel-miner-previous")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-miner-partial")).not.toBeInTheDocument();
+      mockListReleaseChannelMiners.mockResolvedValue({
+        miners: [create(ReleaseChannelMinerSchema, { deviceIdentifier: "recovered" })],
+        cursor: "",
+      });
+      mockListRolloutDevices.mockResolvedValue({ devices: [], cursor: "" });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry" })));
+      expect(screen.getByTestId("channel-miner-recovered")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-miner-previous")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(result.current.error).toBeNull();
+    },
+  );
+
+  it.each(paginatedActionCases)(
+    "aborts the active $name page through Connect without returning partial details",
+    async ({ name, rpc, call }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const key = name === "channel miners" ? "miners" : "devices";
+      const stalled = stalledRolloutTransport(
+        Response.json({ [key]: [{ deviceIdentifier: "partial" }], cursor: "next-page" }),
+      );
+      rpc.mockImplementation(
+        name === "channel miners" ? stalled.client.listReleaseChannelMiners : stalled.client.listRolloutDevices,
+      );
+      const controller = new AbortController();
+      const pending = call(result.current, controller.signal);
+      const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      await waitFor(() => expect(stalled.signals).toHaveLength(1));
+      controller.abort();
+      await rejected;
+      expect(stalled.signals[0].aborted).toBe(true);
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(paginatedActionCases)(
+    "does not dispatch already-canceled $name scans or advance after cancellation",
+    async ({ rpc, call, firstPage }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const preCanceled = new AbortController();
+      preCanceled.abort();
+      await expect(call(result.current, preCanceled.signal)).rejects.toMatchObject({ name: "AbortError" });
+      expect(rpc).not.toHaveBeenCalled();
+      const page = deferred<typeof firstPage>();
+      rpc.mockReturnValueOnce(page.promise);
+      const controller = new AbortController();
+      const pending = call(result.current, controller.signal);
+      const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      controller.abort();
+      page.resolve(firstPage);
+      await rejected;
+      expect(rpc).toHaveBeenCalledOnce();
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(paginatedActionCases)(
+    "does not log out when an abandoned $name scan returns a late 401",
+    async ({ rpc, call }) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const page = deferred<never>();
+      rpc.mockReturnValueOnce(page.promise);
+      const controller = new AbortController();
+      const pending = call(result.current, controller.signal);
+      const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      controller.abort();
+      page.reject(new ConnectError("Abandoned authentication failure", Code.Unauthenticated));
+      await rejected;
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(paginatedActionCases)(
     "handles authentication failures on later $name pages without returning partial details",
@@ -940,7 +1494,102 @@ describe("useReleaseChannels", () => {
     expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(4);
   });
 
-  it("shares a pending names scan across failed core reads and caches its result without publishing a partial snapshot", async () => {
+  it("loads and mutates channels while a paged names scan is stalled, then publishes only complete names", async () => {
+    const poll = capturePollingTimer();
+    const lastNames = deferred<{ miners: { deviceIdentifier: string; name: string }[]; cursor: string }>();
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-001", name: "First name" }], cursor: "names-2" })
+      .mockReturnValueOnce(lastNames.promise);
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "saved" }),
+    );
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.channels).toEqual([canaryView]);
+    expect(result.current.minerNames).toEqual({});
+    const finished = create(RolloutSchema, { ...rollout, status: RolloutStatus.CANCELED, revision: 2n });
+    mockCancelRollout.mockResolvedValue({ rollout: finished });
+    mockListRollouts.mockImplementation(({ status }) =>
+      Promise.resolve(
+        create(ListRolloutsResponseSchema, {
+          rollouts: status === RolloutStatus.ACTIVE ? [] : [finished],
+          pollCursor: "updated",
+        }),
+      ),
+    );
+    await act(async () => {
+      poll();
+    });
+    await act(async () => {
+      await result.current.cancelRollout(9n, 1n);
+    });
+    expect(mockCancelRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 1n });
+    expect(result.current.rollouts).toEqual([finished]);
+    expect(result.current.minerNames).toEqual({});
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    const coreSnapshot = { channels: result.current.channels, rollouts: result.current.rollouts };
+    await act(async () => {
+      lastNames.resolve({ miners: [{ deviceIdentifier: "rig-002", name: "Second name" }], cursor: "" });
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "First name", "rig-002": "Second name" });
+    expect(result.current.channels).toBe(coreSnapshot.channels);
+    expect(result.current.rollouts).toBe(coreSnapshot.rollouts);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("keeps complete names after a later background page fails and retries without replaying core data", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const completeNames = result.current.minerNames;
+    expireMinerNames();
+    const laterNames = deferred<{ miners: { deviceIdentifier: string; name: string }[]; cursor: string }>();
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-002", name: "Partial" }], cursor: "names-2" })
+      .mockReturnValueOnce(laterNames.promise);
+    const updated = create(RolloutSchema, { ...rollout, revision: 2n });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [updated] }));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.rollouts).toEqual([updated]);
+    expect(result.current.minerNames).toBe(completeNames);
+    await act(async () => {
+      laterNames.reject(new ConnectError("names unavailable", Code.Unavailable));
+    });
+    expect(result.current.minerNames).toBe(completeNames);
+    expect(result.current.rollouts).toEqual([updated]);
+    expect(result.current.error).toBeNull();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    mockListMinerStateSnapshots.mockResolvedValue({
+      miners: [{ deviceIdentifier: "rig-002", name: "Recovered" }],
+      cursor: "",
+    });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-002": "Recovered" });
+    expect(mockListMinerStateSnapshots.mock.calls.map(([request]) => request.cursor)).toEqual(["", "", "names-2", ""]);
+  });
+
+  it("handles an independent names scan's authentication failure once across overlapping refreshes", async () => {
+    const names = deferred<never>();
+    mockListMinerStateSnapshots.mockReturnValueOnce(names.promise);
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    await act(async () => {
+      await Promise.all([result.current.refresh(), result.current.refresh()]);
+    });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledOnce();
+    const error = new ConnectError("name scan session expired", Code.Unauthenticated);
+    await act(async () => {
+      names.reject(error);
+    });
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("shares a pending names scan across failed core reads and publishes complete names independently", async () => {
     const { result } = renderHook(() => useReleaseChannels());
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     const previous = {
@@ -965,7 +1614,7 @@ describe("useReleaseChannels", () => {
     expect(result.current.error).toBe(coreError);
     expect(result.current.channels).toBe(previous.channels);
     expect(result.current.rollouts).toBe(previous.rollouts);
-    expect(result.current.minerNames).toBe(previous.names);
+    expect(result.current.minerNames).toEqual({ "rig-001": "Updated name" });
 
     await act(async () => {
       await result.current.refresh();
@@ -982,8 +1631,8 @@ describe("useReleaseChannels", () => {
       cursor: "",
     });
     const { result, rerender } = renderHook(() => useReleaseChannels());
-    await waitFor(() => expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(1));
-    expect(result.current.hasLoaded).toBe(false);
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.minerNames).toEqual({});
     mockAuth.sessionGeneration += 1;
     rerender();
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
@@ -1036,31 +1685,42 @@ describe("useReleaseChannels", () => {
   });
 
   it.each([
-    ["miner authentication", mockListMinerStateSnapshots, new ConnectError("expired", Code.Unauthenticated)],
-    ["miner availability", mockListMinerStateSnapshots, new ConnectError("offline", Code.Unavailable)],
-    [
-      "untyped miner error",
-      mockListMinerStateSnapshots,
-      Object.assign(new Error("denied"), { code: Code.PermissionDenied }),
-    ],
-    ["rollout permission", mockListRollouts, new ConnectError("firmware permission revoked", Code.PermissionDenied)],
-  ] as const)("keeps %s failures blocking and delegates them to auth handling", async (_, rpc, error) => {
+    ["authentication", new ConnectError("expired", Code.Unauthenticated), true],
+    ["availability", new ConnectError("offline", Code.Unavailable), false],
+    ["untyped", Object.assign(new Error("denied"), { code: Code.PermissionDenied }), false],
+  ] as const)(
+    "keeps complete names after a miner %s failure without blocking core data",
+    async (_, error, handlesAuth) => {
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const names = result.current.minerNames;
+      expireMinerNames();
+      mockListMinerStateSnapshots.mockRejectedValueOnce(error);
+      const updated = create(RolloutSchema, { ...rollout, revision: 2n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [updated] }));
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(result.current.rollouts).toEqual([updated]);
+      expect(result.current.minerNames).toBe(names);
+      expect(result.current.error).toBeNull();
+      expect(mockHandleAuthErrors).toHaveBeenCalledTimes(handlesAuth ? 1 : 0);
+      if (handlesAuth) expect(mockHandleAuthErrors).toHaveBeenCalledWith({ error });
+    },
+  );
+
+  it("keeps firmware permission failures blocking and delegates them to auth handling", async () => {
     const { result } = renderHook(() => useReleaseChannels());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    const previous = {
-      channels: result.current.channels,
-      rollouts: result.current.rollouts,
-      miners: result.current.minerNames,
-    };
-    if (rpc === mockListMinerStateSnapshots) expireMinerNames();
-    rpc.mockRejectedValueOnce(error);
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previous = result.current.rollouts;
+    const error = new ConnectError("firmware permission revoked", Code.PermissionDenied);
+    mockListRollouts.mockRejectedValueOnce(error);
     await act(async () => {
       await expect(result.current.refresh()).rejects.toBe(error);
     });
-    expect(result.current.channels).toBe(previous.channels);
-    expect(result.current.rollouts).toBe(previous.rollouts);
-    expect(result.current.minerNames).toBe(previous.miners);
-    expect(mockHandleAuthErrors).toHaveBeenCalledWith({ error });
+    expect(result.current.rollouts).toBe(previous);
+    expect(result.current.error).toBe(error);
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
   });
 
   it.each(["success", "unauthenticated"])(
@@ -1075,8 +1735,9 @@ describe("useReleaseChannels", () => {
       const oldDelta = deferred<ListRolloutsResponse>();
       const newBaseline = deferred<ListRolloutsResponse>();
       let newBaselinePending = true;
-      mockListRollouts.mockImplementation(({ status }) => {
-        if (status === RolloutStatus.ACTIVE) return Promise.resolve(create(ListRolloutsResponseSchema));
+      mockListRollouts.mockImplementation(({ status, pollCursor }) => {
+        if (status === RolloutStatus.ACTIVE && pollCursor === undefined)
+          return Promise.resolve(create(ListRolloutsResponseSchema));
         if (mockAuth.sessionGeneration === 1) return oldDelta.promise;
         if (newBaselinePending) {
           newBaselinePending = false;
@@ -1093,7 +1754,10 @@ describe("useReleaseChannels", () => {
       expect(result.current.rollouts).toEqual([]);
       expect(result.current.channels).toEqual([]);
       expect(result.current.minerNames).toEqual({});
-      expect(mockListRollouts).toHaveBeenLastCalledWith({ pageSize: 1000, cursor: "", pollCursor: "" }, pollOptions);
+      expect(mockListRollouts).toHaveBeenLastCalledWith(
+        { pageSize: 1000, cursor: "", pollCursor: "", status: RolloutStatus.ACTIVE },
+        pollOptions,
+      );
       const requestsWithNewBaselinePending = mockListRollouts.mock.calls.length;
       await act(async () => {
         if (lateResponse === "success") {
@@ -1127,7 +1791,7 @@ describe("useReleaseChannels", () => {
     },
   );
 
-  it("clears session data and skips polling after logout, then starts a full baseline on login", async () => {
+  it("clears session data and skips polling after logout, then starts an active baseline on login", async () => {
     const poll = capturePollingTimer();
     mockListRollouts.mockResolvedValue(
       create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "old-session-token" }),
@@ -1150,7 +1814,10 @@ describe("useReleaseChannels", () => {
     rerender();
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(mockListRollouts).toHaveBeenCalledTimes(2);
-    expect(mockListRollouts).toHaveBeenLastCalledWith({ pageSize: 1000, cursor: "", pollCursor: "" }, pollOptions);
+    expect(mockListRollouts).toHaveBeenLastCalledWith(
+      { pageSize: 1000, cursor: "", pollCursor: "", status: RolloutStatus.ACTIVE },
+      pollOptions,
+    );
     expect(result.current.rollouts).toEqual([]);
   });
 
@@ -1258,7 +1925,7 @@ describe("useReleaseChannels", () => {
             return channel;
           });
       });
-      expect(mockGetReleaseChannel).not.toHaveBeenCalledWith({ channelId: 2n }, pollOptions);
+      expect(mockGetReleaseChannel).not.toHaveBeenCalledWith({ channelId: 2n }, channelLoadOptions);
       expect(creationCompleted).toBe(false);
       expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
 
@@ -1292,17 +1959,17 @@ describe("useReleaseChannels", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.channels).toEqual([canaryView]);
-    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 1n }, pollOptions);
+    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 1n }, channelLoadOptions);
     expect(mockListReleaseChannelModelGroups).toHaveBeenCalledWith(
       { channelId: 1n, pageSize: 100, cursor: "" },
-      pollOptions,
+      channelLoadOptions,
     );
     expect(result.current.rollouts).toEqual([rollout]);
     expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
     expect(mockListMinerStateSnapshots).toHaveBeenCalledWith({ pageSize: 1000, cursor: "" }, pollOptions);
   });
 
-  it("retains history across paged delta and empty polls while refreshing equal-revision active evidence", async () => {
+  it("retains newly completed rollouts across paged deltas and empty polls while refreshing active evidence", async () => {
     const active = create(RolloutSchema, {
       ...rollout,
       id: 1n,
@@ -1326,6 +1993,15 @@ describe("useReleaseChannels", () => {
     });
     let cycle = 0;
     mockListRollouts.mockImplementation(({ cursor, status }) => {
+      if (cycle === 0) {
+        return Promise.resolve(
+          create(ListRolloutsResponseSchema, {
+            rollouts: status === RolloutStatus.ACTIVE ? (cursor ? [] : [active]) : [completed, tied],
+            cursor: cursor ? "" : "baseline-2",
+            pollCursor: "baseline-token",
+          }),
+        );
+      }
       if (status === RolloutStatus.ACTIVE) {
         return Promise.resolve(
           create(ListRolloutsResponseSchema, {
@@ -1335,18 +2011,9 @@ describe("useReleaseChannels", () => {
           }),
         );
       }
-      if (cycle === 0) {
-        return Promise.resolve(
-          create(ListRolloutsResponseSchema, {
-            rollouts: cursor ? [tied] : [active, completed],
-            cursor: cursor ? "" : "history-2",
-            pollCursor: "history-token",
-          }),
-        );
-      }
       return Promise.resolve(
         create(ListRolloutsResponseSchema, {
-          rollouts: cycle === 1 ? (cursor ? [started] : [finished]) : [],
+          rollouts: cycle === 1 ? (cursor ? [started] : [finished, completed, tied]) : [],
           cursor: cycle === 1 && !cursor ? "delta-2" : "",
           pollCursor: cycle === 1 ? "delta-token" : "empty-token",
         }),
@@ -1354,7 +2021,7 @@ describe("useReleaseChannels", () => {
     });
     const { result } = renderHook(() => useReleaseChannels());
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.rollouts.map((r) => r.id)).toEqual([3n, 2n, 1n]);
+    expect(result.current.rollouts.map((r) => r.id)).toEqual([1n]);
     cycle = 1;
     await act(async () => {
       await result.current.refresh();
@@ -1371,10 +2038,10 @@ describe("useReleaseChannels", () => {
     expect(result.current.rollouts.find((r) => r.id === 1n)).toEqual(finished);
     expect(mockListRollouts.mock.calls.map(([request]) => request)).toEqual(
       expect.arrayContaining([
-        { pageSize: 1000, cursor: "", pollCursor: "" },
-        { pageSize: 1000, cursor: "history-2", pollCursor: "" },
-        { pageSize: 1000, cursor: "", pollCursor: "history-token" },
-        { pageSize: 1000, cursor: "delta-2", pollCursor: "history-token" },
+        { pageSize: 1000, cursor: "", pollCursor: "", status: RolloutStatus.ACTIVE },
+        { pageSize: 1000, cursor: "baseline-2", pollCursor: "", status: RolloutStatus.ACTIVE },
+        { pageSize: 1000, cursor: "", pollCursor: "baseline-token" },
+        { pageSize: 1000, cursor: "delta-2", pollCursor: "baseline-token" },
         { pageSize: 1000, cursor: "", status: RolloutStatus.ACTIVE },
         { pageSize: 1000, cursor: "active-2", status: RolloutStatus.ACTIVE },
         { pageSize: 1000, cursor: "", pollCursor: "delta-token" },
@@ -1442,7 +2109,7 @@ describe("useReleaseChannels", () => {
     expect(result.current.rollouts.map((r) => r.id)).toEqual([30n, 9n]);
   });
 
-  it.each(["delta page", "active page", "channel list", "miner page", "channel detail"])(
+  it.each(["delta page", "active page", "channel list", "channel detail"])(
     "preserves the rollout watermark and complete snapshot when a later %s fails",
     async (failurePoint) => {
       const initial = create(RolloutSchema, { ...rollout, revision: 1n });
@@ -1481,17 +2148,6 @@ describe("useReleaseChannels", () => {
       });
       if (failurePoint === "channel list") mockListReleaseChannels.mockRejectedValueOnce(error);
       if (failurePoint === "channel detail") mockGetReleaseChannel.mockRejectedValueOnce(error);
-      if (failurePoint === "miner page") {
-        expireMinerNames();
-        mockListMinerStateSnapshots.mockImplementation(({ cursor }) =>
-          cursor && shouldFail
-            ? Promise.reject(error)
-            : Promise.resolve({
-                miners: [{ deviceIdentifier: cursor ? "rig-999" : "rig-001", name: "Updated miner" }],
-                cursor: cursor ? "" : "miners-2",
-              }),
-        );
-      }
       await act(async () => {
         await expect(result.current.refresh()).rejects.toBe(error);
       });
@@ -1524,52 +2180,37 @@ describe("useReleaseChannels", () => {
     },
   );
 
-  it("drains rollout history on every refresh and reuses the fully paged miner names", async () => {
-    const completed = create(RolloutSchema, { ...rollout, id: 10n, status: RolloutStatus.COMPLETED });
-    mockListRollouts.mockImplementation(({ cursor = "" }) =>
+  it("drains all active baseline pages, including empty pages, without requesting historical rollouts", async () => {
+    const second = create(RolloutSchema, { ...rollout, id: 10n });
+    const historic = create(RolloutSchema, { ...rollout, id: 8n, status: RolloutStatus.COMPLETED });
+    mockListRollouts.mockImplementation(({ cursor, status }) =>
       Promise.resolve(
         create(ListRolloutsResponseSchema, {
-          rollouts: cursor === "" ? [completed] : cursor === "history-3" ? [rollout] : [],
-          cursor: cursor === "" ? "history-2" : cursor === "history-2" ? "history-3" : "",
+          rollouts:
+            status !== RolloutStatus.ACTIVE
+              ? [historic]
+              : cursor === ""
+                ? [rollout]
+                : cursor === "active-3"
+                  ? [second]
+                  : [],
+          cursor: cursor === "" ? "active-2" : cursor === "active-2" ? "active-3" : "",
+          pollCursor: "active-baseline-token",
         }),
       ),
     );
-    mockListMinerStateSnapshots.mockImplementation(({ cursor = "" }) =>
-      Promise.resolve({
-        miners:
-          cursor === ""
-            ? [{ deviceIdentifier: "rig-001", name: "Rig A01" }]
-            : cursor === "miners-3"
-              ? [{ deviceIdentifier: "rig-999", name: "Rig Z99" }]
-              : [],
-        cursor: cursor === "" ? "miners-2" : cursor === "miners-2" ? "miners-3" : "",
-      }),
-    );
     const { result } = renderHook(() => useReleaseChannels());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.rollouts).toEqual([completed, rollout]);
-    expect(result.current.rollouts.filter((r) => r.status === RolloutStatus.ACTIVE)).toEqual([rollout]);
-    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "rig-999": "Rig Z99" });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-    expect(result.current.rollouts).toEqual([completed, rollout]);
-    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "rig-999": "Rig Z99" });
-    expect(mockListRollouts.mock.calls.map(([request]) => request)).toEqual(
-      ["", "history-2", "history-3", "", "history-2", "history-3"].map((cursor) => ({
-        pageSize: 1000,
-        cursor,
-        pollCursor: "",
-      })),
-    );
-    expect(mockListMinerStateSnapshots.mock.calls.map(([request]) => request)).toEqual(
-      ["", "miners-2", "miners-3"].map((cursor) => ({ pageSize: 1000, cursor })),
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.rollouts).toEqual([second, rollout]);
+    expect(mockListRollouts.mock.calls).toEqual(
+      ["", "active-2", "active-3"].map((cursor) => [
+        { pageSize: 1000, cursor, pollCursor: "", status: RolloutStatus.ACTIVE },
+        pollOptions,
+      ]),
     );
   });
 
-  it.each(["rollouts", "miner snapshots"])(
+  it.each(["rollouts"])(
     "retains the completed snapshot while a later %s page is pending or fails, then retries from the beginning",
     async (pagedList) => {
       const { result } = renderHook(() => useReleaseChannels());
@@ -1615,7 +2256,7 @@ describe("useReleaseChannels", () => {
       await waitFor(() => expect(listPages).toHaveBeenCalledTimes(1));
       expect(result.current.channels).toBe(previous.channels);
       expect(result.current.rollouts).toBe(previous.rollouts);
-      expect(result.current.minerNames).toBe(previous.minerNames);
+      expect(result.current.minerNames).toEqual({ "rig-002": "Rig B02", "rig-999": "Rig Z99" });
 
       const rejection = expect(refresh).rejects.toThrow("later page unavailable");
       await act(async () => {
@@ -1624,7 +2265,7 @@ describe("useReleaseChannels", () => {
       });
       expect(result.current.channels).toBe(previous.channels);
       expect(result.current.rollouts).toBe(previous.rollouts);
-      expect(result.current.minerNames).toBe(previous.minerNames);
+      expect(result.current.minerNames).toEqual({ "rig-002": "Rig B02", "rig-999": "Rig Z99" });
       expect(result.current.isLoading).toBe(false);
 
       listPages.mockResolvedValue(
@@ -1688,10 +2329,10 @@ describe("useReleaseChannels", () => {
     expect(result.current.channels).toEqual(expectedViews);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(1, { pageSize: 1000, cursor: "" }, pollOptions);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(2, { pageSize: 1000, cursor: "page-2" }, pollOptions);
-    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n }, pollOptions);
+    expect(mockGetReleaseChannel).toHaveBeenCalledWith({ channelId: 2n }, channelLoadOptions);
     expect(mockListReleaseChannelModelGroups).toHaveBeenCalledWith(
       { channelId: 2n, pageSize: 100, cursor: "" },
-      pollOptions,
+      channelLoadOptions,
     );
 
     await act(async () => {
@@ -1879,9 +2520,13 @@ describe("useReleaseChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     const listCalls = mockListReleaseChannels.mock.calls.length;
 
-    const preview = await result.current.previewScope({ siteIds: [1n] } as never, 7n);
+    const controller = new AbortController();
+    const preview = await result.current.previewScope({ siteIds: [1n] } as never, 7n, controller.signal);
     expect(preview.minerCount).toBe(4);
-    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledWith({ scope: { siteIds: [1n] }, channelId: 7n });
+    expect(mockPreviewReleaseChannelScope).toHaveBeenCalledWith(
+      { scope: { siteIds: [1n] }, channelId: 7n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
     expect(mockListReleaseChannels).toHaveBeenCalledTimes(listCalls);
   });
 
@@ -1910,6 +2555,7 @@ describe("useReleaseChannels", () => {
   });
 
   it("walks every page of the detail lists", async () => {
+    const controller = new AbortController();
     mockListReleaseChannelMiners
       .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-001" }], cursor: "p2" })
       .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-002" }], cursor: "" });
@@ -1921,26 +2567,208 @@ describe("useReleaseChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig");
+      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig", controller.signal);
       expect(miners.map((m) => m.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);
-      const devices = await result.current.listRolloutDevices(9n);
+      const devices = await result.current.listRolloutDevices(9n, controller.signal);
       expect(devices.map((d) => d.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);
     });
-    expect(mockListReleaseChannelMiners).toHaveBeenNthCalledWith(1, {
-      channelId: 1n,
-      manufacturer: "Proto",
-      model: "Rig",
-      pageSize: 1000,
-      cursor: "",
-    });
-    expect(mockListReleaseChannelMiners).toHaveBeenNthCalledWith(2, {
-      channelId: 1n,
-      manufacturer: "Proto",
-      model: "Rig",
-      pageSize: 1000,
-      cursor: "p2",
-    });
+    const options = { timeoutMs: 30_000, signal: controller.signal };
+    expect(mockListReleaseChannelMiners).toHaveBeenNthCalledWith(
+      1,
+      {
+        channelId: 1n,
+        manufacturer: "Proto",
+        model: "Rig",
+        pageSize: 1000,
+        cursor: "",
+      },
+      options,
+    );
+    expect(mockListReleaseChannelMiners).toHaveBeenNthCalledWith(
+      2,
+      {
+        channelId: 1n,
+        manufacturer: "Proto",
+        model: "Rig",
+        pageSize: 1000,
+        cursor: "p2",
+      },
+      options,
+    );
     expect(mockListRolloutDevices).toHaveBeenCalledTimes(3);
-    expect(mockListRolloutDevices).toHaveBeenLastCalledWith({ rolloutId: 9n, pageSize: 1000, cursor: "d3" });
+    expect(mockListRolloutDevices).toHaveBeenLastCalledWith({ rolloutId: 9n, pageSize: 1000, cursor: "d3" }, options);
+    expect(
+      mockListRolloutDevices.mock.calls.every(
+        ([, options]) => options.timeoutMs === 30_000 && options.signal === controller.signal,
+      ),
+    ).toBe(true);
   });
+
+  it("reads a channel's complete history only on demand without changing its live snapshot or watermark", async () => {
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollout], pollCursor: "live-token" }),
+    );
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previous = { channels: result.current.channels, rollouts: result.current.rollouts };
+    const historical = create(RolloutSchema, { ...rollout, id: 3n, status: RolloutStatus.COMPLETED });
+    const oldest = create(RolloutSchema, { ...historical, id: 2n, status: RolloutStatus.CANCELED });
+    mockListRollouts.mockImplementation(({ channelId, cursor }) =>
+      Promise.resolve(
+        create(ListRolloutsResponseSchema, {
+          rollouts: channelId ? (cursor === "" ? [historical] : cursor === "history-3" ? [oldest] : []) : [],
+          cursor: channelId ? (cursor === "" ? "history-2" : cursor === "history-2" ? "history-3" : "") : "",
+          pollCursor: "must-not-be-used",
+        }),
+      ),
+    );
+    const controller = new AbortController();
+    await expect(result.current.listChannelRollouts(1n, controller.signal)).resolves.toEqual([historical, oldest]);
+    expect(mockListRollouts.mock.calls.slice(1)).toEqual(
+      ["", "history-2", "history-3"].map((cursor) => [
+        { channelId: 1n, pageSize: 1000, cursor },
+        { timeoutMs: 30_000, signal: controller.signal },
+      ]),
+    );
+    expect(result.current.channels).toBe(previous.channels);
+    expect(result.current.rollouts).toBe(previous.rollouts);
+    expect(result.current.error).toBeNull();
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(mockListRollouts).toHaveBeenCalledWith(
+      { pageSize: 1000, cursor: "", pollCursor: "live-token" },
+      pollOptions,
+    );
+  });
+
+  it("times out a later history page through Connect and retries the complete channel scan", async () => {
+    capturePollingTimer();
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const previous = result.current.rollouts;
+    const historical = create(RolloutSchema, { ...rollout, status: RolloutStatus.COMPLETED });
+    const stalled = stalledRolloutTransport(
+      create(ListRolloutsResponseSchema, { rollouts: [historical], cursor: "stalled-page" }),
+    );
+    mockListRollouts.mockImplementation(stalled.client.listRollouts);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const request = result.current.listChannelRollouts(1n);
+    const rejected = expect(request).rejects.toMatchObject({ code: Code.DeadlineExceeded });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(stalled.signals).toHaveLength(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejected;
+    });
+    expect(stalled.signals[0].aborted).toBe(true);
+    expect(result.current.rollouts).toBe(previous);
+    expect(result.current.error).toBeNull();
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [historical] }));
+    await expect(result.current.listChannelRollouts(1n)).resolves.toEqual([historical]);
+    expect(mockListRollouts).toHaveBeenLastCalledWith(
+      { channelId: 1n, pageSize: 1000, cursor: "" },
+      { timeoutMs: 30_000, signal: undefined },
+    );
+  });
+
+  it("aborts a pending history transport without publishing its partial first page", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const stalled = stalledRolloutTransport(
+      create(ListRolloutsResponseSchema, { rollouts: [rollout], cursor: "next-page" }),
+    );
+    mockListRollouts.mockImplementation(stalled.client.listRollouts);
+    const controller = new AbortController();
+    const rejected = expect(result.current.listChannelRollouts(1n, controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await waitFor(() => expect(stalled.signals).toHaveLength(1));
+    controller.abort();
+    await rejected;
+    expect(stalled.signals[0].aborted).toBe(true);
+    expect(mockListRollouts).toHaveBeenCalledTimes(3);
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+  });
+
+  it("does not dispatch a pre-aborted history request", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const controller = new AbortController();
+    const reason = new Error("history closed");
+    controller.abort(reason);
+    await expect(result.current.listChannelRollouts(1n, controller.signal)).rejects.toBe(reason);
+    expect(mockListRollouts).toHaveBeenCalledOnce();
+  });
+
+  it.each(["canceled", "new login", "new login before rerender", "unmounted"] as const)(
+    "rejects a late final history page after the read is %s without dispatching more pages",
+    async (change) => {
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const page = deferred<ListRolloutsResponse>();
+      mockListRollouts.mockReturnValueOnce(page.promise);
+      const controller = new AbortController();
+      const pending = result.current.listChannelRollouts(1n, controller.signal);
+      const rejected =
+        change === "canceled"
+          ? expect(pending).rejects.toMatchObject({ name: "AbortError" })
+          : expect(pending).rejects.toThrow("Your session changed");
+      if (change === "canceled") controller.abort();
+      else if (change === "unmounted") unmount();
+      else {
+        mockAuth.sessionGeneration += 1;
+        if (change === "new login") rerender();
+      }
+      await act(async () => {
+        page.resolve(create(ListRolloutsResponseSchema, { rollouts: [rollout] }));
+        await rejected;
+      });
+      expect(mockListRollouts.mock.calls.filter(([request]) => request.channelId === 1n)).toHaveLength(1);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    },
+  );
+
+  it("stops channel history pagination when authentication changes before React rerenders", async () => {
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const page = deferred<ListRolloutsResponse>();
+    mockListRollouts.mockReturnValueOnce(page.promise);
+    const rejected = expect(result.current.listChannelRollouts(1n)).rejects.toThrow("Your session changed");
+    mockAuth.sessionGeneration += 1;
+    page.resolve(create(ListRolloutsResponseSchema, { cursor: "must-not-load" }));
+    await rejected;
+    expect(mockListRollouts).toHaveBeenCalledTimes(2);
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it.each(["current", "canceled", "new login before rerender", "unmounted"] as const)(
+    "handles a later history-page authentication failure only for a %s request",
+    async (change) => {
+      const { result, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const page = deferred<never>();
+      mockListRollouts
+        .mockResolvedValueOnce(create(ListRolloutsResponseSchema, { rollouts: [rollout], cursor: "history-2" }))
+        .mockReturnValueOnce(page.promise);
+      const controller = new AbortController();
+      const error = new ConnectError("history session expired", Code.Unauthenticated);
+      const pending = result.current.listChannelRollouts(1n, controller.signal);
+      const rejected =
+        change === "canceled"
+          ? expect(pending).rejects.toMatchObject({ name: "AbortError" })
+          : expect(pending).rejects.toBe(error);
+      await waitFor(() => expect(mockListRollouts).toHaveBeenCalledTimes(3));
+      if (change === "canceled") controller.abort();
+      else if (change === "unmounted") unmount();
+      else if (change === "new login before rerender") mockAuth.sessionGeneration += 1;
+      page.reject(error);
+      await rejected;
+      expect(mockHandleAuthErrors).toHaveBeenCalledTimes(change === "current" ? 1 : 0);
+      expect(result.current.error).toBeNull();
+    },
+  );
 });
