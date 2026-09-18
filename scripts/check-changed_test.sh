@@ -91,7 +91,7 @@ done
 
 client_init_recipe="$(just --dry-run _client-init 2>&1)"
 client_init_fingerprint="${client_init_recipe%%$'\nif [ "false" != true ]'*}"
-for install_input in client/package.json client/package-lock.json; do
+for install_input in client/package.json client/package-lock.json client/.npmrc; do
   if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
     echo "Client dependency fingerprint omits: $install_input" >&2
     exit 1
@@ -103,6 +103,8 @@ for install_input in \
   npm_config_platform NPM_CONFIG_PLATFORM process.platform 'platform=$INSTALL_PLATFORM' \
   npm_config_arch NPM_CONFIG_ARCH process.arch 'arch=$INSTALL_ARCH' \
   npm_config_libc NPM_CONFIG_LIBC glibcVersionRuntime '"glibc"' '"musl"' 'libc=$INSTALL_LIBC' \
+  'npm config get' legacy-peer-deps install-links install-strategy strict-peer-deps omit include \
+  '--include=dev --include=optional' '"$INSTALL_CONFIG"' \
   'include=dev' 'include=optional'; do
   if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
     echo "Client dependency fingerprint omits install context: $install_input" >&2

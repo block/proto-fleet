@@ -383,15 +383,22 @@ _client-init force="false":
   if [ -z "$INSTALL_LIBC" ]; then
     INSTALL_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
   fi
+  INSTALL_CONFIG="$(
+    cd client
+    npm config get \
+      legacy-peer-deps install-links install-strategy strict-peer-deps omit include \
+      --include=dev --include=optional
+  )"
   WANT_HASH="$(
     {
-      git hash-object client/package.json client/package-lock.json
+      git hash-object client/package.json client/package-lock.json client/.npmrc
       printf '%s\n' \
         "platform=$INSTALL_PLATFORM" \
         "arch=$INSTALL_ARCH" \
         "libc=$INSTALL_LIBC" \
         "include=dev" \
-        "include=optional"
+        "include=optional" \
+        "$INSTALL_CONFIG"
     } | git hash-object --stdin
   )"
   TREE_HASH=""
