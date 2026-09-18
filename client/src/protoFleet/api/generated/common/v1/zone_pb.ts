@@ -28,7 +28,7 @@ export const file_common_v1_zone: GenFile =
  * the match is scoped to that one building. The wildcard is
  * transitional: once the buildings UI ships and every zone the operator
  * can see carries a real building_id, well-formed clients have no reason
- * to emit a wildcard. See docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
+ * to emit a wildcard.
  *
  * @generated from message common.v1.ZoneKey
  */

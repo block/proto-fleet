@@ -86,9 +86,9 @@ current-branch path below.
    tell the reviewer what is deferred to later PRs and where it lands.
 
    Remaining work is often not open as a PR yet, so do not stop at descendant
-   PRs. Also draw on the effort's plan documents (e.g. `docs/plans/`) for the
-   phasing and explicit out-of-scope items, and, when running interactively, on
-   this conversation, which may already name the deferred scope and the tracking
+   PRs. Also draw on linked issues, PR discussions, and external design
+   documents for the phasing and explicit out-of-scope items, and, when running
+   interactively, on this conversation, which may name deferred scope and tracking
    issues/PRs it lands in. Record those deferred items with their tracking
    references even when no PR exists for them yet (state facts about scope, not
    the back-and-forth of how the work was planned).

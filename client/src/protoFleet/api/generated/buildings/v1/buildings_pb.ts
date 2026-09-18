@@ -1325,7 +1325,7 @@ export const PerDeviceBuildingConflictReasonSchema: GenEnum<PerDeviceBuildingCon
  * BuildingService is the admin surface for buildings: per-building
  * config (capacity, layout defaults) under a site (or unassigned).
  * Buildings coexist with the free-form `device_set_rack.zone` string;
- * operators opt into buildings explicitly per the multi-site plan.
+ * operators opt into buildings explicitly.
  *
  * @generated from service buildings.v1.BuildingService
  */

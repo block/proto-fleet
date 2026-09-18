@@ -207,10 +207,10 @@ export type ActivityFilter = Message<"activity.v1.ActivityFilter"> & {
 
   /**
    * When true, activity rows in the "unassigned" bucket are also
-   * included. For direct (non-batch) events the bucket is site_id IS NULL
-   * minus org-level categories (auth, system); for command-batch events it
-   * is batches whose command_on_device_log rows have site_id IS NULL. See
-   * the multi-site Activity TDD for the precise definition.
+   * included. Direct single-site events qualify when site_id IS NULL,
+   * excluding org-level categories. Direct multi-site events qualify when
+   * activity_log_site contains a NULL-site membership. Command-batch events
+   * qualify when at least one command_on_device_log row has site_id IS NULL.
    *
    * @generated from field: bool include_unassigned = 9;
    */

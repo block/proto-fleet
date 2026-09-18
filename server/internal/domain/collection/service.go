@@ -2388,8 +2388,7 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 //
 // Deprecated: this RPC still backs the legacy collection.v1 surface; new
 // callers (notably device_set.v1.ListRackZones) use ListRackZoneRefs to
-// receive (building_id, zone) tuples with denormalized labels. See
-// docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
+// receive (building_id, zone) tuples with denormalized labels.
 func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

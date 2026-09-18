@@ -19,8 +19,9 @@ code does, not the decisions made getting there. Structure it as:
    PRs stacked on top), that the diff is relative to the immediate base when it
    has ancestors, the load-bearing context from upstream PRs
    a reviewer needs to judge this change, and what is intentionally out of scope
-   here and where the remaining work lands (from descendant PRs, the plan docs,
-   or tracking issues, since later phases may not be open as PRs yet).
+   here and where the remaining work lands (from descendant PRs, linked tracking
+   issues, external design documents, or the conversation, since later phases
+   may not be open as PRs yet).
 3. **How it works** — the end-to-end mechanism in plain language. Walk the
    primary flow(s): who triggers it, what crosses each boundary, where state
    is persisted, what comes back. Explain workflows, not language syntax.
