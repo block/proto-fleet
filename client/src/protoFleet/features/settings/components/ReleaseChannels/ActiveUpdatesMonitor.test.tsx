@@ -53,6 +53,7 @@ function apiFor(rollout: Rollout) {
             ? {
                 ...group,
                 assignmentGeneration: rollout.assignmentGeneration,
+                firmwareChecksum: rollout.firmwareChecksum,
                 activeRolloutId: isActive(rollout) ? rollout.id : 0n,
               }
             : group,
@@ -174,9 +175,87 @@ describe("rollout controls use the operator's observed revision", () => {
 
     await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
   });
+
+  it("explains clearing an empty prior assignment and reports the completed clear", async () => {
+    const observed = { ...activeRigRollout, revision: 7n, previousFirmwareVersion: "" };
+    const api = apiFor(observed);
+    function Harness() {
+      const [request, setRequest] = useState<MonitorRequest | null>({ kind: "rollback", rollout: observed });
+      return (
+        <ActiveUpdatesMonitor
+          api={api}
+          request={request}
+          onRequestHandled={() => setRequest(null)}
+          onManageChannel={vi.fn()}
+        />
+      );
+    }
+    render(<Harness />);
+    const confirmation = screen.getByTestId("rollback-firmware-dialog");
+    expect(confirmation).toHaveTextContent("Clear the firmware assignment?");
+    expect(confirmation).toHaveTextContent("No firmware version will be enforced and no rollback update will start.");
+    expect(confirmation).toHaveTextContent("update commands already sent may still finish.");
+    expect(within(confirmation).queryByRole("button", { name: "Roll back" })).not.toBeInTheDocument();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Clear assignment" }));
+
+    await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
+    expect(pushToast).toHaveBeenCalledWith({
+      message: `Cleared the firmware assignment for ${observed.model} in ${observed.channelName}`,
+      status: "success",
+    });
+    await waitFor(() => expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument());
+  });
+
+  it("keeps the restore confirmation and success message for a nonempty prior assignment", async () => {
+    const observed = activeRigRollout;
+    const api = apiFor(observed);
+    render(
+      <ActiveUpdatesMonitor api={api} request={{ kind: "rollback", rollout: observed }} onManageChannel={vi.fn()} />,
+    );
+    const confirmation = screen.getByTestId("rollback-firmware-dialog");
+    expect(confirmation).toHaveTextContent(`goes back to ${observed.previousFirmwareVersion}`);
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Roll back" }));
+
+    await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, observed.revision));
+    expect(pushToast).toHaveBeenCalledWith({
+      message: `Rolling ${observed.model} in ${observed.channelName} back to ${observed.previousFirmwareVersion}`,
+      status: "success",
+    });
+  });
 });
 
 describe("on-demand history detail handoff", () => {
+  it("updates terminal retry eligibility when another active update appears or the assignment changes", () => {
+    const observed = completedWithFailuresRigRollout;
+    const api = apiFor(observed);
+    const props = { request: { kind: "view" as const, rollout: observed }, onManageChannel: vi.fn() };
+    const { rerender } = render(<ActiveUpdatesMonitor {...props} api={api} />);
+    expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
+
+    rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [observed, activeRigRollout] }} />);
+    expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
+
+    rerender(<ActiveUpdatesMonitor {...props} api={api} />);
+    expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
+    rerender(
+      <ActiveUpdatesMonitor
+        {...props}
+        api={{
+          ...api,
+          channels: api.channels.map((channel) => ({
+            ...channel,
+            modelGroups: channel.modelGroups.map((group) => ({
+              ...group,
+              assignmentGeneration: group.assignmentGeneration + 1n,
+            })),
+          })),
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
+    expect(api.retryFailedDevices).not.toHaveBeenCalled();
+  });
+
   it("opens a historical update absent from the polling baseline, then follows a newer live revision", async () => {
     const observed = { ...completedWithFailuresRigRollout, revision: 7n };
     const api = apiFor(observed);

@@ -116,6 +116,14 @@ function PhaseCell({ device, targetVersion }: { device: RolloutDevice; targetVer
         </span>
       );
       break;
+    case RolloutDevicePhase.SKIPPED:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          Skipped
+        </span>
+      );
+      break;
     default:
       state = (
         <span className="flex items-center gap-2 text-text-primary-70">
@@ -138,6 +146,9 @@ function PhaseCell({ device, targetVersion }: { device: RolloutDevice; targetVer
   return (
     <span className="flex min-w-0 flex-col gap-1">
       {state}
+      {device.phase === RolloutDevicePhase.SKIPPED && device.skipNote ? (
+        <span className="text-200 break-words text-text-primary-50">{device.skipNote}</span>
+      ) : null}
       {reasons.length > 0 ? (
         <span className="text-200 break-words text-intent-critical-fill">{reasons.join("; ")}</span>
       ) : null}

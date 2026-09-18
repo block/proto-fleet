@@ -539,6 +539,29 @@ export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigin
   return channel?.modelGroups.find((group) => pairKey(group) === key)?.assignmentGeneration;
 }
 
+// Active retries reuse the rollout. A finished retry starts a new one, so
+// its assignment must still be current and its pair must have no active run.
+export function canRetryFailed(rollout: Rollout, channels: ChannelView[], rollouts: Rollout[]): boolean {
+  if (!hasFailures(rollout) || rollout.status === RolloutStatus.CANCELED) return false;
+  if (isActive(rollout)) return true;
+  if (rollout.status !== RolloutStatus.COMPLETED && rollout.status !== RolloutStatus.COMPLETED_WITH_FAILURES) {
+    return false;
+  }
+  const key = pairKey(rollout);
+  const channel = channels.find((candidate) => candidate.id === rollout.channelId);
+  const group = channel?.modelGroups.find((candidate) => pairKey(candidate) === key);
+  return (
+    group !== undefined &&
+    group.assignmentGeneration === rollout.assignmentGeneration &&
+    group.firmwareChecksum !== "" &&
+    group.firmwareChecksum === rollout.firmwareChecksum &&
+    group.activeRolloutId === 0n &&
+    !rollouts.some(
+      (candidate) => isActive(candidate) && candidate.channelId === rollout.channelId && pairKey(candidate) === key,
+    )
+  );
+}
+
 // Rollback reverses a rollout's assignment lineage while the rollout is
 // current: its generation is the pair's current one. An empty lineage
 // clears the assignment; a nonempty one restores the previous version.

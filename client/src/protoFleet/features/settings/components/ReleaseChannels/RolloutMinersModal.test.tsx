@@ -39,6 +39,27 @@ const propsFor = () => ({
 });
 
 describe("rollout miner detail loading", () => {
+  it.each(["", "Leave this miner on its current firmware"])(
+    "shows skipped miners as settled with their optional note: %s",
+    async (skipNote) => {
+      const props = propsFor();
+      props.listRolloutDevices.mockResolvedValue([
+        create(RolloutDeviceSchema, {
+          deviceIdentifier: "skipped-rig",
+          phase: RolloutDevicePhase.SKIPPED,
+          firmwareVersion: "previous-version",
+          online: true,
+          skipNote,
+        }),
+      ]);
+      render(<RolloutMinersModal {...props} />);
+
+      expect(await screen.findByText("Skipped")).toBeInTheDocument();
+      expect(screen.queryByText(/Queued/)).not.toBeInTheDocument();
+      if (skipNote) expect(screen.getByText(skipNote)).toHaveClass("text-text-primary-50");
+    },
+  );
+
   it.each(["constructor", "toString", "__proto__"])(
     "uses only stored display names for identifier %s",
     async (deviceIdentifier) => {

@@ -30,7 +30,6 @@ import {
   type RolloutDevice,
   type RolloutEvidence,
   RolloutState,
-  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
@@ -187,6 +186,9 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
   // The pair's current assignment generation; rollback is offered while the
   // rollout is still at it. Undefined hides rollback.
   currentGeneration?: bigint;
+  // Terminal retries require the current assignment and no active rollout
+  // for the pair. Without that snapshot, only active retries are offered.
+  canRetryFailed?: boolean;
   minerNames: Record<string, string>;
   // Per-miner progress is paged by the server; the miners drill-down
   // fetches it on demand.
@@ -201,6 +203,7 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
 const RolloutDetailModal = ({
   rollout,
   currentGeneration,
+  canRetryFailed,
   minerNames,
   listRolloutDevices,
   onClose,
@@ -278,7 +281,7 @@ const RolloutDetailModal = ({
       testId: paused ? "view-rollout-resume-action" : "view-rollout-pause-action",
     });
   }
-  if (failed > 0 && rollout.status !== RolloutStatus.CANCELED) {
+  if (canRetryFailed ?? (active && failed > 0)) {
     headerButtons.push({
       text: "Retry failed",
       variant: variants.secondary,

@@ -20,6 +20,7 @@ import {
 import {
   activeRolloutForGroup,
   activeUpdateSummary,
+  canRetryFailed,
   channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
@@ -99,6 +100,64 @@ describe("active rollout identity", () => {
     );
     expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 0n }, rollouts)).toBeUndefined();
     expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 999n }, rollouts)).toBeUndefined();
+  });
+});
+
+describe("failed rollout retry eligibility", () => {
+  const rollout = completedWithFailuresRigRollout;
+  const group = {
+    ...rigGroup,
+    assignmentGeneration: rollout.assignmentGeneration,
+    firmwareChecksum: rollout.firmwareChecksum,
+    activeRolloutId: 0n,
+  };
+  const channel = { ...canaryChannel, modelGroups: [group] };
+
+  it("allows active retries without requiring the channel snapshot", () => {
+    expect(canRetryFailed(batchedRigRollout, [], [batchedRigRollout])).toBe(true);
+    expect(canRetryFailed(activeRigRollout, [], [activeRigRollout])).toBe(false);
+  });
+
+  it("allows a finished retry of the current assignment, including normalized observed model names", () => {
+    expect(
+      canRetryFailed(
+        rollout,
+        [{ ...channel, modelGroups: [{ ...group, manufacturer: " proto ", model: " rig " }] }],
+        [rollout],
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    { assignmentGeneration: rollout.assignmentGeneration + 1n },
+    { firmwareChecksum: "another-firmware-payload" },
+    { firmwareChecksum: "" },
+    { activeRolloutId: 999n },
+    { manufacturer: "Other" },
+    { model: "Other" },
+  ])("hides finished retry when the assignment or active-pair precondition is not met (%#)", (patch) => {
+    expect(canRetryFailed(rollout, [{ ...channel, modelGroups: [{ ...group, ...patch }] }], [rollout])).toBe(false);
+  });
+
+  it("hides finished retry while its channel or model group is missing", () => {
+    expect(canRetryFailed(rollout, [], [rollout])).toBe(false);
+    expect(canRetryFailed(rollout, [{ ...channel, id: 99n }], [rollout])).toBe(false);
+    expect(canRetryFailed(rollout, [{ ...channel, modelGroups: [] }], [rollout])).toBe(false);
+  });
+
+  it("also honors an active rollout summary when the channel snapshot has not caught up", () => {
+    const active = { ...activeRigRollout, manufacturer: " proto ", model: " rig " };
+    expect(canRetryFailed(rollout, [channel], [rollout, active])).toBe(false);
+    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, channelId: 99n }])).toBe(true);
+    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, manufacturer: "Other" }])).toBe(true);
+    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, model: "Other" }])).toBe(true);
+    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
+  });
+
+  it("does not offer retries without failed miners or for canceled and unknown statuses", () => {
+    expect(canRetryFailed(completedRigRollout, [channel], [])).toBe(false);
+    expect(canRetryFailed({ ...rollout, status: RolloutStatus.CANCELED }, [channel], [])).toBe(false);
+    expect(canRetryFailed({ ...rollout, status: RolloutStatus.UNSPECIFIED }, [channel], [])).toBe(false);
   });
 });
 

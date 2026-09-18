@@ -3,7 +3,7 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
-import { isActive, pairGeneration } from "./rolloutStatus";
+import { canRetryFailed, isActive, pairGeneration } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { Alert } from "@/shared/assets/icons";
@@ -87,6 +87,7 @@ const ActiveUpdatesMonitor = ({
       : currentRollout;
   // Keep the snapshot that opened confirmation, even when polling advances it.
   const rollbackTarget = request?.kind === "rollback" ? request.rollout : localRollbackTarget;
+  const clearsAssignment = rollbackTarget?.previousFirmwareVersion === "";
   const setRollbackTarget = (target: Rollout | null) => {
     setLocalRollbackTarget(target);
     if (target === null && request?.kind === "rollback") onRequestHandled?.();
@@ -164,7 +165,9 @@ const ActiveUpdatesMonitor = ({
         closeDetail();
         if (started[0]) setViewUpdate(started[0]);
         pushToast({
-          message: `Rolling ${rollout.model} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`,
+          message: rollout.previousFirmwareVersion
+            ? `Rolling ${rollout.model} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
+            : `Cleared the firmware assignment for ${rollout.model} in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -182,6 +185,7 @@ const ActiveUpdatesMonitor = ({
         <RolloutDetailModal
           rollout={viewedRollout}
           currentGeneration={pairGeneration(api.channels, viewedRollout)}
+          canRetryFailed={canRetryFailed(viewedRollout, api.channels, rollouts)}
           minerNames={minerNames}
           listRolloutDevices={listRolloutDevices}
           onClose={closeDetail}
@@ -233,10 +237,12 @@ const ActiveUpdatesMonitor = ({
 
       <Dialog
         open={rollbackTarget !== null}
-        title="Roll back firmware?"
+        title={clearsAssignment ? "Clear the firmware assignment?" : "Roll back firmware?"}
         subtitle={
           rollbackTarget
-            ? `${rollbackTarget.model} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this model is canceled and a new update restores that version on every miner not running it.`
+            ? clearsAssignment
+              ? `The firmware assignment for ${rollbackTarget.model} in ${rollbackTarget.channelName} will be cleared, canceling remaining update work. No firmware version will be enforced and no rollback update will start. Miners keep their installed firmware; update commands already sent may still finish.`
+              : `${rollbackTarget.model} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this model is canceled and a new update restores that version on every miner not running it.`
             : ""
         }
         testId="rollback-firmware-dialog"
@@ -251,7 +257,7 @@ const ActiveUpdatesMonitor = ({
             disabled: isBusy,
           },
           {
-            text: "Roll back",
+            text: clearsAssignment ? "Clear assignment" : "Roll back",
             variant: variants.primary,
             onClick: handleRollback,
             loading: isBusy,
