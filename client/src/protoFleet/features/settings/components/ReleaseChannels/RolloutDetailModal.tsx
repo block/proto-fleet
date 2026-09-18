@@ -32,6 +32,7 @@ import {
   type RolloutEvidence,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -414,7 +415,9 @@ const RolloutDetailModal = ({
               <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
                 <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(totals.total)}`} />
                 <StatBlock label="Method" value={pacingSummary(rollout.behavior)} />
-                {staged ? <StatBlock label="Review gates" value={thresholdSummary(rollout)} /> : null}
+                {rollout.behavior && gatesAfterBatch(rollout.behavior) ? (
+                  <StatBlock label="Review gates" value={thresholdSummary(rollout)} />
+                ) : null}
                 <StatBlock
                   label="Target version"
                   value={rollout.firmwareVersion}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -6,8 +6,10 @@ import { activeRigRollout, completedWithFailuresRigRollout, gatedRigRollout } fr
 import RolloutDetailModal from "./RolloutDetailModal";
 import {
   type Rollout,
+  RolloutBehaviorSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutMethod,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
@@ -62,6 +64,50 @@ describe("remaining rollout retry action", () => {
 });
 
 describe("review gate controls", () => {
+  it.each([
+    { waitBetweenBatchesSeconds: 0, methodLabel: "Batches of 2, back to back" },
+    { waitBetweenBatchesSeconds: 120, methodLabel: "Batches of 2, 2m between batches" },
+  ])("does not claim review gates for unreviewed batches with a $waitBetweenBatchesSeconds-second wait", (testCase) => {
+    const rollout = {
+      ...activeRigRollout,
+      behavior: create(RolloutBehaviorSchema, {
+        method: RolloutMethod.BATCHED,
+        batchSize: 2,
+        waitBetweenBatchesSeconds: testCase.waitBetweenBatchesSeconds,
+      }),
+    };
+    render(<RolloutDetailModal {...propsFor(rollout)} />);
+    const stats = within(screen.getByTestId("rollout-detail-stats"));
+    expect(stats.getByText(testCase.methodLabel)).toBeInTheDocument();
+    expect(stats.queryByText("Review gates")).not.toBeInTheDocument();
+    expect(stats.queryByText("Manual")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { method: RolloutMethod.PILOT_THEN_CONTINUE, automatic: false },
+    { method: RolloutMethod.PILOT_THEN_CONTINUE, automatic: true },
+    { method: RolloutMethod.BATCHED, automatic: false },
+    { method: RolloutMethod.BATCHED, automatic: true },
+  ])("shows the actual gate policy for method $method (automatic=$automatic)", ({ method, automatic }) => {
+    const rollout = {
+      ...activeRigRollout,
+      behavior: create(RolloutBehaviorSchema, {
+        method,
+        batchSize: method === RolloutMethod.BATCHED ? 2 : 0,
+        pilotSize: method === RolloutMethod.PILOT_THEN_CONTINUE ? 2 : 0,
+        // The pilot always gates, even when this optional flag is false.
+        reviewAfterEachBatch: method === RolloutMethod.BATCHED,
+        autoContinueOnHealthyTelemetry: automatic,
+        stabilizationSeconds: automatic ? 120 : 0,
+        thresholds: automatic ? { maxNewErrors: 0 } : undefined,
+      }),
+    };
+    render(<RolloutDetailModal {...propsFor(rollout)} />);
+    const stats = within(screen.getByTestId("rollout-detail-stats"));
+    expect(stats.getByText("Review gates")).toBeInTheDocument();
+    expect(stats.getByText(automatic ? "Automatic (≤ 0 new errors, 2m to settle)" : "Manual")).toBeInTheDocument();
+  });
+
   it.each([false, true])("requires resume before continuing a paused review gate (automatic=%s)", async (automatic) => {
     const resumed = {
       ...gatedRigRollout,

@@ -59,7 +59,7 @@ const ActiveUpdatesMonitor = ({
   } = api;
   // Retain the opened or returned snapshot if a subsequent poll fails.
   const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<Rollout | null>(null);
+  const [localCancelTarget, setCancelTarget] = useState<Rollout | null>(null);
   const [localRollbackTarget, setLocalRollbackTarget] = useState<Rollout | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -73,20 +73,25 @@ const ActiveUpdatesMonitor = ({
   );
   const byId = (id: bigint | null | undefined) =>
     id != null ? rollouts.find((rollout) => rollout.id === id) : undefined;
+  const availableSnapshot = (rollout: Rollout | null) =>
+    rollout && api.channels.some((channel) => channel.id === rollout.channelId) ? rollout : null;
+  // A deleted channel invalidates its requests before they can take
+  // precedence over a selection from a surviving channel.
+  const validRequest = request && availableSnapshot(request.rollout) ? request : null;
   // History and successful actions can supply rows absent from the current
   // poll. Prefer equally recent or newer live rows without losing that detail.
-  const selectedRollout = request?.kind === "view" ? request.rollout : viewUpdate;
-  const selectedSnapshot =
-    selectedRollout && api.channels.some((channel) => channel.id === selectedRollout.channelId)
-      ? selectedRollout
-      : undefined;
+  const selectedRollout = validRequest?.kind === "view" ? validRequest.rollout : viewUpdate;
+  const selectedSnapshot = availableSnapshot(selectedRollout);
   const currentRollout = byId(selectedSnapshot?.id);
   const viewedRollout =
     selectedSnapshot && (!currentRollout || selectedSnapshot.revision > currentRollout.revision)
       ? selectedSnapshot
       : currentRollout;
   // Keep the snapshot that opened confirmation, even when polling advances it.
-  const rollbackTarget = request?.kind === "rollback" ? request.rollout : localRollbackTarget;
+  const cancelTarget = availableSnapshot(localCancelTarget);
+  const rollbackTarget = availableSnapshot(
+    validRequest?.kind === "rollback" ? validRequest.rollout : localRollbackTarget,
+  );
   const clearsAssignment = rollbackTarget?.previousFirmwareVersion === "";
   const setRollbackTarget = (target: Rollout | null) => {
     setLocalRollbackTarget(target);
@@ -182,7 +187,13 @@ const ActiveUpdatesMonitor = ({
 
   return (
     <>
-      <ActiveUpdateBanners rollouts={activeRollouts} onViewUpdate={(rollout) => setViewUpdate(rollout)} />
+      <ActiveUpdateBanners
+        rollouts={activeRollouts}
+        onViewUpdate={(rollout) => {
+          if (request) onRequestHandled?.();
+          setViewUpdate(rollout);
+        }}
+      />
 
       {viewedRollout ? (
         <RolloutDetailModal

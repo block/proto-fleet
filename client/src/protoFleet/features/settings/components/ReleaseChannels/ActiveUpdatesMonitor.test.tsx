@@ -270,6 +270,81 @@ describe("rollout manufacturer identity", () => {
 
 describe("on-demand history detail handoff", () => {
   it.each([
+    { kind: "view", callback: true },
+    { kind: "rollback", callback: true },
+    { kind: "view", callback: false },
+    { kind: "rollback", callback: false },
+  ] as const)(
+    "keeps banners usable after deleting an external $kind request's channel (callback=$callback)",
+    async ({ kind, callback }) => {
+      const observed = completedWithFailuresRigRollout;
+      const survivor = { ...activeRigRollout, id: 101n, channelId: 2n, channelName: "Production" };
+      const api = apiFor(observed);
+      const survivorChannel = { ...apiFor(survivor).channels[0], id: survivor.channelId, name: survivor.channelName };
+      const handled = vi.fn();
+      function Harness({ channels }: { channels: ReleaseChannelsApi["channels"] }) {
+        const [request, setRequest] = useState<MonitorRequest | null>({ kind, rollout: observed });
+        return (
+          <ActiveUpdatesMonitor
+            api={{ ...api, channels, rollouts: [survivor] }}
+            request={request}
+            onRequestHandled={
+              callback
+                ? () => {
+                    handled();
+                    setRequest(null);
+                  }
+                : undefined
+            }
+            onManageChannel={vi.fn()}
+          />
+        );
+      }
+      const { rerender } = render(<Harness channels={[...api.channels, survivorChannel]} />);
+      const surface = kind === "view" ? "rollout-detail-header" : "rollback-firmware-dialog";
+      expect(screen.getByTestId(surface)).toBeInTheDocument();
+
+      rerender(<Harness channels={[survivorChannel]} />);
+      await waitFor(() => expect(screen.queryByTestId(surface)).not.toBeInTheDocument());
+      fireEvent.click(
+        within(screen.getByTestId(`update-banner-${survivor.id.toString()}`)).getByRole("button", {
+          name: "View update",
+        }),
+      );
+      expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Production, Proto Rig firmware update");
+      expect(screen.getByTestId(`rollout-detail-${survivor.id.toString()}`)).toBeInTheDocument();
+      expect(handled).toHaveBeenCalledTimes(callback ? 1 : 0);
+      expect(api.rollbackFirmware).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+      await waitFor(() => expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument());
+    },
+  );
+
+  it.each(["cancel", "rollback"] as const)(
+    "dismisses a local %s confirmation when its channel disappears",
+    async (action) => {
+      const observed = activeRigRollout;
+      const api = apiFor(observed);
+      const { rerender } = render(<ActiveUpdatesMonitor api={api} onManageChannel={vi.fn()} />);
+      fireEvent.click(
+        within(screen.getByTestId(`update-banner-${observed.id.toString()}`)).getByRole("button", {
+          name: "View update",
+        }),
+      );
+      fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+      fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
+      const dialog = action === "cancel" ? "cancel-rollout-dialog" : "rollback-firmware-dialog";
+      expect(screen.getByTestId(dialog)).toBeInTheDocument();
+
+      rerender(<ActiveUpdatesMonitor api={{ ...api, channels: [], rollouts: [] }} onManageChannel={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByTestId(dialog)).not.toBeInTheDocument());
+      expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+      expect(api.cancelRollout).not.toHaveBeenCalled();
+      expect(api.rollbackFirmware).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
     { reason: "canceled remaining work", fixture: canceledRemainingRigRollout },
     {
       reason: "skipped miners",
