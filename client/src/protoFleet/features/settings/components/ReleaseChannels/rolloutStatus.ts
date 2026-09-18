@@ -482,6 +482,12 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
 export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
   `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
 
+// Device identifiers can also be names inherited from Object.prototype.
+export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<string, string>>): string =>
+  Object.prototype.hasOwnProperty.call(names, deviceIdentifier)
+    ? names[deviceIdentifier] || deviceIdentifier
+    : deviceIdentifier;
+
 // Key joining a model group to the rollouts and assignments of its pair:
 // trimmed and ASCII-folded like the server, so the observed "proto Rig"
 // meets the canonical "Proto Rig". Unknown identities never match anything.

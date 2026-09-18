@@ -303,6 +303,40 @@ describe("ModelMinersModal detail loading", () => {
 describe("ModelMinersModal assigned firmware status", () => {
   const assignedChecksum = "a".repeat(64);
 
+  it.each(["constructor", "toString", "__proto__"])(
+    "uses only stored phases and names for identifier %s",
+    async (deviceIdentifier) => {
+      const props = propsFor();
+      const group = { ...props.group, firmwareVersion: "2.0.0", firmwareChecksum: assignedChecksum };
+      props.listChannelMiners.mockResolvedValue([
+        create(ReleaseChannelMinerSchema, {
+          deviceIdentifier,
+          firmwareVersion: group.firmwareVersion,
+          lastDeployedFirmwareChecksum: assignedChecksum,
+        }),
+      ]);
+      props.listRolloutDevices.mockResolvedValue([]);
+      const { rerender } = render(
+        <ModelMinersModal
+          {...props}
+          group={group}
+          minerNames={Object.fromEntries([[deviceIdentifier, "Named miner"]])}
+        />,
+      );
+      const row = await screen.findByTestId(`channel-miner-${deviceIdentifier}`);
+      expect(within(row).getAllByRole("cell")[0]).toHaveTextContent(/^Named miner$/);
+      expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("On assigned version");
+
+      rerender(<ModelMinersModal {...props} group={group} />);
+      expect(within(row).getAllByRole("cell")[0].textContent).toBe(deviceIdentifier);
+      props.listRolloutDevices.mockResolvedValue([
+        create(RolloutDeviceSchema, { deviceIdentifier, phase: RolloutDevicePhase.FAILED }),
+      ]);
+      rerender(<ModelMinersModal {...props} group={{ ...group }} />);
+      await waitFor(() => expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("Failed"));
+    },
+  );
+
   it.each([
     {
       name: "matching version and provenance",

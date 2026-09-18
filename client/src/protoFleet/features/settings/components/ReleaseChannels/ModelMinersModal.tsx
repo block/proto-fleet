@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
+import { minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import { useRefreshingRead } from "./useRefreshingRead";
 import {
@@ -79,9 +79,9 @@ const ModelMinersModal = ({
   const miners = data?.miners ?? null;
 
   const phases = useMemo(() => {
-    const byIdentifier: Record<string, RolloutDevicePhase> = {};
+    const byIdentifier = new Map<string, RolloutDevicePhase>();
     for (const device of data?.devices ?? []) {
-      byIdentifier[device.deviceIdentifier] = device.phase;
+      byIdentifier.set(device.deviceIdentifier, device.phase);
     }
     return byIdentifier;
   }, [data?.devices]);
@@ -133,7 +133,7 @@ const ModelMinersModal = ({
           </thead>
           <tbody className="text-text-primary">
             {miners.map((miner) => {
-              const phase = phases[miner.deviceIdentifier];
+              const phase = phases.get(miner.deviceIdentifier);
               // A version string can describe different firmware artifacts.
               // Match the server's assignment count using deployment provenance.
               const onTarget =
@@ -148,7 +148,7 @@ const ModelMinersModal = ({
                   data-testid={`channel-miner-${miner.deviceIdentifier}`}
                 >
                   <td className="py-2 pr-4">
-                    {minerNames[miner.deviceIdentifier] || miner.deviceIdentifier}
+                    {minerLabel(miner.deviceIdentifier, minerNames)}
                     {miner.conflicted ? (
                       <span
                         className="ml-2 text-text-primary-50"
