@@ -379,10 +379,9 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         checkCurrent();
         const nextChannels = views.filter((view): view is ChannelView => view !== undefined);
         const channelsById = new Map(nextChannels.map((channel) => [channel.id, channel]));
-        const allRollouts = mergeRollouts(previous.pollCursor ? previous.rollouts : [], [
-          ...changes.rollouts,
-          ...activeRollouts,
-        ])
+        // A successful control can update the cache while this poll is reading.
+        // Merge against the latest rows so an older read cannot undo that write.
+        const allRollouts = mergeRollouts(rolloutSnapshotRef.current.rollouts, [...changes.rollouts, ...activeRollouts])
           // Channel deletion cascades to rollouts without a delta tombstone.
           .filter((rollout) => channelsById.has(rollout.channelId))
           .map((rollout) => ({ ...rollout, channelName: channelsById.get(rollout.channelId)!.name }));
@@ -493,14 +492,30 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const mutate = useCallback(
-    async <T>(request: () => Promise<T>): Promise<T> => {
+    async <T>(request: () => Promise<T>, acknowledgedRollout?: (response: T) => Rollout | undefined): Promise<T> => {
+      const session = sessionRef.current;
       const response = await withAuthErrors(request);
-      // The write committed. Keep read failures in polling error state instead
-      // of inviting a duplicate write; always return the acknowledged response.
-      await refresh().catch(() => undefined);
+      if (session && sessionRef.current === session && isCurrentSession()) {
+        const rollout = acknowledgedRollout?.(response);
+        if (rollout) {
+          // Retain the server's committed state even if the follow-up read fails.
+          // Keep the delta cursor unchanged so subsequent polls still replay all
+          // changes, and keep any newer revision already delivered by a poll.
+          const current = rolloutSnapshotRef.current;
+          rolloutSnapshotRef.current = { ...current, rollouts: mergeRollouts(current.rollouts, [rollout]) };
+          setSnapshot((previous) =>
+            sessionRef.current === session && isCurrentSession() && previous.authSessionIdentity === authSessionIdentity
+              ? { ...previous, rollouts: mergeRollouts(previous.rollouts, [rollout]) }
+              : previous,
+          );
+        }
+        // The write committed. Keep read failures in polling error state instead
+        // of inviting a duplicate write; always return the acknowledged response.
+        await refresh().catch(() => undefined);
+      }
       return response;
     },
-    [refresh, withAuthErrors],
+    [authSessionIdentity, isCurrentSession, refresh, withAuthErrors],
   );
 
   const createChannel = useCallback(
@@ -644,7 +659,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   const retryFailedDevices = useCallback(
     async (rolloutId: bigint, expectedRevision: bigint) => {
       const request = rolloutControlRequest(rolloutId, expectedRevision);
-      const response = await mutate(() => rolloutClient.retryFailedRolloutDevices(request));
+      const response = await mutate(
+        () => rolloutClient.retryFailedRolloutDevices(request),
+        (response) => response.rollout,
+      );
       return response.rollout;
     },
     [mutate],
@@ -652,10 +670,13 @@ export function useReleaseChannels(): ReleaseChannelsApi {
 
   const controls = useMemo(() => {
     const control =
-      (request: (input: ReturnType<typeof rolloutControlRequest>) => Promise<unknown>) =>
+      (request: (input: ReturnType<typeof rolloutControlRequest>) => Promise<{ rollout?: Rollout }>) =>
       async (rolloutId: bigint, expectedRevision: bigint) => {
         const input = rolloutControlRequest(rolloutId, expectedRevision);
-        await mutate(() => request(input));
+        await mutate(
+          () => request(input),
+          (response) => response.rollout,
+        );
       };
     return {
       continueRollout: control((input) => rolloutClient.continueRollout(input)),

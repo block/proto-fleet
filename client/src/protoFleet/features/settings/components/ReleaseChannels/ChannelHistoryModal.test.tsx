@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import ChannelHistoryModal from "./ChannelHistoryModal";
 import { canaryChannel, completedWithFailuresRigRollout } from "./ReleaseChannels.fixtures";
+import { RolloutDeviceCountsSchema, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const props = () => ({
   channel: canaryChannel,
@@ -11,6 +13,35 @@ const props = () => ({
   onRollback: vi.fn(),
   onClose: vi.fn(),
   onRetry: vi.fn(),
+});
+
+describe("channel history progress", () => {
+  it.each([
+    { name: "all skipped", counts: { skipped: 6 }, expected: "0 updated, 6 skipped" },
+    { name: "all excluded", counts: { excluded: 6 }, expected: "0 updated, 6 excluded" },
+    {
+      name: "mixed outcomes",
+      counts: { done: 3, failed: 1, skipped: 1, excluded: 1 },
+      expected: "3 of 4 updated, 1 failed, 1 skipped, 1 excluded",
+    },
+    {
+      name: "canceled neutral targets",
+      status: RolloutStatus.CANCELED,
+      counts: { skipped: 2, excluded: 4 },
+      expected: "0 updated, 2 skipped, 4 excluded",
+    },
+    { name: "empty canceled update", status: RolloutStatus.CANCELED, counts: {}, expected: "—" },
+  ])("reports $name distinctly", ({ counts, status = RolloutStatus.COMPLETED, expected }) => {
+    const rollout = {
+      ...completedWithFailuresRigRollout,
+      status,
+      deviceCount: Object.values(counts).reduce((sum, count) => sum + count, 0),
+      deviceCounts: create(RolloutDeviceCountsSchema, counts),
+    };
+    render(<ChannelHistoryModal {...props()} rollouts={[rollout]} historyState={{ status: "ready" }} />);
+    const cells = within(screen.getByTestId(`history-row-${rollout.id.toString()}`)).getAllByRole("cell");
+    expect(cells[3]).toHaveTextContent(expected);
+  });
 });
 
 describe("channel history loading", () => {

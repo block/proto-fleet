@@ -88,10 +88,22 @@ const ChannelHistoryModal = ({
           <tbody className="text-text-primary">
             {rollouts.map((rollout) => {
               const counts = rolloutDeviceCounts(rollout);
+              const neutralCounts = [
+                counts.skipped > 0 ? `${counts.skipped} skipped` : "",
+                counts.excluded > 0 ? `${counts.excluded} excluded` : "",
+              ].filter(Boolean);
               const progress =
-                rollout.status === RolloutStatus.CANCELED && counts.total === 0
+                rollout.status === RolloutStatus.CANCELED && counts.total === 0 && neutralCounts.length === 0
                   ? "—"
-                  : `${counts.updated} of ${counts.total} updated${counts.failed > 0 ? `, ${counts.failed} failed` : ""}`;
+                  : [
+                      counts.total === 0 && neutralCounts.length > 0
+                        ? "0 updated"
+                        : `${counts.updated} of ${counts.total} updated`,
+                      counts.failed > 0 ? `${counts.failed} failed` : "",
+                      ...neutralCounts,
+                    ]
+                      .filter(Boolean)
+                      .join(", ");
               const rollbackable = canRollBack(rollout, generations.get(pairKey(rollout)));
               return (
                 <tr
