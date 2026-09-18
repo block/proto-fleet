@@ -387,9 +387,8 @@ const Firmware = () => {
       .finally(() => setIsRetrying(false));
   };
 
-  // Channel an update's "Manage" action asked to open; remounts the channels
-  // tab so it starts on that channel.
-  const [manageRequest, setManageRequest] = useState<{ channelId: bigint; seq: number } | null>(null);
+  // Let the existing tab handle navigation so an open editor can keep its draft.
+  const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
   // Update detail / rollback the history modal asked the monitor to open.
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
 
@@ -439,15 +438,14 @@ const Firmware = () => {
         request={monitorRequest}
         onRequestHandled={() => setMonitorRequest(null)}
         onManageChannel={(channelId) => {
-          setManageRequest((current) => ({ channelId, seq: (current?.seq ?? 0) + 1 }));
+          setManageRequest({ channelId });
           showChannels();
         }}
       />
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
-          key={manageRequest ? `manage-${manageRequest.seq}` : "channels"}
           api={channelsApi}
-          initialManagedChannelId={manageRequest?.channelId ?? null}
+          manageRequest={manageRequest}
           onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rollout })}
           onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />

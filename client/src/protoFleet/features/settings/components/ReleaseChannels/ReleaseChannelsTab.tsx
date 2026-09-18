@@ -38,9 +38,10 @@ interface ReleaseChannelsTabProps {
   // Shared with the active-updates monitor above the tabs, so one poll
   // feeds both.
   api: ReleaseChannelsApi;
-  // Channel to open in the manage view on mount (e.g. from an update's
-  // "Manage" action).
+  // Optional initial channel for the manage view.
   initialManagedChannelId?: bigint | null;
+  // Each request represents an explicit navigation, including reopening the same channel.
+  manageRequest?: { channelId: bigint } | null;
   // History actions are handled by the active-updates monitor above the
   // tabs, which owns the update detail and the rollback confirmation.
   onViewRollout: (rollout: Rollout) => void;
@@ -50,6 +51,7 @@ interface ReleaseChannelsTabProps {
 const ReleaseChannelsTab = ({
   api,
   initialManagedChannelId = null,
+  manageRequest = null,
   onViewRollout,
   onRollbackRollout,
 }: ReleaseChannelsTabProps) => {
@@ -83,9 +85,13 @@ const ReleaseChannelsTab = ({
   });
   const { refresh: refreshFirmware } = firmwareCatalog;
   const firmwareFiles = firmwareCatalog.data ?? [];
-  const [view, setView] = useState<View>(() =>
-    initialManagedChannelId !== null ? { kind: "manage", channelId: initialManagedChannelId } : { kind: "list" },
-  );
+  const [view, setView] = useState<View>(() => {
+    const channelId = manageRequest?.channelId ?? initialManagedChannelId;
+    return channelId !== null ? { kind: "manage", channelId } : { kind: "list" };
+  });
+  const [lastManageRequest, setLastManageRequest] = useState(manageRequest);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [pendingManagedChannelId, setPendingManagedChannelId] = useState<bigint | null>(null);
   const [expandedChannelIds, setExpandedChannelIds] = useState<bigint[]>([]);
   const [acknowledgedWrites, setAcknowledgedWrites] = useState<AcknowledgedWrites>({
     authSessionIdentity,
@@ -214,6 +220,34 @@ const ReleaseChannelsTab = ({
   const awaitingCreatedChannel =
     view.kind === "manage" && !managedChannel && (pendingCreate?.id === view.channelId || error !== null);
   const showBack = view.kind === "create" || managedChannel !== undefined || awaitingCreatedChannel;
+  // Handle new navigation without remounting the tab or the same channel's editor.
+  // A pending write must settle before its editor can be replaced.
+  if (manageRequest !== lastManageRequest && !isWriting) {
+    setLastManageRequest(manageRequest);
+    setPendingManagedChannelId(null);
+    if (
+      manageRequest &&
+      visibleChannels.some((channel) => channel.id === manageRequest.channelId) &&
+      !(view.kind === "manage" && view.channelId === manageRequest.channelId)
+    ) {
+      if (hasUnsavedChanges && (view.kind === "create" || managedChannel)) {
+        setPendingManagedChannelId(manageRequest.channelId);
+      } else {
+        setView({ kind: "manage", channelId: manageRequest.channelId });
+      }
+    }
+  }
+  const pendingManagedChannel = visibleChannels.find((channel) => channel.id === pendingManagedChannelId);
+  if (manageRequest === lastManageRequest && pendingManagedChannelId !== null && !isWriting) {
+    if (!pendingManagedChannel) {
+      setPendingManagedChannelId(null);
+    } else if (!hasUnsavedChanges || (view.kind !== "create" && !managedChannel)) {
+      // A save may finish while navigation is queued. Once the draft is clean,
+      // there is nothing to discard, including after its refresh fails.
+      setView({ kind: "manage", channelId: pendingManagedChannel.id });
+      setPendingManagedChannelId(null);
+    }
+  }
   const openCreate = () => {
     if (!writeInFlightRef.current) {
       setView(pendingCreate ? { kind: "manage", channelId: pendingCreate.id } : { kind: "create" });
@@ -312,6 +346,7 @@ const ReleaseChannelsTab = ({
       ) : view.kind === "create" ? (
         <ReleaseChannelManageView
           key="create"
+          onDirtyChange={setHasUnsavedChanges}
           writeLock={writeLock}
           rollouts={rollouts}
           firmwareFiles={firmwareFiles}
@@ -337,6 +372,7 @@ const ReleaseChannelsTab = ({
       ) : managedChannel ? (
         <ReleaseChannelManageView
           key={managedChannel.id.toString()}
+          onDirtyChange={setHasUnsavedChanges}
           channel={managedChannel}
           writeLock={writeLock}
           hasRefreshError={error !== null}
@@ -408,6 +444,31 @@ const ReleaseChannelsTab = ({
           onClose={() => setHistoryChannelId(null)}
         />
       ) : null}
+
+      <Dialog
+        open={pendingManagedChannel !== undefined}
+        title="Discard unsaved channel changes?"
+        subtitle={`Your channel edits and unapplied firmware selections will be discarded before opening ${pendingManagedChannel?.name ?? "the selected channel"}.`}
+        testId="discard-channel-changes-dialog"
+        onDismiss={() => setPendingManagedChannelId(null)}
+        buttons={[
+          {
+            text: "Keep editing",
+            variant: variants.secondary,
+            onClick: () => setPendingManagedChannelId(null),
+          },
+          {
+            text: "Discard changes",
+            variant: variants.danger,
+            disabled: isWriting,
+            onClick: () => {
+              if (!pendingManagedChannel || writeInFlightRef.current) return;
+              setView({ kind: "manage", channelId: pendingManagedChannel.id });
+              setPendingManagedChannelId(null);
+            },
+          },
+        ]}
+      />
 
       <Dialog
         open={channelToDelete !== null}

@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactElement, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
 import { behaviorForComparison, defaultBehavior, rebaseBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
@@ -218,6 +218,7 @@ interface ReleaseChannelManageViewProps {
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onDelete?: (channel: ChannelView) => void;
   onShowHistory?: (channel: ChannelView) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onApply: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[] | void>;
   writeLock?: { isLocked: boolean; tryAcquire: () => boolean; release: () => void };
 }
@@ -238,6 +239,7 @@ const ReleaseChannelManageView = ({
   onSave,
   onDelete,
   onShowHistory,
+  onDirtyChange,
   onApply,
   writeLock,
 }: ReleaseChannelManageViewProps) => {
@@ -452,6 +454,10 @@ const ReleaseChannelManageView = ({
     }
   }
   const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
+  const hasUnsavedChanges = dirty || dirtyAssignments.length > 0;
+  useLayoutEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
   const assignmentCount = dirtyAssignments.filter((assignment) => assignment.firmwareFileId !== "").length;
   const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;

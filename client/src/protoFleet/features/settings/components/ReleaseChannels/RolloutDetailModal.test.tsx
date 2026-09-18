@@ -1,12 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { deferred } from "./__tests__/helpers";
 import {
   activeRigRollout,
   completedRigRollout,
   completedWithFailuresRigRollout,
   gatedRigRollout,
+  pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
 import RolloutDetailModal from "./RolloutDetailModal";
 import {
@@ -44,6 +46,72 @@ const propsFor = (rollout: Rollout) => ({
   onCancel: vi.fn(),
   onRollback: vi.fn(),
   onRetryFailed: vi.fn().mockResolvedValue(undefined),
+});
+
+describe.each(["success", "failure"] as const)("overflow actions during lifecycle mutation (%s)", (outcome) => {
+  it.each([
+    { action: "continue", callback: "onContinue", rollout: gatedRigRollout },
+    { action: "pause", callback: "onPause", rollout: activeRigRollout },
+    { action: "resume", callback: "onResume", rollout: pausedRigRollout },
+    { action: "retry", callback: "onRetryFailed", rollout: activeRigRollout },
+  ] as const)("blocks cancel and rollback until $action settles", async ({ action, callback, rollout }) => {
+    const pending = deferred();
+    const reportedError = vi.fn();
+    const props = { ...propsFor(rollout), currentGeneration: rollout.assignmentGeneration };
+    // ActiveUpdatesMonitor reports mutation failures and settles the callback.
+    props[callback].mockReturnValue(pending.promise.catch(reportedError));
+    const { rerender } = render(<RolloutDetailModal {...props} />);
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    expect(screen.getByTestId("view-rollout-cancel-action")).not.toBeDisabled();
+    expect(screen.getByTestId("view-rollout-rollback-action")).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
+    const refreshed = { ...rollout, revision: rollout.revision + 1n };
+    rerender(<RolloutDetailModal {...props} rollout={refreshed} />);
+    if (!screen.queryByTestId("view-rollout-more-actions-menu"))
+      fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    const cancel = screen.getByTestId("view-rollout-cancel-action");
+    const rollback = screen.getByTestId("view-rollout-rollback-action");
+    expect(cancel).toBeDisabled();
+    expect(rollback).toBeDisabled();
+    expect(screen.getByTestId("view-rollout-view-miners-action")).not.toBeDisabled();
+    fireEvent.click(cancel);
+    fireEvent.click(rollback);
+    expect(props.onCancel).not.toHaveBeenCalled();
+    expect(props.onRollback).not.toHaveBeenCalled();
+    expect(props[callback]).toHaveBeenCalledExactlyOnceWith(rollout);
+
+    const failure = new Error("The update changed; review it again");
+    await act(async () => {
+      if (outcome === "success") pending.resolve();
+      else pending.reject(failure);
+    });
+
+    expect(screen.getByTestId("view-rollout-cancel-action")).not.toBeDisabled();
+    expect(screen.getByTestId("view-rollout-rollback-action")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("view-rollout-cancel-action"));
+    expect(props.onCancel).toHaveBeenCalledExactlyOnceWith(refreshed);
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId("view-rollout-rollback-action"));
+    expect(props.onRollback).toHaveBeenCalledExactlyOnceWith(refreshed);
+    if (outcome === "failure") expect(reportedError).toHaveBeenCalledExactlyOnceWith(failure);
+    else expect(reportedError).not.toHaveBeenCalled();
+  });
+});
+
+it("keeps the miner drill-down available while a lifecycle mutation is pending", async () => {
+  const pending = deferred();
+  const props = { ...propsFor(activeRigRollout), currentGeneration: activeRigRollout.assignmentGeneration };
+  props.onRetryFailed.mockReturnValue(pending.promise);
+  render(<RolloutDetailModal {...props} />);
+  fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+  fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+  fireEvent.click(screen.getByTestId("view-rollout-view-miners-action"));
+  expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
+  expect(props.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(activeRigRollout.id, expect.any(AbortSignal));
+  expect(props.onCancel).not.toHaveBeenCalled();
+  expect(props.onRollback).not.toHaveBeenCalled();
+  await act(async () => pending.resolve());
 });
 
 describe("rollout scope and neutral targets", () => {

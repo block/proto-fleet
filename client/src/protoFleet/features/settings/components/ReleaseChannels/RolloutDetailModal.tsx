@@ -302,6 +302,7 @@ const RolloutDetailModal = ({
     overflowActions.push({
       label: rollbackLabel(rollout),
       onClick: () => onRollback(rollout),
+      disabled: busy,
       testId: "view-rollout-rollback-action",
     });
   }
@@ -309,6 +310,7 @@ const RolloutDetailModal = ({
     overflowActions.push({
       label: "Cancel remaining",
       onClick: () => onCancel(rollout),
+      disabled: busy,
       showGroupDivider: false,
       testId: "view-rollout-cancel-action",
     });
