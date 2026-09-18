@@ -29,6 +29,7 @@ import {
   RolloutOrder,
   RolloutSchema,
   RolloutService,
+  RolloutState,
   RolloutStatus,
   UpdateReleaseChannelRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -842,7 +843,7 @@ describe("useReleaseChannels", () => {
       expect(result.current.error).toBe(refreshError);
       expect(result.current.hasLoaded).toBe(true);
       expect(result.current.channels).toBe(previous.channels);
-      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(result.current.rollouts).toEqual(previous.rollouts);
       expect(result.current.minerNames).toBe(previous.miners);
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
       expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: refreshError });
@@ -859,7 +860,7 @@ describe("useReleaseChannels", () => {
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
       expect(result.current.error).toBe(refreshError);
       expect(result.current.channels).toBe(previous.channels);
-      expect(result.current.rollouts).toBe(previous.rollouts);
+      expect(result.current.rollouts).toEqual(previous.rollouts);
       expect(result.current.minerNames).toBe(previous.miners);
     },
   );
@@ -954,6 +955,180 @@ describe("useReleaseChannels", () => {
     expect(mockCancelRollout).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 1n });
     expect(mockListRollouts).toHaveBeenCalledTimes(3);
   });
+
+  it.each(revisionActions.filter(([action]) => action !== "rollbackFirmware"))(
+    "%s retains the acknowledged rollout and its revision when the follow-up read fails",
+    async (action, rpc) => {
+      const initial = create(RolloutSchema, { ...rollout, revision: 1n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [initial] }));
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const channels = result.current.channels;
+      const acknowledged = create(RolloutSchema, {
+        ...initial,
+        revision: 2n,
+        status: action === "cancelRollout" ? RolloutStatus.CANCELED : RolloutStatus.ACTIVE,
+        state:
+          action === "cancelRollout"
+            ? RolloutState.CANCELED
+            : action === "pauseRollout"
+              ? RolloutState.PAUSED
+              : RolloutState.IN_PROGRESS,
+      });
+      rpc.mockResolvedValueOnce({ rollout: acknowledged });
+      const error = new ConnectError("read unavailable after write", Code.Unavailable);
+      mockListRollouts.mockRejectedValueOnce(error);
+      await act(async () => {
+        await result.current[action](initial.id, initial.revision);
+      });
+      expect(result.current.rollouts).toEqual([acknowledged]);
+      expect(result.current.channels).toBe(channels);
+      expect(result.current.error).toBe(error);
+      expect(result.current.hasLoaded).toBe(true);
+      expect(rpc).toHaveBeenCalledExactlyOnceWith({ rolloutId: initial.id, expectedRevision: 1n });
+
+      // The next action uses the committed revision, even before polling recovers.
+      const [nextAction, nextRpc] =
+        action === "pauseRollout"
+          ? (["resumeRollout", mockResumeRollout] as const)
+          : action === "cancelRollout"
+            ? (["retryFailedDevices", mockRetryFailedRolloutDevices] as const)
+            : (["pauseRollout", mockPauseRollout] as const);
+      nextRpc.mockResolvedValueOnce({});
+      await act(async () => {
+        await result.current[nextAction](initial.id, result.current.rollouts[0].revision);
+      });
+      expect(nextRpc).toHaveBeenLastCalledWith({ rolloutId: initial.id, expectedRevision: 2n });
+      expect(result.current.rollouts).toEqual([acknowledged]);
+    },
+  );
+
+  it.each(["", "baseline-token"])(
+    "preserves acknowledged controls through an older poll with cursor %j and a failed refresh",
+    async (pollCursor) => {
+      const poll = capturePollingTimer();
+      const initial = create(RolloutSchema, { ...rollout, revision: 1n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [initial], pollCursor }));
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const oldPoll = deferred<ListRolloutsResponse>();
+      const followUp = deferred<ListRolloutsResponse>();
+      const responses = [oldPoll.promise, followUp.promise];
+      const cursors: string[] = [];
+      mockListRollouts.mockImplementation((request) => {
+        if (request.status === RolloutStatus.ACTIVE && request.pollCursor === undefined) {
+          return Promise.resolve(create(ListRolloutsResponseSchema, { rollouts: [initial] }));
+        }
+        cursors.push(request.pollCursor);
+        return responses.shift() ?? Promise.resolve(create(ListRolloutsResponseSchema, { pollCursor: "recovered" }));
+      });
+      await act(async () => poll());
+      expect(cursors).toEqual([pollCursor]);
+      const acknowledged = create(RolloutSchema, { ...initial, revision: 2n, state: RolloutState.PAUSED });
+      mockPauseRollout.mockResolvedValueOnce({ rollout: acknowledged });
+      let mutation!: Promise<void>;
+      await act(async () => {
+        mutation = result.current.pauseRollout(initial.id, initial.revision);
+      });
+      expect(result.current.rollouts).toEqual([acknowledged]);
+      expect(cursors).toEqual([pollCursor]);
+      await act(async () => {
+        oldPoll.resolve(create(ListRolloutsResponseSchema, { rollouts: [initial], pollCursor: "old-poll-token" }));
+      });
+      await waitFor(() => expect(cursors).toEqual([pollCursor, "old-poll-token"]));
+      expect(result.current.rollouts).toEqual([acknowledged]);
+      const error = new ConnectError("follow-up unavailable", Code.Unavailable);
+      await act(async () => {
+        followUp.reject(error);
+        await mutation;
+      });
+      expect(result.current.rollouts).toEqual([acknowledged]);
+      expect(result.current.error).toBe(error);
+      await act(async () => result.current.refresh());
+      expect(cursors).toEqual([pollCursor, "old-poll-token", "old-poll-token"]);
+      expect(result.current.rollouts).toEqual([acknowledged]);
+      expect(result.current.error).toBeNull();
+    },
+  );
+
+  it("keeps a newer polled revision when an earlier control response arrives late", async () => {
+    const initial = create(RolloutSchema, { ...rollout, revision: 1n });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [initial] }));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const response = deferred<object>();
+    mockPauseRollout.mockReturnValueOnce(response.promise);
+    const mutation = result.current.pauseRollout(initial.id, initial.revision);
+    const newer = create(RolloutSchema, { ...initial, revision: 3n, state: RolloutState.IN_PROGRESS });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [newer] }));
+    await act(async () => result.current.refresh());
+    const error = new ConnectError("follow-up unavailable", Code.Unavailable);
+    mockListRollouts.mockRejectedValueOnce(error);
+    await act(async () => {
+      response.resolve({ rollout: create(RolloutSchema, { ...initial, revision: 2n, state: RolloutState.PAUSED }) });
+      await mutation;
+    });
+    expect(result.current.rollouts).toEqual([newer]);
+    expect(result.current.error).toBe(error);
+  });
+
+  it("retains a historical retry's successor outside the initial active snapshot when its refresh fails", async () => {
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { pollCursor: "baseline-token" }));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.rollouts).toEqual([]);
+    const successor = create(RolloutSchema, { ...rollout, id: 10n, revision: 1n });
+    mockRetryFailedRolloutDevices.mockResolvedValueOnce({ rollout: successor });
+    const error = new ConnectError("follow-up unavailable", Code.Unavailable);
+    mockListRollouts.mockRejectedValueOnce(error);
+    await act(async () => {
+      await expect(result.current.retryFailedDevices(9n, 5n)).resolves.toEqual(successor);
+    });
+    expect(result.current.rollouts).toEqual([successor]);
+    expect(result.current.error).toBe(error);
+    await act(async () => result.current.refresh());
+    expect(result.current.rollouts).toEqual([successor]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each(["replaced session", "replaced session before rerender", "logged out", "unmounted hook"])(
+    "does not retain a delayed rollout acknowledgment from a %s",
+    async (oldContext) => {
+      const initial = create(RolloutSchema, { ...rollout, revision: 1n });
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [initial] }));
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const response = deferred<object>();
+      mockCancelRollout.mockReturnValueOnce(response.promise);
+      const mutation = result.current.cancelRollout(initial.id, initial.revision);
+      if (oldContext === "unmounted hook") unmount();
+      else if (oldContext === "logged out") {
+        mockAuth.isAuthenticated = false;
+        rerender();
+      } else {
+        mockAuth.sessionGeneration += 1;
+        if (oldContext === "replaced session") {
+          rerender();
+          await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+        }
+      }
+      const readsBeforeResponse = mockListRollouts.mock.calls.length;
+      const rowsBeforeResponse = result.current.rollouts;
+      await act(async () => {
+        response.resolve({
+          rollout: create(RolloutSchema, { ...initial, revision: 2n, status: RolloutStatus.CANCELED }),
+        });
+        await mutation;
+      });
+      expect(result.current.rollouts).toBe(rowsBeforeResponse);
+      expect(mockListRollouts).toHaveBeenCalledTimes(readsBeforeResponse);
+      expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+      if (oldContext === "replaced session") {
+        await act(async () => result.current.refresh());
+        expect(result.current.rollouts).toEqual([initial]);
+      }
+    },
+  );
 
   it("handles scope-preview authentication failures without refreshing or hiding the original error", async () => {
     const { result } = renderHook(() => useReleaseChannels());

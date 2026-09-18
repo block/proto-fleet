@@ -17,6 +17,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -341,6 +342,17 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
   return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
 }
 
+// "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
+// banners and the header pill.
+export function activeUpdateSummary(rollout: Rollout): string {
+  const counts = rolloutDeviceCounts(rollout);
+  const failed = failedCount(rollout);
+  const parts = [`${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated`];
+  if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
+  if (isPaused(rollout) || isAwaitingReview(rollout) || isBatchStage(rollout)) parts.push(rolloutStageLabel(rollout));
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // Channel and model status
 // ---------------------------------------------------------------------------
@@ -517,6 +529,58 @@ export function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string
     }
   }
   return latest;
+}
+
+// The current assignment generation of a rollout's pair, from the polled
+// channels; undefined when the channel or group is not known (yet).
+export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigint | undefined {
+  const channel = channels.find((c) => c.id === rollout.channelId);
+  const key = pairKey(rollout);
+  return channel?.modelGroups.find((group) => pairKey(group) === key)?.assignmentGeneration;
+}
+
+// Retry covers every suppressed member of the pair's assignment generation,
+// including failed, skipped or canceled work in earlier rollouts. This run's
+// counts cannot tell whether that set is empty; the server safely does nothing
+// when it is. Active retries reuse the rollout. A finished retry starts a new
+// one, so its assignment must still be current and its pair must have no active run.
+export function canRetryRemaining(rollout: Rollout, channels: ChannelView[], rollouts: Rollout[]): boolean {
+  if (isActive(rollout)) return true;
+  const canceledRemaining =
+    rollout.status === RolloutStatus.CANCELED && rollout.cancelReason === RolloutCancelReason.CANCELED_REMAINING;
+  if (
+    rollout.status !== RolloutStatus.COMPLETED &&
+    rollout.status !== RolloutStatus.COMPLETED_WITH_FAILURES &&
+    !canceledRemaining
+  ) {
+    return false;
+  }
+  const key = pairKey(rollout);
+  const channel = channels.find((candidate) => candidate.id === rollout.channelId);
+  const group = channel?.modelGroups.find((candidate) => pairKey(candidate) === key);
+  return (
+    group !== undefined &&
+    group.assignmentGeneration === rollout.assignmentGeneration &&
+    group.firmwareChecksum !== "" &&
+    group.firmwareChecksum === rollout.firmwareChecksum &&
+    group.activeRolloutId === 0n &&
+    !rollouts.some(
+      (candidate) => isActive(candidate) && candidate.channelId === rollout.channelId && pairKey(candidate) === key,
+    )
+  );
+}
+
+// Rollback reverses a rollout's assignment lineage while the rollout is
+// current: its generation is the pair's current one. An empty lineage
+// clears the assignment; a nonempty one restores the previous version.
+export function canRollBack(rollout: Rollout, currentGeneration: bigint | undefined): boolean {
+  return currentGeneration !== undefined && rollout.assignmentGeneration === currentGeneration;
+}
+
+export function rollbackLabel(rollout: Rollout): string {
+  return rollout.previousFirmwareVersion === ""
+    ? "Roll back and clear firmware"
+    : `Roll back to ${rollout.previousFirmwareVersion}`;
 }
 
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
