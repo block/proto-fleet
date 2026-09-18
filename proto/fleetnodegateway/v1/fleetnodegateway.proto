@@ -4,7 +4,7 @@ syntax = "proto3";
 // All streams are node-initiated; post-handshake RPCs carry the session token
 // in `Authorization: Bearer <session_token>` metadata, and server handlers
 // derive the effective fleet-node identity from that token rather than any
-// body field.
+// body field. See docs/rfcs/0001-agent-server-split.md.
 package fleetnodegateway.v1;
 
 import "buf/validate/validate.proto";
@@ -315,7 +315,8 @@ message MinerConnectionDescriptor {
     string mac_address = 7 [(buf.validate.field).string.max_len = 255];
     // Miner username/password, encrypted separately by the fleet node and decrypted
     // just-in-time with its local credential key (empty for no-secret drivers like
-    // the virtual driver). The cloud never ships plaintext down the stream.
+    // the virtual driver). The cloud never ships plaintext down the stream; see RFC
+    // 0001.
     bytes credential_username = 8 [(buf.validate.field).bytes.max_len = 4096];
     bytes credential_password = 9 [(buf.validate.field).bytes.max_len = 4096];
 }

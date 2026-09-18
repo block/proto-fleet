@@ -84,7 +84,7 @@ The ceilings are deliberately fixed and optimistic for load testing: 512 command
 
 For load-test observability, `control stream opened` logs the configured limits. Capacity rejections include `command_kind`, `admission_class`, `rejection_reason`, and current shared/deferrable/exclusive occupancy. Command completions are available at debug level with the same classification, duration, acknowledgement outcome, and post-release occupancy.
 
-If the server does not implement `ControlStream`, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
+If the server side is older than RFC-0001 phase 2, the stream returns `Unimplemented`. The agent reconnects with exponential backoff (1s → 30s), so older servers degrade quietly. See [control.go](control.go).
 
 Reconnect is newest-wins on the server: a freshly opened stream evicts any prior registration for the same `fleet_node_id`.
 
@@ -121,7 +121,7 @@ If anything is interrupted between Register and Complete, `fleetnode refresh` re
 - **Lock contention.** PID is written under the lock so contention reports are actionable.
 - **Plugins.** The directory must be owned by root or the running uid and must not be group- or world-writable; the agent refuses to load otherwise. The Windows build performs an existence-only check — production Windows installs must place the binary under an Administrator-only directory (e.g., `%ProgramFiles%\fleetnode\`) so the `plugins\` subdirectory inherits a safe ACL.
 - **Scan targets.** Server-supplied targets use the shared `netscan` grammar, private-address policy, and per-command limits. Leading dashes, whitespace, and shell metacharacters are rejected.
-- **Server compatibility.** The control flow requires the server's `ControlStream` and `ReportDiscoveredDevices` handlers; older servers return `Unimplemented` and the agent reconnects with backoff without crashing.
+- **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers return `Unimplemented` and the agent reconnects with backoff without crashing.
 
 ## Development
 
@@ -145,6 +145,6 @@ This starts the backend, isolated fake miners, an enrolled fleet node with `FLEE
 |---------|-------|--------|
 | `exec format error` from plugin | Plugins were built for a different OS/arch (often Linux ELF on macOS). | Re-run `just build-fleetnode` on the host that will execute the agent. |
 | `state lock held by PID N` | Another `fleetnode` process is holding the lock; or a stale lock file with a dead PID. | `ps -p N`. If dead, remove the lock file. |
-| `control stream returned Unimplemented` | Server does not implement `ControlStream`. | Upgrade fleetd to a build that implements `ControlStream` and `ReportDiscoveredDevices`. Until then the agent stays in heartbeat-only mode. |
+| `control stream returned Unimplemented` | Server is older than RFC-0001 phase 2. | Upgrade fleetd to a build that implements `ControlStream` and `ReportDiscoveredDevices`. Until then the agent stays in heartbeat-only mode. |
 | `fleet node already has an active control stream` | A prior stream is still being reaped on the server. | Self-resolves: the server now applies newest-wins, evicting the prior stream on the next connect. |
 | `BeginAuth rejected` | Revoked `api_key`, identity_pubkey mismatch, expired challenge, or server clock drift. | Verify the `api_key` in the operator UI; re-enroll if revoked. Check clock skew. |

@@ -86,12 +86,15 @@ untracked files. It always checks diff whitespace, then routes affected paths to
 
 ### Planning and Documentation
 
-Keep implementation plans, TDDs, PRDs, RFC proposals, and task scratchpads out
-of Git. Use issue/PR discussions, external documents, or ignored local
+Keep implementation plans, TDDs, PRDs, and task scratchpads out of Git.
+Use issue/PR discussions, external documents, or ignored local
 `docs/plans/` files for planning. Commit maintained documentation that describes
 the current system, such as architecture, API behavior, runbooks, and reusable
 development guidance. When work ships, update those documents with the lasting
 decisions and behavior.
+
+RFCs remain committed under `docs/rfcs/` using the existing
+[RFC process and template](docs/rfcs/README.md).
 
 ### Branch Naming
 

@@ -62,10 +62,12 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 
 ## Git and completion
 
-- Do not commit planning documents (implementation plans, TDDs, PRDs, RFC
-  proposals, or task scratchpads). Keep them in the conversation, an issue/PR,
+- Do not commit planning documents (implementation plans, TDDs, PRDs, or
+  task scratchpads). Keep them in the conversation, an issue/PR,
   an external document, or ignored local `docs/plans/` files. Commit maintained
   documentation of current behavior, architecture, and operations instead.
+  RFCs remain tracked under `docs/rfcs/`; follow the
+  [RFC guidance](docs/rfcs/README.md).
 - Work on a feature branch. Never commit on `main`, `master`, or detached
   HEAD; verify `git branch --show-current` before each commit. After a PR
   merges, start a fresh branch from updated `main`.

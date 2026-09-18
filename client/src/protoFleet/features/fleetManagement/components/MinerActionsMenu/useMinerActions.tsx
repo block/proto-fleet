@@ -214,7 +214,7 @@ const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStat
 
 /**
  * Builds a contextual confirmation subtitle for the unpair action based on the
- * miner types and statuses in the selection.
+ * miner types and statuses in the selection (per RFC Option C).
  *
  * @param miners - the fleet miners record, passed explicitly for testability
  */
@@ -372,7 +372,7 @@ export const useMinerActions = ({
   // Extract device identifiers for API calls
   const deviceIdentifiers = useMemo(() => selectedMiners.map((m) => m.deviceIdentifier), [selectedMiners]);
 
-  // Contextual subtitle for unpair confirmation dialog
+  // Contextual subtitle for unpair confirmation dialog (per RFC Option C)
   const unpairConfirmationSubtitle = useMemo(
     () => buildUnpairConfirmationSubtitle(selectedMiners, selectionMode, displayCount, miners, currentFilter),
     [selectedMiners, selectionMode, displayCount, miners, currentFilter],
