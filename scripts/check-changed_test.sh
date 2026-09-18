@@ -117,10 +117,10 @@ done
 for install_input in \
   'client/node_modules/.package-lock.json' 'git hash-object "$TREE_LOCK"' \
   'node --version' 'npm --version' 'node=$NODE_VERSION' 'npm=$NPM_VERSION' \
-  npm_config_platform NPM_CONFIG_PLATFORM process.platform 'platform=$INSTALL_PLATFORM' \
-  npm_config_arch NPM_CONFIG_ARCH process.arch 'arch=$INSTALL_ARCH' \
-  npm_config_libc NPM_CONFIG_LIBC glibcVersionRuntime '"glibc"' '"musl"' 'libc=$INSTALL_LIBC' \
-  'npm config get' legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
+  process.platform 'host-platform=$HOST_PLATFORM' \
+  process.arch 'host-arch=$HOST_ARCH' \
+  glibcVersionRuntime '"glibc"' '"musl"' 'host-libc=$HOST_LIBC' \
+  'npm config get' os cpu libc legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
   '--include=dev --include=optional' '"$INSTALL_CONFIG"' \
   'include=dev' 'include=optional'; do
   if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then

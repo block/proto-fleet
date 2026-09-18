@@ -381,16 +381,13 @@ _client-init force="false":
   TREE_LOCK=client/node_modules/.package-lock.json
   NODE_VERSION="$(node --version)"
   NPM_VERSION="$(npm --version)"
-  INSTALL_PLATFORM="${npm_config_platform:-${NPM_CONFIG_PLATFORM:-$(node -p 'process.platform')}}"
-  INSTALL_ARCH="${npm_config_arch:-${NPM_CONFIG_ARCH:-$(node -p 'process.arch')}}"
-  INSTALL_LIBC="${npm_config_libc:-${NPM_CONFIG_LIBC:-}}"
-  if [ -z "$INSTALL_LIBC" ]; then
-    INSTALL_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
-  fi
+  HOST_PLATFORM="$(node -p 'process.platform')"
+  HOST_ARCH="$(node -p 'process.arch')"
+  HOST_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
   INSTALL_CONFIG="$(
     cd client
     npm config get \
-      legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
+      os cpu libc legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
       --include=dev --include=optional
   )"
   WANT_HASH="$(
@@ -399,9 +396,9 @@ _client-init force="false":
       printf '%s\n' \
         "node=$NODE_VERSION" \
         "npm=$NPM_VERSION" \
-        "platform=$INSTALL_PLATFORM" \
-        "arch=$INSTALL_ARCH" \
-        "libc=$INSTALL_LIBC" \
+        "host-platform=$HOST_PLATFORM" \
+        "host-arch=$HOST_ARCH" \
+        "host-libc=$HOST_LIBC" \
         "include=dev" \
         "include=optional" \
         "$INSTALL_CONFIG"
