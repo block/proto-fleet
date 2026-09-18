@@ -7,14 +7,27 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useMeasure from "@/shared/hooks/useMeasure";
 
+const headingClasses = {
+  compact: { trigger: "!text-heading-200", skeleton: "text-heading-200" },
+  base: { trigger: "!text-heading-300", skeleton: "text-heading-300" },
+} as const;
+
 type InlineSelectorProps = {
   items: { id: string; name: string }[];
   currentId?: string;
   onSelect: (id: string) => void;
   placement?: "below" | "right";
+  headingSize?: keyof typeof headingClasses;
 };
 
-const InlineSelector = ({ items, currentId, onSelect, placement = "below" }: InlineSelectorProps) => {
+const InlineSelector = ({
+  items,
+  currentId,
+  onSelect,
+  placement = "below",
+  headingSize = "base",
+}: InlineSelectorProps) => {
+  const headingClass = headingClasses[headingSize];
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const { triggerRef } = usePopover();
@@ -53,13 +66,13 @@ const InlineSelector = ({ items, currentId, onSelect, placement = "below" }: Inl
     <div ref={setTrigger} className="relative w-fit">
       <Button
         textColor="text-text-primary"
-        className="!p-0 !text-heading-300 font-medium"
+        className={`!p-0 font-medium ${headingClass.trigger}`}
         variant="textOnly"
         suffixIcon={currentIdName ? <ChevronUpDown /> : undefined}
         aria-expanded={showPopover}
         onClick={() => setShowPopover((prev) => !prev)}
       >
-        {currentIdName || <SkeletonBar className="w-25 text-heading-300" />}
+        {currentIdName || <SkeletonBar className={`w-25 ${headingClass.skeleton}`} />}
       </Button>
 
       {showPopover ? (

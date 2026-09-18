@@ -4,6 +4,7 @@ import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
 import { useTelemetry } from "@/protoOS/api";
+import LocationBreadcrumb from "@/protoOS/components/LocationBreadcrumb/LocationBreadcrumb";
 import {
   type Rail,
   type RailEnd,
@@ -102,13 +103,16 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   // Subscribe only to hardware slice to avoid telemetry updates triggering hashboardList recomputation
   const hardwareHashboards = useHashboardsHardware();
   const topology = useMinerStore((state) => state.hardware.topology);
+  const currentBoard = useMemo(
+    () => [...(topology?.hashboards.values() ?? [])].find((board) => board.identity.value === serial),
+    [topology, serial],
+  );
 
   // Memoize hashboard list - only recreate when hardware changes, not on telemetry updates
   const hashboardList = useMemo(() => {
     if (topology?.kind === "container") {
-      const current = [...topology.hashboards.values()].find((board) => board.identity.value === serial);
       return [...topology.hashboards.values()]
-        .filter((board) => current && board.moduleId === current.moduleId)
+        .filter((board) => currentBoard && board.moduleId === currentBoard.moduleId)
         .sort((a, b) => (a.location?.slot ?? Infinity) - (b.location?.slot ?? Infinity))
         .map((board) => ({ serial: board.identity.value, name: layout.card.title(board.location?.slot) }));
     }
@@ -116,7 +120,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       .filter((h): h is HashboardData & { slot: number } => !!h.slot)
       .sort((a, b) => a.slot - b.slot)
       .map((board) => ({ serial: board.serial, name: `Hashboard ${board.slot}` }));
-  }, [hardwareHashboards, topology, serial, layout]);
+  }, [hardwareHashboards, topology, currentBoard, layout]);
 
   const stats = useMemo(() => {
     const efficiency = efficiencyValue(
@@ -176,10 +180,19 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           },
         ]}
       />
-      <div className={`pt-24 pb-8 ${pagePadX}`}>
-        <PopoverProvider>
-          <HashboardSelector hashboardList={hashboardList} currentHashboard={serial} />
-        </PopoverProvider>
+      <div className={`flex items-center gap-2 pt-24 pb-8 ${pagePadX}`}>
+        {topology?.kind === "container" && currentBoard ? (
+          <LocationBreadcrumb topology={topology} moduleId={currentBoard.moduleId} board={currentBoard} />
+        ) : null}
+        <div className="shrink-0">
+          <PopoverProvider>
+            <HashboardSelector
+              hashboardList={hashboardList}
+              currentHashboard={serial}
+              headingSize={topology?.kind === "container" ? "compact" : "base"}
+            />
+          </PopoverProvider>
+        </div>
       </div>
       <div className="max-w-screen overflow-visible overflow-x-auto">
         <div className={`${pagePadX} phone:mx-6 phone:!px-0`}>

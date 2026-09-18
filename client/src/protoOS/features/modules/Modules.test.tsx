@@ -209,9 +209,15 @@ describe("Modules", () => {
     const modal = await screen.findByRole("dialog", { name: "Modules" });
     expect(screen.getByTestId("location")).toHaveTextContent("/miners/ct1/modules/2/2?status=healthy");
     expect(within(modal).getByText("T2-P2")).toBeInTheDocument();
+    expect(within(modal).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 2");
     fireEvent.click(within(modal).getAllByRole("button", { name: "View" })[0]);
     const boardModal = await screen.findByRole("dialog", { name: "Hashboards" });
     expect(screen.getByTestId("location")).toHaveTextContent("/2/2/T2-M2-HB1?status=healthy");
+    expect(within(boardModal).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 2/Module 2");
+    fireEvent.click(within(boardModal).getByRole("button", { name: "Board 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Board 2" }));
+    expect(within(boardModal).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 2/Module 2");
+    expect(screen.getByTestId("location")).toHaveTextContent("/2/2/T2-M2-HB2?status=healthy&sort=name&direction=desc");
     fireEvent.click(within(boardModal).getByRole("button", { name: "Back to module" }));
     fireEvent.click(
       within(await screen.findByRole("dialog", { name: "Modules" })).getByRole("button", { name: "Done" }),
@@ -232,10 +238,21 @@ describe("Modules", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/modules");
   });
 
+  test.each(["", "/miners/ct1"])("direct module and board links resolve location under %s", async (root) => {
+    mocks.minerRoot = root;
+    showPage(`${root}/modules/2/2/T2-M2-HB3`);
+    const board = await screen.findByRole("dialog", { name: "Hashboards" });
+    expect(within(board).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 2/Module 2");
+    fireEvent.click(within(board).getByRole("button", { name: "Back to module" }));
+    const module = await screen.findByRole("dialog", { name: "Modules" });
+    expect(within(module).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 2");
+  });
+
   test("can return from an invalid board deep link to its module", async () => {
     showPage("/modules/1/1/missing?status=healthy");
     const modal = await screen.findByRole("dialog", { name: "Hashboards" });
     expect(within(modal).getByRole("status")).toHaveTextContent("Hashboard not found");
+    expect(within(modal).queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
     fireEvent.click(within(modal).getByRole("button", { name: "Back to module" }));
     expect(await screen.findByRole("dialog", { name: "Modules" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/modules/1/1?status=healthy");

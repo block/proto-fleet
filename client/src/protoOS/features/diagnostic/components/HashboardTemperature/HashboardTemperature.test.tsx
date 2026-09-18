@@ -3,6 +3,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import HashboardTemperature from "./HashboardTemperature";
+import { toCanonicalHardware } from "@/protoOS/api/adapters/mdkV1/normalize";
 import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -29,7 +30,10 @@ function Location() {
   const navigate = useNavigate();
   return (
     <>
-      <p data-testid="location">{location.pathname}</p>
+      <p data-testid="location">
+        {location.pathname}
+        {location.search}
+      </p>
       <button onClick={() => navigate(-1)}>History back</button>
     </>
   );
@@ -74,10 +78,12 @@ test("CT1 shows five ordered stats with live calculated or reported efficiency",
 test("switches boards within the module route using replace, and returns to the module", async () => {
   const user = userEvent.setup();
   showPage();
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 1");
   await user.click(screen.getByRole("button", { name: "Board 1" }));
   await user.click(screen.getByText("Board 2"));
   expect(screen.getByTestId("location")).toHaveTextContent("/tanks/1/modules/1/T1-M1-HB2");
   expect(screen.getByText("ASIC grid")).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 1");
   await user.click(screen.getByRole("button", { name: "History back" }));
   expect(screen.getByText("Module modal")).toBeInTheDocument();
 });
@@ -92,7 +98,33 @@ test("rig keeps its four stats and dismissal icon", () => {
   useMinerStore
     .getState()
     .systemInfo.setSystemInfo({ ...toCanonicalSystemInfo({ info: { id: "r2", product: "R2" } }), moduleModel: "r2" });
+  useMinerStore
+    .getState()
+    .hardware.replaceHardware(
+      toCanonicalHardware({ "hashboards-info": [{ hb_sn: "T1-M1-HB1", slot: 1 }] }, { deviceId: "r2", profile: "r2" }),
+    );
   showPage();
   expect(within(screen.getByTestId("stats-container")).getAllByTestId("stats-item")).toHaveLength(4);
   expect(screen.getByRole("button", { name: "Close hashboards" })).toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+});
+
+test.each([
+  "/tanks/1/modules/2",
+  "/modules/1/2",
+  "/miners/ct1/tanks/1/modules/2",
+  "/miners/ct1/modules/1/2",
+  "/systems",
+])("resolves board location on direct entry at %s and when topology arrives later", (root) => {
+  useMinerStore.getState().resetDeviceData();
+  render(
+    <MemoryRouter initialEntries={[`${root}/T1-M2-HB3`]}>
+      <Routes>
+        <Route path={`${root}/:serial`} element={<BoardPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+  act(() => useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware));
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 2");
 });

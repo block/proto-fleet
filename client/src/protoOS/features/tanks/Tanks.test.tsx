@@ -194,6 +194,17 @@ describe("Container tanks page", () => {
     expect(scrollIntoView).toHaveBeenCalledOnce();
   });
 
+  test.each(["", "/miners/ct1"])("resolves module location after loading a direct link under %s", (root) => {
+    mocks.minerRoot = root;
+    useMinerStore.getState().resetDeviceData();
+    showPage(`${root}/tanks/2/modules/1`);
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    act(() => useMinerStore.getState().hardware.replaceHardware(fixture.hardware));
+    expect(
+      within(screen.getByRole("dialog", { name: "Modules" })).getByRole("navigation", { name: "Breadcrumb" }),
+    ).toHaveTextContent("Tank 2");
+  });
+
   test("keeps hosted and slotless tank links resolvable", () => {
     mocks.minerRoot = "/miners/ct1";
     fixture = tanksFixture();
@@ -219,7 +230,8 @@ describe("Container tanks page", () => {
     fireEvent.click(screen.getByRole("button", { name: "View module" }));
     const dialog = screen.getByRole("dialog", { name: "Modules" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(within(dialog).getByText("Module 11")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Module 11" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1");
     expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks/1/modules/11");
     fireEvent.click(within(dialog).getByRole("button", { name: "Close dialog" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -229,6 +241,7 @@ describe("Container tanks page", () => {
     showPage("/tanks/1/modules/1");
     const dialogElement = screen.getByRole("dialog", { name: "Modules" });
     const dialog = within(dialogElement);
+    expect(dialog.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1");
     expect(dialog.getAllByRole("button", { name: "View" })).toHaveLength(3);
     expect(dialog.getByText("Board 1")).toBeInTheDocument();
     expect(dialog.getAllByText("Efficiency")).toHaveLength(3);
@@ -241,6 +254,7 @@ describe("Container tanks page", () => {
     expect(screen.getByTestId("current-path")).toHaveTextContent("/tanks/1/modules/2");
     expect(screen.getByRole("dialog", { name: "Modules" })).toBe(dialogElement);
     expect(dialog.getByRole("button", { name: "Module 2" })).toHaveFocus();
+    expect(dialog.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1");
     expect(mocks.hashboardStatus).toHaveBeenLastCalledWith({
       hashboardSerialNumbers: ["T1-M2-HB1", "T1-M2-HB2", "T1-M2-HB3"],
       poll: true,

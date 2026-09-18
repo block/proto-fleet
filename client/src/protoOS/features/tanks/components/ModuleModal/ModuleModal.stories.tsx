@@ -7,17 +7,28 @@ import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/component
 import Tanks from "@/protoOS/features/tanks/Tanks";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
-const ModuleStory = ({ state = "healthy", table = false }: { state?: ModuleFixtureState; table?: boolean }) => {
+const ModuleStory = ({
+  state = "healthy",
+  table = false,
+  tankLabel,
+}: {
+  state?: ModuleFixtureState;
+  table?: boolean;
+  tankLabel?: string;
+}) => {
   const ready = useMinerStore((state) => state.hardware.resource.status === "ready");
   useEffect(() => {
     const fixture = moduleFixture(state);
+    if (tankLabel && fixture.hardware.topology?.kind === "container") {
+      for (const tank of fixture.hardware.topology.tanks.values()) tank.label = tankLabel;
+    }
     const store = useMinerStore.getState();
     store.resetDeviceData();
     store.systemInfo.setSystemInfo(toCanonicalSystemInfo({ info: { id: "ct1-story", product: "CT1" } }));
     store.hardware.replaceHardware(fixture.hardware);
     store.telemetry.mergeTelemetry(fixture.telemetry);
     return () => useMinerStore.getState().resetDeviceData();
-  }, [state]);
+  }, [state, tankLabel]);
   if (!ready) return null;
   return (
     <MemoryRouter initialEntries={[`/tanks/1/modules/1${table ? "/T1-M1-HB1" : ""}`]}>
@@ -36,5 +47,11 @@ export const MissingBoard = () => <ModuleStory state="missingBoard" />;
 export const NoPsuData = () => <ModuleStory state="noPsu" />;
 export const PartialPsuData = () => <ModuleStory state="partialPsu" />;
 export const Ct1AsicTable = () => <ModuleStory table />;
+export const LongTankLabel = () => (
+  <ModuleStory tankLabel="North container immersion cooling tank beside the service entrance" />
+);
+export const LongTankLabelAsicTable = () => (
+  <ModuleStory table tankLabel="North container immersion cooling tank beside the service entrance" />
+);
 
 export default { title: "Proto OS/Containers/Module modal", parameters: { withRouter: false } };

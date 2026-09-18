@@ -3,12 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
+import LocationBreadcrumb from "@/protoOS/components/LocationBreadcrumb/LocationBreadcrumb";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ComponentSection from "@/protoOS/features/diagnostic/components/ComponentSection";
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
 import HashboardStatusCard from "@/protoOS/features/diagnostic/components/HashboardStatusCard";
 import PsuStatusCard from "@/protoOS/features/diagnostic/components/PsuStatusCard";
-import ModuleRunIn from "@/protoOS/features/runIn/ModuleRunIn";
 import { moduleHashboards, tankModules } from "@/protoOS/features/tanks/tankView";
 import type { ContainerTopology, ModuleNode, TankNode } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -89,25 +89,26 @@ const ModuleModal = ({
       bodyClassName="text-text-primary"
     >
       <div ref={bodyRef} className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10">
-        <PopoverProvider>
-          <InlineSelector
-            placement="right"
-            currentId={module.id}
-            items={modules.map((item, index) => ({
-              id: item.id,
-              name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
-            }))}
-            onSelect={(id) => {
-              const index = modules.findIndex((item) => item.id === id);
-              if (index >= 0) navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
-            }}
-          />
-        </PopoverProvider>
-        <ModuleRunIn
-          key={`${topology.deviceId}:${module.id}`}
-          moduleId={module.id}
-          label={`${tank.label ?? "Tank"} · Module ${module.location?.moduleSlot ?? ""}`}
-        />
+        <div className="flex items-center gap-2">
+          <LocationBreadcrumb topology={topology} moduleId={module.id} />
+          <div className="shrink-0">
+            <PopoverProvider>
+              <InlineSelector
+                placement="right"
+                headingSize="compact"
+                currentId={module.id}
+                items={modules.map((item, index) => ({
+                  id: item.id,
+                  name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
+                }))}
+                onSelect={(id) => {
+                  const index = modules.findIndex((item) => item.id === id);
+                  if (index >= 0) navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
+                }}
+              />
+            </PopoverProvider>
+          </div>
+        </div>
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">
           <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
