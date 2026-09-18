@@ -134,19 +134,27 @@ fi
 
 /bin/bash -u -c 'registry_args=(); printf "%s" ${registry_args[@]+"${registry_args[@]}"}'
 
-plugin_build_recipe="$(just --dry-run _build-go-plugins-cross linux arm64 server/plugins 2>&1)"
-for dependency_file in server/go.mod server/go.sum; do
-  if [[ "$plugin_build_recipe" != *"$dependency_file"* ]]; then
-    echo "Plugin build cache omits shared dependency: $dependency_file" >&2
+go_work_sync_recipe="$(just --dry-run --no-deps _go-work-sync 2>&1)"
+plugin_build_recipe="$(just --dry-run --no-deps _build-go-plugins-cross linux arm64 server/plugins 2>&1)"
+workspace_dependency_files=(go.work)
+if [ -f go.work.sum ]; then
+  workspace_dependency_files+=(go.work.sum)
+fi
+while IFS= read -r module_dir; do
+  module_dir="${module_dir#./}"
+  workspace_dependency_files+=("$module_dir/go.mod")
+  if [ -f "$module_dir/go.sum" ]; then
+    workspace_dependency_files+=("$module_dir/go.sum")
+  fi
+done < <(go work edit -json | jq -r '.Use[].DiskPath')
+
+for dependency_file in "${workspace_dependency_files[@]}"; do
+  if [[ "$go_work_sync_recipe" != *"$dependency_file"* ]]; then
+    echo "Go workspace sync cache omits dependency: $dependency_file" >&2
     exit 1
   fi
-done
-
-for unrelated_dependency in \
-  plugin/virtual/go.mod plugin/virtual/go.sum \
-  tests/plugin-contract/go.mod tests/plugin-contract/go.sum; do
-  if [[ "$plugin_build_recipe" == *"$unrelated_dependency"* ]]; then
-    echo "Plugin build cache includes unrelated dependency: $unrelated_dependency" >&2
+  if [[ "$plugin_build_recipe" != *"$dependency_file"* ]]; then
+    echo "Plugin build cache omits shared dependency: $dependency_file" >&2
     exit 1
   fi
 done

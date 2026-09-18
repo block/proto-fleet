@@ -1,5 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+go_workspace_manifests := "go.work go.work.sum server/go.mod server/go.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
+
 default:
   just --list
 
@@ -483,12 +485,14 @@ _e2e suite *args:
   npx playwright install
   npx playwright test {{args}}
 
-# sync Go workspace only when go.work / go.work.sum has changed since last sync
+# sync Go workspace only when workspace configuration or module manifests have changed
 _go-work-sync:
   #!/usr/bin/env bash
   set -euo pipefail
   STAMP=.cache/go-work-sync/stamp
-  if [ -f "$STAMP" ] && ! [ go.work -nt "$STAMP" ] && { [ ! -f go.work.sum ] || ! [ go.work.sum -nt "$STAMP" ]; }; then
+  WORKSPACE_MANIFESTS="{{go_workspace_manifests}}"
+  if [ -f "$STAMP" ] \
+     && [ -z "$(find $WORKSPACE_MANIFESTS -newer "$STAMP" -type f 2>/dev/null | head -1)" ]; then
     exit 0
   fi
   echo "Syncing Go workspace..."
@@ -502,7 +506,7 @@ _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
   # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 {{go_workspace_manifests}}"
   PROTO_BIN={{outdir}}/proto-plugin
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
@@ -527,7 +531,7 @@ _build-go-plugins-cross goos goarch outdir force="": _go-work-sync
   set -euo pipefail
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  COMMON_SOURCES="server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum"
+  COMMON_SOURCES="server/sdk/v1 {{go_workspace_manifests}}"
   rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   mkdir -p {{outdir}}
   built=false
