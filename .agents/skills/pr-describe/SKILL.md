@@ -9,26 +9,30 @@ it does and judge the architecture and technical decisions **without reading the
 low-level code**. Inspect the actual diff, commits, and changed files first;
 describe what the code does, not the decisions made getting there.
 
+Save the optional PR number or URL supplied with the skill invocation as
+`pr_ref`. If none was supplied, leave `pr_ref` empty; that selects the
+current-branch path below.
+
 ## Steps
 
 1. Determine the target and pick the path. Decide once, here, and use the same
    path for every command below — never mix PR-derived refs with the local
    checkout.
 
-   - **Numbered-PR path** — `$ARGUMENTS` is a PR number or URL. The target is
+   - **Numbered-PR path** — `pr_ref` is a PR number or URL. The target is
      that PR, which may live in a different repository and on a branch you do
      not have checked out. Resolve its refs from metadata, not from local HEAD:
-     `gh pr view "$ARGUMENTS" --json number,url,headRefName,baseRefName,title`.
+     `gh pr view "$pr_ref" --json number,url,headRefName,baseRefName,title`.
      Capture `number` and parse `owner`/`repo` from the `url` field (which is
      `https://github.com/<owner>/<repo>/pull/<number>`). The `url` is gh's
      output, so it is safe to parse. You need `owner`/`repo` because a bare
-     `number` resolves in the *current* repo — a `$ARGUMENTS` URL pointing at
+     `number` resolves in the *current* repo — a `pr_ref` URL pointing at
      another repo would otherwise read one PR and edit a same-numbered PR here.
      Pass `-R <owner>/<repo> <number>` to every `gh pr` call on this path.
-   - **Current-branch path** — no `$ARGUMENTS`. The target is the current
-     branch. `gh pr view --json number,url,headRefName,baseRefName,title` tells you
-     whether a PR already exists; if none does, you will draft the body for the
-     PR the user is about to open from this branch.
+   - **Current-branch path** — `pr_ref` is empty or absent. The target is the
+     current branch. `gh pr view --json number,url,headRefName,baseRefName,title`
+     tells you whether a PR already exists; if none does, you will draft the
+     body for the PR the user is about to open from this branch.
 
    After resolving refs, check whether the target is part of a **series**
    (stacked or multi-part). Any one of these signals counts: `baseRefName` is
