@@ -13,13 +13,11 @@ import {
   isAwaitingReview,
   canRollBack as isCurrentGeneration,
   isPaused,
-  isStaged,
   metricDisplay,
   type MetricKind,
   pacingSummary,
   pairLabel,
   rollbackLabel,
-  rolloutDeviceCounts,
   rolloutProgressColorMap,
   rolloutProgressSegments,
   rolloutStageLabel,
@@ -226,9 +224,8 @@ const RolloutDetailModal = ({
   const awaitingReview = isAwaitingReview(rollout);
   const paused = isPaused(rollout);
   const canContinue = awaitingReview && !paused;
-  const staged = isStaged(rollout);
   const counts = scopeCounts(rollout);
-  const totals = rolloutDeviceCounts(rollout);
+  const scopedTargetCount = counts.total + counts.excluded + counts.skipped;
   const failed = failedCount(rollout);
   const segments = rolloutProgressSegments(counts);
   const evidence = rollout.evidence;
@@ -385,7 +382,7 @@ const RolloutDetailModal = ({
                 intent={intents.information}
                 prefixIcon={<Info />}
                 testId="review-banner"
-                title={`${counts.updated === counts.total ? "Every miner" : `${counts.updated} of ${counts.total} miners`} in this batch ${counts.updated === 1 && counts.total === 1 ? "is" : "are"} on ${rollout.firmwareVersion}.`}
+                title={`${counts.updated} of ${scopedTargetCount} miners in this batch updated to ${rollout.firmwareVersion}.`}
                 subtitle={
                   evidence && rollout.behavior?.autoContinueOnHealthyTelemetry
                     ? evidence.readyToAdvance
@@ -413,7 +410,7 @@ const RolloutDetailModal = ({
 
             <div className="mt-10" data-testid="rollout-detail-stats">
               <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-                <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(totals.total)}`} />
+                <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(rollout.deviceCount)}`} />
                 <StatBlock label="Method" value={pacingSummary(rollout.behavior)} />
                 {rollout.behavior && gatesAfterBatch(rollout.behavior) ? (
                   <StatBlock label="Review gates" value={thresholdSummary(rollout)} />
@@ -472,13 +469,16 @@ const RolloutDetailModal = ({
                     {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
                   </span>
                 ))}
-                {staged && counts.total !== totals.total ? (
+                {scopedToBatch(rollout) && scopedTargetCount !== rollout.deviceCount ? (
                   <span className="ml-auto text-right text-text-primary-50">
-                    {`${(totals.total - counts.total).toLocaleString()} outside this batch`}
+                    {`${(rollout.deviceCount - scopedTargetCount).toLocaleString()} outside this batch`}
                   </span>
                 ) : null}
-                {totals.excluded > 0 ? (
-                  <span className="text-right text-text-primary-50">{`${totals.excluded.toLocaleString()} excluded`}</span>
+                {counts.excluded > 0 ? (
+                  <span className="text-right text-text-primary-50">{`${counts.excluded.toLocaleString()} excluded`}</span>
+                ) : null}
+                {counts.skipped > 0 ? (
+                  <span className="text-right text-text-primary-50">{`${counts.skipped.toLocaleString()} skipped`}</span>
                 ) : null}
               </div>
             </div>

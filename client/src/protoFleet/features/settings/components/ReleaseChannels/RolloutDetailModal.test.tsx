@@ -2,15 +2,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { activeRigRollout, completedWithFailuresRigRollout, gatedRigRollout } from "./ReleaseChannels.fixtures";
+import {
+  activeRigRollout,
+  completedRigRollout,
+  completedWithFailuresRigRollout,
+  gatedRigRollout,
+} from "./ReleaseChannels.fixtures";
 import RolloutDetailModal from "./RolloutDetailModal";
 import {
   type Rollout,
   RolloutBehaviorSchema,
+  RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutEvidenceSchema,
   RolloutMethod,
   RolloutState,
+  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
 
@@ -36,6 +44,75 @@ const propsFor = (rollout: Rollout) => ({
   onCancel: vi.fn(),
   onRollback: vi.fn(),
   onRetryFailed: vi.fn().mockResolvedValue(undefined),
+});
+
+describe("rollout scope and neutral targets", () => {
+  it.each([
+    { phases: { skipped: 6 }, updated: 0, eligible: 0 },
+    { phases: { excluded: 6 }, updated: 0, eligible: 0 },
+    { phases: { done: 3, failed: 1, skipped: 1, excluded: 1 }, updated: 3, eligible: 4 },
+  ])(
+    "keeps every target in the scope while excluding neutral phases from progress (%#)",
+    ({ phases, updated, eligible }) => {
+      const deviceCounts = create(RolloutDeviceCountsSchema, phases);
+      const rollout = {
+        ...completedRigRollout,
+        deviceCount: 6,
+        deviceCounts,
+        status: deviceCounts.failed ? RolloutStatus.COMPLETED_WITH_FAILURES : RolloutStatus.COMPLETED,
+        state: deviceCounts.failed ? RolloutState.COMPLETED_WITH_FAILURES : RolloutState.COMPLETED,
+      };
+      render(<RolloutDetailModal {...propsFor(rollout)} />);
+      expect(
+        within(screen.getByTestId("rollout-detail-stats")).getByText("Canary channel, 6 miners"),
+      ).toBeInTheDocument();
+      const progress = screen.getByTestId("rollout-detail-progress");
+      expect(progress).toHaveTextContent(`Overall progress: ${updated} of ${eligible} miners updated`);
+      if (deviceCounts.skipped)
+        expect(within(progress).getByText(`${deviceCounts.skipped} skipped`)).toBeInTheDocument();
+      if (deviceCounts.excluded)
+        expect(within(progress).getByText(`${deviceCounts.excluded} excluded`)).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    { batch: { done: 1, skipped: 1, excluded: 1 }, all: { done: 1, skipped: 2, excluded: 2, queued: 3 } },
+    { batch: { skipped: 3 }, all: { skipped: 4, excluded: 1, queued: 3 } },
+  ])(
+    "counts neutral targets in review and outside-batch labels without mixing batch and rollout totals (%#)",
+    ({ batch, all }) => {
+      const currentBatchCounts = create(RolloutDeviceCountsSchema, batch);
+      const rollout = {
+        ...gatedRigRollout,
+        deviceCount: 8,
+        deviceCounts: create(RolloutDeviceCountsSchema, all),
+        currentBatchCounts,
+        behavior: { ...gatedRigRollout.behavior!, pilotSize: 3 },
+        evidence: create(RolloutEvidenceSchema, {
+          devicesTotal: 3,
+          verified: currentBatchCounts.done,
+          skipped: currentBatchCounts.skipped,
+          excluded: currentBatchCounts.excluded,
+          online: 3,
+          hashing: 3,
+          baselineHashing: 3,
+          holdReason: "Manual review",
+        }),
+      };
+      render(<RolloutDetailModal {...propsFor(rollout)} />);
+      expect(
+        within(screen.getByTestId("rollout-detail-stats")).getByText("Canary channel, 8 miners"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("review-banner")).toHaveTextContent(
+        `${currentBatchCounts.done} of 3 miners in this batch updated to ${rollout.firmwareVersion}.`,
+      );
+      const progress = within(screen.getByTestId("rollout-detail-progress"));
+      expect(progress.getByText("5 outside this batch")).toBeInTheDocument();
+      expect(progress.getByText(`${currentBatchCounts.skipped} skipped`)).toBeInTheDocument();
+      if (currentBatchCounts.excluded) expect(progress.getByText("1 excluded")).toBeInTheDocument();
+      else expect(progress.queryByText(/excluded/)).not.toBeInTheDocument();
+    },
+  );
 });
 
 describe("remaining rollout retry action", () => {
