@@ -539,12 +539,20 @@ export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigin
   return channel?.modelGroups.find((group) => pairKey(group) === key)?.assignmentGeneration;
 }
 
-// Active retries reuse the rollout. A finished retry starts a new one, so
-// its assignment must still be current and its pair must have no active run.
-export function canRetryFailed(rollout: Rollout, channels: ChannelView[], rollouts: Rollout[]): boolean {
-  if (!hasFailures(rollout) || rollout.status === RolloutStatus.CANCELED) return false;
+// Retry covers every suppressed member of the pair's assignment generation,
+// including failed, skipped or canceled work in earlier rollouts. This run's
+// counts cannot tell whether that set is empty; the server safely does nothing
+// when it is. Active retries reuse the rollout. A finished retry starts a new
+// one, so its assignment must still be current and its pair must have no active run.
+export function canRetryRemaining(rollout: Rollout, channels: ChannelView[], rollouts: Rollout[]): boolean {
   if (isActive(rollout)) return true;
-  if (rollout.status !== RolloutStatus.COMPLETED && rollout.status !== RolloutStatus.COMPLETED_WITH_FAILURES) {
+  const canceledRemaining =
+    rollout.status === RolloutStatus.CANCELED && rollout.cancelReason === RolloutCancelReason.CANCELED_REMAINING;
+  if (
+    rollout.status !== RolloutStatus.COMPLETED &&
+    rollout.status !== RolloutStatus.COMPLETED_WITH_FAILURES &&
+    !canceledRemaining
+  ) {
     return false;
   }
   const key = pairKey(rollout);

@@ -188,7 +188,7 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
   currentGeneration?: bigint;
   // Terminal retries require the current assignment and no active rollout
   // for the pair. Without that snapshot, only active retries are offered.
-  canRetryFailed?: boolean;
+  canRetryRemaining?: boolean;
   minerNames: Record<string, string>;
   // Per-miner progress is paged by the server; the miners drill-down
   // fetches it on demand.
@@ -203,7 +203,7 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
 const RolloutDetailModal = ({
   rollout,
   currentGeneration,
-  canRetryFailed,
+  canRetryRemaining,
   minerNames,
   listRolloutDevices,
   onClose,
@@ -223,6 +223,7 @@ const RolloutDetailModal = ({
   const active = isActiveRollout(rollout);
   const awaitingReview = isAwaitingReview(rollout);
   const paused = isPaused(rollout);
+  const canContinue = awaitingReview && !paused;
   const staged = isStaged(rollout);
   const counts = scopeCounts(rollout);
   const totals = rolloutDeviceCounts(rollout);
@@ -233,6 +234,7 @@ const RolloutDetailModal = ({
   const finishedAtMs = rollout.finishedAt ? timestampMs(rollout.finishedAt) : undefined;
   const title = `${rollout.channelName}, ${rollout.model} firmware update`;
   const canRollBack = isCurrentGeneration(rollout, currentGeneration);
+  const retryAllowed = canRetryRemaining ?? active;
 
   const handleContinue = () => {
     setIsContinuing(true);
@@ -248,7 +250,7 @@ const RolloutDetailModal = ({
   };
   const busy = isContinuing || isTogglingPause || isRetrying;
 
-  // Header action bar: Manage / Continue / Resume / Pause / Retry failed
+  // Header action bar: Manage / Continue / Resume / Pause / Retry remaining
   // inline, the rest in an overflow menu, mirroring the design's
   // ViewRolloutModal.
   const headerButtons: ButtonProps[] = [];
@@ -261,7 +263,7 @@ const RolloutDetailModal = ({
       testId: "view-rollout-manage-action",
     });
   }
-  if (awaitingReview) {
+  if (canContinue) {
     headerButtons.push({
       text: "Continue",
       variant: variants.primary,
@@ -281,9 +283,9 @@ const RolloutDetailModal = ({
       testId: paused ? "view-rollout-resume-action" : "view-rollout-pause-action",
     });
   }
-  if (canRetryFailed ?? (active && failed > 0)) {
+  if (retryAllowed) {
     headerButtons.push({
-      text: "Retry failed",
+      text: "Retry remaining",
       variant: variants.secondary,
       onClick: handleRetry,
       loading: isRetrying,
@@ -341,6 +343,12 @@ const RolloutDetailModal = ({
               triggerVariant={variants.secondary}
             />
           </Header>
+          {retryAllowed ? (
+            <p className="mt-3 text-200 text-text-primary-50">
+              Retry remaining retries failed, skipped, or canceled work for this firmware assignment, including earlier
+              updates. It does not advance review gates.
+            </p>
+          ) : null}
         </div>
 
         <div className="mx-auto w-full max-w-[800px] px-6 pb-6" data-testid={`rollout-detail-${rollout.id.toString()}`}>
@@ -351,7 +359,7 @@ const RolloutDetailModal = ({
                 prefixIcon={<Alert />}
                 testId="rollout-failed-banner"
                 title={`${minersNoun(failed)} failed to update`}
-                subtitle="They did not report the new version after three update attempts and are left alone until retried. Review them, then retry or continue without them."
+                subtitle="Review miner details for the cause of each failed update."
                 buttonText="Review miners"
                 buttonOnClick={() => setMinersFilter("failed")}
               />
@@ -369,7 +377,7 @@ const RolloutDetailModal = ({
               </div>
             </div>
 
-            {awaitingReview ? (
+            {canContinue ? (
               <Callout
                 className="mt-10"
                 intent={intents.information}

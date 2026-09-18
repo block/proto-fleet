@@ -20,7 +20,7 @@ import {
 import {
   activeRolloutForGroup,
   activeUpdateSummary,
-  canRetryFailed,
+  canRetryRemaining,
   channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
@@ -48,6 +48,7 @@ import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
   RolloutBehaviorSchema,
+  RolloutCancelReason,
   RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
@@ -103,7 +104,7 @@ describe("active rollout identity", () => {
   });
 });
 
-describe("failed rollout retry eligibility", () => {
+describe("remaining rollout retry eligibility", () => {
   const rollout = completedWithFailuresRigRollout;
   const group = {
     ...rigGroup,
@@ -114,13 +115,13 @@ describe("failed rollout retry eligibility", () => {
   const channel = { ...canaryChannel, modelGroups: [group] };
 
   it("allows active retries without requiring the channel snapshot", () => {
-    expect(canRetryFailed(batchedRigRollout, [], [batchedRigRollout])).toBe(true);
-    expect(canRetryFailed(activeRigRollout, [], [activeRigRollout])).toBe(false);
+    expect(canRetryRemaining(batchedRigRollout, [], [batchedRigRollout])).toBe(true);
+    expect(canRetryRemaining(activeRigRollout, [], [activeRigRollout])).toBe(true);
   });
 
   it("allows a finished retry of the current assignment, including normalized observed model names", () => {
     expect(
-      canRetryFailed(
+      canRetryRemaining(
         rollout,
         [{ ...channel, modelGroups: [{ ...group, manufacturer: " proto ", model: " rig " }] }],
         [rollout],
@@ -136,28 +137,75 @@ describe("failed rollout retry eligibility", () => {
     { manufacturer: "Other" },
     { model: "Other" },
   ])("hides finished retry when the assignment or active-pair precondition is not met (%#)", (patch) => {
-    expect(canRetryFailed(rollout, [{ ...channel, modelGroups: [{ ...group, ...patch }] }], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [{ ...channel, modelGroups: [{ ...group, ...patch }] }], [rollout])).toBe(false);
   });
 
   it("hides finished retry while its channel or model group is missing", () => {
-    expect(canRetryFailed(rollout, [], [rollout])).toBe(false);
-    expect(canRetryFailed(rollout, [{ ...channel, id: 99n }], [rollout])).toBe(false);
-    expect(canRetryFailed(rollout, [{ ...channel, modelGroups: [] }], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [{ ...channel, id: 99n }], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [{ ...channel, modelGroups: [] }], [rollout])).toBe(false);
   });
 
   it("also honors an active rollout summary when the channel snapshot has not caught up", () => {
     const active = { ...activeRigRollout, manufacturer: " proto ", model: " rig " };
-    expect(canRetryFailed(rollout, [channel], [rollout, active])).toBe(false);
-    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, channelId: 99n }])).toBe(true);
-    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, manufacturer: "Other" }])).toBe(true);
-    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, model: "Other" }])).toBe(true);
-    expect(canRetryFailed(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, active])).toBe(false);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, channelId: 99n }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, manufacturer: "Other" }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, model: "Other" }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
   });
 
-  it("does not offer retries without failed miners or for canceled and unknown statuses", () => {
-    expect(canRetryFailed(completedRigRollout, [channel], [])).toBe(false);
-    expect(canRetryFailed({ ...rollout, status: RolloutStatus.CANCELED }, [channel], [])).toBe(false);
-    expect(canRetryFailed({ ...rollout, status: RolloutStatus.UNSPECIFIED }, [channel], [])).toBe(false);
+  it.each([{ done: 6 }, { done: 5, skipped: 1 }, { done: 5, excluded: 1 }])(
+    "allows a current successful rollout to retry suppressed miners beyond its own counts (%#)",
+    (counts) => {
+      const completed = {
+        ...rollout,
+        status: RolloutStatus.COMPLETED,
+        state: RolloutState.COMPLETED,
+        deviceCounts: create(RolloutDeviceCountsSchema, counts),
+      };
+      // Earlier runs are not necessarily present in this snapshot. Suppression
+      // belongs to the generation, including miners that left and rejoined.
+      expect(canRetryRemaining(completed, [channel], [completed])).toBe(true);
+    },
+  );
+
+  it.each([{ queued: 3 }, { inProgress: 2 }, { failed: 1, skipped: 1 }, { excluded: 1 }])(
+    "allows current canceled-remaining rollouts with any historical phase mix (%#)",
+    (counts) => {
+      const canceled = {
+        ...rollout,
+        status: RolloutStatus.CANCELED,
+        state: RolloutState.CANCELED,
+        cancelReason: RolloutCancelReason.CANCELED_REMAINING,
+        deviceCounts: create(RolloutDeviceCountsSchema, counts),
+      };
+      expect(canRetryRemaining(canceled, [channel], [canceled])).toBe(true);
+      expect(
+        canRetryRemaining(
+          canceled,
+          [{ ...channel, modelGroups: [{ ...group, assignmentGeneration: group.assignmentGeneration + 1n }] }],
+          [canceled],
+        ),
+      ).toBe(false);
+      expect(
+        canRetryRemaining(canceled, [{ ...channel, modelGroups: [{ ...group, firmwareChecksum: "" }] }], [canceled]),
+      ).toBe(false);
+      expect(canRetryRemaining(canceled, [channel], [canceled, activeRigRollout])).toBe(false);
+    },
+  );
+
+  it.each([
+    RolloutCancelReason.SUPERSEDED,
+    RolloutCancelReason.ROLLED_BACK,
+    RolloutCancelReason.CLEARED,
+    RolloutCancelReason.UNSPECIFIED,
+  ])("does not offer retries for cancellation reason %s even when snapshots disagree", (cancelReason) => {
+    expect(canRetryRemaining({ ...rollout, status: RolloutStatus.CANCELED, cancelReason }, [channel], [])).toBe(false);
+  });
+
+  it("does not offer retries for an unknown rollout status", () => {
+    expect(canRetryRemaining({ ...rollout, status: RolloutStatus.UNSPECIFIED }, [channel], [])).toBe(false);
   });
 });
 

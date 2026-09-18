@@ -3,7 +3,7 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
-import { canRetryFailed, isActive, pairGeneration } from "./rolloutStatus";
+import { canRetryRemaining, isActive, pairGeneration } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { Alert } from "@/shared/assets/icons";
@@ -131,10 +131,13 @@ const ActiveUpdatesMonitor = ({
           if (request?.kind === "view") onRequestHandled?.();
           setViewUpdate(next);
         }
-        pushToast({ message: `Retrying failed miners in ${rollout.channelName}`, status: STATUSES.success });
+        pushToast({
+          message: `Retry requested for remaining miners in ${rollout.channelName}`,
+          status: STATUSES.success,
+        });
       })
       .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't retry the failed miners", status: STATUSES.error });
+        pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
       });
 
   const handleCancel = () => {
@@ -185,7 +188,7 @@ const ActiveUpdatesMonitor = ({
         <RolloutDetailModal
           rollout={viewedRollout}
           currentGeneration={pairGeneration(api.channels, viewedRollout)}
-          canRetryFailed={canRetryFailed(viewedRollout, api.channels, rollouts)}
+          canRetryRemaining={canRetryRemaining(viewedRollout, api.channels, rollouts)}
           minerNames={minerNames}
           listRolloutDevices={listRolloutDevices}
           onClose={closeDetail}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import ActiveUpdatesMonitor, { type MonitorRequest } from "./ActiveUpdatesMonitor";
@@ -9,12 +10,14 @@ import {
   activeRigRollout,
   canaryChannel,
   canaryPreview,
+  canceledRemainingRigRollout,
+  completedRigRollout,
   completedWithFailuresRigRollout,
   gatedRigRollout,
   pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
 import { isActive } from "./rolloutStatus";
-import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { type Rollout, RolloutDeviceCountsSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import Firmware from "@/protoFleet/features/settings/components/Firmware";
 import { useFleetStore } from "@/protoFleet/store";
@@ -225,6 +228,27 @@ describe("rollout controls use the operator's observed revision", () => {
 });
 
 describe("on-demand history detail handoff", () => {
+  it.each([
+    { reason: "canceled remaining work", fixture: canceledRemainingRigRollout },
+    {
+      reason: "skipped miners",
+      fixture: { ...completedRigRollout, deviceCounts: create(RolloutDeviceCountsSchema, { skipped: 6 }) },
+    },
+    { reason: "stopped miners from earlier updates", fixture: completedRigRollout },
+  ])("offers retry for $reason without claiming an update necessarily started", async ({ fixture }) => {
+    const observed = { ...fixture, revision: 7n };
+    const api = apiFor(observed);
+    api.retryFailedDevices.mockResolvedValue(observed);
+    render(<ActiveUpdatesMonitor api={api} request={{ kind: "view", rollout: observed }} onManageChannel={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry remaining" }));
+    await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
+    expect(pushToast).toHaveBeenCalledWith({
+      message: `Retry requested for remaining miners in ${observed.channelName}`,
+      status: "success",
+    });
+    expect(screen.getByTestId(`rollout-detail-${observed.id.toString()}`)).toBeInTheDocument();
+  });
+
   it("updates terminal retry eligibility when another active update appears or the assignment changes", () => {
     const observed = completedWithFailuresRigRollout;
     const api = apiFor(observed);
@@ -296,7 +320,7 @@ describe("on-demand history detail handoff", () => {
     }
     render(<Harness />);
     fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
-    await waitFor(() => expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId(`rollout-detail-${successor.id.toString()}`)).toBeInTheDocument());
     expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Successor model");
   });
 
