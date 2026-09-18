@@ -3,6 +3,7 @@ import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   canRollBack,
   pairKey,
+  pairLabel,
   rollbackLabel,
   rolloutDeviceCounts,
   rolloutOutcomeLabel,
@@ -74,7 +75,7 @@ const ChannelHistoryModal = ({
           <thead>
             <tr className="text-text-primary-50">
               <th className="py-1.5 pr-4 font-normal">Status</th>
-              <th className="py-1.5 pr-4 font-normal">Model</th>
+              <th className="py-1.5 pr-4 font-normal">Manufacturer / model</th>
               <th className="py-1.5 pr-4 font-normal">Firmware</th>
               <th className="py-1.5 pr-4 font-normal">Progress</th>
               <th className="py-1.5 pr-4 font-normal">Started</th>
@@ -101,7 +102,7 @@ const ChannelHistoryModal = ({
                   <td className="py-2 pr-4">
                     <StatusChip label={rolloutOutcomeLabel(rollout)} tone={rolloutStatusTone(rollout)} />
                   </td>
-                  <td className="py-2 pr-4">{rollout.model}</td>
+                  <td className="py-2 pr-4">{pairLabel(rollout)}</td>
                   <td className="py-2 pr-4">{rollout.firmwareVersion}</td>
                   <td className="py-2 pr-4">{progress}</td>
                   <td className="py-2 pr-4">{formatRolloutTimestamp(rollout.createdAt)}</td>

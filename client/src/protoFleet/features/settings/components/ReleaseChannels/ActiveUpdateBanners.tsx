@@ -1,4 +1,4 @@
-import { activeUpdateSummary, hasFailures, needsManualReview } from "./rolloutStatus";
+import { activeUpdateSummary, hasFailures, needsManualReview, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { Download } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -21,7 +21,7 @@ const ActiveUpdateBanners = ({ rollouts, onViewUpdate }: ActiveUpdateBannersProp
           <Callout
             intent={hasFailures(rollout) ? intents.danger : intents.warning}
             prefixIcon={<Download className="text-text-primary" />}
-            title={`${rollout.channelName}, ${rollout.model} firmware update`}
+            title={`${rollout.channelName}, ${pairLabel(rollout)} firmware update`}
             subtitle={activeUpdateSummary(rollout)}
             buttonText={needsManualReview(rollout) ? "Review update" : "View update"}
             buttonOnClick={() => onViewUpdate(rollout)}

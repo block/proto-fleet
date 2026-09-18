@@ -116,6 +116,10 @@ describe("rollout controls use the operator's observed revision", () => {
     rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [{ ...observed, revision: 8n }] }} />);
 
     await waitFor(() => expect(api[method]).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
+    expect(pushToast).toHaveBeenCalledWith({
+      message: expect.stringContaining(`${observed.manufacturer} ${observed.model}`),
+      status: "success",
+    });
   });
 
   it.each([
@@ -137,6 +141,10 @@ describe("rollout controls use the operator's observed revision", () => {
       fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
       fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
       expect(screen.getByTestId(dialog)).toBeInTheDocument();
+      if (action === "cancel") {
+        expect(screen.getByTestId(dialog)).toHaveTextContent("commands already sent may still finish");
+        expect(screen.getByTestId(dialog)).not.toHaveTextContent("stops now");
+      }
 
       rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [{ ...observed, revision: 8n }] }} />);
       fireEvent.click(within(screen.getByTestId(dialog)).getByRole("button", { name: confirm }));
@@ -203,7 +211,7 @@ describe("rollout controls use the operator's observed revision", () => {
 
     await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
     expect(pushToast).toHaveBeenCalledWith({
-      message: `Cleared the firmware assignment for ${observed.model} in ${observed.channelName}`,
+      message: `Cleared the firmware assignment for ${observed.manufacturer} ${observed.model} in ${observed.channelName}`,
       status: "success",
     });
     await waitFor(() => expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument());
@@ -221,9 +229,42 @@ describe("rollout controls use the operator's observed revision", () => {
 
     await waitFor(() => expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(observed.id, observed.revision));
     expect(pushToast).toHaveBeenCalledWith({
-      message: `Rolling ${observed.model} in ${observed.channelName} back to ${observed.previousFirmwareVersion}`,
+      message: `Rolling ${observed.manufacturer} ${observed.model} in ${observed.channelName} back to ${observed.previousFirmwareVersion}`,
       status: "success",
     });
+  });
+});
+
+describe("rollout manufacturer identity", () => {
+  it.each([
+    { action: "cancel", method: "cancelRollout", dialog: "cancel-rollout-dialog", confirm: "Cancel remaining" },
+    { action: "rollback", method: "rollbackFirmware", dialog: "rollback-firmware-dialog", confirm: "Roll back" },
+  ] as const)("keeps a same-named model identifiable through $action", async ({ action, method, dialog, confirm }) => {
+    const first = activeRigRollout;
+    const second = { ...first, id: first.id + 1n, manufacturer: "Acme", revision: 7n };
+    const api = apiFor(first);
+    const firstGroup = api.channels[0].modelGroups.find((group) => group.model === first.model)!;
+    api.channels[0].modelGroups.push({ ...firstGroup, manufacturer: second.manufacturer, activeRolloutId: second.id });
+    api.rollouts = [first, second];
+    render(<ActiveUpdatesMonitor api={api} onManageChannel={vi.fn()} />);
+
+    expect(screen.getByTestId(`update-banner-${first.id.toString()}`)).toHaveTextContent(
+      "Canary, Proto Rig firmware update",
+    );
+    const secondBanner = screen.getByTestId(`update-banner-${second.id.toString()}`);
+    expect(secondBanner).toHaveTextContent("Canary, Acme Rig firmware update");
+    fireEvent.click(within(secondBanner).getByRole("button", { name: "View update" }));
+    expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Canary, Acme Rig firmware update");
+    expect(screen.getByTestId("rollout-detail-header")).not.toHaveTextContent("Proto Rig");
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Canary, Acme Rig firmware update" }));
+    fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
+
+    const confirmation = screen.getByTestId(dialog);
+    expect(confirmation).toHaveTextContent("Acme Rig");
+    expect(confirmation).not.toHaveTextContent("Proto Rig");
+    fireEvent.click(within(confirmation).getByRole("button", { name: confirm }));
+    await waitFor(() => expect(api[method]).toHaveBeenCalledExactlyOnceWith(second.id, 7n));
+    expect(pushToast).toHaveBeenCalledWith({ message: expect.stringContaining("Acme Rig"), status: "success" });
   });
 });
 
@@ -243,7 +284,7 @@ describe("on-demand history detail handoff", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry remaining" }));
     await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
     expect(pushToast).toHaveBeenCalledWith({
-      message: `Retry requested for remaining miners in ${observed.channelName}`,
+      message: `Retry requested for remaining ${observed.manufacturer} ${observed.model} miners in ${observed.channelName}`,
       status: "success",
     });
     expect(screen.getByTestId(`rollout-detail-${observed.id.toString()}`)).toBeInTheDocument();

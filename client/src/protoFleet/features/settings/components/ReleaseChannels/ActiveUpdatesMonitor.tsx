@@ -3,7 +3,7 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
-import { canRetryRemaining, isActive, pairGeneration } from "./rolloutStatus";
+import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { Alert } from "@/shared/assets/icons";
@@ -101,7 +101,7 @@ const ActiveUpdatesMonitor = ({
     continueRollout(rollout.id, rollout.revision)
       .then(() => {
         pushToast({
-          message: `Continuing ${rollout.model} update in ${rollout.channelName}`,
+          message: `Continuing ${pairLabel(rollout)} update in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -113,7 +113,7 @@ const ActiveUpdatesMonitor = ({
     (pause ? pauseRollout(rollout.id, rollout.revision) : resumeRollout(rollout.id, rollout.revision))
       .then(() => {
         pushToast({
-          message: `${pause ? "Paused" : "Resumed"} ${rollout.model} update in ${rollout.channelName}`,
+          message: `${pause ? "Paused" : "Resumed"} ${pairLabel(rollout)} update in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -132,7 +132,7 @@ const ActiveUpdatesMonitor = ({
           setViewUpdate(next);
         }
         pushToast({
-          message: `Retry requested for remaining miners in ${rollout.channelName}`,
+          message: `Retry requested for remaining ${pairLabel(rollout)} miners in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -148,7 +148,7 @@ const ActiveUpdatesMonitor = ({
       .then(() => {
         setCancelTarget(null);
         pushToast({
-          message: `Canceled the remaining ${rollout.model} updates in ${rollout.channelName}`,
+          message: `Canceled the remaining ${pairLabel(rollout)} updates in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -169,8 +169,8 @@ const ActiveUpdatesMonitor = ({
         if (started[0]) setViewUpdate(started[0]);
         pushToast({
           message: rollout.previousFirmwareVersion
-            ? `Rolling ${rollout.model} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
-            : `Cleared the firmware assignment for ${rollout.model} in ${rollout.channelName}`,
+            ? `Rolling ${pairLabel(rollout)} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
+            : `Cleared the firmware assignment for ${pairLabel(rollout)} in ${rollout.channelName}`,
           status: STATUSES.success,
         });
       })
@@ -210,7 +210,7 @@ const ActiveUpdatesMonitor = ({
         title="Cancel the remaining updates?"
         subtitle={
           cancelTarget
-            ? `The ${cancelTarget.model} update in ${cancelTarget.channelName} stops now. Miners already on ${cancelTarget.firmwareVersion} keep it; miners not yet updated stay on their current version and are not retried until you retry them or change the assignment.`
+            ? `Cancel the remaining ${pairLabel(cancelTarget)} updates in ${cancelTarget.channelName}. Miners already updated keep ${cancelTarget.firmwareVersion}. No new update commands will be sent, but commands already sent may still finish. Canceled work is not retried until you retry it or change the assignment.`
             : ""
         }
         testId="cancel-rollout-dialog"
@@ -244,8 +244,8 @@ const ActiveUpdatesMonitor = ({
         subtitle={
           rollbackTarget
             ? clearsAssignment
-              ? `The firmware assignment for ${rollbackTarget.model} in ${rollbackTarget.channelName} will be cleared, canceling remaining update work. No firmware version will be enforced and no rollback update will start. Miners keep their installed firmware; update commands already sent may still finish.`
-              : `${rollbackTarget.model} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this model is canceled and a new update restores that version on every miner not running it.`
+              ? `The firmware assignment for ${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} will be cleared, canceling remaining update work. No firmware version will be enforced and no rollback update will start. Miners keep their installed firmware; update commands already sent may still finish.`
+              : `${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this manufacturer and model is canceled and a new update restores that version on every miner not running it.`
             : ""
         }
         testId="rollback-firmware-dialog"

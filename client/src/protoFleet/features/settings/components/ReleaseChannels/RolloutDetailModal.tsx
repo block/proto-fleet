@@ -17,6 +17,7 @@ import {
   metricDisplay,
   type MetricKind,
   pacingSummary,
+  pairLabel,
   rollbackLabel,
   rolloutDeviceCounts,
   rolloutProgressColorMap,
@@ -232,7 +233,7 @@ const RolloutDetailModal = ({
   const evidence = rollout.evidence;
   const startedAtMs = rollout.createdAt ? timestampMs(rollout.createdAt) : undefined;
   const finishedAtMs = rollout.finishedAt ? timestampMs(rollout.finishedAt) : undefined;
-  const title = `${rollout.channelName}, ${rollout.model} firmware update`;
+  const title = `${rollout.channelName}, ${pairLabel(rollout)} firmware update`;
   const canRollBack = isCurrentGeneration(rollout, currentGeneration);
   const retryAllowed = canRetryRemaining ?? active;
 

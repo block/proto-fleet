@@ -9,10 +9,16 @@ import {
   metricDisplay,
   type MetricKind,
   minerLabel,
+  pairLabel,
   scopeDevices,
 } from "./rolloutStatus";
 import { useRefreshingRead } from "./useRefreshingRead";
-import { type Rollout, type RolloutDevice, RolloutDevicePhase } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  type RolloutDevice,
+  RolloutDevicePhase,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -68,7 +74,13 @@ function MinerCell({ row, model }: { row: MinerRow; model: string }): ReactEleme
 
 // Per-miner phase for the status column: the shared StatusCircle dot, an
 // inline spinner while in flight, and the design's phase wording.
-function PhaseCell({ device, targetVersion }: { device: RolloutDevice; targetVersion: string }): ReactElement {
+function PhaseCell({ device, rollout }: { device: RolloutDevice; rollout: Rollout }): ReactElement {
+  const targetVersion = rollout.firmwareVersion;
+  // Finished history retains unfinished phases; those rows are no longer
+  // queued for dispatch or actively monitored by this canceled rollout.
+  const canceled =
+    rollout.status === RolloutStatus.CANCELED &&
+    [RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING].includes(device.phase);
   const dot = (status: keyof typeof statuses) => (
     <StatusCircle status={status} variant="simple" width="w-[6px]" testId="rollout-column-status" />
   );
@@ -145,7 +157,22 @@ function PhaseCell({ device, targetVersion }: { device: RolloutDevice; targetVer
 
   return (
     <span className="flex min-w-0 flex-col gap-1">
-      {state}
+      {canceled ? (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          Canceled
+        </span>
+      ) : (
+        state
+      )}
+      {canceled && device.lastError ? (
+        <span className="text-200 break-words text-text-primary-50">{device.lastError}</span>
+      ) : null}
+      {canceled && device.attempts > 0 ? (
+        <span className="text-200 break-words text-text-primary-50">
+          Any update command already sent may still finish.
+        </span>
+      ) : null}
       {device.phase === RolloutDevicePhase.SKIPPED && device.skipNote ? (
         <span className="text-200 break-words text-text-primary-50">{device.skipNote}</span>
       ) : null}
@@ -245,9 +272,13 @@ const RolloutMinersModal = ({
           }`;
 
   const colConfig: ColConfig<MinerRow, string, MinerColumn> = {
-    miner: { component: (row) => <MinerCell row={row} model={rollout.model} />, width: "w-[220px]", allowWrap: true },
+    miner: {
+      component: (row) => <MinerCell row={row} model={pairLabel(rollout)} />,
+      width: "w-[220px]",
+      allowWrap: true,
+    },
     firmware: {
-      component: (row) => <PhaseCell device={row.device} targetVersion={rollout.firmwareVersion} />,
+      component: (row) => <PhaseCell device={row.device} rollout={rollout} />,
       width: "w-[240px]",
       allowWrap: true,
     },
@@ -274,6 +305,7 @@ const RolloutMinersModal = ({
       open
       onDismiss={handleClose}
       title="Miners in firmware update"
+      description={`${rollout.channelName}, ${pairLabel(rollout)}`}
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -7,9 +7,11 @@ import { deferred } from "./__tests__/helpers";
 import { activeRigRollout } from "./ReleaseChannels.fixtures";
 import RolloutMinersModal from "./RolloutMinersModal";
 import {
+  RolloutCancelReason,
   type RolloutDevice,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
@@ -39,6 +41,81 @@ const propsFor = () => ({
 });
 
 describe("rollout miner detail loading", () => {
+  it.each([
+    RolloutCancelReason.CANCELED_REMAINING,
+    RolloutCancelReason.SUPERSEDED,
+    RolloutCancelReason.ROLLED_BACK,
+    RolloutCancelReason.CLEARED,
+  ])("shows canceled unfinished work without active progress for reason %s", async (cancelReason) => {
+    const props = propsFor();
+    const devices = [RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING].map(
+      (phase, attempts) =>
+        create(RolloutDeviceSchema, {
+          deviceIdentifier: `unfinished-${phase}`,
+          phase,
+          attempts,
+          lastError: cancelReason === RolloutCancelReason.CANCELED_REMAINING ? "Update canceled by operator" : "",
+          online: true,
+        }),
+    );
+    props.listRolloutDevices.mockResolvedValue(devices);
+    render(
+      <RolloutMinersModal {...props} rollout={{ ...props.rollout, status: RolloutStatus.CANCELED, cancelReason }} />,
+    );
+
+    await screen.findByText(devices[0].deviceIdentifier);
+    expect(screen.getByText(`${props.rollout.channelName}, Proto Rig`)).toBeInTheDocument();
+    for (const device of devices) {
+      const row = screen.getByText(device.deviceIdentifier).closest("tr")!;
+      expect(within(row).getByText("Canceled")).toBeInTheDocument();
+      expect(within(row).getByTitle("Proto Rig")).toBeInTheDocument();
+      expect(within(row).queryByText(/Queued|Retrying|Verifying|Updating firmware/)).not.toBeInTheDocument();
+      expect(row.querySelector(".animate-spin")).toBeNull();
+      if (device.lastError) expect(within(row).getByText(device.lastError)).toBeInTheDocument();
+      if (device.attempts > 0) {
+        expect(within(row).getByText("Any update command already sent may still finish.")).toBeInTheDocument();
+      }
+    }
+  });
+
+  it("preserves completed, failed, excluded and skipped outcomes in a canceled update", async () => {
+    const props = propsFor();
+    const outcomes = [
+      { phase: RolloutDevicePhase.DONE, label: `Updated to ${props.rollout.firmwareVersion}` },
+      { phase: RolloutDevicePhase.FAILED, label: "Failed", lastError: "Install failed" },
+      { phase: RolloutDevicePhase.EXCLUDED, label: "Excluded (left the channel)" },
+      { phase: RolloutDevicePhase.SKIPPED, label: "Skipped", skipNote: "Kept on current version" },
+    ];
+    props.listRolloutDevices.mockResolvedValue(
+      outcomes.map((outcome) =>
+        create(RolloutDeviceSchema, { ...outcome, deviceIdentifier: `settled-${outcome.phase}`, online: true }),
+      ),
+    );
+    render(<RolloutMinersModal {...props} rollout={{ ...props.rollout, status: RolloutStatus.CANCELED }} />);
+    await screen.findByText(`settled-${outcomes[0].phase}`);
+    for (const outcome of outcomes) {
+      const row = screen.getByText(`settled-${outcome.phase}`).closest("tr")!;
+      expect(within(row).getByText(outcome.label)).toBeInTheDocument();
+      expect(within(row).queryByText("Canceled")).not.toBeInTheDocument();
+      if (outcome.lastError) expect(within(row).getByText(outcome.lastError)).toBeInTheDocument();
+      if (outcome.skipNote) expect(within(row).getByText(outcome.skipNote)).toBeInTheDocument();
+    }
+  });
+
+  it("keeps queued and in-flight progress for active updates", async () => {
+    const props = propsFor();
+    props.listRolloutDevices.mockResolvedValue(
+      [RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING].map((phase, attempts) =>
+        create(RolloutDeviceSchema, { deviceIdentifier: `active-${phase}`, phase, attempts, online: true }),
+      ),
+    );
+    render(<RolloutMinersModal {...props} />);
+    expect(await screen.findByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Updating firmware")).toBeInTheDocument();
+    expect(screen.getByText("Retrying (attempt 2)")).toBeInTheDocument();
+    expect(screen.queryByText("Canceled")).not.toBeInTheDocument();
+  });
+
   it.each(["", "Leave this miner on its current firmware"])(
     "shows skipped miners as settled with their optional note: %s",
     async (skipNote) => {
@@ -191,7 +268,7 @@ describe("rollout miner detail loading", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await act(async () => current.resolve([done]));
     expect(screen.getByText("Updated rig")).toBeInTheDocument();
-    expect(screen.getByText(/Different model/)).toBeInTheDocument();
+    expect(screen.getByText(`${replacement.channelName}, Proto Different model`)).toBeInTheDocument();
     expect(props.listRolloutDevices).toHaveBeenCalledTimes(3);
   });
 });
