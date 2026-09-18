@@ -187,6 +187,7 @@ changed-checks:
         - "**/AGENTS.md"
         - "CLAUDE.md"
         - "CONTRIBUTING.md"
+        - "go.work"
         - "justfile"
         - "lefthook.yml"
         - "scripts/check-changed.sh"
