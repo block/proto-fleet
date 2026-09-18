@@ -384,11 +384,13 @@ _client-init force="false":
   HOST_PLATFORM="$(node -p 'process.platform')"
   HOST_ARCH="$(node -p 'process.arch')"
   HOST_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
+  install_args=(--include=dev --include=optional --dry-run=false)
+  if [ -n "${COREPACK_NPM_REGISTRY:-}" ]; then
+    install_args+=(--registry "$COREPACK_NPM_REGISTRY")
+  fi
   INSTALL_CONFIG="$(
     cd client
-    npm config get \
-      os cpu libc legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
-      --include=dev --include=optional
+    npm config list --json "${install_args[@]}"
   )"
   WANT_HASH="$(
     {
@@ -399,8 +401,6 @@ _client-init force="false":
         "host-platform=$HOST_PLATFORM" \
         "host-arch=$HOST_ARCH" \
         "host-libc=$HOST_LIBC" \
-        "include=dev" \
-        "include=optional" \
         "$INSTALL_CONFIG"
     } | git hash-object --stdin
   )"
@@ -417,12 +417,8 @@ _client-init force="false":
     echo "Client dependencies match install manifests, skipping install."
     exit 0
   fi
-  registry_args=()
-  if [ -n "${COREPACK_NPM_REGISTRY:-}" ]; then
-    registry_args+=(--registry "$COREPACK_NPM_REGISTRY")
-  fi
   rm -f "$STAMP"
-  (cd client && npm clean-install --include=dev --include=optional "${registry_args[@]+"${registry_args[@]}"}")
+  (cd client && npm clean-install "${install_args[@]}")
   TREE_HASH="$(git hash-object "$TREE_LOCK")"
   mkdir -p "$(dirname "$STAMP")"
   printf '%s\n%s\n' "$WANT_HASH" "$TREE_HASH" > "$STAMP"

@@ -120,9 +120,10 @@ for install_input in \
   process.platform 'host-platform=$HOST_PLATFORM' \
   process.arch 'host-arch=$HOST_ARCH' \
   glibcVersionRuntime '"glibc"' '"musl"' 'host-libc=$HOST_LIBC' \
-  'npm config get' os cpu libc legacy-peer-deps install-links bin-links install-strategy strict-peer-deps ignore-scripts omit include \
-  '--include=dev --include=optional' '"$INSTALL_CONFIG"' \
-  'include=dev' 'include=optional'; do
+  'install_args=(--include=dev --include=optional --dry-run=false)' \
+  'install_args+=(--registry "$COREPACK_NPM_REGISTRY")' \
+  'npm config list --json "${install_args[@]}"' \
+  '"$INSTALL_CONFIG"'; do
   if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
     echo "Client dependency fingerprint omits install context: $install_input" >&2
     exit 1
@@ -139,13 +140,8 @@ for cache_guard in \
   fi
 done
 
-if [[ "$client_init_recipe" != *'npm clean-install --include=dev --include=optional'* ]]; then
-  echo "Client dependency install must explicitly include dev and optional dependencies" >&2
-  exit 1
-fi
-
-if [[ "$client_init_recipe" != *'${registry_args[@]+"${registry_args[@]}"}'* ]]; then
-  echo "Client dependency install must support an empty registry argument array on Bash 3.2" >&2
+if [[ "$client_init_recipe" != *'npm clean-install "${install_args[@]}"'* ]]; then
+  echo "Client dependency config snapshot and install must use the same arguments" >&2
   exit 1
 fi
 
