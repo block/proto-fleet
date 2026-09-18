@@ -136,11 +136,14 @@ const miningStatus = (value: string | undefined, mining?: boolean): MiningStatus
 
 const healthState = (board: V2Hashboard): HealthState => {
   if (board.isolated) return "offline";
+  // Rails/clocks are only required while hashing. Idle boards can power them
+  // down, and disconnected boards cannot report verified live indicators.
+  // Explicit errors and warnings still take precedence over inactive states.
   if (
     board.miningState === V2MiningState.MINING_STATE_ERROR ||
     board.health?.errors?.length ||
-    board.health?.hashrailOk === false ||
-    board.health?.refclksOk === false
+    (board.miningState === V2MiningState.MINING_STATE_MINING &&
+      (board.health?.hashrailOk === false || board.health?.refclksOk === false))
   )
     return "fault";
   if (board.health?.warnings?.length) return "degraded";

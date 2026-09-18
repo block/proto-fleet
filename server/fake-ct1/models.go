@@ -2,51 +2,46 @@ package main
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"sync"
 	"time"
 )
 
 // Topology and telemetry defaults for a simulated CT1 container.
 //
-// A full container is 288 modules x 3 hashboards = 864 boards, matching a real
+// A full container is 96 modules x 3 hashboards = 288 boards, matching a real
 // CT1 (6 tanks). The tree is Tank -> Module -> Slot -> Hashboard. Counts are
-// env-parametrizable (see ContainerConfig) so tests can shrink the 864-board tree.
+// env-parametrizable (see ContainerConfig) so tests can shrink the 288-board tree.
 const (
 	defaultVersion        = "2.0.0"
-	defaultTanks          = 6 // 6 tanks x 48 modules x 3 slots = 864 boards
-	defaultModulesPerTank = 48
+	defaultTanks          = 6 // 6 tanks x 16 modules x 3 slots = 288 boards
+	defaultModulesPerTank = 16
 	defaultSlotsPerModule = 3
 	defaultAsicsPerBoard  = 312
 
 	product      = "CT1"
 	manufacturer = "Proto"
 	model        = "CT1-Immersion"
-	asicModel    = "BM1370"
+	asicModel    = "Proto Chip 3"
 
 	// Per-board telemetry bases. A CT1 hydro board is far larger than an R2
 	// rig; these are realistic-shaped, not physically exact.
-	boardIdealHashrateTHS = 335.0
-	boardPowerTargetW     = 5200.0
-	boardPowerTargetMinW  = 3000.0
-	boardPowerTargetMaxW  = 6000.0
-	boardVoltage          = 14.2
-	boardTempC            = 58.0
-	asicTempC             = 66.0
+	boardIdealHashrateTHS = 204.42
+	boardPowerTargetW     = 3000.0
+	boardPowerTargetMinW  = 2500.0
+	boardPowerTargetMaxW  = 3000.0
+	boardVoltage          = 28.0
+	boardTempC            = 50.0
+	asicTempC             = 60.0
 
 	// ASIC layout for the per-board asics endpoint.
 	asicStackCount   = 4
 	asicFrequencyMHz = 525
 	asicVoltageMv    = 385
-	asicPassRateBp   = 9960 // basis points (0-10000) => 99.6%
+	asicPassRateBp   = 9920 // basis points (0-10000) => 99.2%
 
 	// Plant / PUE.
-	basePUE           = 1.04
-	plantInletTempC   = 34.0
-	plantOutletTempC  = 48.0
-	plantAmbientTempC = 27.0
-
-	telemetryVariation = 0.03 // 3% random variation on reads
+	plantInletTempC   = 32.0
+	plantAmbientTempC = 25.0
 )
 
 // Hashboard mining-state enum values (mdk.v2 MiningState).
@@ -58,9 +53,15 @@ const (
 )
 
 const (
-	demoSleepingModule  = 3
-	demoOfflineModule   = 6
-	demoAttentionModule = 11
+	demoFaultTank              = 2
+	demoLightFaultTank         = 3
+	demoLightFaultModule       = 8
+	demoInactiveTank           = 4
+	demoInactiveSleepingModule = 4
+	demoInactiveOfflineModule  = 9
+	demoSleepingModule         = 3
+	demoOfflineModule          = 6
+	demoAttentionModule        = 11
 )
 
 // ContainerConfig carries the topology parameters for a simulated container.
@@ -74,12 +75,17 @@ type ContainerConfig struct {
 	SlotsPerModule   int
 	AsicsPerBoard    int
 	DemoModuleStates bool
+	Seed             int
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.
 // All reads and writes go through mu.
 type ContainerState struct {
-	mu sync.RWMutex
+	mu         sync.RWMutex
+	now        func() time.Time
+	sampleTime time.Time
+	observedAt time.Time
+	history    *simulationHistory
 
 	Config    ContainerConfig
 	ServerID  string
@@ -156,14 +162,23 @@ type Hashboard struct {
 	ScopedWatts     float64
 	ScopedWattsSet  bool
 
-	StartTime time.Time
+	StartTime          time.Time
+	StateChangedAt     time.Time
+	PreviousState      string
+	DisconnectedSample *boardSample
 }
 
 // NewContainerState builds the full container tree from cfg.
 func NewContainerState(cfg ContainerConfig) *ContainerState {
-	now := time.Now()
+	return newContainerState(cfg, time.Now().Truncate(5*time.Second))
+}
+
+func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 	s := &ContainerState{
 		Config:          cfg,
+		now:             time.Now,
+		sampleTime:      now,
+		observedAt:      now,
 		ServerID:        cfg.ServerID,
 		Version:         cfg.Version,
 		Hostname:        cfg.Hostname,
@@ -178,7 +193,7 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 			"dry_cooler_auto":   true,
 			"tank_led_light":    true,
 		},
-		ContainerSetpoints: map[string]float64{"dry_cooler_auto_temp_c": 18.3},
+		ContainerSetpoints: map[string]float64{"dry_cooler_auto_temp_c": 32},
 		boardsByMAC:        make(map[string]*Hashboard),
 		boardsBySerial:     make(map[string]*Hashboard),
 		modulesByID:        make(map[string]*Module),
@@ -196,7 +211,7 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 				slot := &Slot{
 					Index:       sl,
 					BreakerID:   fmt.Sprintf("BRK-%s-%d", moduleID, sl),
-					PowerFeedID: fmt.Sprintf("PF-T%d-%02d", t, ((m-1)*cfg.SlotsPerModule+sl)/2+1),
+					PowerFeedID: fmt.Sprintf("PF-T%d-%02d", t, m),
 					Occupied:    true,
 					Board:       board,
 				}
@@ -212,6 +227,12 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 		}
 		s.Tanks = append(s.Tanks, tank)
 	}
+	for _, b := range s.eachBoard() {
+		if b.State == miningStateDisconnected {
+			sample := s.boardSample(b)
+			b.DisconnectedSample = &sample
+		}
+	}
 	return s
 }
 
@@ -223,7 +244,7 @@ func newHashboard(cfg ContainerConfig, tank, moduleNum int, moduleID string, slo
 		FirmwareVersion: cfg.Version,
 		FirmwareGitHash: "e87a5197",
 		ChipID:          asicModel,
-		State:           initialMiningState(cfg, moduleNum),
+		State:           initialMiningState(cfg, tank, moduleNum, slot),
 		TankID:          tank,
 		ModuleNum:       moduleNum,
 		ModuleID:        moduleID,
@@ -232,19 +253,37 @@ func newHashboard(cfg ContainerConfig, tank, moduleNum int, moduleID string, slo
 		PowerTargetMinW: boardPowerTargetMinW,
 		PowerTargetMaxW: boardPowerTargetMaxW,
 		StartTime:       now,
+		StateChangedAt:  now,
+		PreviousState:   initialMiningState(cfg, tank, moduleNum, slot),
 	}
 }
 
-func initialMiningState(cfg ContainerConfig, moduleNum int) string {
+// The six-tank demo has three healthy tanks, one with mixed failures, one
+// with a single board fault, and one with sleeping/disconnected modules.
+// Smaller topologies only include scenarios whose coordinates are present.
+func initialMiningState(cfg ContainerConfig, tank, moduleNum, slot int) string {
 	if !cfg.DemoModuleStates {
 		return miningStateMining
 	}
-	switch moduleNum {
-	case demoSleepingModule:
-		return miningStateIdle
-	case demoOfflineModule:
-		return miningStateDisconnected
-	case demoAttentionModule:
+	if tank == demoFaultTank {
+		switch moduleNum {
+		case demoSleepingModule:
+			return miningStateIdle
+		case demoOfflineModule:
+			return miningStateDisconnected
+		case demoAttentionModule:
+			return miningStateError
+		}
+	}
+	if tank == demoInactiveTank {
+		switch moduleNum {
+		case demoInactiveSleepingModule:
+			return miningStateIdle
+		case demoInactiveOfflineModule:
+			return miningStateDisconnected
+		}
+	}
+	if tank == demoLightFaultTank && moduleNum == demoLightFaultModule && slot == 0 {
 		return miningStateError
 	}
 	return miningStateMining
@@ -279,10 +318,4 @@ func (b *Hashboard) targetWatts() float64 {
 // reported status.
 func (b *Hashboard) isMining() bool {
 	return !b.Isolated && b.State == miningStateMining
-}
-
-// vary applies a small random variation (+/- telemetryVariation) to base so
-// repeated telemetry reads look realistic, matching server/fake-proto-rig.
-func vary(base float64) float64 {
-	return base * (1 + (rand.Float64()*2-1)*telemetryVariation)
 }

@@ -13,12 +13,14 @@ test.describe("Container Pools", () => {
     const unused = page.getByRole("region", { name: "Backup 2", exact: true });
     await expect(primary.getByText("Active", { exact: true })).toBeVisible();
     await expect(primary.getByText("Worker: fake-ct1", { exact: true })).toBeVisible();
-    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    await expect(primary.getByText("99.5%", { exact: true })).toBeVisible();
     await expect(backup.getByText("Standby", { exact: true })).toBeVisible();
-    await expect(backup.getByText("90.0%", { exact: true })).toBeVisible();
+    await expect(backup.getByText("99.5%", { exact: true })).toBeVisible();
     await expect(unused.getByText("0", { exact: true })).toHaveCount(2);
     await expect(page.getByText("Share history unavailable.")).toHaveCount(0);
 
+    const acceptedStat = primary.getByRole("heading", { name: "Accepted", exact: true }).locator("../..");
+    const accepted24h = await acceptedStat.innerText();
     const historyRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return url.pathname.endsWith("/telemetry/shares/history") && url.searchParams.get("poolId") === "1";
@@ -30,7 +32,8 @@ test.describe("Container Pools", () => {
     expect(Date.parse(query.get("range.start")!) % 3_600_000).toBe(0);
     expect(Date.parse(query.get("range.end")!) % 3_600_000).toBe(0);
     await expect(page.getByRole("button", { name: "48h", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect(primary.getByText("282.2K", { exact: true })).toBeVisible();
+    await expect(primary.getByText("99.5%", { exact: true })).toBeVisible();
+    await expect(acceptedStat).not.toHaveText(accepted24h, { useInnerText: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("link", { name: "Configure pools" }).click();
     await expect(page).toHaveURL(/\/settings\/mining-pools$/);
@@ -62,7 +65,7 @@ test.describe("Container Pools", () => {
       outage = false;
       await page.clock.fastForward(16_000);
       await expect(page.getByRole("alert")).toHaveCount(0);
-      await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("98.0%");
+      await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("99.5%");
     });
   }
 
@@ -76,7 +79,7 @@ test.describe("Container Pools", () => {
     });
     await page.goto("/pools");
     await expect(page.getByRole("region", { name: "Backup 1" })).toContainText("Share history unavailable.");
-    await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("98.0%");
+    await expect(page.getByRole("region", { name: "Primary", exact: true })).toContainText("99.5%");
     await expect(page.getByRole("region", { name: "Backup 2" }).getByText("0", { exact: true })).toHaveCount(2);
     await expect(page.getByRole("link", { name: "Configure pools" })).toBeVisible();
   });
@@ -85,7 +88,9 @@ test.describe("Container Pools", () => {
     await page.clock.install();
     await page.goto("/pools");
     const primary = page.getByRole("region", { name: "Primary", exact: true });
-    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    await expect(primary.getByText("99.5%", { exact: true })).toBeVisible();
+    const acceptedStat = primary.getByRole("heading", { name: "Accepted", exact: true }).locator("../..");
+    const acceptedBeforeOutage = await acceptedStat.innerText();
     let outage = true;
     await page.route("**/api/v2/telemetry/shares/history?**", async (route) => {
       if (outage) await route.fulfill({ status: 503, json: { message: "Unavailable" } });
@@ -93,11 +98,12 @@ test.describe("Container Pools", () => {
     });
     await page.clock.fastForward(31_000);
     await expect(page.getByRole("alert")).toContainText("out of date");
-    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    await expect(primary.getByText("99.5%", { exact: true })).toBeVisible();
+    await expect(acceptedStat).toHaveText(acceptedBeforeOutage, { useInnerText: true });
     await expect(page.getByText("Share history unavailable.")).toHaveCount(0);
     outage = false;
     await page.clock.fastForward(31_000);
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(primary.getByText("141.1K", { exact: true })).toBeVisible();
+    await expect(primary.getByText("99.5%", { exact: true })).toBeVisible();
   });
 });

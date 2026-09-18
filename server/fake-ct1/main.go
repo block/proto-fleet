@@ -36,6 +36,7 @@ func main() {
 
 	cfg := ContainerConfig{
 		InstanceID:       instanceID,
+		Seed:             getEnvInt("CT1_SEED", 1),
 		ServerID:         getEnv("SERVER_ID", "ct1-sim-"+instanceID),
 		Hostname:         getEnv("HOSTNAME", "fake-ct1-"+instanceID),
 		Version:          getEnv("CT1_VERSION", defaultVersion),
@@ -43,7 +44,7 @@ func main() {
 		ModulesPerTank:   getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
 		SlotsPerModule:   getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
 		AsicsPerBoard:    getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
-		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "false") == "true",
+		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
 	}
 
 	state := NewContainerState(cfg)

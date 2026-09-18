@@ -71,6 +71,76 @@ const map = {
 };
 
 describe("MDK v2 CT1 normalization", () => {
+  test.each([
+    [V2MiningState.MINING_STATE_IDLE, "stopped", "ok"],
+    [V2MiningState.MINING_STATE_READY, "stopped", "ok"],
+    [V2MiningState.MINING_STATE_DISCONNECTED, "unknown", "offline"],
+    [V2MiningState.MINING_STATE_MINING, "mining", "fault"],
+  ] as const)(
+    "interprets disabled rails/clocks in the context of %s",
+    (miningState, expectedStatus, expectedHealth) => {
+      for (const health of [
+        { hashrailOk: false, refclksOk: true },
+        { hashrailOk: true, refclksOk: false },
+        { hashrailOk: false, refclksOk: false },
+      ]) {
+        const result = toCanonicalContainer(
+          {
+            containerMap: {
+              tanks: [
+                { id: 4, modules: [{ id: 4, slots: [{ hashboard: { macAddress: "board-1", miningState, health } }] }] },
+              ],
+            },
+          },
+          {},
+          {},
+          "ct1-a",
+        );
+        expect([...result.telemetry.hashboards.values()][0]).toMatchObject({
+          health: expectedHealth,
+          miningStatus: expectedStatus,
+        });
+      }
+    },
+  );
+
+  test.each<[V2MiningState, NonNullable<V2Hashboard["health"]>, "fault" | "degraded"]>([
+    [V2MiningState.MINING_STATE_IDLE, { errors: [{}] }, "fault"],
+    [V2MiningState.MINING_STATE_IDLE, { warnings: [{}] }, "degraded"],
+    [V2MiningState.MINING_STATE_DISCONNECTED, { errors: [{}] }, "fault"],
+    [V2MiningState.MINING_STATE_DISCONNECTED, { warnings: [{}] }, "degraded"],
+  ])("preserves explicit issues on inactive boards (%s, %j)", (miningState, issues, expectedHealth) => {
+    const result = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 4,
+              modules: [
+                {
+                  id: 4,
+                  slots: [
+                    {
+                      hashboard: {
+                        macAddress: "board-1",
+                        miningState,
+                        health: { hashrailOk: false, refclksOk: false, ...issues },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1-a",
+    );
+    expect([...result.telemetry.hashboards.values()][0].health).toBe(expectedHealth);
+  });
+
   test("counts each board's reported errors and warnings independently, excluding shutdown history", () => {
     const health: V2Hashboard["health"][] = [
       { errors: [{}], lastShutdownError: {} },

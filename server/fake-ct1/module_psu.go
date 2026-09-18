@@ -1,5 +1,7 @@
 package main
 
+import "math"
+
 // The module's three boards expose the same physical PSU snapshot.
 type psuIdentity struct {
 	Serial  string `json:"serial"`
@@ -29,31 +31,33 @@ type psuThermalHealth struct {
 
 func (s *ContainerState) modulePsu(b *Hashboard) (psuIdentity, psuElectricalHealth, psuThermalHealth) {
 	m := s.modulesByID[b.ModuleID]
-	power := 0.0
-	warning := false
-	voltage := boardVoltage
-	if m != nil {
-		if m.FixedVoltageSet {
-			voltage = float64(m.FixedMillivolts) / 1000
+	power, warning, valid := 0.0, false, true
+	age := 0
+	for _, slot := range m.Slots {
+		if slot.Board == nil {
+			continue
 		}
-		for _, slot := range m.Slots {
-			if slot.Board == nil {
-				continue
-			}
-			if slot.Board.isMining() {
-				power += slot.Board.targetWatts()
-			}
-			if s.Config.DemoModuleStates && m.ID == demoAttentionModule && slot.Board.State == miningStateError {
-				warning = true
-			}
-		}
+		sample := s.boardSample(slot.Board)
+		power += sample.Power
+		age = max(age, int(math.Max(0, s.observedAt.Sub(sample.Timestamp).Seconds()*1000)))
+		valid = valid && slot.Board.State != miningStateDisconnected
+		warning = warning || (s.Config.DemoModuleStates && m.TankID == demoFaultTank && m.ID == demoAttentionModule && slot.Board.State == miningStateError)
 	}
-	temperature := 50.0
+	sample := s.boardSample(m.Slots[0].Board)
+	inlet, sr, pfc := 29.0, 51.0, 45.0
+	if power == 0 {
+		decay := math.Exp(-math.Max(0, sample.Timestamp.Sub(m.Slots[0].Board.StateChangedAt).Seconds()) / 300)
+		sr = 29 + (sr-29)*decay
+		pfc = 29 + (pfc-29)*decay
+	}
+	variation := 2 * s.waveAt(sample.Timestamp, m.TankID*100+m.ID, 300)
+	inlet += variation
+	sr += variation
+	pfc += variation
 	if warning {
-		temperature = 80
+		inlet, sr, pfc = 80, 88, 85
 	}
 	return psuIdentity{Serial: "PSU-" + b.ModuleID, Vendor: "Proto simulator", Model: "CT1 PSU", PsuType: "CT1"},
-		psuElectricalHealth{InputVoltage: 415, InputPower: power / 0.96, OutputVoltage: voltage, OutputPower: power},
-		psuThermalHealth{InletTemperature: temperature, SrHeatsinkTemperature: temperature + 8,
-			PfcHeatsinkTemperature: temperature + 5, OverTemperatureWarning: warning, ThermalStateValid: true}
+		psuElectricalHealth{InputVoltage: 480 + 5*s.waveAt(sample.Timestamp, 600, 300), InputPower: power / psuEfficiency, OutputVoltage: sample.Voltage, OutputPower: power, SampleAgeMs: age},
+		psuThermalHealth{InletTemperature: inlet, SrHeatsinkTemperature: sr, PfcHeatsinkTemperature: pfc, OverTemperatureWarning: warning, ThermalStateValid: valid, TemperaturesAgeMs: age, ThermalStateAgeMs: age}
 }

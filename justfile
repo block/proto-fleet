@@ -15,8 +15,8 @@ dev-ct1:
   #!/usr/bin/env bash
   set -euo pipefail
   # Defaults follow server/fake-ct1/README.md's tank-page recipe: 6 tanks × 16
-  # modules with the demo module states (one sleeping, one offline, one needing
-  # attention per tank). A full 6 × 48 container works but slows the client.
+  # modules: tanks 1, 5, and 6 healthy, tank 2 with mixed failures, tank 3 with
+  # one board fault, and tank 4 with sleeping/offline modules. 272 of 288 boards mine.
   # Override any of these in the environment, e.g. CT1_TANKS=1 just dev-ct1.
   export CT1_TANKS="${CT1_TANKS:-6}"
   export CT1_MODULES_PER_TANK="${CT1_MODULES_PER_TANK:-16}"

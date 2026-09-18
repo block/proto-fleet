@@ -11,7 +11,7 @@ func TestPoolShareHistory(t *testing.T) {
 	path := "/api/v2/telemetry/shares/history?poolId=1&grouping=SHARE_QUALITY_HISTORY_GROUPING_TOTAL&range.start=2026-09-16T00:00:00Z&range.end=2026-09-16T02:00:00Z&bucketSize=BUCKET_SIZE_1H"
 	var result poolShareHistoryResponse
 	getJSON(t, srv, path, &result)
-	if len(result.Buckets) != 2 || result.Buckets[0].Accepted != 5880 || result.Buckets[0].Rejected != 120 || result.Source != "HISTORY_SOURCE_HOURLY" {
+	if len(result.Buckets) != 2 || result.Buckets[0].Accepted != 199*55 || result.Buckets[0].Rejected != 55 || result.Source != "HISTORY_SOURCE_HOURLY" {
 		t.Fatalf("unexpected share history: %+v", result)
 	}
 	if result.Buckets[1].Time != "2026-09-16T01:00:00Z" {
@@ -20,14 +20,14 @@ func TestPoolShareHistory(t *testing.T) {
 	for _, backup := range []struct {
 		id                 string
 		accepted, rejected int64str
-	}{{"2", 540, 60}, {"3", 0, 0}} {
+	}{{"2", 0, 0}, {"3", 0, 0}} {
 		var history poolShareHistoryResponse
 		getJSON(t, srv, strings.Replace(path, "poolId=1", "poolId="+backup.id, 1), &history)
 		if len(history.Buckets) != 2 {
 			t.Fatalf("backup %s: got %d buckets, want 2", backup.id, len(history.Buckets))
 		}
 		for _, bucket := range history.Buckets {
-			if bucket.Accepted != backup.accepted || bucket.Rejected != backup.rejected || bucket.SampleCount != 60 || bucket.ReportingCoverage != 1 {
+			if bucket.Accepted != backup.accepted || bucket.Rejected != backup.rejected || bucket.SampleCount < 55 || bucket.SampleCount > 60 || bucket.ReportingCoverage != float64(bucket.SampleCount)/60 {
 				t.Errorf("backup %s: unexpected bucket %+v", backup.id, bucket)
 			}
 		}

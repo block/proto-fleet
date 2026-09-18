@@ -23,7 +23,7 @@ test.describe("Container Home", () => {
     await page.getByRole("button", { name: "48h" }).click();
     await expect(page.getByRole("button", { name: "48h" })).toHaveAttribute("aria-pressed", "true");
     await navigation.getByRole("link", { name: "Power", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-main");
+    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-t1");
     await expect(page.getByRole("region", { name: "Fans period statistics" })).toContainText("kW");
     await page.getByRole("button", { name: "Hashboards", exact: true }).click();
     await expect(page.getByText("History unavailable for this selection.")).toBeVisible();
@@ -53,7 +53,7 @@ test.describe("Container Home", () => {
     });
     await page.goto("/power-usage");
     await expect(page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-main");
+    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-t1");
     await expect(page.getByRole("region", { name: "Fans period statistics" })).toContainText("—");
     const plot = page.getByRole("figure");
     await expect(plot).toBeVisible();

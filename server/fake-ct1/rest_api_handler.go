@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,11 +22,13 @@ var dryCoolerFanIDs = []string{
 // CT1 container. JSON field names follow the grpc-gateway camelCase encoding
 // of the mdk.v2 protos so the simulator can't silently drift from the client.
 type RESTApiHandler struct {
-	state *ContainerState
+	state    *ContainerState
+	requests sync.Mutex
 }
 
 // NewRESTApiHandler creates a handler backed by the given container state.
 func NewRESTApiHandler(state *ContainerState) *RESTApiHandler {
+	state.initHistory()
 	return &RESTApiHandler{state: state}
 }
 
@@ -37,40 +39,59 @@ func NewRESTApiHandler(state *ContainerState) *RESTApiHandler {
 // a known path) and path-parameter extraction natively — no hand-rolled
 // prefix parsing.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
+	register := func(pattern string, handler http.HandlerFunc) {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			h.requests.Lock()
+			defer h.requests.Unlock()
+			h.state.mu.Lock()
+			now := h.state.now()
+			h.state.recordUntil(now)
+			h.state.advance(now)
+			h.state.mu.Unlock()
+			handler(w, r)
+			if r.Method != http.MethodGet {
+				h.state.mu.Lock()
+				h.state.advance(now)
+				h.state.recordTransition()
+				h.state.mu.Unlock()
+			}
+		})
+	}
+
 	// System.
-	mux.HandleFunc("GET /api/v2/system/info", h.handleSystemInfo)
-	mux.HandleFunc("GET /api/v2/system/status", h.handleSystemStatus)
+	register("GET /api/v2/system/info", h.handleSystemInfo)
+	register("GET /api/v2/system/status", h.handleSystemStatus)
 
 	// Container topology and telemetry.
-	mux.HandleFunc("GET /api/v2/container/map", h.handleContainerMap)
-	mux.HandleFunc("GET /api/v2/telemetry/container", h.handleContainerTelemetry)
-	mux.HandleFunc("GET /api/v2/telemetry/timeseries", h.handleTimeSeries)
-	mux.HandleFunc("POST /api/v2/power/container/controls/{name}", h.handleContainerControl)
-	mux.HandleFunc("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
+	register("GET /api/v2/container/map", h.handleContainerMap)
+	register("GET /api/v2/telemetry/container", h.handleContainerTelemetry)
+	register("GET /api/v2/telemetry/timeseries", h.handleTimeSeries)
+	register("POST /api/v2/power/container/controls/{name}", h.handleContainerControl)
+	register("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
 
 	// Mining status and global lifecycle.
-	mux.HandleFunc("GET /api/v2/mining/status", h.handleMiningStatus)
-	mux.HandleFunc("POST /api/v2/mining/start", h.handleMiningStart)
-	mux.HandleFunc("POST /api/v2/mining/stop", h.handleMiningStop)
-	mux.HandleFunc("GET /api/v2/mining/target-power", h.handleTargetPower)
-	mux.HandleFunc("PUT /api/v2/mining/target-power", h.handleTargetPower)
+	register("GET /api/v2/mining/status", h.handleMiningStatus)
+	register("POST /api/v2/mining/start", h.handleMiningStart)
+	register("POST /api/v2/mining/stop", h.handleMiningStop)
+	register("GET /api/v2/mining/target-power", h.handleTargetPower)
+	register("PUT /api/v2/mining/target-power", h.handleTargetPower)
 
 	// Pool configuration and runtime diagnostics.
-	mux.HandleFunc("GET /api/v2/pools", h.handlePools)
-	mux.HandleFunc("GET /api/v2/pools/diagnostics", h.handlePoolDiagnostics)
-	mux.HandleFunc("GET /api/v2/telemetry/shares/history", h.handlePoolShareHistory)
+	register("GET /api/v2/pools", h.handlePools)
+	register("GET /api/v2/pools/diagnostics", h.handlePoolDiagnostics)
+	register("GET /api/v2/telemetry/shares/history", h.handlePoolShareHistory)
 
 	// Scoped mining writes.
-	mux.HandleFunc("POST /api/v2/mining/scoped/power", h.handleScopedPower)
-	mux.HandleFunc("POST /api/v2/mining/scoped/power/clear", h.handleScopedPowerClear)
-	mux.HandleFunc("POST /api/v2/mining/scoped/start", h.handleScopedStart)
-	mux.HandleFunc("POST /api/v2/mining/scoped/stop", h.handleScopedStop)
+	register("POST /api/v2/mining/scoped/power", h.handleScopedPower)
+	register("POST /api/v2/mining/scoped/power/clear", h.handleScopedPowerClear)
+	register("POST /api/v2/mining/scoped/start", h.handleScopedStart)
+	register("POST /api/v2/mining/scoped/stop", h.handleScopedStop)
 
 	// Per-module writes and per-hashboard reads (path parameters).
-	mux.HandleFunc("PUT /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
-	mux.HandleFunc("DELETE /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
-	mux.HandleFunc("GET /api/v2/hashboards/{identifier}/asics", h.handleHashboardAsics)
-	mux.HandleFunc("POST /api/v2/modules/{moduleId}/run-in", h.handleModuleRunIn)
+	register("PUT /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
+	register("DELETE /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
+	register("GET /api/v2/hashboards/{identifier}/asics", h.handleHashboardAsics)
+	register("POST /api/v2/modules/{moduleId}/run-in", h.handleModuleRunIn)
 
 	// Unmatched paths (404) and wrong-method requests to matched paths (405)
 	// fall through to ServeMux's defaults; jsonErrorMiddleware rewrites those
@@ -358,7 +379,7 @@ type powerFeed struct {
 	Faulted     bool    `json:"faulted"`
 	PowerW      float64 `json:"powerW"`
 	VoltageV    float64 `json:"voltageV"`
-	CurrentA    float64 `json:"currentA"`
+	CurrentA    float64 `json:"currentA,omitempty"`
 }
 
 type targetPowerResponse struct {
@@ -454,14 +475,14 @@ type plantTelemetry struct {
 	InsideAmbientTemperatureC     float64 `json:"insideAmbientTemperatureC"`
 	OutsideAmbientTemperatureC    float64 `json:"outsideAmbientTemperatureC"`
 	CoolantPumpActive             bool    `json:"coolantPumpActive"`
-	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz"`
-	PumpInletPressurePa           float64 `json:"pumpInletPressurePa"`
-	PumpOutletPressurePa          float64 `json:"pumpOutletPressurePa"`
-	PumpPressureDiffPa            float64 `json:"pumpPressureDiffPa"`
+	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz,omitempty"`
+	PumpInletPressurePa           float64 `json:"pumpInletPressurePa,omitempty"`
+	PumpOutletPressurePa          float64 `json:"pumpOutletPressurePa,omitempty"`
+	PumpPressureDiffPa            float64 `json:"pumpPressureDiffPa,omitempty"`
 	HeatRejectionActive           bool    `json:"heatRejectionActive"`
-	HeatRejectionInletPressurePa  float64 `json:"heatRejectionInletPressurePa"`
-	HeatRejectionOutletPressurePa float64 `json:"heatRejectionOutletPressurePa"`
-	HeatRejectionPressureDiffPa   float64 `json:"heatRejectionPressureDiffPa"`
+	HeatRejectionInletPressurePa  float64 `json:"heatRejectionInletPressurePa,omitempty"`
+	HeatRejectionOutletPressurePa float64 `json:"heatRejectionOutletPressurePa,omitempty"`
+	HeatRejectionPressureDiffPa   float64 `json:"heatRejectionPressureDiffPa,omitempty"`
 	TankALiquidLevelMm            float64 `json:"tankALiquidLevelMm"`
 	TankBLiquidLevelMm            float64 `json:"tankBLiquidLevelMm"`
 	AlarmActive                   bool    `json:"alarmActive"`
@@ -592,7 +613,7 @@ func (h *RESTApiHandler) handleSystemInfo(w http.ResponseWriter, r *http.Request
 		Version:       s.Version,
 		Product:       product,
 		Hostname:      s.Hostname,
-		UptimeSeconds: int64str(time.Since(s.StartTime).Seconds()),
+		UptimeSeconds: int64str(s.sampleTime.Sub(s.StartTime).Seconds()),
 		IPAddresses:   []string{s.IPAddress},
 		Manufacturer:  manufacturer,
 		Model:         model,
@@ -674,10 +695,11 @@ func (h *RESTApiHandler) handleMiningStatus(w http.ResponseWriter, r *http.Reque
 		ideal += boardIdealHashrateTHS
 		if b.isMining() {
 			active++
-			hashrate += vary(boardIdealHashrateTHS * 0.97)
-			power += vary(b.targetWatts())
-			asicTempSum += asicTempC
-			boardTempSum += boardTempC
+			sample := s.boardSample(b)
+			hashrate += sample.Hashrate
+			power += sample.Power
+			asicTempSum += sample.AsicTemp
+			boardTempSum += sample.BoardTemp
 		}
 	}
 	efficiency := 0.0
@@ -696,11 +718,11 @@ func (h *RESTApiHandler) handleMiningStatus(w http.ResponseWriter, r *http.Reque
 		ActiveBoards:                 active,
 		TotalBoards:                  total,
 		ActivePool:                   defaultActivePool,
-		UptimeSeconds:                int64str(time.Since(s.StartTime).Seconds()),
+		UptimeSeconds:                int64str(s.sampleTime.Sub(s.StartTime).Seconds()),
 		Efficiency:                   efficiency,
 		Mining:                       active > 0,
 		BoardsByState:                byState,
-		ShareAcceptanceRate:          0.995,
+		ShareAcceptanceRate:          s.shareAcceptanceRate(),
 		OperatingState:               operatingState(active, total),
 		AverageAsicTemperatureC:      avgAsic,
 		AverageHashboardTemperatureC: avgBoard,
@@ -832,139 +854,7 @@ func (h *RESTApiHandler) handleTargetPower(w http.ResponseWriter, r *http.Reques
 func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http.Request) {
 	s := h.state
 	s.mu.RLock()
-	var totalPower float64
-	active := 0
-	feedPower := make(map[string]float64)
-	for _, b := range s.eachBoard() {
-		if b.PowerFeedID != "" {
-			if _, exists := feedPower[b.PowerFeedID]; !exists {
-				feedPower[b.PowerFeedID] = 0
-			}
-		}
-		if b.isMining() {
-			power := b.targetWatts()
-			totalPower += power
-			if b.PowerFeedID != "" {
-				feedPower[b.PowerFeedID] += power
-			}
-			active++
-		}
-	}
-	mining := active > 0
-	pue := vary(basePUE)
-	facility := totalPower * pue
-	heatRejection := facility - totalPower
-	now := time.Now()
-	coolingFans := make([]plantCoolingFan, len(dryCoolerFanIDs))
-	for index, id := range dryCoolerFanIDs {
-		speed := 60.0
-		if index%3 != 2 {
-			speed = 85
-		}
-		coolingFans[index] = plantCoolingFan{
-			ComponentID: id,
-			PowerW:      vary(450),
-			SpeedPct:    vary(speed),
-			AlarmActive: index == 3,
-		}
-	}
-
-	// Split IT load across three phases.
-	phaseW := facility / 3
-	phaseV := 415.0
-	phases := make([]phaseTel, 0, 3)
-	for _, p := range []string{"PHASE_A", "PHASE_B", "PHASE_C"} {
-		w := vary(phaseW)
-		phases = append(phases, phaseTel{
-			Phase:    p,
-			PowerW:   w,
-			CurrentA: w / phaseV,
-			VoltageV: vary(phaseV),
-		})
-	}
-	feedIDs := make([]string, 0, len(feedPower))
-	for id := range feedPower {
-		feedIDs = append(feedIDs, id)
-	}
-	sort.Strings(feedIDs)
-	feeds := make([]powerFeed, 0, len(feedIDs))
-	activeFeedCount := 0
-	for _, id := range feedIDs {
-		power := feedPower[id]
-		if power > 0 {
-			activeFeedCount++
-		}
-		feeds = append(feeds, powerFeed{
-			PowerFeedID: id,
-			Active:      power > 0,
-			PowerW:      power,
-			VoltageV:    phaseV,
-			CurrentA:    power / phaseV,
-		})
-	}
-
-	resp := containerTelemetryResponse{
-		Tank: tankTelemetry{
-			State:              tankState(mining),
-			Powered:            true,
-			InletTemperature:   vary(plantInletTempC),
-			OutletTemperature:  vary(plantOutletTempC),
-			AmbientTemperature: vary(plantAmbientTempC),
-			PumpActive:         true,
-			CoolerActive:       true,
-			TotalWattage:       totalPower,
-			EmergencyStop:      false,
-		},
-		Phases:    phases,
-		Timestamp: now,
-		Plant: plantTelemetry{
-			OperatingState:                plantState(mining),
-			Powered:                       true,
-			InletTemperatureC:             vary(plantInletTempC),
-			OutletTemperatureC:            vary(plantOutletTempC),
-			OutletATemperatureC:           vary(plantOutletTempC),
-			OutletBTemperatureC:           vary(plantOutletTempC + 0.4),
-			AmbientTemperatureC:           vary(plantAmbientTempC),
-			InsideAmbientTemperatureC:     vary(plantAmbientTempC + 5),
-			OutsideAmbientTemperatureC:    vary(plantAmbientTempC),
-			CoolantPumpActive:             s.ContainerControls["coolant_pump"],
-			CoolantPumpSpeedHz:            vary(50),
-			PumpInletPressurePa:           vary(194_430),
-			PumpOutletPressurePa:          vary(293_710),
-			PumpPressureDiffPa:            vary(99_280),
-			HeatRejectionActive:           s.ContainerControls["dry_cooler"],
-			HeatRejectionInletPressurePa:  vary(194_430),
-			HeatRejectionOutletPressurePa: vary(293_710),
-			HeatRejectionPressureDiffPa:   vary(99_280),
-			TankALiquidLevelMm:            vary(860),
-			TankBLiquidLevelMm:            vary(870),
-			AlarmActive:                   false,
-			TotalPowerW:                   totalPower,
-			HeatRejectionPowerW:           heatRejection,
-			FacilityPowerW:                facility,
-			PowerFactor:                   0.99,
-			PUE:                           pue,
-			FlowRateLpm:                   vary(161.3),
-		},
-		Controls: []containerControl{
-			{Name: "air_conditioner_1", Enabled: s.ContainerControls["air_conditioner_1"], StateKnown: true},
-			{Name: "air_conditioner_2", Enabled: s.ContainerControls["air_conditioner_2"], StateKnown: true},
-			{Name: "coolant_pump", Enabled: s.ContainerControls["coolant_pump"], StateKnown: true},
-			{Name: "dry_cooler", Enabled: s.ContainerControls["dry_cooler"], StateKnown: true},
-			{Name: "dry_cooler_auto", Enabled: s.ContainerControls["dry_cooler_auto"], StateKnown: true},
-			{Name: "tank_led_light", Enabled: s.ContainerControls["tank_led_light"], StateKnown: true},
-		},
-		Setpoints: []containerSetpoint{{
-			Name: "dry_cooler_auto_temp_c", Value: s.ContainerSetpoints["dry_cooler_auto_temp_c"], Unit: "°C",
-		}},
-		CoolingFans: coolingFans,
-		PowerDistributions: []powerDistribution{{
-			ComponentID:     "pdu-main",
-			ActiveFeedCount: activeFeedCount,
-			ActivePowerW:    totalPower,
-		}},
-		PowerFeeds: feeds,
-	}
+	resp := s.containerTelemetry()
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -994,8 +884,8 @@ func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) || math.Abs(request.Value) > math.MaxFloat32 {
-		writeError(w, http.StatusBadRequest, "setpoint value must be a finite float32")
+	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) || request.Value < 20 || request.Value > 55 {
+		writeError(w, http.StatusBadRequest, "temperature target must be between 20 and 55°C (simulator bounds)")
 		return
 	}
 	h.state.mu.Lock()
@@ -1036,105 +926,71 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "unsupported bucketSize")
 		return
 	}
-	var unit string
-	boardMetric := metric == timeSeriesMetricHashrate || metric == timeSeriesMetricPower || metric == timeSeriesMetricTemperature
-	switch metric {
-	case timeSeriesMetricHashrate:
-		unit = "TH/s"
-	case timeSeriesMetricPower:
-		unit = "W"
-	case timeSeriesMetricTemperature:
-		unit = "C"
-	case "TIME_SERIES_METRIC_PLANT_POWER", "TIME_SERIES_METRIC_PLANT_FACILITY_POWER", "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER",
-		"TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER", "TIME_SERIES_METRIC_PLANT_FAN_POWER":
-		unit = "W"
-	case "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE", "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
-		"TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE", "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE":
-		unit = "C"
-	default:
-		writeError(w, http.StatusBadRequest, "unsupported metric")
+	s := h.state
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	identifier := query.Get("identifier")
+	unit, boardIndex, err := s.historyMetric(metric, identifier)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.HasPrefix(err.Error(), "unknown") {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err.Error())
 		return
 	}
-
-	s := h.state
-	s.mu.RLock()
-	boards := s.eachBoard()
-	if identifier := query.Get("identifier"); identifier != "" && boardMetric {
-		board := s.findBoard(identifier)
-		if board == nil {
-			s.mu.RUnlock()
-			writeError(w, http.StatusNotFound, fmt.Sprintf("unknown hashboard %q", identifier))
+	if strings.Contains(metric, "_FAN_") || strings.Contains(metric, "_DISTRIBUTION_") || strings.Contains(metric, "_PHASE_") || strings.HasPrefix(metric, "TIME_SERIES_METRIC_POWER_FEED_") {
+		if _, ok := s.recordSample().metric(metric, identifier, boardIndex); !ok {
+			writeError(w, http.StatusNotFound, "unknown component identifier")
 			return
 		}
-		boards = []*Hashboard{board}
 	}
-	active := 0
-	var base float64
-	for _, board := range boards {
-		if !board.isMining() {
-			continue
-		}
-		active++
-		switch metric {
-		case timeSeriesMetricHashrate:
-			base += boardIdealHashrateTHS * 0.97
-		case timeSeriesMetricPower:
-			base += board.targetWatts()
-		case timeSeriesMetricTemperature:
-			base += asicTempC
-		default:
-			base += board.targetWatts()
-		}
-	}
-	s.mu.RUnlock()
-	if metric == timeSeriesMetricTemperature && active > 0 {
-		base /= float64(active)
-	}
-	if !boardMetric {
-		identifier := query.Get("identifier")
-		switch metric {
-		case "TIME_SERIES_METRIC_PLANT_FACILITY_POWER":
-			base *= basePUE
-		case "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER":
-			base *= basePUE - 1
-		case "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER":
-			if identifier != "pdu-main" {
-				writeError(w, http.StatusNotFound, "unknown distribution identifier")
+	buckets := make([]timeSeriesBucket, 0, 300)
+	for at := start; at.Before(end) && len(buckets) < 300; at = at.Add(bucketDuration) {
+		bucket := timeSeriesBucket{Time: at}
+		sum := 0.0
+		addSample := func(sample recordedSample) {
+			value, ok := sample.metric(metric, identifier, boardIndex)
+			if !ok {
 				return
 			}
-		case "TIME_SERIES_METRIC_PLANT_FAN_POWER":
-			if !slices.Contains(dryCoolerFanIDs, identifier) {
-				writeError(w, http.StatusNotFound, "unknown fan identifier")
-				return
+			if bucket.Count == 0 {
+				bucket.Min = value
+				bucket.Max = value
 			}
-			base = 450
-		case "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE":
-			base = plantAmbientTempC + 5
-		case "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE":
-			base = plantAmbientTempC
-		case "TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE":
-			base = plantInletTempC
-		case "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE":
-			base = plantOutletTempC
+			bucket.Min = math.Min(bucket.Min, value)
+			bucket.Max = math.Max(bucket.Max, value)
+			sum += value
+			bucket.Count++
 		}
-	}
-	count := int64str(1)
-	if metric == timeSeriesMetricTemperature && active == 0 {
-		count = 0
-	}
-	maxBuckets := 300
-	buckets := make([]timeSeriesBucket, 0, min(int(end.Sub(start)/bucketDuration)+1, maxBuckets))
-	for at, index := start, 0; at.Before(end) && index < maxBuckets; at, index = at.Add(bucketDuration), index+1 {
-		value := base * (1 + 0.02*math.Sin(float64(index)/3))
-		buckets = append(buckets, timeSeriesBucket{
-			Time:  at,
-			Avg:   value,
-			Min:   value * 0.99,
-			Max:   value * 1.01,
-			Count: count,
-		})
+		bucketEnd := minTime(at.Add(bucketDuration), end)
+		for tick := at; tick.Before(bucketEnd); tick = tick.Add(time.Minute) {
+			if sample, ok := s.sampleAt(tick); ok {
+				addSample(sample)
+			}
+		}
+		first := sort.Search(len(s.history.Samples), func(i int) bool { return s.history.Samples[i].At.After(at) })
+		for _, sample := range s.history.Samples[first:] {
+			if !sample.At.Before(bucketEnd) {
+				break
+			}
+			if sample.At.Sub(at)%time.Minute != 0 && !sample.At.Before(s.sampleTime.Add(-historyRetention)) {
+				addSample(sample)
+			}
+		}
+		if bucket.Count > 0 {
+			bucket.Avg = sum / float64(bucket.Count)
+		}
+		buckets = append(buckets, bucket)
 	}
 	writeJSON(w, http.StatusOK, timeSeriesResponse{Metric: metric, Unit: unit, Buckets: buckets})
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 func (h *RESTApiHandler) handleModuleRunIn(w http.ResponseWriter, r *http.Request) {
@@ -1206,6 +1062,11 @@ func (h *RESTApiHandler) handleModuleFixedVoltage(w http.ResponseWriter, r *http
 		return
 	}
 	if r.Method == http.MethodPut {
+		if millivolts < 26000 || millivolts > 30000 {
+			s.mu.Unlock()
+			writeError(w, http.StatusBadRequest, "fixed voltage must be between 26000 and 30000 mV (simulator bounds)")
+			return
+		}
 		module.FixedMillivolts = millivolts
 		module.FixedVoltageSet = true
 	} else {
@@ -1315,14 +1176,9 @@ func (h *RESTApiHandler) handleScopedStop(w http.ResponseWriter, r *http.Request
 func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 	identity, electrical, thermal := s.modulePsu(b)
 	mining := b.isMining()
-	hr := 0.0
-	power := 0.0
-	if mining {
-		hr = vary(boardIdealHashrateTHS * 0.97)
-		power = vary(b.targetWatts())
-	}
+	sample := s.boardSample(b)
 	var errors []hashboardHealthError
-	if s.Config.DemoModuleStates && b.ModuleNum == demoAttentionModule && b.State == miningStateError {
+	if s.Config.DemoModuleStates && b.TankID == demoFaultTank && b.ModuleNum == demoAttentionModule && b.State == miningStateError {
 		errors = []hashboardHealthError{
 			{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE"},
 			{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"},
@@ -1330,6 +1186,10 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 		}
 		errors = errors[:min(b.SlotIndex+1, len(errors))]
 	}
+	if s.Config.DemoModuleStates && b.TankID == demoLightFaultTank && b.ModuleNum == demoLightFaultModule && b.SlotIndex == 0 && b.State == miningStateError {
+		errors = []hashboardHealthError{{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"}}
+	}
+
 	return &hashboardDTO{
 		PsuIdentity: identity,
 		PsuType:     identity.PsuType,
@@ -1348,17 +1208,17 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 			PsuElectrical:           electrical,
 			PsuThermal:              thermal,
 			Errors:                  errors,
-			Hashrate:                hr,
+			Hashrate:                sample.Hashrate,
 			HashrateIdeal:           boardIdealHashrateTHS,
-			Temperatures:            []float64{vary(boardTempC), vary(boardTempC)},
-			Voltage:                 vary(boardVoltage),
-			Current:                 power / boardVoltage,
-			Power:                   power,
-			Uptime:                  uint64str(time.Since(b.StartTime).Seconds()),
-			HashrailOK:              true,
-			RefclksOK:               true,
-			Timestamp:               time.Now(),
-			AverageAsicTemperatureC: vary(asicTempC),
+			Temperatures:            []float64{sample.BoardTemp - .2, sample.BoardTemp + .2},
+			Voltage:                 sample.Voltage,
+			Current:                 sample.Power / sample.Voltage,
+			Power:                   sample.Power,
+			Uptime:                  uint64str(math.Max(0, s.sampleTime.Sub(b.StartTime).Seconds())),
+			HashrailOK:              mining,
+			RefclksOK:               mining,
+			Timestamp:               sample.Timestamp,
+			AverageAsicTemperatureC: sample.AsicTemp,
 		},
 		OwnerServerID:       s.ServerID,
 		Source:              "HASHBOARD_SOURCE_LOCAL",
@@ -1385,6 +1245,17 @@ func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
 	}
 	mining := b.isMining()
 
+	sample := s.boardSample(b)
+	weights := make([]float64, total)
+	weightSum := 0.0
+	for i := range total {
+		weights[i] = 1 + .06*math.Sin(float64(i)*2.4) + .03*math.Sin(float64(i)*.17)
+		if i%79 == 0 {
+			weights[i] *= .8
+		} // stable low-performing outliers
+		weightSum += weights[i]
+	}
+	cumulative, allocated := 0.0, 0
 	asics := make([]asicDTO, 0, total)
 	entries := make([]asicLayoutEnt, 0, total)
 	for i := range total {
@@ -1395,14 +1266,22 @@ func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
 		stackIndex := i % perStack
 		ghs10 := 0
 		if mining {
-			ghs10 = int(vary(boardIdealHashrateTHS*1000/float64(total)) * 10)
+			cumulative += weights[i]
+			next := int(math.Round(sample.Hashrate * 10000 * cumulative / weightSum))
+			ghs10 = next - allocated
+			allocated = next
+		}
+		frequency, passRate := 0, 0
+		if mining {
+			frequency = asicFrequencyMHz
+			passRate = asicPassRateBp + int(30*math.Sin(float64(i)*1.7))
 		}
 		asics = append(asics, asicDTO{
 			Index:         i,
-			VoltageMv:     int(vary(asicVoltageMv)),
-			TemperatureDc: int(vary(asicTempC) * 10),
-			FrequencyMhz:  asicFrequencyMHz,
-			PassRateBp:    asicPassRateBp,
+			VoltageMv:     asicVoltageMv,
+			TemperatureDc: int(math.Round((sample.AsicTemp + 8*math.Sin(float64(i)*2*math.Pi/float64(max(1, total)))) * 10)),
+			FrequencyMhz:  frequency,
+			PassRateBp:    passRate,
 			HashrateGhs10: ghs10,
 		})
 		entries = append(entries, asicLayoutEnt{
@@ -1440,8 +1319,8 @@ func (s *ContainerState) moduleVoltageResponse(m *Module) moduleVoltageResponse 
 		Setting: moduleVoltageSetting{
 			ModuleID:                   m.ModuleID,
 			FixedMillivolts:            int64str(m.FixedMillivolts),
-			SupportedMinimumMillivolts: 12000,
-			SupportedMaximumMillivolts: 16000,
+			SupportedMinimumMillivolts: 26000,
+			SupportedMaximumMillivolts: 30000,
 			BoardCount:                 len(results),
 			Readiness:                  readiness,
 			UpdatedBy:                  "fake-ct1",
