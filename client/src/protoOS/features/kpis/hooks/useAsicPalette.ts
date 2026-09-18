@@ -4,7 +4,6 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 
 export interface AsicPalette {
   cool: string;
-  success: string;
   warning: string;
   danger: string;
   unknown: string;
@@ -19,10 +18,9 @@ export interface AsicPalette {
  */
 export const useAsicPalette = (): AsicPalette => {
   const cool = useCssVariable("--color-intent-info-fill");
-  const success = useCssVariable("--color-intent-success-fill");
   const warning = useCssVariable("--color-intent-warning-fill");
   const danger = useCssVariable("--color-intent-critical-fill");
   const unknown = useCssVariable("--color-core-primary-2");
 
-  return useMemo(() => ({ cool, success, warning, danger, unknown }), [cool, success, warning, danger, unknown]);
+  return useMemo(() => ({ cool, warning, danger, unknown }), [cool, warning, danger, unknown]);
 };

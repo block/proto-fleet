@@ -13,10 +13,11 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 interface AsicTableProps {
   ct1?: boolean;
   initialMetric?: SelectedMetric;
+  hashrates?: number[];
   pending: boolean;
 }
 
-export const AsicTable = ({ pending, ct1 = false, initialMetric = "temperature" }: AsicTableProps) => {
+export const AsicTable = ({ pending, ct1 = false, initialMetric = "temperature", hashrates }: AsicTableProps) => {
   const [duration, setDuration] = useState<Duration>(durations[0]);
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [selectedMetric, setSelectedMetric] = useState<SelectedMetric>(initialMetric);
@@ -38,12 +39,23 @@ export const AsicTable = ({ pending, ct1 = false, initialMetric = "temperature" 
             row: Math.floor(index / 26),
             column: index % 26,
             temperature: index === 0 ? undefined : { latest: { value: 40 + (index % 50), units: "°C" } },
-            hashrate: { latest: { value: index === 1 ? 0 : index === 2 ? 950 : 1042 + (index % 64), units: "GH/s" } },
+            hashrate: {
+              latest: {
+                value: hashrates?.length
+                  ? hashrates[index % hashrates.length]
+                  : index === 1
+                    ? 0
+                    : index === 2
+                      ? 950
+                      : 1042 + (index % 64),
+                units: "GH/s",
+              },
+            },
             voltage: { latest: { value: 0.8 + (index % 10) / 100, units: "V" } },
             frequency: { latest: { value: 500 + (index % 20), units: "MHz" } },
           }))
         : mockHashboardStats.asics,
-    [ct1],
+    [ct1, hashrates],
   );
 
   return (
@@ -116,5 +128,24 @@ export default {
 
 export const Ct1 = () => <AsicTable pending={false} ct1 />;
 export const Ct1Hashrate = () => <AsicTable pending={false} ct1 initialMetric="hashrate" />;
+export const Ct1HashrateUniform = () => (
+  <AsicTable pending={false} ct1 initialMetric="hashrate" hashrates={[800, 800.01, 799.99]} />
+);
+export const Ct1HashrateOneDeadAsic = () => (
+  <AsicTable
+    pending={false}
+    ct1
+    initialMetric="hashrate"
+    hashrates={Array.from({ length: 312 }, (_, index) => (index === 0 ? 0 : 950 + (index % 100)))}
+  />
+);
+export const Ct1HashrateWideSpread = () => (
+  <AsicTable
+    pending={false}
+    ct1
+    initialMetric="hashrate"
+    hashrates={Array.from({ length: 312 }, (_, index) => 300 + index * 5)}
+  />
+);
 export const Ct1Frequency = () => <AsicTable pending={false} ct1 initialMetric="frequency" />;
 export const Ct1Voltage = () => <AsicTable pending={false} ct1 initialMetric="voltage" />;

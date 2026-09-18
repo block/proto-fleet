@@ -133,18 +133,26 @@ test("keeps missing readings accessible without a legend", () => {
   expect(screen.queryByTestId("asic-metric-legend")).not.toBeInTheDocument();
 });
 
-test("keeps CT1 hashrate colors fixed when a different ASIC's output changes", () => {
-  const asics = samples(1050);
+test("recalculates hashrate colors from the current board's live readings", () => {
+  const asics = samples(1000).map<AsicData>((asic, index) => ({
+    ...asic,
+    hashrate: { latest: { value: index === 0 ? 1000 : 800 + index, units: "GH/s" } },
+  }));
   const { rerender } = render(<Harness asics={asics} metric="hashrate" />);
   const first = screen.getAllByRole("button")[0];
   const color = first.style.backgroundColor;
-  const changed = [...asics];
-  changed[1] = { ...changed[1], hashrate: { latest: { value: 10_000, units: "GH/s" } } };
+  const changed = asics.map<AsicData>((asic, index) => ({
+    ...asic,
+    hashrate: { latest: { value: index === 0 ? 1000 : 1100 + index, units: "GH/s" } },
+  }));
   rerender(<Harness asics={changed} metric="hashrate" />);
+  expect(first.style.backgroundColor).not.toBe(color);
+  expect(first).toHaveAccessibleName(/Hashrate.*1,000/);
+  rerender(<Harness asics={asics} metric="hashrate" serial="HB-2" />);
   expect(first.style.backgroundColor).toBe(color);
 });
 
-test.each([950, 1000, 1075])("uses the same hashrate band on CT1 and R2 at %s GH/s", (hashrate) => {
+test.each([500, 1000, 1500])("uses the same relative hashrate ramp on CT1 and R2 at %s GH/s", (hashrate) => {
   const asics = samples(hashrate);
   const { rerender } = render(<Harness asics={asics} metric="hashrate" />);
   const ct1Color = screen.getAllByRole("button")[0].style.backgroundColor;
