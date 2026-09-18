@@ -46,21 +46,155 @@ prepare-commit-msg:
     block-protected-branches:
       run: scripts/lefthook-block-protected-branches.sh
 
-pre-push:
+changed-checks:
   parallel: true
+  files: |
+    set -e
+    base="${CHECK_CHANGED_BASE:-origin/main}"
+    merge_base="$(git merge-base "$base" HEAD)"
+    changed_paths() {
+      git diff --no-renames --name-status "$@" |
+        awk -F '\t' '
+          $1 == "D" { deleted = 1 }
+          { print substr($0, index($0, "\t") + 1) }
+          END { if (deleted) print "justfile" }
+        '
+    }
+    {
+      changed_paths "$merge_base"...HEAD
+      changed_paths
+      changed_paths --cached
+      git ls-files --others --exclude-standard
+    } | sort -u
   commands:
-    client-typecheck:
-      root: client
-      run: npm exec --no -- tsc --noEmit
+    diff-whitespace:
+      run: |
+        set -e
+        base="${CHECK_CHANGED_BASE:-origin/main}"
+        merge_base="$(git merge-base "$base" HEAD)"
+        git diff --check "$merge_base"...HEAD
+        git diff --check
+        git diff --cached --check
+
+    protobuf-lint:
+      glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "proto/**/*.proto"
+        - "buf.yaml"
+        - "buf.lock"
+        - "buf.gen.yaml"
+      run: just _lint-protos
+
+    client-check:
+      glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "client/**"
+      run: just _check-client
 
     server-lint:
-      root: server
-      run: golangci-lint run -c .golangci.yaml
+      glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "server/**"
+        - "go.work"
+        - "go.work.sum"
+      run: just _lint-server
 
     plugin-proto-lint:
-      root: plugin/proto
-      run: golangci-lint run -c .golangci.yaml
+      glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "plugin/proto/**"
+        - "server/go.mod"
+        - "server/go.sum"
+        - "server/sdk/**"
+        - "go.work"
+        - "go.work.sum"
+      run: cd plugin/proto && golangci-lint run -c .golangci.yaml
 
     plugin-antminer-lint:
-      root: plugin/antminer
-      run: golangci-lint run -c .golangci.yaml
+      glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "plugin/antminer/**"
+        - "server/go.mod"
+        - "server/go.sum"
+        - "server/sdk/**"
+        - "go.work"
+        - "go.work.sum"
+      run: cd plugin/antminer && golangci-lint run -c .golangci.yaml
+
+    developer-workflow-tests:
+      glob:
+        - ".agents/**"
+        - ".claude/**"
+        - ".github/actions/hermit-setup/**"
+        - ".github/path-filters.yml"
+        - ".github/review-policy.json"
+        - ".github/workflows/pr-gate.yml"
+        - "**/AGENTS.md"
+        - "CLAUDE.md"
+        - "CONTRIBUTING.md"
+        - "go.work"
+        - "justfile"
+        - "lefthook.yml"
+        - "scripts/check-changed.sh"
+        - "scripts/check-changed_test.sh"
+      run: just test-developer-workflows
+
+pre-push:
+  commands:
+    changed-path-checks:
+      run: just check-changed

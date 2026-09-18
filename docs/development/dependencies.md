@@ -16,7 +16,7 @@ For Hermit, source `bin/activate-hermit` from the repo root. Tool proxies live
 in `bin/`; activation and proxies resolve installed packages through Hermit.
 Do not assume every tool's executable lives under `.hermit/`. For missing
 tools or activation errors, use the
-[Hermit troubleshooting skill](../../.claude/skills/hermit-tooling/SKILL.md).
+[Hermit troubleshooting skill](../../.agents/skills/hermit-tooling/SKILL.md).
 Do not mask a broken Hermit setup by installing global replacements.
 
 For non-Hermit setups, follow CONTRIBUTING.md's prerequisites and

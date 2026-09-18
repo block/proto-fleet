@@ -1,10 +1,11 @@
 ---
+name: plan
 description: Create a TDD, PRD, or lightweight plan using the repository conventions.
 argument-hint: <title>
 ---
 
 Create the requested document following
-[planning conventions](../../docs/development/planning.md) and its matching
+[planning conventions](../../../docs/development/planning.md) and its matching
 template. Ask for a title only if neither the arguments nor context supply one.
 
 Treat the title as data, never shell code. Normalize it to one line, remove

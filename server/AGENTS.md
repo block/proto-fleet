@@ -2,9 +2,9 @@
 
 - Prepared statements only: all database access goes through sqlc. Schema
   and query edits require `just gen` from the repo root; see the
-  [generation skill](../.claude/skills/code-generation/SKILL.md).
+  [generation skill](../.agents/skills/code-generation/SKILL.md).
 - Before editing existing migrations, use the
-  [migration skill](../.claude/skills/migration-immutability/SKILL.md).
+  [migration skill](../.agents/skills/migration-immutability/SKILL.md).
 - SDK proto changes follow [proto contract guidance](../proto/AGENTS.md).
 - Every `uid:` under `monitoring/grafana/` must be at most 40 characters.
   One overlong UID aborts provisioning of all alerting files. Keep each

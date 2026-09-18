@@ -13,7 +13,7 @@ resolution_type: documentation_guardrail
 severity: medium
 related_components:
   - AGENTS.md
-  - .claude/commands/pr-describe.md
+  - .agents/skills/pr-describe/SKILL.md
 tags: [github, mermaid, pr-description, diagrams, agent-guidance]
 ---
 
@@ -62,5 +62,5 @@ flowchart TD
   `A["Label"] --> B["Other"]`.
 - Keep IDs alphanumeric and short (`A`, `Build`, `PluginLoader`); put all
   reviewer-facing text in the label.
-- If editing `.claude/commands/pr-describe.md` or `AGENTS.md`, preserve this
+- If editing `.agents/skills/pr-describe/SKILL.md` or `AGENTS.md`, preserve this
   rule in the PR-description diagram guidance.
