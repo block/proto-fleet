@@ -25,7 +25,7 @@ describe what the code does, not the decisions made getting there.
      another repo would otherwise read one PR and edit a same-numbered PR here.
      Pass `-R <owner>/<repo> <number>` to every `gh pr` call on this path.
    - **Current-branch path** — no `$ARGUMENTS`. The target is the current
-     branch. `gh pr view --json number,url,headRefName,baseRefName` tells you
+     branch. `gh pr view --json number,url,headRefName,baseRefName,title` tells you
      whether a PR already exists; if none does, you will draft the body for the
      PR the user is about to open from this branch.
 
@@ -40,7 +40,7 @@ describe what the code does, not the decisions made getting there.
    number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
    path), repeating on the parent's base until you reach the default branch.
    Downward: find child PRs whose base is this PR's head (`gh pr list --base
-   "<headRefName>" --state open --json number,title,url,baseRefName`, adding `-R`),
+   "<headRefName>" --state open --json number,title,url,baseRefName,headRefName`, adding `-R`),
    repeating on each child's head. Record both ancestors and descendants (each
    one's number, title, url) for steps 2 and 3.
 
@@ -64,27 +64,13 @@ describe what the code does, not the decisions made getting there.
    From the file list, identify which subsystems are touched (`server/`,
    `client/`, `plugin/`, `proto/`, `migrations/`, `packages/proto-python-gen/`).
 
-   Also compute the reviewable line diff from the same diff scope so reviewers
-   can gauge PR size without counting generated or review-light files:
-
-   - **Numbered-PR path:** save the PR patch from
-     `gh pr diff <number> -R <owner>/<repo> --patch` to a temp file and run
-     `git apply --numstat /path/to/tmp.patch` to get added/deleted lines by
-     path.
-   - **Current-branch path:** run
-     `git diff "origin/<base>...HEAD" --numstat`.
-   - Exclude generated files (`**/generated/**`, `*.pb.go`, `*.pb.ts`,
-     `client/src/protoOS/api/generatedApi.ts`), test files (`*_test.go`,
-     `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`, `test/**`), and story
-     files (`*.stories.*`, `*.story.*`, `stories/**`) before summing. For
-     renamed paths, exclude the row if either the old or new path matches an
-     excluded pattern.
-   - Sum the remaining numeric additions and deletions, and count the remaining
-     files. Ignore binary-only rows with `-` additions/deletions in the line
-     totals; if non-excluded binary files remain, append `; <N> binary files
-     have no line count` to the reviewable diff line.
-   - Record the result as:
-     `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).`
+   Compute reviewable counts using the exclusions and rename/binary rules in
+   the [PR standard](../../docs/development/pr-descriptions.md#counting-the-reviewable-diff).
+   For a numbered PR, save its aggregate `gh pr diff <number> -R <owner>/<repo>`
+   output and use `git apply --numstat` on that diff. Do not use `--patch`,
+   which supplies per-commit patches and can count the same edit repeatedly.
+   For local work, use `git diff "origin/<base>...HEAD" --numstat`.
+   Inspect renamed paths explicitly so either side's exclusion applies.
 
    If the target is part of a series (step 1), also read each ancestor PR's description
    (`gh pr view <number> --json title,body,url`, adding `-R` on the numbered-PR
@@ -102,47 +88,15 @@ describe what the code does, not the decisions made getting there.
    references even when no PR exists for them yet (state facts about scope, not
    the back-and-forth of how the work was planned).
 
-3. Draft the description in this structure:
-
-   1. `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).` — the reviewable line diff from step 2. This must be the first line of the PR description.
-   2. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
-      Lead with the user- or operator-facing capability, not the implementation.
-      If the PR is part of a series (step 1), follow the summary with a short
-      **Stack** note: the full chain with PR numbers/links (ancestors down to
-      the default branch, this PR, and any PRs stacked on top), with this PR
-      marked; if it has ancestors, a line stating the diff is relative to its
-      immediate base so the reviewer does not re-review them; the required
-      context from upstream, meaning the
-      contracts, abstractions, or decisions this PR builds on, distilled to what
-      a reviewer needs here rather than a re-summary of the parent PRs; and
-      what is intentionally out of scope here and where the remaining work
-      lands, drawn from descendant PRs, the plan docs, this conversation, and
-      any tracking issues (later phases may not be open as PRs yet).
-   3. **How it works** — the end-to-end mechanism in plain language. Walk the
-      primary flow(s) step by step (who triggers it, what crosses each boundary,
-      where state is persisted, what comes back). Assume the reader does not
-      know Go/TS idioms; explain workflows and mechanisms, not syntax.
-   4. **Diagrams** — include mermaid diagrams in fenced code blocks labeled `mermaid` so
-      they render on GitHub. At minimum a component/flow diagram of the main
-      path; add a state or sequence diagram where lifecycle or ordering matters.
-      Keep syntax GitHub-safe: quote labels containing special characters, avoid
-      fragile edge styles (e.g. dotted/labelled edges that GitHub mis-renders),
-      and use explicit node IDs with bracketed labels (`A["Label"] --> B["Other"]`).
-      Do not use bare quoted string nodes (`"Label" --> "Other"`); GitHub's
-      Mermaid parser rejects that form in flowcharts.
-   5. **Areas of the code involved** — a table so reviewers know where to focus:
-      `| Area / package / file | What changed | Why it matters for review |`.
-      Group by subsystem. Call out new vs. modified files, and flag generated
-      code (`**/generated/**`, `*.pb.go`, `*.pb.ts`) as "generated — skip".
-   6. **Key technical decisions & trade-offs** — bullet the choices a reviewer
-      should scrutinize: new abstractions, data-model/migration changes,
-      security or validation boundaries, backward-compat or rollout concerns.
-      One line each: the decision and the alternative it was chosen over.
-   7. **Testing & validation** — how correctness was verified (tests added,
-      manual checks, migrations run) and what is explicitly NOT covered.
+3. Draft the description using the complete
+   [PR description standard](../../docs/development/pr-descriptions.md).
+   Use the same resolved target, diff, reviewable counts, and stack context
+   throughout. Include validation evidence and explicit gaps.
 
 4. Apply the result against the target resolved in step 1:
-   - If a PR exists, update **that** PR by its `number`, scoped to its repo:
+   - For draft-only or audit-only requests, output the proposed body without
+     editing GitHub. Otherwise, when updating the description is requested
+     and a PR exists, update **that** PR by its `number`, scoped to its repo:
      `gh pr edit <number> -R <owner>/<repo> --body-file <tmp>` (write the body
      to a temp file to preserve mermaid fences and tables). The `-R` is what
      keeps a cross-repo URL target from editing a same-numbered PR in the local

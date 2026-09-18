@@ -1,6 +1,6 @@
 ---
 name: fake-rig-fixtures
-description: Use when editing `server/fake-antminer/` or `server/fake-proto-rig/`. These are test doubles consumed by `tests/plugin-contract/`, the E2E suites, and the local `just dev` stack — behavior changes here ripple silently into all three surfaces.
+description: Update fake-antminer or fake-proto-rig fixtures and verify their shared consumers.
 ---
 
 # fake-rig-fixtures

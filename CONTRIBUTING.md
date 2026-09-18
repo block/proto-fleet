@@ -112,32 +112,9 @@ Prefixes:
 
 ### Pull Requests
 
-Write the description so a reviewer can judge the architecture and technical
-decisions without reading the low-level code. Start with the reviewable line
-diff, then use the remaining structure
-documented in the **PR descriptions** section of [AGENTS.md](./AGENTS.md):
-Reviewable diff, Summary, How it works, Diagrams (mermaid, so they render on
-GitHub), Areas of the code involved, Key technical decisions & trade-offs, and
-Testing & validation. Scale each section to the change — a one-line fix does
-not need a diagram, a new subsystem does.
-
-```bash
-gh pr create --title "Brief description" --body "Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).
-
-## Summary
-- What this delivers and why
-
-## How it works
-- The end-to-end mechanism in plain language
-
-## Areas of the code involved
-| Area / file | What changed | Why it matters for review |
-| --- | --- | --- |
-
-## Testing & validation
-- What was run and how to verify; what is not covered"
-```
-
+Follow the [PR description standard](docs/development/pr-descriptions.md),
+including the reviewable diff, architecture, diagrams, and validation evidence.
+Scale the detail to the change while retaining the required structure.
 Claude Code users can generate a conforming description with `/pr-describe`.
 
 ## Cross-Component Workflows

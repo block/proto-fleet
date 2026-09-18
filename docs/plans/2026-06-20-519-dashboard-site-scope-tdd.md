@@ -252,7 +252,7 @@ Changes:
 ### Regen
 
 After proto edits run `/regen` (or the `just`-equivalent; see the
-`proto-regen` skill). Commit generated Go + TS in the same PR.
+`code-generation` skill). Commit generated Go + TS in the same PR.
 
 ## Client changes
 
