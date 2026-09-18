@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
@@ -34,6 +34,7 @@ interface ActiveUpdatesMonitorProps {
   // From another surface (e.g. the history modal); cleared via onRequestHandled.
   request?: MonitorRequest | null;
   onRequestHandled?: () => void;
+  refreshWarning?: ReactNode;
 }
 
 // Everything about ongoing firmware updates that lives above the firmware
@@ -45,6 +46,7 @@ const ActiveUpdatesMonitor = ({
   onManageChannel,
   request = null,
   onRequestHandled,
+  refreshWarning,
 }: ActiveUpdatesMonitorProps) => {
   const {
     rollouts,
@@ -59,7 +61,7 @@ const ActiveUpdatesMonitor = ({
   } = api;
   // Retain the opened or returned snapshot if a subsequent poll fails.
   const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
-  const [localCancelTarget, setCancelTarget] = useState<Rollout | null>(null);
+  const [localCancelTarget, setLocalCancelTarget] = useState<Rollout | null>(null);
   const [localRollbackTarget, setLocalRollbackTarget] = useState<Rollout | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -92,12 +94,30 @@ const ActiveUpdatesMonitor = ({
   const rollbackTarget = availableSnapshot(
     validRequest?.kind === "rollback" ? validRequest.rollout : localRollbackTarget,
   );
+  // Mutation results may arrive after the operator closes, reopens or changes
+  // the selection. Track that intent separately from revisions updated by polls.
+  const selectionEpoch = useRef(0);
+  useLayoutEffect(() => {
+    selectionEpoch.current += 1;
+    return () => {
+      selectionEpoch.current += 1;
+    };
+  }, [validRequest, selectedSnapshot, cancelTarget, rollbackTarget]);
+  const selectionChanged = () => {
+    selectionEpoch.current += 1;
+  };
   const clearsAssignment = rollbackTarget?.previousFirmwareVersion === "";
+  const setCancelTarget = (target: Rollout | null) => {
+    selectionChanged();
+    setLocalCancelTarget(target);
+  };
   const setRollbackTarget = (target: Rollout | null) => {
+    selectionChanged();
     setLocalRollbackTarget(target);
     if (target === null && request?.kind === "rollback") onRequestHandled?.();
   };
   const closeDetail = () => {
+    selectionChanged();
     setViewUpdate(null);
     if (request?.kind === "view") onRequestHandled?.();
   };
@@ -129,10 +149,12 @@ const ActiveUpdatesMonitor = ({
         });
       });
 
-  const handleRetry = (rollout: Rollout) =>
-    retryFailedDevices(rollout.id, rollout.revision)
+  const handleRetry = (rollout: Rollout) => {
+    const startedAtSelection = selectionEpoch.current;
+    return retryFailedDevices(rollout.id, rollout.revision)
       .then((next) => {
-        if (next && next.id !== rollout.id) {
+        if (next && next.id !== rollout.id && selectionEpoch.current === startedAtSelection) {
+          selectionChanged();
           if (request?.kind === "view") onRequestHandled?.();
           setViewUpdate(next);
         }
@@ -144,14 +166,16 @@ const ActiveUpdatesMonitor = ({
       .catch((error) => {
         pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
       });
+  };
 
   const handleCancel = () => {
     if (!cancelTarget) return;
     const rollout = cancelTarget;
+    const startedAtSelection = selectionEpoch.current;
     setIsBusy(true);
     cancelRollout(rollout.id, rollout.revision)
       .then(() => {
-        setCancelTarget(null);
+        if (selectionEpoch.current === startedAtSelection) setCancelTarget(null);
         pushToast({
           message: `Canceled the remaining ${pairLabel(rollout)} updates in ${rollout.channelName}`,
           status: STATUSES.success,
@@ -166,12 +190,15 @@ const ActiveUpdatesMonitor = ({
   const handleRollback = () => {
     if (!rollbackTarget) return;
     const rollout = rollbackTarget;
+    const startedAtSelection = selectionEpoch.current;
     setIsBusy(true);
     rollbackFirmware(rollout.id, rollout.revision)
       .then((started) => {
-        setRollbackTarget(null);
-        closeDetail();
-        if (started[0]) setViewUpdate(started[0]);
+        if (selectionEpoch.current === startedAtSelection) {
+          setRollbackTarget(null);
+          closeDetail();
+          if (started[0]) setViewUpdate(started[0]);
+        }
         pushToast({
           message: rollout.previousFirmwareVersion
             ? `Rolling ${pairLabel(rollout)} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
@@ -190,6 +217,7 @@ const ActiveUpdatesMonitor = ({
       <ActiveUpdateBanners
         rollouts={activeRollouts}
         onViewUpdate={(rollout) => {
+          selectionChanged();
           if (request) onRequestHandled?.();
           setViewUpdate(rollout);
         }}
@@ -197,7 +225,9 @@ const ActiveUpdatesMonitor = ({
 
       {viewedRollout ? (
         <RolloutDetailModal
+          key={viewedRollout.id.toString()}
           rollout={viewedRollout}
+          refreshWarning={refreshWarning}
           currentGeneration={pairGeneration(api.channels, viewedRollout)}
           canRetryRemaining={canRetryRemaining(viewedRollout, api.channels, rollouts)}
           minerNames={minerNames}

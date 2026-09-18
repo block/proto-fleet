@@ -394,6 +394,25 @@ const Firmware = () => {
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
 
   const showChannels = () => setSearchParams({ tab: RELEASE_CHANNELS_TAB_PARAM }, { replace: true });
+  const refreshWarning = channelsApi.error ? (
+    <div role="alert" aria-busy={isRetrying}>
+      <Callout
+        intent={intents.warning}
+        prefixIcon={<Alert />}
+        title={
+          channelsApi.hasLoaded
+            ? "Release channels and update status may be out of date"
+            : "Couldn't load release channels and update status"
+        }
+        subtitle={
+          channelsApi.hasLoaded ? "Showing the last loaded data. Retry to refresh it." : channelsApi.error.message
+        }
+        buttonText={isRetrying ? "Retrying..." : "Retry"}
+        buttonOnClick={retryChannels}
+        testId="release-channels-load-error"
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -413,27 +432,10 @@ const Firmware = () => {
           }
         }}
       />
-      {channelsApi.error ? (
-        <div role="alert" aria-busy={isRetrying}>
-          <Callout
-            intent={intents.warning}
-            prefixIcon={<Alert />}
-            title={
-              channelsApi.hasLoaded
-                ? "Release channels and update status may be out of date"
-                : "Couldn't load release channels and update status"
-            }
-            subtitle={
-              channelsApi.hasLoaded ? "Showing the last loaded data. Retry to refresh it." : channelsApi.error.message
-            }
-            buttonText={isRetrying ? "Retrying..." : "Retry"}
-            buttonOnClick={retryChannels}
-            testId="release-channels-load-error"
-          />
-        </div>
-      ) : null}
+      {refreshWarning}
       <ActiveUpdatesMonitor
         api={channelsApi}
+        refreshWarning={refreshWarning}
         request={monitorRequest}
         onRequestHandled={() => setMonitorRequest(null)}
         onManageChannel={(channelId) => {

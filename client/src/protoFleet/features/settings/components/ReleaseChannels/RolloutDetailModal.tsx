@@ -189,6 +189,8 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
   // Terminal retries require the current assignment and no active rollout
   // for the pair. Without that snapshot, only active retries are offered.
   canRetryRemaining?: boolean;
+  // Keep page polling failures visible alongside the modal's action controls.
+  refreshWarning?: ReactNode;
   minerNames: Record<string, string>;
   // Per-miner progress is paged by the server; the miners drill-down
   // fetches it on demand.
@@ -204,6 +206,7 @@ const RolloutDetailModal = ({
   rollout,
   currentGeneration,
   canRetryRemaining,
+  refreshWarning,
   minerNames,
   listRolloutDevices,
   onClose,
@@ -342,6 +345,7 @@ const RolloutDetailModal = ({
               triggerVariant={variants.secondary}
             />
           </Header>
+          {refreshWarning ? <div className="mt-4">{refreshWarning}</div> : null}
           {retryAllowed ? (
             <p className="mt-3 text-200 text-text-primary-50">
               Retry remaining retries failed, skipped, or canceled work for this firmware assignment, including earlier

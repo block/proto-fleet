@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import { deferred } from "./__tests__/helpers";
 import ActiveUpdatesMonitor, { type MonitorRequest } from "./ActiveUpdatesMonitor";
 import {
   activeRigRollout,
@@ -94,6 +95,185 @@ beforeEach(() => {
   });
   vi.clearAllMocks();
   mockListFirmwareFiles.mockResolvedValue([]);
+});
+
+describe("delayed mutation selection", () => {
+  const first = completedWithFailuresRigRollout;
+  const other = { ...activeRigRollout, id: 102n, manufacturer: "Acme" };
+  const successor = { ...activeRigRollout, id: 200n, assignmentGeneration: first.assignmentGeneration };
+
+  function setup(initialKind: MonitorRequest["kind"] = "view") {
+    const api = apiFor(first);
+    api.rollouts = [first, other];
+    const handled = vi.fn();
+    function Harness({ currentApi }: { currentApi: ReleaseChannelsApi }) {
+      const [request, setRequest] = useState<MonitorRequest | null>({ kind: initialKind, rollout: first });
+      return (
+        <>
+          <button onClick={() => setRequest({ kind: "view", rollout: first })}>View first history</button>
+          <button onClick={() => setRequest({ kind: "view", rollout: other })}>View other history</button>
+          <button onClick={() => setRequest({ kind: "rollback", rollout: first })}>Roll back first history</button>
+          <button onClick={() => setRequest({ kind: "rollback", rollout: other })}>Roll back other history</button>
+          <ActiveUpdatesMonitor
+            api={currentApi}
+            request={request}
+            onManageChannel={vi.fn()}
+            onRequestHandled={() => {
+              handled();
+              setRequest(null);
+            }}
+          />
+        </>
+      );
+    }
+    const result = render(<Harness currentApi={api} />);
+    return {
+      ...result,
+      api,
+      handled,
+      refresh: (currentApi: ReleaseChannelsApi) => result.rerender(<Harness currentApi={currentApi} />),
+    };
+  }
+
+  it("does not reopen detail when a retry finishes after it was closed", async () => {
+    const pending = deferred<Rollout>();
+    const { api, handled } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+
+    await act(async () => pending.resolve(successor));
+
+    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    expect(handled).toHaveBeenCalledOnce();
+    expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(first.id, first.revision);
+    expect(pushToast).toHaveBeenCalledWith({ message: expect.stringContaining("Retry requested"), status: "success" });
+  });
+
+  it("does not replace a reopened selection of the same rollout", async () => {
+    const pending = deferred<Rollout>();
+    const { api, handled } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "View first history" }));
+
+    await act(async () => pending.resolve(successor));
+
+    expect(screen.getByTestId(`rollout-detail-${first.id.toString()}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`rollout-detail-${successor.id.toString()}`)).not.toBeInTheDocument();
+    expect(handled).toHaveBeenCalledOnce();
+  });
+
+  it("does not replace another rollout opened from its banner", async () => {
+    const pending = deferred<Rollout>();
+    const { api, handled } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(within(screen.getByTestId(`update-banner-${other.id.toString()}`)).getByRole("button"));
+
+    await act(async () => pending.resolve(successor));
+
+    expect(screen.getByTestId(`rollout-detail-${other.id.toString()}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`rollout-detail-${successor.id.toString()}`)).not.toBeInTheDocument();
+    expect(handled).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { button: "View first history", selected: first },
+    { button: "View other history", selected: other },
+  ])("does not clear a newer external request from '$button'", async ({ button, selected }) => {
+    const pending = deferred<Rollout>();
+    const { api, handled } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    if (selected.id !== first.id) expect(screen.getByTestId("view-rollout-retry-action")).not.toBeDisabled();
+
+    await act(async () => pending.resolve(successor));
+
+    expect(screen.getByTestId(`rollout-detail-${selected.id.toString()}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`rollout-detail-${successor.id.toString()}`)).not.toBeInTheDocument();
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "selects the successor while the same detail remains open (poll advances=%s)",
+    async (advances) => {
+      const pending = deferred<Rollout>();
+      const { api, handled, refresh } = setup();
+      api.retryFailedDevices.mockReturnValue(pending.promise);
+      fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+      refresh({ ...api, rollouts: [{ ...first, revision: first.revision + (advances ? 1n : 0n) }, other] });
+
+      await act(async () => pending.resolve(successor));
+
+      expect(screen.getByTestId(`rollout-detail-${successor.id.toString()}`)).toBeInTheDocument();
+      expect(handled).toHaveBeenCalledOnce();
+      expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(first.id, first.revision);
+    },
+  );
+
+  it("does not consume a request after its channel disappears", async () => {
+    const pending = deferred<Rollout>();
+    const { api, handled, refresh } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    refresh({ ...api, channels: [], rollouts: [] });
+
+    await act(async () => pending.resolve(successor));
+
+    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it("does not consume an external request after the monitor unmounts", async () => {
+    const pending = deferred<Rollout>();
+    const { api, handled, unmount } = setup();
+    api.retryFailedDevices.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    unmount();
+
+    await act(async () => pending.resolve(successor));
+
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { button: "View other history", surface: "detail" },
+    { button: "Roll back other history", surface: "rollback" },
+    { button: "Roll back first history", surface: "rollback" },
+  ])("does not let a delayed rollback replace '$button'", async ({ button, surface }) => {
+    const pending = deferred<Rollout[]>();
+    const { api, handled } = setup("rollback");
+    api.rollbackFirmware.mockReturnValue(pending.promise);
+    fireEvent.click(within(screen.getByTestId("rollback-firmware-dialog")).getByRole("button", { name: "Roll back" }));
+    fireEvent.click(screen.getByRole("button", { name: button }));
+
+    await act(async () => pending.resolve([successor]));
+
+    if (surface === "detail") expect(screen.getByTestId(`rollout-detail-${other.id.toString()}`)).toBeInTheDocument();
+    else expect(screen.getByTestId("rollback-firmware-dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId(`rollout-detail-${successor.id.toString()}`)).not.toBeInTheDocument();
+    expect(handled).not.toHaveBeenCalled();
+    expect(api.rollbackFirmware).toHaveBeenCalledExactlyOnceWith(first.id, first.revision);
+  });
+
+  it("opens a rollback successor when the same confirmation remains selected across polls", async () => {
+    const pending = deferred<Rollout[]>();
+    const { api, handled, refresh } = setup("rollback");
+    api.rollbackFirmware.mockReturnValue(pending.promise);
+    fireEvent.click(within(screen.getByTestId("rollback-firmware-dialog")).getByRole("button", { name: "Roll back" }));
+    refresh({ ...api, rollouts: [{ ...first, revision: first.revision + 1n }, other] });
+
+    await act(async () => pending.resolve([successor]));
+
+    await waitFor(() => expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId(`rollout-detail-${successor.id.toString()}`)).toBeInTheDocument();
+    expect(handled).toHaveBeenCalledOnce();
+  });
 });
 
 describe("rollout controls use the operator's observed revision", () => {

@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import Firmware from "./Firmware";
 import { releaseChannelsApi as apiFor, deferred } from "./ReleaseChannels/__tests__/helpers";
-import { canaryChannel } from "./ReleaseChannels/ReleaseChannels.fixtures";
+import { canaryChannel, gatedRigRollout } from "./ReleaseChannels/ReleaseChannels.fixtures";
 import { ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
@@ -54,6 +54,45 @@ beforeEach(() => {
 afterEach(() => useFleetStore.setState({ auth: initialAuth }));
 
 describe("release-channel load errors", () => {
+  it.each(["files", "release-channels"])(
+    "shows polling failures and retry recovery beside the open update controls on the %s tab",
+    async (tab) => {
+      const api = { ...apiFor(), channels: [canaryChannel], rollouts: [gatedRigRollout] };
+      mockUseReleaseChannels.mockReturnValue(api);
+      const { rerender } = render(page(tab));
+      fireEvent.click(screen.getByRole("button", { name: "Review update" }));
+      const header = within(screen.getByTestId("rollout-detail-header"));
+      expect(header.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+      expect(header.queryByRole("alert")).not.toBeInTheDocument();
+
+      const staleApi = { ...api, error: new Error("Polling failed") };
+      mockUseReleaseChannels.mockReturnValue(staleApi);
+      rerender(page(tab));
+      expect(header.getByRole("alert")).toHaveTextContent("update status may be out of date");
+      expect(header.getByRole("alert")).toHaveTextContent("Showing the last loaded data");
+      expect(screen.getByTestId("rollout-performance")).toBeInTheDocument();
+
+      const retry = deferred();
+      api.refresh.mockReturnValueOnce(retry.promise);
+      fireEvent.click(header.getByRole("button", { name: "Retry" }));
+      expect(header.getByRole("alert")).toHaveAttribute("aria-busy", "true");
+      fireEvent.click(header.getByRole("button", { name: "Retrying..." }));
+      expect(api.refresh).toHaveBeenCalledOnce();
+      await act(async () => retry.reject(new Error("Still unavailable")));
+      expect(header.getByRole("alert")).toHaveAttribute("aria-busy", "false");
+      expect(header.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+      fireEvent.click(header.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(api.refresh).toHaveBeenCalledTimes(2));
+      mockUseReleaseChannels.mockReturnValue(api);
+      rerender(page(tab));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(header.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+      expect(api.continueRollout).not.toHaveBeenCalled();
+      expect(pushToast).not.toHaveBeenCalled();
+    },
+  );
+
   it("shows the initial failure instead of an empty channel list, then recovers on retry", async () => {
     const api = { ...apiFor(), hasLoaded: false, error: new Error("The server is unavailable") };
     mockUseReleaseChannels.mockReturnValue(api);
