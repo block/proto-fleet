@@ -6,7 +6,7 @@
 // All streams are node-initiated; post-handshake RPCs carry the session token
 // in `Authorization: Bearer <session_token>` metadata, and server handlers
 // derive the effective fleet-node identity from that token rather than any
-// body field. See docs/rfcs/0001-agent-server-split.md.
+// body field.
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
@@ -982,8 +982,7 @@ export type MinerConnectionDescriptor = Message<"fleetnodegateway.v1.MinerConnec
   /**
    * Miner username/password, encrypted separately by the fleet node and decrypted
    * just-in-time with its local credential key (empty for no-secret drivers like
-   * the virtual driver). The cloud never ships plaintext down the stream; see RFC
-   * 0001.
+   * the virtual driver). The cloud never ships plaintext down the stream.
    *
    * @generated from field: bytes credential_username = 8;
    */

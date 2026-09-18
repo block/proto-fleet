@@ -1247,7 +1247,7 @@ type SoftDeleteSiteParams struct {
 }
 
 // Caller is expected to also cascade-unassign attached devices/racks and
-// soft-delete buildings in the same transaction (cascade — see plan J3).
+// soft-delete buildings in the same transaction (cascade).
 func (q *Queries) SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteSiteStmt, softDeleteSite, arg.ID, arg.OrgID)
 	if err != nil {

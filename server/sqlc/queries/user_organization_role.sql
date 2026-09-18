@@ -170,7 +170,7 @@ FOR NO KEY UPDATE OF uor, u, r;
 -- liveness rule the last-SUPER_ADMIN guards below already enforce.
 --
 -- The resolver walks this slice to evaluate Has(key, ResourceContext)
--- with the plan's narrowing rule: site-scope assignment overrides the
+-- with this narrowing rule: site-scope assignment overrides the
 -- org grant at that site; site-scope absence falls back to org-scope.
 SELECT
     uor.id          AS assignment_id,

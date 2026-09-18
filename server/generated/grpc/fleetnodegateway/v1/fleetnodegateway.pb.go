@@ -8,7 +8,7 @@
 // All streams are node-initiated; post-handshake RPCs carry the session token
 // in `Authorization: Bearer <session_token>` metadata, and server handlers
 // derive the effective fleet-node identity from that token rather than any
-// body field. See docs/rfcs/0001-agent-server-split.md.
+// body field.
 
 package fleetnodegatewayv1
 
@@ -2292,8 +2292,7 @@ type MinerConnectionDescriptor struct {
 	MacAddress   string `protobuf:"bytes,7,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`
 	// Miner username/password, encrypted separately by the fleet node and decrypted
 	// just-in-time with its local credential key (empty for no-secret drivers like
-	// the virtual driver). The cloud never ships plaintext down the stream; see RFC
-	// 0001.
+	// the virtual driver). The cloud never ships plaintext down the stream.
 	CredentialUsername []byte `protobuf:"bytes,8,opt,name=credential_username,json=credentialUsername,proto3" json:"credential_username,omitempty"`
 	CredentialPassword []byte `protobuf:"bytes,9,opt,name=credential_password,json=credentialPassword,proto3" json:"credential_password,omitempty"`
 	unknownFields      protoimpl.UnknownFields

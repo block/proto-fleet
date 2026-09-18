@@ -20,7 +20,6 @@ require reading the full repo map or every skill.
 | Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.claude/skills/) for contract tests, fixtures, or ASIC-rs builds |
 | Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
 | PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness command](.claude/commands/pr-ready.md) |
-| Plans, TDDs, or PRDs | [Planning conventions](docs/development/planning.md) |
 
 Before debugging or changing a documented fragile subsystem, search
 `docs/solutions/` by relevant `module:`, `tags:`, or `problem_type:` and read
@@ -62,6 +61,10 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 
 ## Git and completion
 
+- Do not commit planning documents (implementation plans, TDDs, PRDs, RFC
+  proposals, or task scratchpads). Keep them in the conversation, an issue/PR,
+  an external document, or ignored local `docs/plans/` files. Commit maintained
+  documentation of current behavior, architecture, and operations instead.
 - Work on a feature branch. Never commit on `main`, `master`, or detached
   HEAD; verify `git branch --show-current` before each commit. After a PR
   merges, start a fresh branch from updated `main`.

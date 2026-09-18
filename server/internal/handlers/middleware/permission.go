@@ -342,7 +342,7 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 }
 
 // permissionDeniedError builds a Connect PermissionDenied error whose
-// body is the structured payload the plan specifies:
+// body is this structured payload:
 //
 //	{"required": "<permission_key>", "scope": {"site_id": <N>}}
 //

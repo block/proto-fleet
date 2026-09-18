@@ -1,6 +1,6 @@
 /**
  * Saved fleet views: tab + filters + sort bundled into named, persistable
- * presets. See docs/plans/2026-04-30-custom-views.md and issue #398.
+ * presets. See issue #398.
  */
 
 import { TELEMETRY_FILTER_BOUNDS } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";

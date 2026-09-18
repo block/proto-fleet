@@ -81,6 +81,15 @@ The pre-push hooks also run repository checks before a branch can be pushed:
 
 ## Git Workflow
 
+### Planning and Documentation
+
+Keep implementation plans, TDDs, PRDs, RFC proposals, and task scratchpads out
+of Git. Use issue/PR discussions, external documents, or ignored local
+`docs/plans/` files for planning. Commit maintained documentation that describes
+the current system, such as architecture, API behavior, runbooks, and reusable
+development guidance. When work ships, update those documents with the lasting
+decisions and behavior.
+
 ### Branch Naming
 
 Create feature branches with descriptive names:

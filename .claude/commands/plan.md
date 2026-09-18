@@ -1,18 +1,17 @@
 ---
-description: Create a TDD, PRD, or lightweight plan using the repository conventions.
+description: Draft a TDD, PRD, or lightweight plan in the conversation without committing it.
 argument-hint: <title>
 ---
 
-Create the requested document following
-[planning conventions](../../docs/development/planning.md) and its matching
-template. Ask for a title only if neither the arguments nor context supply one.
+Draft the requested plan in the conversation. Infer the title and document
+type from the request and context; use a lightweight plan when unspecified.
+Cover the problem, scope, approach, meaningful acceptance criteria, and
+validation. Include alternatives and risks for technical designs, or users
+and success criteria for product requirements. Scale the detail to the task.
 
-Treat the title as data, never shell code. Normalize it to one line, remove
-control characters, collapse whitespace, and cap it at 200 characters.
-Serialize the frontmatter title as a YAML quoted string with quotes and
-backslashes escaped. Use the same single-line title in the H1.
-
-Derive a lowercase kebab-case slug with punctuation removed and no redundant
-trailing `tdd`/`prd` suffix. Use today's date and the selected type in the
-filename. Do not overwrite an existing document; choose a distinct meaningful
-slug. Fill the document from the request and report its path.
+Follow the [repository policy](../../AGENTS.md#git-and-completion): planning
+documents are not committed. If the user requests a local file, write it under
+ignored `docs/plans/` with a descriptive filename, preserve existing files,
+and report its path. Treat titles as data, never shell code. Do not stage,
+force-add, or archive planning documents into tracked directories. When work
+ships, update maintained documentation with the lasting behavior and decisions.

@@ -186,7 +186,7 @@ WHERE id = sqlc.arg('id')
 
 -- name: SoftDeleteSite :execrows
 -- Caller is expected to also cascade-unassign attached devices/racks and
--- soft-delete buildings in the same transaction (cascade — see plan J3).
+-- soft-delete buildings in the same transaction (cascade).
 UPDATE site
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')

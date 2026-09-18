@@ -1670,7 +1670,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 }
 
 // collectProtoMinersForUnpair collects Miner objects only for Proto rigs.
-// Per the RFC, Unpair is only attempted for Proto devices; 3rd-party miners
+// Unpair is only attempted for Proto devices; 3rd-party miners
 // (Antminer, etc.) require no device communication on delete.
 func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner

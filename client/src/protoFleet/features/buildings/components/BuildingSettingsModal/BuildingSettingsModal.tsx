@@ -94,9 +94,8 @@ export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
 // grid; anything above that risks a browser hang on render.
 const LAYOUT_DIMENSION_MAX = 100;
 
-// Building type is deferred (proto `building_type` enum has not shipped — see
-// plan §898). A disabled dropdown keeps the design intent visible without
-// storing a value.
+// Building type is not exposed by the proto. A disabled dropdown keeps the
+// design intent visible without storing a value.
 const BUILDING_TYPE_OPTIONS = [{ value: "", label: "—" }];
 
 // Create-mode variants. "single" is the original one-building form; "multiple"

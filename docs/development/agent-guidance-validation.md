@@ -1,5 +1,9 @@
 # Agent guidance validation — 2026-09-18
 
+This is a historical validation record. Planning conventions described below
+have since been replaced by the policy in [AGENTS.md](../../AGENTS.md#git-and-completion)
+to keep planning documents out of commits.
+
 Compared the revised guidance with repository baseline
 `fd35e6d07f025a4e1f6db221daa39ecccba42457`. This is a documentation review and
 instruction-level back-test, not a measured agent benchmark or application

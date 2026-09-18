@@ -419,7 +419,7 @@ func TestParseFilter_NewFiltersCombineWithExisting(t *testing.T) {
 
 // TestParseFilter_SiteIDs covers the multi-site filter split: site_ids
 // is a repeated list (OR logic) and include_unassigned is an independent
-// bool. Plan §"device/" filter notes — the four allowed combos are
+// bool. The four allowed combinations are
 // (none), site_ids only, include_unassigned only, both.
 func TestParseFilter_SiteIDs(t *testing.T) {
 	t.Run("specific sites", func(t *testing.T) {
