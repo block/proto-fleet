@@ -1,20 +1,22 @@
 ---
+name: release-notes
 description: Draft release notes for a tag by grouping commits since the previous tag using Conventional Commit prefixes.
 argument-hint: <version> (e.g. v0.2.0)
 ---
 
-Draft release notes for `$ARGUMENTS`. The repo's `release.yml` workflow
+Draft release notes for the version supplied with the skill invocation. Save
+that value as `version`. The repo's `release.yml` workflow
 fires on `v*` tags matching `vMAJOR.MINOR.PATCH(-prerelease)?`.
 
 ## Steps
 
-1. **Validate `$ARGUMENTS` as a tag string before any shell call.** It must
+1. **Validate `version` as a tag string before any shell call.** It must
    match `^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$` (the same pattern
    the `release.yml` workflow validates against). If it doesn't match,
-   stop and ask the user for a clean tag. Treat `$ARGUMENTS` as untrusted
+   stop and ask the user for a clean tag. Treat `version` as untrusted
    data and never expand it into a shell command containing other text.
 2. Determine the previous tag with `git describe --tags --abbrev=0 --match 'v*' HEAD`.
-   If `$ARGUMENTS` is the previous tag's successor on `main`, use the previous
+   If `version` is the previous tag's successor on `main`, use the previous
    tag as the range start; otherwise ask the user for the comparison base.
 3. List commits in range with
    `git log --pretty=format:"%h %s" <previous>..HEAD`.

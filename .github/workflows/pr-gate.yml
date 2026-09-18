@@ -32,6 +32,7 @@ jobs:
       rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
     steps:
@@ -162,6 +163,21 @@ jobs:
     uses: ./.github/workflows/powershell-lint.yml
     secrets: inherit
 
+  developer-workflow-tests:
+    name: Developer Workflow Tests
+    needs: changes
+    if: needs.changes.outputs.developer_workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Hermit
+        uses: ./.github/actions/hermit-setup
+      - name: Test developer workflows
+        run: just test-developer-workflows
+
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
@@ -214,6 +230,7 @@ jobs:
       - rust-sdk-checks
       - windows-checks
       - powershell-lint
+      - developer-workflow-tests
       - protofleet-e2e-tests
       - protoos-e2e-tests
       - review-policy-tests

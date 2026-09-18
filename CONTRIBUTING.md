@@ -72,12 +72,15 @@ The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ru
 
 ### Pre-Push Checks
 
-The pre-push hooks also run repository checks before a branch can be pushed:
+The pre-push hook runs checks selected from committed, staged, unstaged, and
+untracked files. It always checks diff whitespace, then routes affected paths to:
 
-- `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
-- `server`: `golangci-lint run -c .golangci.yaml`
-- `plugin/proto`: `golangci-lint run -c .golangci.yaml`
-- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
+- Protobuf linting
+- Client linting and TypeScript typechecking
+- Server linting
+- Proto plugin linting
+- Antminer plugin linting
+- Developer-workflow configuration and shared-agent-skill parity tests
 
 ## Git Workflow
 
@@ -124,7 +127,8 @@ Prefixes:
 Follow the [PR description standard](docs/development/pr-descriptions.md),
 including the reviewable diff, architecture, diagrams, and validation evidence.
 Scale the detail to the change while retaining the required structure.
-Claude Code users can generate a conforming description with `/pr-describe`.
+Claude Code users can generate a conforming description with `/pr-describe`;
+Codex users can run the same shared skill with `$pr-describe`.
 
 ## Cross-Component Workflows
 
