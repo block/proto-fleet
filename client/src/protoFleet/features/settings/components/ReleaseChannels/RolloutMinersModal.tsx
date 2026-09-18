@@ -8,6 +8,7 @@ import {
   isActive,
   metricDisplay,
   type MetricKind,
+  minerLabel,
   scopeDevices,
 } from "./rolloutStatus";
 import { useRefreshingRead } from "./useRefreshingRead";
@@ -214,7 +215,7 @@ const RolloutMinersModal = ({
       (devices ?? []).map((device) => ({
         id: device.deviceIdentifier,
         device,
-        name: minerNames[device.deviceIdentifier] ?? device.deviceIdentifier,
+        name: minerLabel(device.deviceIdentifier, minerNames),
       })),
     [devices, minerNames],
   );

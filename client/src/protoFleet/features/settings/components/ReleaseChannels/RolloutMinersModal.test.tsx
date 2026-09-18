@@ -39,6 +39,21 @@ const propsFor = () => ({
 });
 
 describe("rollout miner detail loading", () => {
+  it.each(["constructor", "toString", "__proto__"])(
+    "uses only stored display names for identifier %s",
+    async (deviceIdentifier) => {
+      const props = propsFor();
+      props.listRolloutDevices.mockResolvedValue([create(RolloutDeviceSchema, { ...done, deviceIdentifier })]);
+      const { rerender } = render(<RolloutMinersModal {...props} minerNames={{}} />);
+      expect(await screen.findByText(deviceIdentifier)).toHaveAttribute("title", deviceIdentifier);
+
+      rerender(<RolloutMinersModal {...props} minerNames={Object.fromEntries([[deviceIdentifier, "Named miner"]])} />);
+      expect(screen.getByText("Named miner")).toHaveAttribute("title", "Named miner");
+      expect(screen.queryByText(deviceIdentifier)).not.toBeInTheDocument();
+      expect(props.listRolloutDevices).toHaveBeenCalledOnce();
+    },
+  );
+
   it("finishes slow scans across summary polls and preserves filtering and names during the trailing refresh", async () => {
     const first = deferred<RolloutDevice[]>();
     const second = deferred<RolloutDevice[]>();
