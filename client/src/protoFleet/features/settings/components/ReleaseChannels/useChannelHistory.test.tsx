@@ -27,6 +27,48 @@ const historical = create(RolloutSchema, {
 });
 
 describe("on-demand channel history", () => {
+  it("bounds complete scans and queues retries without blocking peers after a failure", async () => {
+    const scans = new Map<bigint, ReturnType<typeof pendingHistory>>();
+    let active = 0;
+    let peak = 0;
+    const loader = vi.fn((id: bigint) => {
+      const scan = pendingHistory();
+      scans.set(id, scan);
+      peak = Math.max(peak, ++active);
+      return scan.promise.finally(() => active--);
+    });
+    const ids = [1n, 2n, 3n, 4n, 5n, 6n, 7n];
+    const { result } = renderHook(() =>
+      useChannelHistory({ channelIds: ids, rollouts: [], listChannelRollouts: loader }),
+    );
+    expect(loader.mock.calls.map(([id]) => id)).toEqual([1n, 2n, 3n, 4n]);
+    expect(ids.map((id) => result.current.states.get(id)?.status)).toEqual(ids.map(() => "loading"));
+
+    await act(async () => {
+      scans.get(1n)!.resolve([historical, { ...historical, id: 99n, channelId: 99n }]);
+      scans.get(2n)!.reject(new Error("History unavailable"));
+    });
+    expect(result.current.rollouts).toEqual([historical]);
+    expect(result.current.states.get(1n)?.status).toBe("ready");
+    expect(result.current.states.get(2n)).toMatchObject({ status: "error", error: "History unavailable" });
+    expect(loader.mock.calls.map(([id]) => id)).toEqual([1n, 2n, 3n, 4n, 5n, 6n]);
+    act(() => result.current.retry(2n));
+    expect(result.current.states.get(2n)?.status).toBe("loading");
+    expect(loader).toHaveBeenCalledTimes(6);
+
+    await act(async () => scans.get(3n)!.resolve([]));
+    expect(loader.mock.calls.map(([id]) => id)).toEqual([1n, 2n, 3n, 4n, 5n, 6n, 2n]);
+    await act(async () => scans.get(2n)!.resolve([]));
+    expect(loader).toHaveBeenLastCalledWith(7n, expect.any(AbortSignal));
+    await act(async () => {
+      for (const id of [4n, 5n, 6n, 7n]) scans.get(id)!.resolve([]);
+    });
+    expect(ids.map((id) => result.current.states.get(id)?.status)).toEqual(ids.map(() => "ready"));
+    expect(peak).toBe(4);
+    expect(active).toBe(0);
+    expect(loader).toHaveBeenCalledTimes(8);
+  });
+
   it("loads only demanded channels and keeps completed history across new core snapshots and reopens", async () => {
     const loader = vi.fn().mockResolvedValue([historical]);
     const { result, rerender } = renderHook(

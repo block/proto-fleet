@@ -8,6 +8,8 @@ export type ChannelHistoryState = { status: "loading" | "ready" | "error"; error
 type HistoryEntry = ChannelHistoryState & { rollouts?: Rollout[] };
 type HistoryLoader = (channelId: bigint, signal?: AbortSignal) => Promise<Rollout[]>;
 
+const HISTORY_LOAD_CONCURRENCY = 4;
+
 // History belongs to the surfaces that request it. Completed scans remain cached
 // for this login; current polling rows overlay them without losing older outcomes.
 export function useChannelHistory({
@@ -25,31 +27,25 @@ export function useChannelHistory({
   const identity = JSON.stringify([username, sessionGeneration, isAuthenticated]);
   const requestedKey = [...new Set(channelIds.map(String))].sort().join(",");
   const requested = useMemo(() => new Set(requestedKey ? requestedKey.split(",").map(BigInt) : []), [requestedKey]);
-  const entries = useRef(new Map<bigint, HistoryEntry>());
-  const pending = useRef(new Map<bigint, AbortController>());
-  const session = useRef<object | null>(null);
-  const [retryAttempt, setRetryAttempt] = useState(0);
-  const [snapshot, setSnapshot] = useState({ identity, loader: listChannelRollouts, entries: entries.current });
+  const controls = useRef<{
+    request: (ids: ReadonlySet<bigint>) => void;
+    retry: (id: bigint) => void;
+  } | null>(null);
+  const [snapshot, setSnapshot] = useState({
+    identity,
+    loader: listChannelRollouts,
+    entries: new Map<bigint, HistoryEntry>(),
+  });
 
   useEffect(() => {
-    session.current = {};
-    const controllers = pending.current;
-    entries.current = new Map();
-    setSnapshot({ identity, loader: listChannelRollouts, entries: entries.current });
-    return () => {
-      session.current = null;
-      for (const controller of controllers.values()) controller.abort();
-      controllers.clear();
-    };
-  }, [identity, listChannelRollouts]);
-
-  useEffect(() => {
-    const token = session.current;
+    let current = true;
+    let demanded: ReadonlySet<bigint> = new Set();
+    const entries = new Map<bigint, HistoryEntry>();
+    const pending = new Map<bigint, AbortController>();
     const isCurrent = () => {
       const auth = useFleetStore.getState().auth;
       return (
-        token !== null &&
-        session.current === token &&
+        current &&
         isAuthenticated &&
         auth.isAuthenticated &&
         auth.username === username &&
@@ -57,54 +53,70 @@ export function useChannelHistory({
       );
     };
     const publish = () => {
-      if (isCurrent()) setSnapshot({ identity, loader: listChannelRollouts, entries: new Map(entries.current) });
+      if (isCurrent()) setSnapshot({ identity, loader: listChannelRollouts, entries: new Map(entries) });
     };
-    let changed = false;
-    for (const [id, controller] of pending.current) {
-      if (requested.has(id)) continue;
-      controller.abort();
-      pending.current.delete(id);
-      if (entries.current.get(id)?.status === "loading") entries.current.delete(id);
-      changed = true;
-    }
-    if (!isCurrent()) return;
-    for (const id of requested) {
-      if (entries.current.has(id)) continue;
-      const controller = new AbortController();
-      pending.current.set(id, controller);
-      entries.current.set(id, { status: "loading" });
-      changed = true;
-      const isCurrentRequest = () =>
-        isCurrent() && !controller.signal.aborted && pending.current.get(id) === controller;
-      listChannelRollouts(id, controller.signal)
-        .then((history) => {
-          if (!isCurrentRequest()) return;
-          entries.current.set(id, { status: "ready", rollouts: history.filter((rollout) => rollout.channelId === id) });
-          publish();
-        })
-        .catch((error: unknown) => {
-          if (!isCurrentRequest()) return;
-          entries.current.set(id, {
-            status: "error",
-            error: error instanceof Error && error.message ? error.message : "Couldn't load update history",
-          });
-          publish();
-        })
-        .finally(() => {
-          if (pending.current.get(id) === controller) pending.current.delete(id);
+    const load = async (id: bigint, controller: AbortController) => {
+      const isCurrentRequest = () => isCurrent() && !controller.signal.aborted && demanded.has(id);
+      try {
+        const history = await listChannelRollouts(id, controller.signal);
+        if (!isCurrentRequest()) return;
+        entries.set(id, { status: "ready", rollouts: history.filter((rollout) => rollout.channelId === id) });
+      } catch (error) {
+        if (!isCurrentRequest()) return;
+        entries.set(id, {
+          status: "error",
+          error: error instanceof Error && error.message ? error.message : "Couldn't load update history",
         });
-    }
-    if (changed) publish();
-  }, [requested, identity, isAuthenticated, username, sessionGeneration, listChannelRollouts, retryAttempt]);
+      }
+      publish();
+    };
+    const pump = () => {
+      // Demand without a cached entry or active scan is the queue. Always read
+      // the latest demand, including after a scan finishes or a retry is queued.
+      for (const id of demanded) {
+        if (!isCurrent() || pending.size >= HISTORY_LOAD_CONCURRENCY) return;
+        if (entries.has(id) || pending.has(id)) continue;
+        const controller = new AbortController();
+        pending.set(id, controller);
+        entries.set(id, { status: "loading" });
+        void load(id, controller).finally(() => {
+          pending.delete(id);
+          pump();
+        });
+      }
+    };
+    controls.current = {
+      request: (ids) => {
+        demanded = ids;
+        for (const [id, controller] of pending) {
+          if (demanded.has(id)) continue;
+          controller.abort();
+          // Keep its slot until the transport settles; closing and reopening
+          // channels must not create overlapping scans beyond the limit.
+          if (entries.get(id)?.status === "loading") entries.delete(id);
+        }
+        pump();
+        publish();
+      },
+      retry: (id) => {
+        if (!isCurrent() || !demanded.has(id) || entries.get(id)?.status !== "error") return;
+        entries.delete(id);
+        pump();
+        publish();
+      },
+    };
+    return () => {
+      current = false;
+      controls.current = null;
+      for (const controller of pending.values()) controller.abort();
+    };
+  }, [identity, isAuthenticated, username, sessionGeneration, listChannelRollouts]);
 
-  const retry = useCallback(
-    (id: bigint) => {
-      if (!requested.has(id) || entries.current.get(id)?.status !== "error") return;
-      entries.current.delete(id);
-      setRetryAttempt((attempt) => attempt + 1);
-    },
-    [requested],
-  );
+  useEffect(() => {
+    controls.current?.request(requested);
+  }, [requested, identity, listChannelRollouts]);
+
+  const retry = useCallback((id: bigint) => controls.current?.retry(id), []);
   const currentEntries =
     snapshot.identity === identity && snapshot.loader === listChannelRollouts ? snapshot.entries : undefined;
   const states = new Map<bigint, ChannelHistoryState>(currentEntries);
