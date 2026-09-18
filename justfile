@@ -388,7 +388,7 @@ _client-init force="false":
   INSTALL_CONFIG="$(
     cd client
     npm config get \
-      legacy-peer-deps install-links install-strategy strict-peer-deps omit include \
+      legacy-peer-deps install-links bin-links install-strategy strict-peer-deps omit include \
       --include=dev --include=optional
   )"
   WANT_HASH="$(

@@ -80,13 +80,29 @@ for job in plugin-proto-lint plugin-antminer-lint; do
   done
 done
 
+ci_global_paths=()
+while IFS= read -r global_path; do
+  ci_global_paths+=("$global_path")
+done < <(awk '
+  /^global: &global$/ { capture = 1; next }
+  capture && /^[^[:space:]]/ { exit }
+  capture && /^  - / { sub(/^  - /, ""); gsub(/^"|"$/, ""); print }
+' .github/path-filters.yml)
+
+if [ "${#ci_global_paths[@]}" -eq 0 ]; then
+  echo "CI global path filter is empty or could not be parsed" >&2
+  exit 1
+fi
+
 for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antminer-lint; do
-  if ! jq -e --arg job "$job" \
-    '."changed-checks".commands[$job].glob | index("justfile")' \
-    <<<"$lefthook_config" >/dev/null; then
-    echo "$job does not run when justfile changes" >&2
-    exit 1
-  fi
+  for global_path in "${ci_global_paths[@]}"; do
+    if ! jq -e --arg job "$job" --arg path "$global_path" \
+      '."changed-checks".commands[$job].glob | index($path)' \
+      <<<"$lefthook_config" >/dev/null; then
+      echo "$job does not run for CI-global path: $global_path" >&2
+      exit 1
+    fi
+  done
 done
 
 client_init_recipe="$(just --dry-run _client-init 2>&1)"
@@ -103,7 +119,7 @@ for install_input in \
   npm_config_platform NPM_CONFIG_PLATFORM process.platform 'platform=$INSTALL_PLATFORM' \
   npm_config_arch NPM_CONFIG_ARCH process.arch 'arch=$INSTALL_ARCH' \
   npm_config_libc NPM_CONFIG_LIBC glibcVersionRuntime '"glibc"' '"musl"' 'libc=$INSTALL_LIBC' \
-  'npm config get' legacy-peer-deps install-links install-strategy strict-peer-deps omit include \
+  'npm config get' legacy-peer-deps install-links bin-links install-strategy strict-peer-deps omit include \
   '--include=dev --include=optional' '"$INSTALL_CONFIG"' \
   'include=dev' 'include=optional'; do
   if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then

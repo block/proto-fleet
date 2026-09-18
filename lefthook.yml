@@ -78,47 +78,102 @@ changed-checks:
 
     protobuf-lint:
       glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
         - "proto/**/*.proto"
         - "buf.yaml"
         - "buf.lock"
         - "buf.gen.yaml"
-        - "justfile"
       run: just _lint-protos
 
     client-check:
       glob:
-        - "client/**"
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
         - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
+        - "client/**"
       run: just _check-client
 
     server-lint:
       glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
         - "server/**"
         - "go.work"
         - "go.work.sum"
-        - "justfile"
       run: just _lint-server
 
     plugin-proto-lint:
       glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
         - "plugin/proto/**"
         - "server/go.mod"
         - "server/go.sum"
         - "server/sdk/**"
         - "go.work"
         - "go.work.sum"
-        - "justfile"
       run: cd plugin/proto && golangci-lint run -c .golangci.yaml
 
     plugin-antminer-lint:
       glob:
+        - ".github/actions/**"
+        - ".github/workflows/**"
+        - ".github/*.{yml,yaml}"
+        - ".github/skills/**"
+        - "bin/**"
+        - "hermit-packages/**"
+        - "just/**"
+        - "justfile"
+        - "scripts/**"
+        - "deployment-files/docker-compose*.{yml,yaml}"
+        - "deployment-files/*.sh"
+        - "deployment-files/scripts/**"
         - "plugin/antminer/**"
         - "server/go.mod"
         - "server/go.sum"
         - "server/sdk/**"
         - "go.work"
         - "go.work.sum"
-        - "justfile"
       run: cd plugin/antminer && golangci-lint run -c .golangci.yaml
 
     developer-workflow-tests:
