@@ -1,6 +1,6 @@
 ---
 name: python-gen-tarball
-description: Use whenever the user changes any source under `packages/proto-python-gen/` (Python source, `setup.sh`, `requirements.txt`, `bin/`) or edits `scripts/pip-config.sh` (which gets bundled). The Python proto generator ships as a versioned tarball that Hermit consumes; if source changes but the tarball isn't rebuilt and committed, downstream consumers silently use the stale generator.
+description: Rebuild the Python generator distribution after source or bundled scripts/pip-config.sh changes.
 ---
 
 # python-gen-tarball

@@ -157,7 +157,7 @@ message ActivityFilter {
 }
 ```
 
-Regen via the `regen` / `proto-regen` skill (do not hand-edit generated
+Regen via the `regen` / `code-generation` skill (do not hand-edit generated
 files).
 
 ### Query (sqlc)

@@ -1,6 +1,6 @@
 ---
 name: plugin-contract-tests
-description: Use when editing miner-protocol code under `plugin/proto/`, `plugin/antminer/`, or `plugin/virtual/`, or when changing test fixtures consumed by `tests/plugin-contract/`. The contract suite is the canonical check that a plugin still meets the miner driver contract; it is Docker-heavy and easy to skip, but plugin behavior regressions only surface here.
+description: Verify miner-driver behavior after protocol or contract-fixture changes.
 ---
 
 # plugin-contract-tests
@@ -17,6 +17,8 @@ it's a feedback delay.
    root. It builds the Go plugins, compiles the test binary once, and runs
    `TestAntminerStock`, `TestAntminerVNish`, and `TestWhatsMinerStock` in
    isolated containers.
+   For ASIC-rs platform prerequisites, including the current macOS recipe
+   blocker, read [build guidance](../asicrs-build/SKILL.md).
 2. Surface the failing test name and the plugin under test (the test names
    map to the miner model, not the plugin module — read the suite output
    carefully).

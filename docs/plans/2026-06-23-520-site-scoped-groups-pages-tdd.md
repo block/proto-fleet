@@ -253,7 +253,7 @@ members), and the action must execute on the in-scope set.
 
 ### Regen
 
-After proto edits run `/regen` (see `proto-regen` skill). Commit generated
+After proto edits run `/regen` (see `code-generation` skill). Commit generated
 Go + TS in the same PR.
 
 ## Client changes

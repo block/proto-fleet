@@ -224,7 +224,7 @@ PerDeviceConflict conflicts`. No new RPCs — the fields hang off the existing
 Then `just gen` (regenerates Go `server/generated/grpc/`, TS
 `client/src/protoFleet/api/generated/`, and the Go+Python SDK). **Commit the
 `.proto` and all generated output in one commit** (AGENTS.md rule; see the
-`proto-regen` skill for the protoc-gen-es version-pinning gotcha).
+`code-generation` skill for the protoc-gen-es version-pinning gotcha).
 
 ## Handler + RBAC
 

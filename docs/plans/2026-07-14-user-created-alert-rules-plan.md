@@ -112,7 +112,7 @@ Extend `Rule` with `config` (populated for user rules) and `origin`
 (`PROVISIONED | USER`) so the client can gate row actions and prefill the
 edit modal. Severity is fixed per template, derived server-side, and not
 part of `RuleConfig` (decided; matches the provisioned defaults).
-Regenerate via `just gen` (proto-regen skill).
+Regenerate via `just gen` (code-generation skill).
 
 ### U2. Grafana client write methods
 

@@ -1,75 +1,49 @@
 ---
-description: Run pre-PR checks (lint, targeted tests, diff review), draft a PR description, and optionally open the PR if the user asked.
-argument-hint: (no arguments; pass any text mentioning "open" or "create" to also run gh pr create)
+description: Verify a branch, resolve in-scope failures, and prepare its PR description; publish only when requested.
+argument-hint: "(optional: audit only, or explicit request to open the PR)"
 ---
 
-Sweep the current branch for issues before opening a PR. The goal is to catch
-the things CI will flag, surface anything risky, and give the user a draft
-PR description they can paste — or open the PR directly if asked.
+# PR readiness
 
-## Steps
+Establish the actual target and immediate base using
+[/pr-describe](pr-describe.md)'s target-resolution guidance before assessing
+the diff. Include working-tree changes in local readiness checks; do not use
+`main...HEAD` for a stacked PR. A remote PR whose branch is not checked out
+can be reviewed, but local test results are not evidence for that remote head.
 
-1. Run `git status` and `git diff main...HEAD --stat` to see the scope of
-   changes. Note which areas are touched: `server/`, `client/`, `plugin/`,
-   `proto/`, `packages/proto-python-gen/`, etc.
-2. Run `just lint`. Report any failures verbatim and stop if it fails — the
-   user should fix lint before continuing.
-3. Run targeted tests based on what was touched (do not run everything):
-   - `server/` changes → `cd server && just test` (or a narrower `go test`
-     scope if the diff is small)
-   - `client/` changes → `cd client && npm test -- --run` for affected files
-   - `plugin/` or `.proto` changes → `just test-contract`
-   - **`plugin/asicrs/`, `sdk/rust/`, or `server/sdk/v1/pb/` changes →
-     `just rebuild-plugin asicrs` then `just test-contract`.** The contract
-     suite's freshness check can skip the ASIC-rs rebuild after a clean
-     checkout or branch switch — force the rebuild explicitly so tests
-     don't run against a stale binary.
-   - **`server/fake-antminer/` or `server/fake-proto-rig/` changes →
-     `just test-contract`** (fake rigs are consumed by both contract and
-     E2E tests; mention E2E as a manual follow-up since they're slow).
-   - Python generator changes → `cd packages/proto-python-gen && just test`
-   - Python SDK changes → `cd server/sdk/v1/python && just test`
-4. Verify ALL path-triggered skills (not just the generated-code subset)
-   have nothing outstanding for the touched paths. The skills auto-fire
-   during edits, but this is the terminal check — surface anything that
-   slipped through. Common gaps to look for: stale generated files
-   (`proto-regen`, `db-generation-hygiene`), missing tarball rebuild
-   (`python-gen-tarball`), missing `go work sync` (`go-work-sync`), stale
-   ASIC-rs binary (`asicrs-build`), fake-rig changes without contract
-   coverage (`fake-rig-fixtures`), new `console.log` or app-boundary
-   imports (`client-boundaries`), edits to deployed migrations
-   (`migration-immutability`), `--no-verify` slipping in
-   (`lefthook-bypass-guard`).
-5. Draft a PR description following the **PR descriptions** standard in
-   AGENTS.md — the same six-part structure `/pr-describe` produces: Summary,
-   How it works, Diagrams (mermaid), Areas of the code involved, Key technical
-   decisions & trade-offs, and Testing & validation. Fold the lint and test
-   results from steps 2–4 into the Testing & validation section. Reuse the
-   step-1 diff inline only when this branch targets the default branch. If it is
-   stacked or part of a series (its base is not the default branch, or sibling/
-   child PRs exist), do **not** reuse the `main...HEAD` scope: run `/pr-describe`,
-   which resolves the PR's real base, scopes the diff to the immediate base, and
-   adds the Stack note. Reusing `main...HEAD` there would fold in ancestor
-   changes and misrepresent what this PR actually changes.
-6. **Open the PR only if the user's invocation explicitly asked you to**
-   (e.g. "open it", "create the PR", "ship it"). Otherwise stop after
-   presenting the draft so the user can edit it before running
-   `gh pr create` themselves.
+Complete applicable checks and produce a description following the
+[PR standard](../../docs/development/pr-descriptions.md). For implementation
+work, fix lint/test/generation failures caused by the requested change and
+rerun affected checks. For an explicit audit-only request, inspect and report
+without editing. Report unrelated failures or unavailable prerequisites with
+their impact; do not silently call blocked validation a pass.
 
-   When opening the PR:
-   1. Confirm `git branch --show-current` is not `main` or `master`. If it
-      is, stop — there's nothing to PR.
-   2. Push the branch with `git push -u origin <branch>` if it doesn't yet
-      track a remote.
-   3. Run `gh pr create --title "<title>" --body "<drafted description>"`,
-      passing the body via a heredoc to preserve formatting.
-   4. Output the resulting PR URL.
+## Check selection
 
-## Notes
+Use the `justfile`s and affected behavior to choose checks. For code changes,
+run `just lint` and relevant tests; documentation-only changes need link,
+instruction, and formatting checks rather than application suites.
 
-- Do not run E2E tests by default — they're slow and require docker-compose.
-  Mention them as a manual follow-up if the diff suggests UI/API behavior
-  changes worth verifying end-to-end.
-- If lint, tests, or the hygiene check (steps 2–4) fail, do not proceed to
-  step 6 even if the user asked for the PR to be opened. Surface the
-  failures and ask.
+| Changed area | Verification |
+| --- | --- |
+| Server behavior | `cd server && just test`, or affected Go packages |
+| Client behavior | Affected Vitest tests via `cd client && npm test -- --run`; typecheck when types/imports change |
+| Miner protocol or shared fake rigs | `just test-contract`; relevant E2E when changed behavior is consumed there |
+| ASIC-rs, Rust SDK, or `server/sdk/v1/pb/` | [ASIC-rs build guidance](../skills/asicrs-build/SKILL.md), then affected contract coverage |
+| Proto/schema/query or generator config | [Generation skill](../skills/code-generation/SKILL.md), affected consumer tests |
+| Python generator | [Packaging skill](../skills/python-gen-tarball/SKILL.md); `just package` includes its tests |
+| Python SDK | `cd server/sdk/v1/python && just test` |
+| Playwright coverage | [E2E skill](../skills/proto-fleet-playwright-e2e/SKILL.md) |
+
+Check applicable scoped guidance for client boundaries, migration
+immutability, Go workspace sync, and generated artifacts. Do not load every
+skill or rerun already-passing checks without a new change or unresolved risk.
+
+## Finish
+
+Report remaining risks and validation gaps, and prepare the description.
+Commit, push, or open the PR only when requested by the user. Existing
+authorization carries forward; do not ask again after successful checks.
+Do not publish while required checks remain failed or blocked; report the
+blocker and the decision needed. Verify the feature branch before committing,
+preserve hooks, and pass PR descriptions through `--body-file`.

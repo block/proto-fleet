@@ -1,29 +1,32 @@
 ---
 name: asicrs-build
-description: Use when editing files under `plugin/asicrs/`, `sdk/rust/`, or `server/sdk/v1/pb/` (which the asicrs build also consumes). The ASIC-rs plugin is a Rust binary built via Docker and cached against an `.asicrs-platform` marker; source changes that bypass `just _asicrs-build` or `just rebuild-plugin asicrs` will leave the loaded plugin stale.
+description: Rebuild ASIC-rs after changes to plugin/asicrs, sdk/rust, or server/sdk/v1/pb inputs.
 ---
 
-# asicrs-build
+# ASIC-rs builds
 
-`just build-plugins` and `just test-contract` rebuild ASIC-rs only when its
-freshness check (mtime against the `BIN` plus a `find -newer` over
-`plugin/asicrs sdk/rust server/sdk/v1/pb`) trips. That check is robust for
-typical edits but skips when the binary mtime is newer than the source —
-which is true after a clean checkout or when switching branches.
+The `justfile` checks source mtimes against the plugin binary and its
+`.asicrs-platform` marker. Branch switches or checkouts can leave a newer
+binary beside different, older sources. Force a rebuild when verifying
+changes to these inputs rather than trusting that cache.
 
-## What to do
+- Docker dev runtime (Linux ARM64): `just rebuild-plugin asicrs` clears the
+  marker and invokes the Docker build.
+- Native runtime: remove only the generated
+  `server/plugins/.asicrs-platform` marker, then run `just _asicrs-build`.
+  On macOS this uses local Cargo; on Linux the recipe uses Docker.
+  Do not treat the Docker ARM64
+  artifact as a macOS-native binary.
 
-1. After editing any source under `plugin/asicrs/`, `sdk/rust/`, or
-   `server/sdk/v1/pb/`, force a rebuild:
-   - Local development: `just rebuild-plugin asicrs`
-   - Docker dev runtime (Linux ARM64): same command — it sets
-     `_asicrs-build-docker` after removing the platform marker.
-2. Run `just test-contract` if the change affects miner-driver behavior.
-3. If switching between native and Docker runtimes, expect a full rebuild
-   the first time — the `.asicrs-platform` marker is what disambiguates.
+Run `just test-contract` for miner-driver behavior changes on a compatible
+Linux runner. The current recipe depends on `_asicrs-build` but executes the
+plugin inside Linux containers. On macOS that dependency produces a Mach-O
+binary, so the ASIC-rs contract checks are blocked by the recipe's platform
+mismatch. A preceding Docker build does not fix this: the dependency switches
+the marker back to native. Report the blocker or use an authorized Linux
+runner; do not claim native build success verifies the container contracts.
 
-## What to avoid
-
-- Don't hand-edit `server/plugins/asicrs-config.yaml` to make tests pass —
-  the contract harness rewrites it per suite, and your edits will be
-  overwritten.
+Switching between
+native and Docker runtimes changes the marker and requires a rebuild.
+Do not hand-edit `server/plugins/asicrs-config.yaml` to pass tests; the
+contract harness rewrites it for each suite.

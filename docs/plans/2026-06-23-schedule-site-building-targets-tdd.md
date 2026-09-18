@@ -83,7 +83,7 @@ and the Site-button visibility just consume `activeSite` / `scope` that
 
 ## Backend design
 
-### Proto (regen via `proto-regen`)
+### Proto (regen via `code-generation`)
 
 Add to `ScheduleTargetType` in `proto/schedule/v1/schedule.proto`:
 

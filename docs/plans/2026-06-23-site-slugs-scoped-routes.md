@@ -168,7 +168,7 @@ Down migration drops the index and the column. Follow the
 ### Proto (`proto/sites/v1/sites.proto`)
 - `Site`: add `string slug = 17;` (read-only output).
 - `CreateSiteRequest` / `UpdateSiteRequest`: **no change** for v1.
-- Regenerate clients (`just regen` / proto-regen skill).
+- Regenerate clients (`just gen` / code-generation skill).
 
 ### sqlc (`server/sqlc/queries/site.sql`)
 - `CreateSite`: add `slug` to the column list and args, `RETURNING *` already

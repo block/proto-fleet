@@ -1,32 +1,25 @@
 ---
 name: docker-compose-dev
-description: Use when editing `server/docker-compose.yaml` or `server/docker-compose.base.yaml`, or when troubleshooting a `just dev` startup. Proto Fleet requires Docker host networking on macOS/Windows; service definitions split between `base` (shared) and the runtime override file.
+description: Edit the development Compose stack or diagnose just dev startup and networking failures.
 ---
 
-# docker-compose-dev
+# Development Compose
 
-`just dev` runs the stack via Docker Compose. The split is:
+`just dev` builds Docker plugins and invokes `dev.sh`. Inspect that script
+and the relevant Compose files when diagnosing startup:
 
-- `docker-compose.base.yaml` — shared service definitions
-- `docker-compose.yaml` — local-development overrides that extend `base`
+- `server/docker-compose.base.yaml`: shared definitions consumed by dev and
+  deployment overrides.
+- `server/docker-compose.yaml`: local development services and overrides.
 
-On macOS and Windows (via Docker Desktop), **host networking must be enabled**
-in Docker Desktop settings (`Settings → Resources → Network → Enable host
-networking`) — without it, the server cannot reach plugins or fake rigs on
-their bound ports. Linux gets this implicitly.
+The current dev stack uses `fleet-network` with explicit port mappings.
+Do not require Docker Desktop host networking or change the network mode
+based on older setup instructions. Verify the effective Compose service,
+container address, published host port, and plugin configuration involved.
 
-## What to do
-
-1. When adding or modifying a service, check whether it belongs in `base`
-   (shared with deployment artifacts) or only in the dev override.
-2. Preserve port bindings that match what plugins and `fake-antminer` /
-   `fake-proto-rig` expect (4028 for cgminer, 80 for Antminer Web API).
-3. If a service fails to come up, first verify host networking is enabled
-   on Docker Desktop before debugging YAML.
-
-## What to avoid
-
-- Don't switch services from host networking to bridge networking to "fix"
-  a port conflict — it breaks plugin↔miner communication on Mac/Win.
-- Don't add new exposed-port mappings that overlap the cgminer/web API
-  ports already consumed by fake rigs.
+Keep shared definitions in the base and dev-only behavior in the override.
+Compose arrays such as `command` replace the base array; check that an
+override retains necessary settings. Preserve miner protocol ports inside
+containers (for example cgminer 4028 and Antminer HTTP 80), distinguishing
+them from published host ports. Avoid overlapping host bindings when adding
+fake rigs or other services.

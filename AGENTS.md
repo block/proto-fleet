@@ -1,215 +1,86 @@
 # AGENTS.md
 
-Guidance for AI coding agents (Claude Code, Codex, Copilot, etc.) working in this repo.
-Human contributors should read [CONTRIBUTING.md](./CONTRIBUTING.md) instead — it covers
-the same material in more depth.
+Proto Fleet is a monorepo for bitcoin-miner fleet management: Go/Connect/sqlc
+server, React/TypeScript clients (ProtoOS and ProtoFleet), Go/Rust/Python
+device plugins, and protobuf contracts. Human contributor workflows live in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-## What this is
+## Task-specific guidance
 
-Proto Fleet is a monorepo for bitcoin-miner fleet management. Main areas:
+Read the guidance relevant to the requested change; a small edit does not
+require reading the full repo map or every skill.
 
-| Area | Stack | Path |
-| --- | --- | --- |
-| Server | Go, Connect RPC, sqlc, Postgres/TimescaleDB | `server/` |
-| Clients (ProtoOS, ProtoFleet) | TypeScript, React, Vite, Tailwind | `client/` |
-| Plugins (device drivers) | Go, Rust, Python | `plugin/` |
-| Proto definitions | Protobuf + buf | `proto/` |
-| Python proto generator | Python, packaged as tarball | `packages/proto-python-gen/` |
+| When working on | Guidance |
+| --- | --- |
+| Client features, routes, or E2E | [client/AGENTS.md](client/AGENTS.md), [client README](client/README.md) |
+| Server logic, SQL, or monitoring | [server/AGENTS.md](server/AGENTS.md), [server README](server/README.md) |
+| Proto contracts, including SDK protos | [proto/AGENTS.md](proto/AGENTS.md) |
+| Proto, SQL, or generator configuration changes | [Code generation skill](.claude/skills/code-generation/SKILL.md) |
+| Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.claude/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
+| Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.claude/skills/) for contract tests, fixtures, or ASIC-rs builds |
+| Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
+| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness command](.claude/commands/pr-ready.md) |
+| Plans, TDDs, or PRDs | [Planning conventions](docs/development/planning.md) |
 
-Per-area details live in `server/README.md`, `client/README.md`, and
-`packages/proto-python-gen/README.md` — prefer reading those over re-deriving from code.
+Before debugging or changing a documented fragile subsystem, search
+`docs/solutions/` by relevant `module:`, `tags:`, or `problem_type:` and read
+matching learnings. Use CONTRIBUTING.md's cross-component workflows for new
+API endpoints, schema changes, client features, or server business logic.
 
 ## Canonical commands
 
-The `justfile` is the source of truth for build/test/lint commands. Prefer these
-over inventing your own.
+The root and per-area `justfile`s are the source of truth. `just --list`
+shows the full surface; setup options are in CONTRIBUTING.md.
 
 | Goal | Command |
 | --- | --- |
-| Install everything | `just setup` |
-| Run app locally | `just dev` |
-| Regenerate all generated code | `just gen` |
-| Lint everything | `just lint` |
-| Format everything | `just format` |
-| Rebuild a single plugin in Docker | `just rebuild-plugin <proto\|antminer\|virtual\|asicrs>` |
-| Plugin contract tests | `just test-contract` |
-| ProtoFleet E2E | `just test-e2e-fleet` |
-| ProtoOS E2E | `just test-e2e-protoos` |
-| Build Python generator tarball | `cd packages/proto-python-gen && just package` |
+| Setup / local app | `just setup` / `just dev` |
+| Generate / lint / format | `just gen` / `just lint` / `just format` |
+| Rebuild a plugin for Docker | `just rebuild-plugin <proto\|antminer\|virtual\|asicrs>` |
+| Plugin contracts | `just test-contract` |
+| ProtoFleet / ProtoOS E2E | `just test-e2e-fleet` / `just test-e2e-protoos` |
+| Python generator tarball | `cd packages/proto-python-gen && just package` |
 
-Run `just --list` for the full surface.
+## Invariants
 
-## Rules that matter
+- Do not hand-edit `**/generated/**`, `*.pb.go`, `*.pb.ts`, or
+  `client/src/protoOS/api/generatedApi.ts`. Edit sources and run `just gen`;
+  commit source and generated output together.
+- Deployed migrations are immutable. Use a new migration with both up and
+  down files. See the [migration skill](.claude/skills/migration-immutability/SKILL.md)
+  when deciding whether an existing migration can change.
+- **Visual snapshot baselines are approval-gated.** Do not run the ProtoFleet
+  visual snapshot refresh/overwrite flow unless the developer explicitly
+  confirms they understand the checked-in expected screenshots will be
+  replaced. After refreshing snapshots, remind the developer to review every
+  updated image before committing or pushing.
+- Do not add backwards-compatibility shims in unmerged feature branches;
+  rebase the source instead.
+- Do not introduce new tooling (linters, formatters, build systems) without
+  asking. Do not mock the database where real Postgres/Timescale is available
+  via docker-compose.
 
-These are the rules that recur in code review and that contributors most often miss.
+## Git and completion
 
-1. **Generated code is generated.** Do not hand-edit anything under a
-   `**/generated/**` path, or any `*.pb.go` / `*.pb.ts` file. Change the
-   source (`.proto`, `sqlc/queries/`, `migrations/`) and run `just gen`.
-2. **Commit proto + generated code together.** Never split a `.proto` change
-   from its regenerated output across commits.
-3. **Migrations are immutable after deploy.** Add a new migration; never edit
-   one that has shipped. Both up and down migrations are required.
-4. **Python plugin generator changes require a tarball rebuild.** If you touch
-   any source file under `packages/proto-python-gen/`, run `just package` from
-   that directory and commit the regenerated
-   `proto-python-gen-<version>.tar.gz`.
-5. **Component boundaries in `client/`.** `shared/` cannot import from
-   `protoOS/` or `protoFleet/`; `protoOS/` and `protoFleet/` cannot import
-   from each other.
-6. **No new `console.log` in production client code.** The existing build-version
-   logger is intentional; `console.error` is fine.
-7. **Server: prepared statements only.** All DB access goes through sqlc.
-8. **Go workspace.** Run `go work sync` after touching dependencies in any
-   module under `server/` or `plugin/`.
-9. **Client routes use idle-time prefetch.** Adding a route requires
-   coordinated edits across `routePrefetch.ts` (factory plus tier) and
-   `router.tsx` (`lazy()` wrapper). See the top-of-file runbook in either
-   app's `routePrefetch.ts`.
-10. **Grafana alert rule UIDs: 40 characters max.** Grafana rejects longer
-    UIDs at provisioning time, and one bad UID aborts provisioning of *all*
-    alerting files at boot. Applies to every `uid:` under
-    `server/monitoring/grafana/` (keep the `proto_fleet_rule_uid` label equal
-    to the rule's UID).
-11. **Visual snapshot baselines are approval-gated.** Do not run the ProtoFleet
-    visual snapshot refresh/overwrite flow unless the developer explicitly
-    confirms they understand the checked-in expected screenshots will be
-    replaced. After refreshing snapshots, remind the developer to review every
-    updated image before committing or pushing.
-12. **Proto contracts: validate requests, describe responses.** protovalidate
-    runs on requests only, so `buf.validate` rules on request messages must be
-    complete: every knob is accepted only in the context that consumes it, so
-    nothing a caller sets is silently ignored. Response messages carry
-    *structural* rules only (bounds, presence/pairing, counts summing, enum
-    defined-only); do not encode engine logic (state derivation, evidence
-    arithmetic, readiness, per-device criteria) as response CEL — that is a
-    second copy of the server's logic that never executes in production. Say
-    "the server derives X" in comments, never "validation enforces X". While a
-    contract is unmerged it carries no history: no `reserved` numbers or names,
-    no compatibility values; renumber instead.
+- Work on a feature branch. Never commit on `main`, `master`, or detached
+  HEAD; verify `git branch --show-current` before each commit. After a PR
+  merges, start a fresh branch from updated `main`.
+- Do not bypass hooks with `--no-verify`, `-n`, or local hook overrides.
+  Fix the underlying failure; diagnose missing tools via the dependency guide.
+- For implementation requests, complete the change and applicable validation.
+  Fix failures caused by the change and rerun affected checks without asking
+  at each step. Stop when those checks pass or a concrete blocker remains;
+  report unrelated failures without expanding scope. Read-only reviews stay
+  read-only. Commit, push, and PR creation follow the user's requested scope.
+- Choose checks for the affected behavior; broaden only for a relevant risk
+  or failure. Report what ran, what passed, and what remains unverified.
+- Verify versions and upstream behavior against live sources. For setup
+  instructions, read the actual scripts; mark unverifiable claims explicitly.
 
-## Git workflow
+## Agent tooling
 
-- Never commit to `main`. Always work on a feature branch. Verify with
-  `git branch --show-current` before each commit. Lefthook also rejects
-  commits on `main`/`master`/detached HEAD as a safety net (see
-  `scripts/lefthook-block-protected-branches.sh`) — don't rely on it as a
-  substitute for following the rule.
-- After a PR merges, do not reuse that branch for follow-up work — cut a
-  fresh branch from the updated `main`.
-
-## PR descriptions
-
-When opening a PR, write the description so a reviewer can judge the
-architecture and technical decisions **without reading the low-level code**.
-Inspect the actual diff, commits, and changed files first; describe what the
-code does, not the decisions made getting there. Structure it as:
-
-1. `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).`
-   The line count comes from the PR diff after excluding generated files
-   (`**/generated/**`, `*.pb.go`, `*.pb.ts`,
-   `client/src/protoOS/api/generatedApi.ts`), test files (`*_test.go`,
-   `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`, `test/**`), and story
-   files (`*.stories.*`, `*.story.*`, `stories/**`). Put this line first, above
-   Summary.
-2. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
-   user- or operator-facing capability, not the implementation. For a PR in a
-   series (stacked on a parent, has descendant PRs, or marked `N/M`), add a
-   short *Stack* note: the full chain with PR links (ancestors, this PR, and any
-   PRs stacked on top), that the diff is relative to the immediate base when it
-   has ancestors, the load-bearing context from upstream PRs
-   a reviewer needs to judge this change, and what is intentionally out of scope
-   here and where the remaining work lands (from descendant PRs, the plan docs,
-   or tracking issues, since later phases may not be open as PRs yet).
-3. **How it works** — the end-to-end mechanism in plain language. Walk the
-   primary flow(s): who triggers it, what crosses each boundary, where state
-   is persisted, what comes back. Explain workflows, not language syntax.
-4. **Diagrams** — mermaid in fenced code blocks labeled `mermaid` so they render on
-   GitHub. At least a component/flow diagram of the main path; add a state or
-   sequence diagram where lifecycle or ordering matters. Keep syntax
-   GitHub-safe: quote labels with special characters, avoid fragile edge styles,
-   and use explicit node IDs with bracketed labels (`A["Label"] --> B["Other"]`).
-   Do not use bare quoted string nodes (`"Label" --> "Other"`); GitHub's Mermaid
-   parser rejects that form in flowcharts.
-5. **Areas of the code involved** — a table mapping each changed area to its
-   role so reviewers know where to focus: `| Area / package / file | What
-   changed | Why it matters for review |`. Group by subsystem (`proto/`,
-   `server/`, domain logic, migrations, `client/`, `plugin/`); flag generated
-   code as "generated — skip".
-6. **Key technical decisions & trade-offs** — the choices a reviewer should
-   scrutinize (new abstractions, data-model/migration changes, security or
-   validation boundaries, backward-compat or rollout concerns). One line each:
-   the decision and the alternative it was chosen over.
-7. **Testing & validation** — how correctness was verified and what is
-   explicitly not covered.
-
-Keep it concise: tables and diagrams over long paragraphs, no filler praise,
-no narration of rejected approaches. Claude Code users can generate this with
-`/pr-describe`.
-
-## Verification
-
-- Don't pin versions, package versions, or upstream behaviors from training
-  data. Verify against the live source — package registries (npm, PSGallery,
-  PyPI, crates.io), upstream source code, or actual API responses — before
-  stating specifics.
-- When documenting install or setup flows, read the actual scripts (e.g.
-  `dev.sh`, `bin/activate-hermit`, `deployment-files/**`); don't infer
-  prerequisites from package names.
-- If you can't verify a claim, mark it explicitly rather than extrapolating.
-
-## Planning docs
-
-TDDs, PRDs, and lightweight plans live under `docs/plans/`. Filename
-pattern: `YYYY-MM-DD-<slug>-<type>.md` where `<type>` is `tdd`, `prd`, or
-`plan`. Frontmatter carries `status:` (`draft → proposed → accepted →
-implementing → completed | cancelled`) and `type:`. When status flips to
-`completed` or `cancelled`, move the file to `docs/plans/archive/` via
-`git mv`.
-
-Use `/plan <title>` to scaffold a new doc with the right template.
-
-## Solution docs (institutional learnings)
-
-Documented bugs, fixes, conventions, and architectural learnings live under
-`docs/solutions/`, organized by category (`build-errors/`, `database-issues/`,
-`best-practices/`, etc.). Each file has YAML frontmatter with `module`,
-`problem_type`, `component`, `tags`, and other searchable fields.
-
-**Search before implementing.** Before starting work in a documented area
-(debugging an error, making a design decision, touching a fragile subsystem),
-grep `docs/solutions/` for prior learnings by frontmatter (`module:`, `tags:`,
-`problem_type:`). The knowledge store only compounds value when agents find
-it. Use `/ce-compound` to capture new learnings after a fix lands.
-
-## Common cross-component workflows
-
-These map directly to sections in [CONTRIBUTING.md](./CONTRIBUTING.md):
-
-- Adding a new API endpoint → CONTRIBUTING.md "Adding a New API Endpoint"
-- Database schema change → CONTRIBUTING.md "Making Database Schema Changes"
-- New client feature → CONTRIBUTING.md "Adding Features to the Client"
-- New server domain logic → CONTRIBUTING.md "Adding Business Logic to the Server"
-
-## For Claude Code users
-
-Slash commands and auto-triggering skills live in `.claude/`. The commands and
-skills are repo tooling and should be committed; `.claude/settings.local.json`
-stays private.
-
-- `/regen` — run `just gen`, surface what changed, flag generated files to commit
-- `/pr-ready` — lint + targeted tests + diff summary suitable for a PR description
-- `/pr-describe` — write/update a PR description (high-level mechanism, mermaid diagrams, code-area map) per the "PR descriptions" standard above
-- `/release-notes <version>` — draft release notes from commits since the previous tag
-- `/triage-pr <#>` — fetch PR status, summarize failing CI, propose next action
-- `/plan <title>` — scaffold a new TDD, PRD, or plan under `docs/plans/`
-
-Skills auto-fire based on what's being edited; see `.claude/skills/` for the
-catalog. Their descriptions document their own triggers.
-
-## Things to avoid
-
-- Don't run `--no-verify` on commits to bypass `lefthook` hooks. Fix the underlying issue.
-- Don't add backwards-compatibility shims in unmerged feature branches — rebase the source instead.
-- Don't introduce new tooling (linters, formatters, build systems) without asking. The toolchain is intentionally tight.
-- Don't mock the database in tests where a real Postgres/Timescale is available via docker-compose.
+Repository skills and Claude commands live in `.claude/`; their descriptions
+identify when to load them. Other agents can read the linked skills directly.
+`CLAUDE.md` is a thin entry point. Keep `.claude/settings.local.json` private.
+Commands include `/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`,
+`/release-notes`, and `/plan`.
