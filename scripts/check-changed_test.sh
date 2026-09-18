@@ -116,6 +116,7 @@ done
 
 for install_input in \
   'client/node_modules/.package-lock.json' 'git hash-object "$TREE_LOCK"' \
+  'node --version' 'npm --version' 'node=$NODE_VERSION' 'npm=$NPM_VERSION' \
   npm_config_platform NPM_CONFIG_PLATFORM process.platform 'platform=$INSTALL_PLATFORM' \
   npm_config_arch NPM_CONFIG_ARCH process.arch 'arch=$INSTALL_ARCH' \
   npm_config_libc NPM_CONFIG_LIBC glibcVersionRuntime '"glibc"' '"musl"' 'libc=$INSTALL_LIBC' \
