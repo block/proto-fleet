@@ -52,13 +52,21 @@ class Plan:
 
 
 def _unquote(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] == '"':
+    if value.startswith('"'):
         try:
-            return json.loads(value)
+            decoded = json.loads(value)
         except json.JSONDecodeError as error:
             raise PlanIndexError(f"invalid double-quoted value {value!r}") from error
-    if len(value) >= 2 and value[0] == value[-1] == "'":
-        return value[1:-1].replace("''", "'")
+        if not isinstance(decoded, str):
+            raise PlanIndexError(f"invalid double-quoted value {value!r}")
+        return decoded
+    if value.startswith("'"):
+        if len(value) < 2 or not value.endswith("'"):
+            raise PlanIndexError(f"invalid single-quoted value {value!r}")
+        inner = value[1:-1]
+        if not re.fullmatch(r"(?:[^']|'')*", inner):
+            raise PlanIndexError(f"invalid single-quoted value {value!r}")
+        return inner.replace("''", "'")
     return value
 
 

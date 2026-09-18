@@ -203,6 +203,41 @@ class PlanIndexTest(unittest.TestCase):
 
         self.assertEqual(plan.title, 'Use "fast" mode at C:\\fleet')
 
+    def test_rejects_unmatched_double_quoted_title(self) -> None:
+        path = self.write_plan(
+            "2026-09-17-unmatched-title-plan.md",
+            status="draft",
+            title='"Example plan',
+        )
+
+        with self.assertRaisesRegex(
+            plan_index.PlanIndexError, "invalid double-quoted value"
+        ):
+            plan_index.parse_plan(path, self.plans_dir)
+
+    def test_rejects_unescaped_apostrophe_in_single_quoted_title(self) -> None:
+        path = self.write_plan(
+            "2026-09-17-apostrophe-title-plan.md",
+            status="draft",
+            title="'Miner's plan'",
+        )
+
+        with self.assertRaisesRegex(
+            plan_index.PlanIndexError, "invalid single-quoted value"
+        ):
+            plan_index.parse_plan(path, self.plans_dir)
+
+    def test_decodes_doubled_apostrophe_in_single_quoted_title(self) -> None:
+        path = self.write_plan(
+            "2026-09-17-apostrophe-title-plan.md",
+            status="draft",
+            title="'Miner''s plan'",
+        )
+
+        plan = plan_index.parse_plan(path, self.plans_dir)
+
+        self.assertEqual(plan.title, "Miner's plan")
+
     def test_cli_check_and_write_lifecycle(self) -> None:
         self.write_plan("2026-09-17-example-plan.md", status="draft")
 
