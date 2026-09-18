@@ -7,7 +7,7 @@ argument-hint: "(optional: audit only, or explicit request to open the PR)"
 # PR readiness
 
 Establish the actual target and immediate base using
-[/pr-describe](pr-describe.md)'s target-resolution guidance before assessing
+[/pr-describe](../pr-describe/SKILL.md)'s target-resolution guidance before assessing
 the diff. Include working-tree changes in local readiness checks; do not use
 `main...HEAD` for a stacked PR. A remote PR whose branch is not checked out
 can be reviewed, but local test results are not evidence for that remote head.
