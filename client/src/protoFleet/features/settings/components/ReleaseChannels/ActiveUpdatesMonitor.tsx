@@ -5,7 +5,11 @@ import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
 import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { acknowledgeRollout, isRollbackAcknowledged } from "@/protoFleet/api/rollbackAcknowledgements";
+import {
+  acknowledgeRollout,
+  isRollbackAcknowledged,
+  isRolloutSuperseded,
+} from "@/protoFleet/api/rollbackAcknowledgements";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -63,7 +67,8 @@ const ActiveUpdatesMonitor = ({
     retryFailedDevices,
   } = api;
   const rollouts = useMemo(
-    () => polledRollouts.map((rollout) => acknowledgeRollout(rollout, acknowledgedRollbacks, api.channels)),
+    () =>
+      polledRollouts.map((rollout) => acknowledgeRollout(rollout, acknowledgedRollbacks, api.channels, polledRollouts)),
     [polledRollouts, acknowledgedRollbacks, api.channels],
   );
   // Retain the opened or returned snapshot if a subsequent poll fails.
@@ -97,8 +102,11 @@ const ActiveUpdatesMonitor = ({
       ? selectedSnapshot
       : currentRollout;
   const viewedRollout = viewedSnapshot
-    ? acknowledgeRollout(viewedSnapshot, acknowledgedRollbacks, api.channels)
+    ? acknowledgeRollout(viewedSnapshot, acknowledgedRollbacks, api.channels, polledRollouts)
     : undefined;
+  const assignmentInvalidated = (rollout: Rollout) =>
+    isRollbackAcknowledged(rollout, acknowledgedRollbacks) ||
+    isRolloutSuperseded(rollout, api.channels, polledRollouts);
   // Keep the snapshot that opened confirmation, even when polling advances it.
   const cancelSnapshot = availableSnapshot(localCancelTarget);
   const rollbackSnapshot = availableSnapshot(
@@ -110,13 +118,13 @@ const ActiveUpdatesMonitor = ({
   const currentConfirmation = (snapshot: Rollout | null) =>
     snapshot &&
     snapshot.assignmentGeneration === pairGeneration(api.channels, snapshot) &&
-    !isRollbackAcknowledged(snapshot, acknowledgedRollbacks)
+    !assignmentInvalidated(snapshot)
       ? snapshot
       : null;
   // A returned successor can already be canceled while the channel assignment
   // still lags. Keep its captured revision unless it is known to be inactive.
   const cancelTarget =
-    cancelSnapshot && isActive(acknowledgeRollout(cancelSnapshot, acknowledgedRollbacks, api.channels))
+    cancelSnapshot && isActive(acknowledgeRollout(cancelSnapshot, acknowledgedRollbacks, api.channels, polledRollouts))
       ? cancelSnapshot
       : null;
   const rollbackTarget = currentConfirmation(rollbackSnapshot);
@@ -255,14 +263,10 @@ const ActiveUpdatesMonitor = ({
           rollout={viewedRollout}
           refreshWarning={refreshWarning}
           currentGeneration={
-            isRollbackAcknowledged(viewedRollout, acknowledgedRollbacks)
-              ? undefined
-              : pairGeneration(api.channels, viewedRollout)
+            assignmentInvalidated(viewedRollout) ? undefined : pairGeneration(api.channels, viewedRollout)
           }
           canRetryRemaining={
-            isRollbackAcknowledged(viewedRollout, acknowledgedRollbacks)
-              ? false
-              : canRetryRemaining(viewedRollout, api.channels, rollouts)
+            assignmentInvalidated(viewedRollout) ? false : canRetryRemaining(viewedRollout, api.channels, rollouts)
           }
           minerNames={minerNames}
           listRolloutDevices={listRolloutDevices}

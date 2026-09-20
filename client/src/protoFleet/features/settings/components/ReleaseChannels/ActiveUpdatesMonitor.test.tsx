@@ -436,6 +436,80 @@ describe("acknowledged rollback navigation", () => {
     expect(screen.getByTestId("view-rollout-view-miners-action")).toBeInTheDocument();
   };
 
+  it("retires an applied assignment's retained detail and confirmation before channel groups refresh", async () => {
+    const source = { ...gatedRigRollout, revision: 7n };
+    const history = { ...completedRigRollout, id: source.id + 1n, assignmentGeneration: source.assignmentGeneration };
+    const successor = {
+      ...activeRigRollout,
+      id: source.id + 100n,
+      assignmentGeneration: source.assignmentGeneration + 1n,
+      revision: 11n,
+      firmwareVersion: "1.4.5",
+      firmwareChecksum: "c".repeat(64),
+    };
+    const api = apiFor(source);
+    function Harness({ currentApi }: { currentApi: ReleaseChannelsApi }) {
+      const [request, setRequest] = useState<MonitorRequest | null>(null);
+      return (
+        <>
+          <button onClick={() => setRequest({ kind: "view", rollout: { ...source, revision: source.revision + 1n } })}>
+            Reopen cached source
+          </button>
+          <button onClick={() => setRequest({ kind: "view", rollout: history })}>View completed history</button>
+          <button onClick={() => setRequest({ kind: "rollback", rollout: history })}>
+            Roll back completed history
+          </button>
+          <ActiveUpdatesMonitor
+            api={currentApi}
+            request={request}
+            onRequestHandled={() => setRequest(null)}
+            onManageChannel={vi.fn()}
+          />
+        </>
+      );
+    }
+    const { rerender } = render(<Harness currentApi={api} />);
+    fireEvent.click(within(screen.getByTestId(`update-banner-${source.id}`)).getByRole("button"));
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId("view-rollout-cancel-action"));
+    expect(screen.getByTestId("cancel-rollout-dialog")).toBeInTheDocument();
+
+    // Apply has returned a new generation, but its failed follow-up refresh
+    // leaves the previous assignment and raw active source in the shared cache.
+    rerender(<Harness currentApi={{ ...api, rollouts: [source, successor] }} />);
+    expect(screen.queryByTestId(`update-banner-${source.id}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId(`update-banner-${successor.id}`)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("cancel-rollout-dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId(`rollout-detail-${source.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Superseded");
+    expectFinishedActions();
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reopen cached source" }));
+    expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Superseded");
+    expectFinishedActions();
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "View completed history" }));
+    expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Completed");
+    expectFinishedActions();
+    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Roll back completed history" }));
+    expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByTestId(`update-banner-${successor.id}`)).getByRole("button"));
+    fireEvent.click(screen.getByTestId("view-rollout-pause-action"));
+    await waitFor(() => expect(api.pauseRollout).toHaveBeenCalledExactlyOnceWith(successor.id, successor.revision));
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId("view-rollout-cancel-action"));
+    fireEvent.click(
+      within(screen.getByTestId("cancel-rollout-dialog")).getByRole("button", { name: "Cancel remaining" }),
+    );
+    await waitFor(() => expect(api.cancelRollout).toHaveBeenCalledExactlyOnceWith(successor.id, successor.revision));
+    expect(api.rollbackFirmware).not.toHaveBeenCalled();
+    expect(api.continueRollout).not.toHaveBeenCalled();
+    expect(api.retryFailedDevices).not.toHaveBeenCalled();
+  });
+
   it("cancels a returned successor with its captured revision while the assignment refresh is unavailable", async () => {
     const source = { ...activeRigRollout, revision: 7n };
     const successor = {

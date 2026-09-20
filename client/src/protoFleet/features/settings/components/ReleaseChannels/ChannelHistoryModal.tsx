@@ -12,7 +12,11 @@ import {
 import StatusChip from "./StatusChip";
 import type { ChannelHistoryState } from "./useChannelHistory";
 import { type Rollout, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { acknowledgeRollout, isRollbackAcknowledged } from "@/protoFleet/api/rollbackAcknowledgements";
+import {
+  acknowledgeRollout,
+  isRollbackAcknowledged,
+  isRolloutSuperseded,
+} from "@/protoFleet/api/rollbackAcknowledgements";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Modal, { sizes } from "@/shared/components/Modal";
@@ -22,6 +26,7 @@ interface ChannelHistoryModalProps {
   channel: ChannelView;
   // This channel's rollouts, newest first (server order).
   rollouts: Rollout[];
+  currentRollouts: readonly Rollout[];
   acknowledgedRollbacks: readonly Rollout[];
   historyState: ChannelHistoryState;
   onRetry: () => void;
@@ -39,6 +44,7 @@ const formatRolloutTimestamp = (timestamp?: Timestamp): string =>
 const ChannelHistoryModal = ({
   channel,
   rollouts,
+  currentRollouts,
   acknowledgedRollbacks,
   historyState,
   onRetry,
@@ -54,6 +60,7 @@ const ChannelHistoryModal = ({
       .filter((group) => !group.rollbackPending)
       .map((group) => [pairKey(group), group.assignmentGeneration]),
   );
+  const observedRollouts = [...rollouts, ...currentRollouts];
 
   return (
     <Modal
@@ -94,7 +101,7 @@ const ChannelHistoryModal = ({
           </thead>
           <tbody className="text-text-primary">
             {rollouts.map((snapshot) => {
-              const rollout = acknowledgeRollout(snapshot, acknowledgedRollbacks, [channel]);
+              const rollout = acknowledgeRollout(snapshot, acknowledgedRollbacks, [channel], observedRollouts);
               const counts = rolloutDeviceCounts(rollout);
               const neutralCounts = [
                 counts.skipped > 0 ? `${counts.skipped} skipped` : "",
@@ -114,6 +121,7 @@ const ChannelHistoryModal = ({
                       .join(", ");
               const rollbackable =
                 !isRollbackAcknowledged(rollout, acknowledgedRollbacks) &&
+                !isRolloutSuperseded(rollout, [channel], observedRollouts) &&
                 canRollBack(rollout, generations.get(pairKey(rollout)));
               return (
                 <tr

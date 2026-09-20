@@ -49,6 +49,7 @@ export const History: Story = {
         channel={canaryChannel}
         rollouts={canaryHistory}
         acknowledgedRollbacks={[]}
+        currentRollouts={canaryHistory}
         onView={noop}
         onRollback={noop}
         onClose={noop}

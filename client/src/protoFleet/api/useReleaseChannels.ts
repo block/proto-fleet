@@ -744,7 +744,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     if (!hasCurrentSnapshot) return { channels: [], rollouts: [], acknowledgedRollbacks: [] };
     const sources = snapshot.acknowledgedRollbacks;
     const projectedRollouts = snapshot.rollouts.map((rollout) =>
-      acknowledgeRollout(rollout, sources, snapshot.channels),
+      acknowledgeRollout(rollout, sources, snapshot.channels, snapshot.rollouts),
     );
     const rollouts = projectedRollouts.every((rollout, index) => rollout === snapshot.rollouts[index])
       ? snapshot.rollouts

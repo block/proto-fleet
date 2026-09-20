@@ -10,6 +10,7 @@ const props = () => ({
   channel: canaryChannel,
   rollouts: [],
   acknowledgedRollbacks: [],
+  currentRollouts: [],
   onView: vi.fn(),
   onRollback: vi.fn(),
   onClose: vi.fn(),
@@ -123,6 +124,31 @@ describe("acknowledged rollback history", () => {
         revision: active.revision,
         status: RolloutStatus.CANCELED,
       }),
+    );
+  });
+});
+
+describe("applied successor history", () => {
+  it("invalidates cached actions when the shared cache knows a newer assignment than the channel", () => {
+    const source = completedWithFailuresRigRollout;
+    const active = { ...activeRigRollout, assignmentGeneration: source.assignmentGeneration };
+    const successor = { ...active, id: active.id + 100n, assignmentGeneration: active.assignmentGeneration + 1n };
+    const callbacks = props();
+    render(
+      <ChannelHistoryModal
+        {...callbacks}
+        rollouts={[source, active]}
+        currentRollouts={[successor]}
+        historyState={{ status: "error" }}
+      />,
+    );
+    expect(
+      within(screen.getByTestId(`history-row-${source.id}`)).getByText("Completed with failures"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Roll back/ })).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId(`history-row-${active.id}`)).getByRole("button", { name: "View" }));
+    expect(callbacks.onView).toHaveBeenCalledWith(
+      expect.objectContaining({ id: active.id, revision: active.revision, status: RolloutStatus.CANCELED }),
     );
   });
 });

@@ -1046,6 +1046,50 @@ describe("useReleaseChannels", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("retires the replaced active rollout from an apply acknowledgment before channel polling recovers", async () => {
+    const previous = create(RolloutSchema, { ...rollbackSource, manufacturer: " PROTO ", model: "rig" });
+    const successor = create(RolloutSchema, {
+      ...rollbackSuccessor,
+      firmwareChecksum: "c".repeat(64),
+      firmwareVersion: "3.0.0",
+    });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [previous], pollCursor: "baseline" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const channels = result.current.channels;
+    mockApplyReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: [successor] });
+    const error = new ConnectError("channel refresh unavailable", Code.Unavailable);
+    mockListReleaseChannels.mockRejectedValueOnce(error);
+    await act(async () =>
+      result.current.applyFirmware(canary.id, [{ manufacturer: "Proto", model: "Rig", firmwareFileId: "firmware-3" }]),
+    );
+    expect(result.current.error).toBe(error);
+    expect(result.current.channels).toBe(channels);
+    expect(result.current.channels[0].modelGroups[0].assignmentGeneration).toBe(previous.assignmentGeneration);
+    expect(result.current.acknowledgedRollbacks).toEqual([]);
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([successor]);
+    expect(result.current.rollouts.find((row) => row.id === previous.id)).toEqual({
+      ...previous,
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      cancelReason: RolloutCancelReason.SUPERSEDED,
+    });
+    // A delayed active header cannot revive the old generation or fabricate
+    // a new revision while the authoritative cancellation read is pending.
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [previous], pollCursor: "replayed" }),
+    );
+    await act(async () => result.current.refresh());
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([successor]);
+    expect(result.current.rollouts.find((row) => row.id === previous.id)).toMatchObject({
+      status: RolloutStatus.CANCELED,
+      revision: previous.revision,
+    });
+  });
+
   it("does not retain applied rollouts when the successful response belongs to a replaced session", async () => {
     const { result, rerender } = renderHook(() => useReleaseChannels());
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
