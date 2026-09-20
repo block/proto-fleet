@@ -430,6 +430,7 @@ const ReleaseChannelsTab = ({
       {historyChannel ? (
         <ChannelHistoryModal
           channel={historyChannel}
+          acknowledgedRollbacks={api.acknowledgedRollbacks}
           rollouts={history.rollouts.filter((r) => r.channelId === historyChannel.id)}
           historyState={history.states.get(historyChannel.id) ?? { status: "loading" }}
           onRetry={() => history.retry(historyChannel.id)}

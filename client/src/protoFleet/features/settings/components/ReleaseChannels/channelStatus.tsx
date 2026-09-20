@@ -2,7 +2,9 @@ import clsx from "clsx";
 
 import { hasUnavailableAssignedFirmware, modelUpdateStatus, type UpdateStatus, type UpdateTone } from "./rolloutStatus";
 import type { ChannelHistoryState } from "./useChannelHistory";
-import type { ReleaseChannelModelGroup, Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+
+import type { ChannelModelGroupView as ReleaseChannelModelGroup } from "@/protoFleet/api/useReleaseChannels";
 
 // Status language shared between the release channels overview table and
 // the per-channel manage view. Tones follow the reference design: attention
@@ -48,6 +50,7 @@ function modelStatusWithHistory(
   historyState?: ChannelHistoryState,
 ): UpdateStatus {
   if (
+    !group.rollbackPending &&
     historyState &&
     historyState.status !== "ready" &&
     !activeRollout &&

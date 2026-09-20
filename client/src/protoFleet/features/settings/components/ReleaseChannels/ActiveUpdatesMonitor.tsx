@@ -5,6 +5,7 @@ import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
 import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { acknowledgeRollout, isRollbackAcknowledged } from "@/protoFleet/api/rollbackAcknowledgements";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -20,6 +21,7 @@ interface ActiveUpdatesMonitorProps {
     ReleaseChannelsApi,
     | "channels"
     | "rollouts"
+    | "acknowledgedRollbacks"
     | "minerNames"
     | "continueRollout"
     | "pauseRollout"
@@ -49,7 +51,8 @@ const ActiveUpdatesMonitor = ({
   refreshWarning,
 }: ActiveUpdatesMonitorProps) => {
   const {
-    rollouts,
+    rollouts: polledRollouts,
+    acknowledgedRollbacks,
     minerNames,
     continueRollout,
     pauseRollout,
@@ -59,6 +62,10 @@ const ActiveUpdatesMonitor = ({
     listRolloutDevices,
     retryFailedDevices,
   } = api;
+  const rollouts = useMemo(
+    () => polledRollouts.map((rollout) => acknowledgeRollout(rollout, acknowledgedRollbacks, api.channels)),
+    [polledRollouts, acknowledgedRollbacks, api.channels],
+  );
   // Retain the opened or returned snapshot if a subsequent poll fails.
   const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
   const [localCancelTarget, setLocalCancelTarget] = useState<Rollout | null>(null);
@@ -85,15 +92,34 @@ const ActiveUpdatesMonitor = ({
   const selectedRollout = validRequest?.kind === "view" ? validRequest.rollout : viewUpdate;
   const selectedSnapshot = availableSnapshot(selectedRollout);
   const currentRollout = byId(selectedSnapshot?.id);
-  const viewedRollout =
+  const viewedSnapshot =
     selectedSnapshot && (!currentRollout || selectedSnapshot.revision > currentRollout.revision)
       ? selectedSnapshot
       : currentRollout;
+  const viewedRollout = viewedSnapshot
+    ? acknowledgeRollout(viewedSnapshot, acknowledgedRollbacks, api.channels)
+    : undefined;
   // Keep the snapshot that opened confirmation, even when polling advances it.
-  const cancelTarget = availableSnapshot(localCancelTarget);
-  const rollbackTarget = availableSnapshot(
+  const cancelSnapshot = availableSnapshot(localCancelTarget);
+  const rollbackSnapshot = availableSnapshot(
     validRequest?.kind === "rollback" ? validRequest.rollout : localRollbackTarget,
   );
+  // A confirmed rollback eventually retires its temporary acknowledgment when
+  // polling catches up. Retained rollback confirmations must still belong to the
+  // current assignment, so clearing that acknowledgment cannot reopen an old dialog.
+  const currentConfirmation = (snapshot: Rollout | null) =>
+    snapshot &&
+    snapshot.assignmentGeneration === pairGeneration(api.channels, snapshot) &&
+    !isRollbackAcknowledged(snapshot, acknowledgedRollbacks)
+      ? snapshot
+      : null;
+  // A returned successor can already be canceled while the channel assignment
+  // still lags. Keep its captured revision unless it is known to be inactive.
+  const cancelTarget =
+    cancelSnapshot && isActive(acknowledgeRollout(cancelSnapshot, acknowledgedRollbacks, api.channels))
+      ? cancelSnapshot
+      : null;
+  const rollbackTarget = currentConfirmation(rollbackSnapshot);
   // Mutation results may arrive after the operator closes, reopens or changes
   // the selection. Track that intent separately from revisions updated by polls.
   const selectionEpoch = useRef(0);
@@ -102,7 +128,7 @@ const ActiveUpdatesMonitor = ({
     return () => {
       selectionEpoch.current += 1;
     };
-  }, [validRequest, selectedSnapshot, cancelTarget, rollbackTarget]);
+  }, [validRequest, selectedSnapshot, cancelSnapshot, rollbackSnapshot]);
   const selectionChanged = () => {
     selectionEpoch.current += 1;
   };
@@ -192,7 +218,7 @@ const ActiveUpdatesMonitor = ({
     const rollout = rollbackTarget;
     const startedAtSelection = selectionEpoch.current;
     setIsBusy(true);
-    rollbackFirmware(rollout.id, rollout.revision)
+    rollbackFirmware(rollout)
       .then((started) => {
         if (selectionEpoch.current === startedAtSelection) {
           setRollbackTarget(null);
@@ -228,8 +254,16 @@ const ActiveUpdatesMonitor = ({
           key={viewedRollout.id.toString()}
           rollout={viewedRollout}
           refreshWarning={refreshWarning}
-          currentGeneration={pairGeneration(api.channels, viewedRollout)}
-          canRetryRemaining={canRetryRemaining(viewedRollout, api.channels, rollouts)}
+          currentGeneration={
+            isRollbackAcknowledged(viewedRollout, acknowledgedRollbacks)
+              ? undefined
+              : pairGeneration(api.channels, viewedRollout)
+          }
+          canRetryRemaining={
+            isRollbackAcknowledged(viewedRollout, acknowledgedRollbacks)
+              ? false
+              : canRetryRemaining(viewedRollout, api.channels, rollouts)
+          }
           minerNames={minerNames}
           listRolloutDevices={listRolloutDevices}
           onClose={closeDetail}

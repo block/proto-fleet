@@ -41,6 +41,7 @@ vi.mock("@/protoFleet/api/useReleaseChannels", () => ({
   useReleaseChannels: () => ({
     channels: [],
     rollouts: [],
+    acknowledgedRollbacks: [],
     minerNames: {},
     isLoading: false,
     hasLoaded: true,

@@ -14,6 +14,7 @@ import {
   type RolloutDevice,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { acknowledgeRollout, isRollbackAcknowledged } from "@/protoFleet/api/rollbackAcknowledgements";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import { mergeRollouts } from "@/protoFleet/api/rolloutSnapshots";
 import {
@@ -27,7 +28,8 @@ import {
 // A channel as the UI works with it: the server's channel (scope included)
 // together with its manufacturer/model groups, which the API pages
 // separately (ListReleaseChannelModelGroups) and the hook drains.
-export type ChannelView = ReleaseChannel & { modelGroups: ReleaseChannelModelGroup[] };
+export type ChannelModelGroupView = ReleaseChannelModelGroup & { rollbackPending?: boolean };
+export type ChannelView = ReleaseChannel & { modelGroups: ChannelModelGroupView[] };
 
 // An assignment as the UI stages it: the observed pair the file is for and
 // the file (empty to clear).
@@ -160,6 +162,8 @@ export interface ReleaseChannelsApi {
   // Active baseline plus changes observed since loading. Historical reads
   // are scoped to a channel and requested only when its details are opened.
   rollouts: Rollout[];
+  // Committed rollback sources whose assignment changes are not fully polled yet.
+  acknowledgedRollbacks: readonly Rollout[];
   // deviceIdentifier -> display name, from fleet snapshots.
   minerNames: Record<string, string>;
   isLoading: boolean;
@@ -189,12 +193,33 @@ export interface ReleaseChannelsApi {
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   listChannelRollouts: (channelId: bigint, signal?: AbortSignal) => Promise<Rollout[]>;
   applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
-  rollbackFirmware: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout[]>;
+  rollbackFirmware: (source: Rollout) => Promise<Rollout[]>;
   continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
   pauseRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
   resumeRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
   cancelRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
   retryFailedDevices: (rolloutId: bigint, expectedRevision: bigint) => Promise<Rollout | undefined>;
+}
+
+interface MutationAcknowledgment {
+  rollouts: readonly Rollout[];
+  rollback?: Rollout;
+}
+
+function retainAcknowledgment<T extends { rollouts: Rollout[]; acknowledgedRollbacks: Rollout[] }>(
+  current: T,
+  acknowledgment: MutationAcknowledgment,
+): T {
+  const { rollback } = acknowledgment;
+  const acknowledgedRollbacks =
+    rollback && !isRollbackAcknowledged(rollback, current.acknowledgedRollbacks)
+      ? [...current.acknowledgedRollbacks.filter((source) => !isRollbackAcknowledged(source, [rollback])), rollback]
+      : current.acknowledgedRollbacks;
+  return {
+    ...current,
+    rollouts: mergeRollouts(current.rollouts, rollback ? [rollback] : [], acknowledgment.rollouts),
+    acknowledgedRollbacks,
+  };
 }
 
 // Keep hydration bounded while retaining list order and publishing only a
@@ -275,6 +300,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     authSessionIdentity,
     channels: [] as ChannelView[],
     rollouts: [] as Rollout[],
+    acknowledgedRollbacks: [] as Rollout[],
     isLoading: true,
     hasLoaded: false,
     error: null as Error | null,
@@ -287,7 +313,11 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   const sessionRef = useRef<object | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
   const namesControllerRef = useRef<AbortController | null>(null);
-  const rolloutSnapshotRef = useRef({ rollouts: [] as Rollout[], pollCursor: "" });
+  const rolloutSnapshotRef = useRef({
+    rollouts: [] as Rollout[],
+    pollCursor: "",
+    acknowledgedRollbacks: [] as Rollout[],
+  });
   const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
 
   const isCurrentSession = useCallback(() => {
@@ -385,13 +415,31 @@ export function useReleaseChannels(): ReleaseChannelsApi {
           // Channel deletion cascades to rollouts without a delta tombstone.
           .filter((rollout) => channelsById.has(rollout.channelId))
           .map((rollout) => ({ ...rollout, channelName: channelsById.get(rollout.channelId)!.name }));
+        const acknowledgedRollbacks = rolloutSnapshotRef.current.acknowledgedRollbacks.filter((source) => {
+          // An older in-flight poll cannot acknowledge a later write. A fresh
+          // complete read must confirm both the new assignment and the old
+          // active runs' terminal state before their projection can be removed.
+          if (!previous.acknowledgedRollbacks.includes(source)) return true;
+          const channel = channelsById.get(source.channelId);
+          if (!channel) return false;
+          const assignmentPending = channel.modelGroups.some((group) =>
+            isRollbackAcknowledged({ ...group, channelId: channel.id }, [source]),
+          );
+          return (
+            assignmentPending ||
+            allRollouts.some(
+              (rollout) => rollout.status === RolloutStatus.ACTIVE && isRollbackAcknowledged(rollout, [source]),
+            )
+          );
+        });
         // Commit the watermark with the complete UI snapshot. A failure in
         // any list or channel detail must replay the same delta on retry.
-        rolloutSnapshotRef.current = { rollouts: allRollouts, pollCursor: changes.pollCursor };
+        rolloutSnapshotRef.current = { rollouts: allRollouts, pollCursor: changes.pollCursor, acknowledgedRollbacks };
         setSnapshot({
           authSessionIdentity,
           channels: nextChannels,
           rollouts: allRollouts,
+          acknowledgedRollbacks,
           isLoading: false,
           hasLoaded: true,
           error: null,
@@ -411,6 +459,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
                 authSessionIdentity,
                 channels: [],
                 rollouts: [],
+                acknowledgedRollbacks: [],
                 isLoading: false,
                 hasLoaded: false,
                 error: refreshError,
@@ -449,7 +498,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     const session = {};
     sessionRef.current = session;
     inFlightRef.current = null;
-    rolloutSnapshotRef.current = { rollouts: [], pollCursor: "" };
+    rolloutSnapshotRef.current = { rollouts: [], pollCursor: "", acknowledgedRollbacks: [] };
     // Keep each login's completed and pending name scans isolated.
     minerNamesCacheRef.current = { value: null, expiresAt: 0, inFlight: null };
     namesControllerRef.current = new AbortController();
@@ -492,20 +541,19 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const mutate = useCallback(
-    async <T>(request: () => Promise<T>, acknowledgedRollout?: (response: T) => Rollout | undefined): Promise<T> => {
+    async <T>(request: () => Promise<T>, acknowledge?: (response: T) => MutationAcknowledgment): Promise<T> => {
       const session = sessionRef.current;
       const response = await withAuthErrors(request);
       if (session && sessionRef.current === session && isCurrentSession()) {
-        const rollout = acknowledgedRollout?.(response);
-        if (rollout) {
+        const acknowledgment = acknowledge?.(response);
+        if (acknowledgment) {
           // Retain the server's committed state even if the follow-up read fails.
           // Keep the delta cursor unchanged so subsequent polls still replay all
           // changes, and keep any newer revision already delivered by a poll.
-          const current = rolloutSnapshotRef.current;
-          rolloutSnapshotRef.current = { ...current, rollouts: mergeRollouts(current.rollouts, [rollout]) };
+          rolloutSnapshotRef.current = retainAcknowledgment(rolloutSnapshotRef.current, acknowledgment);
           setSnapshot((previous) =>
             sessionRef.current === session && isCurrentSession() && previous.authSessionIdentity === authSessionIdentity
-              ? { ...previous, rollouts: mergeRollouts(previous.rollouts, [rollout]) }
+              ? retainAcknowledgment(previous, acknowledgment)
               : previous,
           );
         }
@@ -648,9 +696,12 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const rollbackFirmware = useCallback(
-    async (rolloutId: bigint, expectedRevision: bigint) => {
-      const request = rolloutControlRequest(rolloutId, expectedRevision);
-      const response = await mutate(() => rolloutClient.rollbackReleaseChannelFirmware(request));
+    async (source: Rollout) => {
+      const request = rolloutControlRequest(source.id, source.revision);
+      const response = await mutate(
+        () => rolloutClient.rollbackReleaseChannelFirmware(request),
+        (response) => ({ rollouts: response.startedRollouts, rollback: source }),
+      );
       return response.startedRollouts;
     },
     [mutate],
@@ -661,7 +712,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
       const request = rolloutControlRequest(rolloutId, expectedRevision);
       const response = await mutate(
         () => rolloutClient.retryFailedRolloutDevices(request),
-        (response) => response.rollout,
+        (response) => ({ rollouts: response.rollout ? [response.rollout] : [] }),
       );
       return response.rollout;
     },
@@ -675,7 +726,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         const input = rolloutControlRequest(rolloutId, expectedRevision);
         await mutate(
           () => request(input),
-          (response) => response.rollout,
+          (response) => ({ rollouts: response.rollout ? [response.rollout] : [] }),
         );
       };
     return {
@@ -687,9 +738,33 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   }, [mutate]);
 
   const hasCurrentSnapshot = isAuthenticated && snapshot.authSessionIdentity === authSessionIdentity;
+  const view = useMemo(() => {
+    if (!hasCurrentSnapshot) return { channels: [], rollouts: [], acknowledgedRollbacks: [] };
+    const sources = snapshot.acknowledgedRollbacks;
+    const projectedRollouts = snapshot.rollouts.map((rollout) =>
+      acknowledgeRollout(rollout, sources, snapshot.channels),
+    );
+    const rollouts = projectedRollouts.every((rollout, index) => rollout === snapshot.rollouts[index])
+      ? snapshot.rollouts
+      : projectedRollouts;
+    if (sources.length === 0) return { ...snapshot, rollouts };
+    return {
+      acknowledgedRollbacks: sources,
+      rollouts,
+      channels: snapshot.channels.map((channel) => {
+        const modelGroups = channel.modelGroups.map((group) =>
+          isRollbackAcknowledged({ ...group, channelId: channel.id }, sources)
+            ? { ...group, rollbackPending: true }
+            : group,
+        );
+        return modelGroups.some((group) => group.rollbackPending) ? { ...channel, modelGroups } : channel;
+      }),
+    };
+  }, [hasCurrentSnapshot, snapshot]);
   return {
-    channels: hasCurrentSnapshot ? snapshot.channels : [],
-    rollouts: hasCurrentSnapshot ? snapshot.rollouts : [],
+    channels: view.channels,
+    rollouts: view.rollouts,
+    acknowledgedRollbacks: view.acknowledgedRollbacks,
     minerNames: isAuthenticated && namesSnapshot.authSessionIdentity === authSessionIdentity ? namesSnapshot.value : {},
     isLoading: isAuthenticated && (!hasCurrentSnapshot || snapshot.isLoading),
     hasLoaded: hasCurrentSnapshot && snapshot.hasLoaded,

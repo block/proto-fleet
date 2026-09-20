@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import ChannelHistoryModal from "./ChannelHistoryModal";
-import { canaryChannel, completedWithFailuresRigRollout } from "./ReleaseChannels.fixtures";
+import { activeRigRollout, canaryChannel, completedWithFailuresRigRollout } from "./ReleaseChannels.fixtures";
 import { RolloutDeviceCountsSchema, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const props = () => ({
   channel: canaryChannel,
   rollouts: [],
+  acknowledgedRollbacks: [],
   onView: vi.fn(),
   onRollback: vi.fn(),
   onClose: vi.fn(),
@@ -101,5 +102,27 @@ describe("channel history manufacturer identity", () => {
     fireEvent.click(acmeRow.getByRole("button", { name: "Roll back to 1.4.3" }));
     fireEvent.click(protoRow.getByRole("button", { name: "Roll back to 1.4.3" }));
     expect(callbacks.onRollback.mock.calls).toEqual([[acme], [proto]]);
+  });
+});
+
+describe("acknowledged rollback history", () => {
+  it("keeps terminal history but removes rollback and stale active outcomes until reads catch up", () => {
+    const source = completedWithFailuresRigRollout;
+    const active = { ...activeRigRollout, assignmentGeneration: source.assignmentGeneration, id: source.id + 1n };
+    const propsWithHistory = { ...props(), rollouts: [source, active], acknowledgedRollbacks: [source] };
+    render(<ChannelHistoryModal {...propsWithHistory} historyState={{ status: "error" }} />);
+    const sourceRow = within(screen.getByTestId(`history-row-${source.id}`));
+    const activeRow = within(screen.getByTestId(`history-row-${active.id}`));
+    expect(sourceRow.getByText("Completed with failures")).toBeInTheDocument();
+    expect(activeRow.getByText("Rolled back")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Roll back/ })).not.toBeInTheDocument();
+    fireEvent.click(activeRow.getByRole("button", { name: "View" }));
+    expect(propsWithHistory.onView).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: active.id,
+        revision: active.revision,
+        status: RolloutStatus.CANCELED,
+      }),
+    );
   });
 });

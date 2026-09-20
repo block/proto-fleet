@@ -351,3 +351,30 @@ describe("release channel model row identity", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 });
+
+describe("acknowledged rollback assignment", () => {
+  it("shows pending assignment details instead of the superseded target and rollout", () => {
+    const group = {
+      ...canaryChannel.modelGroups[0],
+      rollbackPending: true,
+      activeRolloutId: activeRigRollout.id,
+      assignmentGeneration: activeRigRollout.assignmentGeneration,
+      firmwareAvailable: false,
+    };
+    render(
+      <ReleaseChannelsTable
+        channels={[{ ...canaryChannel, modelGroups: [group] }]}
+        rollouts={[activeRigRollout]}
+        onCreate={vi.fn()}
+        onManage={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("channel-status-Canary")).toHaveTextContent("Rollback saved; refreshing assignment");
+    fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
+    const row = within(screen.getByTestId("model-row-Canary-Rig").closest("tr")!);
+    expect(row.getByText("Refreshing assignment")).toBeInTheDocument();
+    expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("Rollback saved; refreshing assignment");
+    expect(row.queryByText("Assigned firmware unavailable")).not.toBeInTheDocument();
+    expect(row.queryByText(group.firmwareVersion)).not.toBeInTheDocument();
+  });
+});

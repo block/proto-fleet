@@ -1612,3 +1612,42 @@ describe("release channel saves while refresh fails", () => {
     expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
   });
 });
+
+describe("assignment refresh after rollback", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  test("retains a staged selection while blocking Apply until the rolled-back assignment refreshes", () => {
+    const channel = assignedChannel("old-upload");
+    const { updateChannel, onApply } = renderManage(channel, undefined, false, [replacementFile]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
+    const pending = {
+      ...channel,
+      modelGroups: channel.modelGroups.map((group) => ({ ...group, rollbackPending: true })),
+    };
+    updateChannel(pending, true);
+    expect(screen.getByText("Rollback saved. Refreshing firmware assignment…")).toBeInTheDocument();
+    expect(screen.queryByTestId("channel-firmware-select-Rig")).not.toBeInTheDocument();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+    expect(screen.getByTestId("view-miners-Rig")).toBeDisabled();
+    expect(onApply).not.toHaveBeenCalled();
+    const refreshed = {
+      ...channel,
+      modelGroups: channel.modelGroups.map((group) => ({
+        ...group,
+        assignmentGeneration: group.assignmentGeneration + 1n,
+        firmwareChecksum: "b".repeat(64),
+        firmwareFileId: "restored-upload",
+        firmwareVersion: "1.4.2",
+      })),
+    };
+    updateChannel(refreshed, false);
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("1.4.4");
+    expect(screen.getByTestId("view-miners-Rig")).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-changes")).not.toBeDisabled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+});

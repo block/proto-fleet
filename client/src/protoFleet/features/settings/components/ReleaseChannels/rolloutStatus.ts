@@ -4,7 +4,6 @@ import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   type MetricComparison,
   type RolloutDeviceCounts as PbRolloutDeviceCounts,
-  type ReleaseChannelModelGroup,
   type Rollout,
   type RolloutBehavior,
   RolloutCancelReason,
@@ -17,7 +16,10 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
+import type {
+  ChannelView,
+  ChannelModelGroupView as ReleaseChannelModelGroup,
+} from "@/protoFleet/api/useReleaseChannels";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -399,7 +401,7 @@ export interface UpdateStatus {
 // An unavailable upload does not clear the checksum-backed assignment. Use
 // the server's availability hint rather than a separately fetched file catalog.
 export const hasUnavailableAssignedFirmware = (group: ReleaseChannelModelGroup): boolean =>
-  group.firmwareChecksum !== "" && !group.firmwareAvailable;
+  !group.rollbackPending && group.firmwareChecksum !== "" && !group.firmwareAvailable;
 
 // Summary and model-group pages are separate reads. The group's active ID is
 // authoritative; another active rollout for its pair may belong to an older scan.
@@ -410,6 +412,7 @@ export function activeRolloutForGroup(
 ): Rollout | undefined {
   const rollout = group.activeRolloutId > 0n ? rolloutsById.get(group.activeRolloutId) : undefined;
   return rollout &&
+    !group.rollbackPending &&
     isActive(rollout) &&
     rollout.channelId === channelId &&
     rollout.assignmentGeneration === group.assignmentGeneration &&
@@ -435,6 +438,7 @@ export function modelUpdateStatus(
   activeRollout: Rollout | undefined,
   lastFinished: Rollout | undefined,
 ): UpdateStatus {
+  if (group.rollbackPending) return { label: "Rollback saved; refreshing assignment", tone: "none" };
   if (hasUnavailableAssignedFirmware(group)) return { label: "Assigned firmware unavailable", tone: "attention" };
   if (activeRollout) {
     const counts = scopeCounts(activeRollout);
@@ -536,7 +540,8 @@ export function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string
 export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigint | undefined {
   const channel = channels.find((c) => c.id === rollout.channelId);
   const key = pairKey(rollout);
-  return channel?.modelGroups.find((group) => pairKey(group) === key)?.assignmentGeneration;
+  const group = channel?.modelGroups.find((group) => pairKey(group) === key);
+  return group?.rollbackPending ? undefined : group?.assignmentGeneration;
 }
 
 // Retry covers every suppressed member of the pair's assignment generation,
@@ -560,6 +565,7 @@ export function canRetryRemaining(rollout: Rollout, channels: ChannelView[], rol
   const group = channel?.modelGroups.find((candidate) => pairKey(candidate) === key);
   return (
     group !== undefined &&
+    !group.rollbackPending &&
     group.assignmentGeneration === rollout.assignmentGeneration &&
     group.firmwareChecksum !== "" &&
     group.firmwareChecksum === rollout.firmwareChecksum &&
@@ -584,6 +590,7 @@ export function rollbackLabel(rollout: Rollout): string {
 }
 
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
+  if (group.rollbackPending) return "Refreshing assignment";
   if (group.firmwareVersion === "") return "—";
   const behind = group.reportedVersions.filter((version) => version !== group.firmwareVersion);
   if (behind.length === 0) return group.firmwareVersion;

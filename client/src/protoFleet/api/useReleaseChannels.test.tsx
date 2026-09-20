@@ -24,6 +24,7 @@ import {
   RetryFailedRolloutDevicesRequestSchema,
   RollbackReleaseChannelFirmwareRequestSchema,
   RolloutBehaviorSchema,
+  RolloutCancelReason,
   RolloutDeviceSchema,
   RolloutMethod,
   RolloutOrder,
@@ -138,6 +139,37 @@ const rollout = create(RolloutSchema, {
   model: "Rig",
   status: RolloutStatus.ACTIVE,
 });
+const rollbackSource = create(RolloutSchema, {
+  ...rollout,
+  revision: 7n,
+  assignmentGeneration: 4n,
+  firmwareChecksum: "b".repeat(64),
+  firmwareVersion: "2.0.0",
+  previousFirmwareChecksum: "a".repeat(64),
+  previousFirmwareVersion: "1.0.0",
+  createdAt: create(TimestampSchema, { seconds: 100n }),
+  updatedAt: create(TimestampSchema, { seconds: 200n }),
+});
+const rollbackGroup = create(ReleaseChannelModelGroupSchema, {
+  ...rigGroup,
+  assignmentGeneration: rollbackSource.assignmentGeneration,
+  activeRolloutId: rollbackSource.id,
+  firmwareChecksum: rollbackSource.firmwareChecksum,
+  firmwareVersion: rollbackSource.firmwareVersion,
+  onTargetCount: 1,
+});
+const rollbackSuccessor = create(RolloutSchema, {
+  ...rollbackSource,
+  id: 10n,
+  revision: 1n,
+  assignmentGeneration: 5n,
+  firmwareChecksum: rollbackSource.previousFirmwareChecksum,
+  firmwareVersion: rollbackSource.previousFirmwareVersion,
+  previousFirmwareChecksum: rollbackSource.firmwareChecksum,
+  previousFirmwareVersion: rollbackSource.firmwareVersion,
+  createdAt: create(TimestampSchema, { seconds: 300n }),
+  updatedAt: create(TimestampSchema, { seconds: 300n }),
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -208,6 +240,14 @@ const revisionActions = [
   ["retryFailedDevices", mockRetryFailedRolloutDevices, RetryFailedRolloutDevicesRequestSchema],
 ] as const;
 
+function callRevisionAction(
+  api: ReleaseChannelsApi,
+  action: (typeof revisionActions)[number][0],
+  source: typeof rollout,
+) {
+  return action === "rollbackFirmware" ? api.rollbackFirmware(source) : api[action](source.id, source.revision);
+}
+
 const mutationDraft = {
   name: "Canary",
   description: "",
@@ -253,7 +293,7 @@ const mutationCases: {
   {
     name: "rollback",
     rpc: mockRollbackReleaseChannelFirmware,
-    call: (api) => api.rollbackFirmware(9n, 1n),
+    call: (api) => api.rollbackFirmware(create(RolloutSchema, { ...rollout, revision: 1n })),
     response: { startedRollouts },
     expected: startedRollouts,
   },
@@ -824,7 +864,7 @@ describe("useReleaseChannels", () => {
 
   it.each(mutationCases)(
     "$name preserves a successful write result when refresh fails, but propagates write failures",
-    async ({ rpc, call, response, expected }) => {
+    async ({ name, rpc, call, response, expected }) => {
       const { result } = renderHook(() => useReleaseChannels());
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       const previous = {
@@ -842,12 +882,18 @@ describe("useReleaseChannels", () => {
       expect(rpc).toHaveBeenCalledTimes(1);
       expect(result.current.error).toBe(refreshError);
       expect(result.current.hasLoaded).toBe(true);
-      expect(result.current.channels).toBe(previous.channels);
-      expect(result.current.rollouts).toEqual(previous.rollouts);
+      if (name === "rollback") {
+        expect(result.current.channels[0].modelGroups[0].rollbackPending).toBe(true);
+        expect(result.current.rollouts[0]).toMatchObject({ revision: 1n, status: RolloutStatus.CANCELED });
+      } else {
+        expect(result.current.channels).toBe(previous.channels);
+        expect(result.current.rollouts).toEqual(previous.rollouts);
+      }
       expect(result.current.minerNames).toBe(previous.miners);
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
       expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error: refreshError });
 
+      const acknowledged = { channels: result.current.channels, rollouts: result.current.rollouts };
       rpc.mockClear();
       const writeError = new ConnectError("write rejected", Code.FailedPrecondition);
       rpc.mockRejectedValueOnce(writeError);
@@ -859,8 +905,8 @@ describe("useReleaseChannels", () => {
       expect(mockListRollouts).toHaveBeenCalledTimes(readsAfterFailure);
       expect(mockGetReleaseChannel).toHaveBeenCalledTimes(detailReads);
       expect(result.current.error).toBe(refreshError);
-      expect(result.current.channels).toBe(previous.channels);
-      expect(result.current.rollouts).toEqual(previous.rollouts);
+      expect(result.current.channels).toBe(acknowledged.channels);
+      expect(result.current.rollouts).toBe(acknowledged.rollouts);
       expect(result.current.minerNames).toBe(previous.miners);
     },
   );
@@ -979,7 +1025,7 @@ describe("useReleaseChannels", () => {
       const error = new ConnectError("read unavailable after write", Code.Unavailable);
       mockListRollouts.mockRejectedValueOnce(error);
       await act(async () => {
-        await result.current[action](initial.id, initial.revision);
+        await callRevisionAction(result.current, action, initial);
       });
       expect(result.current.rollouts).toEqual([acknowledged]);
       expect(result.current.channels).toBe(channels);
@@ -1000,6 +1046,355 @@ describe("useReleaseChannels", () => {
       });
       expect(nextRpc).toHaveBeenLastCalledWith({ rolloutId: initial.id, expectedRevision: 2n });
       expect(result.current.rollouts).toEqual([acknowledged]);
+    },
+  );
+
+  it.each([
+    { outcome: "starts a successor", source: rollbackSource, started: [rollbackSuccessor] },
+    { outcome: "restores an assignment with no mismatched miners", source: rollbackSource, started: [] },
+    {
+      outcome: "clears the first assignment",
+      source: create(RolloutSchema, { ...rollbackSource, previousFirmwareChecksum: "", previousFirmwareVersion: "" }),
+      started: [],
+    },
+  ])(
+    "retains a rollback that $outcome through refresh failure and reconciles authoritative recovery",
+    async ({ source, started }) => {
+      const unrelated = create(RolloutSchema, { ...source, id: 11n, manufacturer: "Other" });
+      const unrelatedGroup = create(ReleaseChannelModelGroupSchema, {
+        ...rollbackGroup,
+        manufacturer: "Other",
+        activeRolloutId: unrelated.id,
+      });
+      // Observed keys use the same normalization as assignment writes.
+      const observedGroup = create(ReleaseChannelModelGroupSchema, {
+        ...rollbackGroup,
+        manufacturer: " PROTO ",
+        model: "rig",
+      });
+      mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [observedGroup, unrelatedGroup], cursor: "" });
+      mockListRollouts.mockResolvedValue(
+        create(ListRolloutsResponseSchema, { rollouts: [source, unrelated], pollCursor: "baseline" }),
+      );
+      const { result } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      mockRollbackReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: started });
+      const error = new ConnectError("read unavailable after rollback", Code.Unavailable);
+      mockListRollouts.mockRejectedValueOnce(error);
+      await act(async () => {
+        await expect(result.current.rollbackFirmware(source)).resolves.toBe(started);
+      });
+      expect(mockRollbackReleaseChannelFirmware).toHaveBeenCalledExactlyOnceWith({
+        rolloutId: source.id,
+        expectedRevision: source.revision,
+      });
+      expect(result.current.error).toBe(error);
+      expect(result.current.acknowledgedRollbacks).toEqual([source]);
+      expect(result.current.rollouts.find((row) => row.id === source.id)).toEqual({
+        ...source,
+        status: RolloutStatus.CANCELED,
+        state: RolloutState.CANCELED,
+        cancelReason: RolloutCancelReason.ROLLED_BACK,
+      });
+      expect(result.current.rollouts.find((row) => row.id === unrelated.id)).toEqual(unrelated);
+      expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual(
+        expect.arrayContaining([unrelated, ...started]),
+      );
+      expect(result.current.channels[0].modelGroups).toEqual([
+        { ...observedGroup, rollbackPending: true },
+        unrelatedGroup,
+      ]);
+
+      const authoritative = create(RolloutSchema, {
+        ...source,
+        revision: 8n,
+        status: RolloutStatus.CANCELED,
+        state: RolloutState.CANCELED,
+        cancelReason: RolloutCancelReason.ROLLED_BACK,
+        updatedAt: create(TimestampSchema, { seconds: 310n }),
+        finishedAt: create(TimestampSchema, { seconds: 310n }),
+      });
+      const recoveredGroup = create(ReleaseChannelModelGroupSchema, {
+        ...observedGroup,
+        assignmentGeneration: 5n,
+        firmwareChecksum: source.previousFirmwareChecksum,
+        firmwareVersion: source.previousFirmwareVersion,
+        activeRolloutId: started[0]?.id ?? 0n,
+        onTargetCount: 0,
+      });
+      mockListReleaseChannelModelGroups.mockResolvedValue({
+        modelGroups: [recoveredGroup, unrelatedGroup],
+        cursor: "",
+      });
+      mockListRollouts.mockImplementation(({ status }) =>
+        Promise.resolve(
+          create(ListRolloutsResponseSchema, {
+            rollouts: status === RolloutStatus.ACTIVE ? [unrelated, ...started] : [authoritative, ...started],
+            pollCursor: "recovered",
+          }),
+        ),
+      );
+      await act(async () => result.current.refresh());
+      expect(result.current.acknowledgedRollbacks).toEqual([]);
+      expect(result.current.channels[0].modelGroups).toEqual([recoveredGroup, unrelatedGroup]);
+      expect(result.current.rollouts.find((row) => row.id === source.id)).toEqual(authoritative);
+      expect(result.current.error).toBeNull();
+    },
+  );
+
+  it("retains a historical rollback source and retires its generation's different active reconciliation run", async () => {
+    const historical = create(RolloutSchema, {
+      ...rollbackSource,
+      status: RolloutStatus.COMPLETED,
+      state: RolloutState.COMPLETED,
+      finishedAt: create(TimestampSchema, { seconds: 210n }),
+    });
+    const reconciliation = create(RolloutSchema, { ...rollbackSource, id: 12n, revision: 3n });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [reconciliation], pollCursor: "baseline" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({
+      modelGroups: [{ ...rollbackGroup, activeRolloutId: reconciliation.id }],
+      cursor: "",
+    });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    mockRollbackReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: [] });
+    mockListRollouts.mockRejectedValueOnce(new ConnectError("refresh unavailable", Code.Unavailable));
+    await act(async () => result.current.rollbackFirmware(historical));
+    expect(result.current.acknowledgedRollbacks).toEqual([historical]);
+    expect(result.current.rollouts.find((row) => row.id === historical.id)).toEqual(historical);
+    expect(result.current.rollouts.find((row) => row.id === reconciliation.id)).toEqual({
+      ...reconciliation,
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      cancelReason: RolloutCancelReason.ROLLED_BACK,
+    });
+    expect(result.current.channels[0].modelGroups[0].rollbackPending).toBe(true);
+  });
+
+  it("preserves a rollback through a pre-write poll and late control acknowledgment without fabricating revisions", async () => {
+    const poll = capturePollingTimer();
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollbackSource], pollCursor: "baseline" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const control = deferred<object>();
+    mockPauseRollout.mockReturnValueOnce(control.promise);
+    const pause = result.current.pauseRollout(rollbackSource.id, 6n);
+    const oldPoll = deferred<ListRolloutsResponse>();
+    const postWrite = deferred<ListRolloutsResponse>();
+    const responses = [oldPoll.promise, postWrite.promise];
+    const cursors: string[] = [];
+    mockListRollouts.mockImplementation(({ status, pollCursor }) => {
+      if (status === RolloutStatus.ACTIVE)
+        return Promise.resolve(create(ListRolloutsResponseSchema, { rollouts: [rollbackSource] }));
+      cursors.push(pollCursor);
+      return responses.shift() ?? Promise.reject(new ConnectError("still unavailable", Code.Unavailable));
+    });
+    await act(async () => poll());
+    mockRollbackReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: [rollbackSuccessor] });
+    let rollback!: Promise<(typeof rollout)[]>;
+    await act(async () => {
+      rollback = result.current.rollbackFirmware(rollbackSource);
+    });
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSource]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSource.id)?.status).toBe(RolloutStatus.CANCELED);
+    await act(async () => {
+      oldPoll.resolve(create(ListRolloutsResponseSchema, { rollouts: [rollbackSource], pollCursor: "old-poll" }));
+    });
+    await waitFor(() => expect(cursors).toEqual(["baseline", "old-poll"]));
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSource]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSuccessor.id)).toEqual(rollbackSuccessor);
+    await act(async () => {
+      postWrite.reject(new ConnectError("refresh unavailable", Code.Unavailable));
+      await rollback;
+      control.resolve({ rollout: { ...rollbackSource, state: RolloutState.PAUSED } });
+      await pause;
+    });
+    expect(cursors).toEqual(["baseline", "old-poll", "old-poll"]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSource.id)).toMatchObject({
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      revision: 7n,
+    });
+    expect(result.current.rollouts.find((row) => row.id === rollbackSuccessor.id)).toEqual(rollbackSuccessor);
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSource]);
+  });
+
+  it("keeps rollback acknowledgment until a fresh scan confirms both assignment and canceled rows", async () => {
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [rollbackSource] }));
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    mockRollbackReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: [] });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { pollCursor: "first-watermark" }));
+    mockListReleaseChannelModelGroups.mockResolvedValue({
+      modelGroups: [{ ...rollbackGroup, assignmentGeneration: 5n, activeRolloutId: 0n }],
+      cursor: "",
+    });
+    await act(async () => result.current.rollbackFirmware(rollbackSource));
+    // The active-only baseline omits terminal rows; it cannot replace the
+    // source's real revision, even though the new assignment is already known.
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSource]);
+    expect(result.current.channels[0].modelGroups[0].rollbackPending).toBeUndefined();
+    expect(result.current.rollouts[0]).toMatchObject({ revision: 7n, status: RolloutStatus.CANCELED });
+    const terminal = create(RolloutSchema, {
+      ...rollbackSource,
+      revision: 8n,
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      cancelReason: RolloutCancelReason.ROLLED_BACK,
+    });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [terminal], pollCursor: "confirmed" }),
+    );
+    await act(async () => result.current.refresh());
+    expect(result.current.acknowledgedRollbacks).toEqual([]);
+    expect(result.current.rollouts).toEqual([terminal]);
+  });
+
+  it("keeps the newest invalidated generation when rollback acknowledgments arrive out of order", async () => {
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollbackSource], pollCursor: "baseline" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const earlier = deferred<object>();
+    mockRollbackReleaseChannelFirmware.mockReturnValueOnce(earlier.promise);
+    const pendingEarlier = result.current.rollbackFirmware(rollbackSource);
+    // Another view can observe and roll back the first successor while the
+    // original request's successful response is still delayed in transport.
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollbackSuccessor], pollCursor: "successor" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({
+      modelGroups: [{ ...rollbackGroup, assignmentGeneration: 5n, activeRolloutId: rollbackSuccessor.id }],
+      cursor: "",
+    });
+    await act(async () => result.current.refresh());
+    const latest = create(RolloutSchema, { ...rollbackSuccessor, id: 13n, assignmentGeneration: 6n, revision: 3n });
+    mockRollbackReleaseChannelFirmware.mockResolvedValueOnce({ channel: canary, startedRollouts: [latest] });
+    mockListRollouts.mockImplementation(({ status }) =>
+      status === RolloutStatus.ACTIVE
+        ? Promise.resolve(create(ListRolloutsResponseSchema))
+        : Promise.reject(new ConnectError("refresh unavailable", Code.Unavailable)),
+    );
+    await act(async () => result.current.rollbackFirmware(rollbackSuccessor));
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSuccessor]);
+    await act(async () => {
+      earlier.resolve({ channel: canary, startedRollouts: [rollbackSuccessor] });
+      await pendingEarlier;
+    });
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSuccessor]);
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([latest]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSuccessor.id)).toMatchObject({
+      revision: 1n,
+      status: RolloutStatus.CANCELED,
+    });
+    expect(result.current.rollouts.find((row) => row.id === rollbackSource.id)).toMatchObject({
+      revision: 7n,
+      status: RolloutStatus.CANCELED,
+    });
+    expect(result.current.channels[0].modelGroups[0]).toMatchObject({
+      assignmentGeneration: 5n,
+      rollbackPending: true,
+    });
+  });
+
+  it("does not reactivate a late rollback successor after a newer assignment was polled", async () => {
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [rollbackSource], pollCursor: "baseline" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const response = deferred<object>();
+    mockRollbackReleaseChannelFirmware.mockReturnValueOnce(response.promise);
+    const pending = result.current.rollbackFirmware(rollbackSource);
+    const newest = create(RolloutSchema, { ...rollbackSuccessor, id: 13n, assignmentGeneration: 6n, revision: 3n });
+    const currentGroup = create(ReleaseChannelModelGroupSchema, {
+      ...rollbackGroup,
+      manufacturer: " PROTO ",
+      model: "rig",
+      assignmentGeneration: 6n,
+      activeRolloutId: newest.id,
+    });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [newest], pollCursor: "newer-assignment" }),
+    );
+    mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [currentGroup], cursor: "" });
+    await act(async () => result.current.refresh());
+    expect(result.current.acknowledgedRollbacks).toEqual([]);
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([newest]);
+    mockListRollouts.mockRejectedValueOnce(new ConnectError("refresh unavailable", Code.Unavailable));
+    await act(async () => {
+      response.resolve({ channel: canary, startedRollouts: [rollbackSuccessor] });
+      await pending;
+    });
+    expect(result.current.acknowledgedRollbacks).toEqual([rollbackSource]);
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([newest]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSource.id)?.cancelReason).toBe(
+      RolloutCancelReason.ROLLED_BACK,
+    );
+    expect(result.current.rollouts.find((row) => row.id === rollbackSuccessor.id)).toEqual({
+      ...rollbackSuccessor,
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      cancelReason: RolloutCancelReason.SUPERSEDED,
+    });
+    expect(result.current.channels[0].modelGroups).toEqual([currentGroup]);
+    // A repeated stale header must not undo the known newer assignment, even
+    // when its revision has advanced independently of the delayed response.
+    const staleSuccessor = create(RolloutSchema, { ...rollbackSuccessor, revision: 2n });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [staleSuccessor, newest], pollCursor: "replayed" }),
+    );
+    await act(async () => result.current.refresh());
+    expect(result.current.rollouts.filter((row) => row.status === RolloutStatus.ACTIVE)).toEqual([newest]);
+    expect(result.current.rollouts.find((row) => row.id === rollbackSuccessor.id)).toMatchObject({
+      revision: 2n,
+      status: RolloutStatus.CANCELED,
+      cancelReason: RolloutCancelReason.SUPERSEDED,
+    });
+  });
+
+  it.each(["replaced session", "replaced session before rerender", "logged out", "unmounted hook"])(
+    "does not retain a rollback or successor from a %s",
+    async (oldContext) => {
+      mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [rollbackSource] }));
+      mockListReleaseChannelModelGroups.mockResolvedValue({ modelGroups: [rollbackGroup], cursor: "" });
+      const { result, rerender, unmount } = renderHook(() => useReleaseChannels());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      const response = deferred<object>();
+      mockRollbackReleaseChannelFirmware.mockReturnValueOnce(response.promise);
+      const mutation = result.current.rollbackFirmware(rollbackSource);
+      if (oldContext === "unmounted hook") unmount();
+      else if (oldContext === "logged out") {
+        mockAuth.isAuthenticated = false;
+        rerender();
+      } else {
+        mockAuth.sessionGeneration += 1;
+        if (oldContext === "replaced session") {
+          rerender();
+          await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+        }
+      }
+      const reads = mockListRollouts.mock.calls.length;
+      const before = result.current.rollouts;
+      await act(async () => {
+        response.resolve({ channel: canary, startedRollouts: [rollbackSuccessor] });
+        await mutation;
+      });
+      expect(result.current.rollouts).toBe(before);
+      expect(result.current.acknowledgedRollbacks).toEqual([]);
+      expect(
+        result.current.channels.every((channel) => channel.modelGroups.every((group) => !group.rollbackPending)),
+      ).toBe(true);
+      expect(mockListRollouts).toHaveBeenCalledTimes(reads);
     },
   );
 
@@ -1560,7 +1955,7 @@ describe("useReleaseChannels", () => {
       });
       expect(result.current.rollouts[0].revision).toBe(9n);
       await act(async () => {
-        await result.current[action](9n, revisionFromOpenDialog);
+        await callRevisionAction(result.current, action, { ...observed, revision: revisionFromOpenDialog });
       });
       expect(rpc).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 3n });
       expect(toJson(schema, create(schema, rpc.mock.calls[0][0]))).toEqual({ rolloutId: "9", expectedRevision: "3" });
@@ -1570,7 +1965,9 @@ describe("useReleaseChannels", () => {
       rpc.mockRejectedValueOnce(stale);
       const readsBeforeFailure = mockListRollouts.mock.calls.length;
       await act(async () => {
-        await expect(result.current[action](9n, revisionFromOpenDialog)).rejects.toBe(stale);
+        await expect(
+          callRevisionAction(result.current, action, { ...observed, revision: revisionFromOpenDialog }),
+        ).rejects.toBe(stale);
       });
       expect(rpc).toHaveBeenCalledExactlyOnceWith({ rolloutId: 9n, expectedRevision: 3n });
       expect(mockListRollouts).toHaveBeenCalledTimes(readsBeforeFailure);
@@ -1582,9 +1979,9 @@ describe("useReleaseChannels", () => {
     const { result } = renderHook(() => useReleaseChannels());
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     for (const expectedRevision of [0n, -1n]) {
-      await expect(result.current[action](9n, expectedRevision)).rejects.toThrow(
-        "Refresh the rollout before taking this action.",
-      );
+      await expect(
+        callRevisionAction(result.current, action, { ...rollout, revision: expectedRevision }),
+      ).rejects.toThrow("Refresh the rollout before taking this action.");
     }
     expect(rpc).not.toHaveBeenCalled();
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();

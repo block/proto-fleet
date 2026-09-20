@@ -12,6 +12,7 @@ import {
 import StatusChip from "./StatusChip";
 import type { ChannelHistoryState } from "./useChannelHistory";
 import { type Rollout, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { acknowledgeRollout, isRollbackAcknowledged } from "@/protoFleet/api/rollbackAcknowledgements";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Modal, { sizes } from "@/shared/components/Modal";
@@ -21,6 +22,7 @@ interface ChannelHistoryModalProps {
   channel: ChannelView;
   // This channel's rollouts, newest first (server order).
   rollouts: Rollout[];
+  acknowledgedRollbacks: readonly Rollout[];
   historyState: ChannelHistoryState;
   onRetry: () => void;
   onView: (rollout: Rollout) => void;
@@ -37,6 +39,7 @@ const formatRolloutTimestamp = (timestamp?: Timestamp): string =>
 const ChannelHistoryModal = ({
   channel,
   rollouts,
+  acknowledgedRollbacks,
   historyState,
   onRetry,
   onView,
@@ -46,7 +49,11 @@ const ChannelHistoryModal = ({
   // Rolling an entry back reverses its lineage (A for an A-to-B update, or
   // clearing the firmware for a first assignment) while the entry is still
   // the pair's current assignment generation; older entries get no action.
-  const generations = new Map(channel.modelGroups.map((group) => [pairKey(group), group.assignmentGeneration]));
+  const generations = new Map(
+    channel.modelGroups
+      .filter((group) => !group.rollbackPending)
+      .map((group) => [pairKey(group), group.assignmentGeneration]),
+  );
 
   return (
     <Modal
@@ -86,7 +93,8 @@ const ChannelHistoryModal = ({
             </tr>
           </thead>
           <tbody className="text-text-primary">
-            {rollouts.map((rollout) => {
+            {rollouts.map((snapshot) => {
+              const rollout = acknowledgeRollout(snapshot, acknowledgedRollbacks, [channel]);
               const counts = rolloutDeviceCounts(rollout);
               const neutralCounts = [
                 counts.skipped > 0 ? `${counts.skipped} skipped` : "",
@@ -104,7 +112,9 @@ const ChannelHistoryModal = ({
                     ]
                       .filter(Boolean)
                       .join(", ");
-              const rollbackable = canRollBack(rollout, generations.get(pairKey(rollout)));
+              const rollbackable =
+                !isRollbackAcknowledged(rollout, acknowledgedRollbacks) &&
+                canRollBack(rollout, generations.get(pairKey(rollout)));
               return (
                 <tr
                   key={rollout.id.toString()}
