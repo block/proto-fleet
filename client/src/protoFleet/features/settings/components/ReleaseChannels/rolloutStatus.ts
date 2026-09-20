@@ -349,8 +349,10 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
 export function activeUpdateSummary(rollout: Rollout): string {
   const counts = rolloutDeviceCounts(rollout);
   const failed = failedCount(rollout);
-  const parts = [`${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated`];
+  const parts = [`${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} miners updated`];
   if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
+  if (counts.skipped > 0) parts.push(`${counts.skipped.toLocaleString()} skipped`);
+  if (counts.excluded > 0) parts.push(`${counts.excluded.toLocaleString()} excluded`);
   if (isPaused(rollout) || isAwaitingReview(rollout) || isBatchStage(rollout)) parts.push(rolloutStageLabel(rollout));
   return parts.join(", ");
 }

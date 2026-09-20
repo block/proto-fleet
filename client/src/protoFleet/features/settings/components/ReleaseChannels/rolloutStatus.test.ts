@@ -481,6 +481,23 @@ describe("device counts and progress", () => {
     expect(activeUpdateSummary(pausedRigRollout)).toBe("2 of 6 miners updated, Paused");
   });
 
+  it.each([
+    { deviceCounts: { skipped: 6 }, expected: "0 of 6 miners updated, 6 skipped" },
+    { deviceCounts: { excluded: 6 }, expected: "0 of 6 miners updated, 6 excluded" },
+    {
+      deviceCounts: { done: 2, failed: 1, skipped: 2, excluded: 1 },
+      expected: "2 of 6 miners updated, 1 failed, 2 skipped, 1 excluded",
+    },
+  ])("includes neutral targets in active-update summaries: $expected", ({ deviceCounts, expected }) => {
+    const rollout = create(RolloutSchema, {
+      ...activeRigRollout,
+      deviceCount: 6,
+      deviceCounts: create(RolloutDeviceCountsSchema, deviceCounts),
+      behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }),
+    });
+    expect(activeUpdateSummary(rollout)).toBe(expected);
+  });
+
   it("flags rollouts that need a human", () => {
     expect(rolloutNeedsAttention(gatedRigRollout)).toBe(true);
     expect(rolloutNeedsAttention(batchedRigRollout)).toBe(true);

@@ -682,15 +682,17 @@ export function useReleaseChannels(): ReleaseChannelsApi {
 
   const applyFirmware = useCallback(
     (channelId: bigint, assignments: AssignmentDraft[]) =>
-      mutate(() =>
-        rolloutClient.applyReleaseChannelFirmware({
-          channelId,
-          assignments: assignments.map(({ manufacturer, model, firmwareFileId }) => ({
-            manufacturer,
-            model,
-            firmwareFileId,
-          })),
-        }),
+      mutate(
+        () =>
+          rolloutClient.applyReleaseChannelFirmware({
+            channelId,
+            assignments: assignments.map(({ manufacturer, model, firmwareFileId }) => ({
+              manufacturer,
+              model,
+              firmwareFileId,
+            })),
+          }),
+        (response) => ({ rollouts: response.startedRollouts }),
       ).then((response) => response.startedRollouts),
     [mutate],
   );

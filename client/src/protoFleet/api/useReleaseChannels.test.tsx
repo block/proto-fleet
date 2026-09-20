@@ -1002,6 +1002,74 @@ describe("useReleaseChannels", () => {
     expect(mockListRollouts).toHaveBeenCalledTimes(3);
   });
 
+  it("retains every applied pair after a failed refresh without regressing a newer polled rollout", async () => {
+    const existing = create(RolloutSchema, { ...rollout, model: "Existing", revision: 3n, assignmentGeneration: 1n });
+    mockListRollouts.mockResolvedValue(
+      create(ListRolloutsResponseSchema, { rollouts: [existing], pollCursor: "baseline" }),
+    );
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const first = create(RolloutSchema, { ...rollout, id: 10n, revision: 1n, assignmentGeneration: 1n });
+    const second = create(RolloutSchema, {
+      ...rollout,
+      id: 11n,
+      manufacturer: "Other",
+      revision: 1n,
+      assignmentGeneration: 1n,
+    });
+    const started = [first, second];
+    const assignments = started.map(({ manufacturer, model }) => ({
+      manufacturer,
+      model,
+      firmwareFileId: `${manufacturer}-fw`,
+    }));
+    const response = deferred<object>();
+    mockApplyReleaseChannelFirmware.mockReturnValueOnce(response.promise);
+    const mutation = result.current.applyFirmware(canary.id, assignments);
+    const newer = create(RolloutSchema, { ...first, revision: 3n, state: RolloutState.PAUSED });
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { rollouts: [newer], pollCursor: "newer" }));
+    await act(async () => result.current.refresh());
+    const error = new ConnectError("refresh unavailable after apply", Code.Unavailable);
+    mockListRollouts.mockRejectedValueOnce(error);
+    await act(async () => {
+      response.resolve({ channel: canary, startedRollouts: started });
+      await expect(mutation).resolves.toBe(started);
+    });
+    expect(mockApplyReleaseChannelFirmware).toHaveBeenCalledExactlyOnceWith({ channelId: canary.id, assignments });
+    expect(result.current.rollouts).toEqual([second, newer, existing]);
+    expect(result.current.error).toBe(error);
+    expect(result.current.acknowledgedRollbacks).toEqual([]);
+    mockListRollouts.mockResolvedValue(create(ListRolloutsResponseSchema, { pollCursor: "recovered" }));
+    await act(async () => result.current.refresh());
+    expect(mockListRollouts).toHaveBeenCalledWith({ pageSize: 1000, cursor: "", pollCursor: "newer" }, pollOptions);
+    expect(result.current.rollouts).toEqual([second, newer, existing]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("does not retain applied rollouts when the successful response belongs to a replaced session", async () => {
+    const { result, rerender } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const response = deferred<object>();
+    mockApplyReleaseChannelFirmware.mockReturnValueOnce(response.promise);
+    const mutation = result.current.applyFirmware(canary.id, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "new-firmware" },
+    ]);
+    mockAuth.sessionGeneration += 1;
+    rerender();
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    const currentRows = result.current.rollouts;
+    const reads = mockListRollouts.mock.calls.length;
+    const started = [create(RolloutSchema, { ...rollout, id: 10n, revision: 1n })];
+    await act(async () => {
+      response.resolve({ channel: canary, startedRollouts: started });
+      await expect(mutation).resolves.toBe(started);
+    });
+    expect(result.current.rollouts).toBe(currentRows);
+    expect(mockListRollouts).toHaveBeenCalledTimes(reads);
+    await act(async () => result.current.refresh());
+    expect(result.current.rollouts).toEqual([rollout]);
+  });
+
   it.each(revisionActions.filter(([action]) => action !== "rollbackFirmware"))(
     "%s retains the acknowledged rollout and its revision when the follow-up read fails",
     async (action, rpc) => {
