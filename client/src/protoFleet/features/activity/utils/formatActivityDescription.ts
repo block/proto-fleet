@@ -120,6 +120,10 @@ const formatDeletedBuilding = (entry: ActivityEntry): string | undefined => {
   return `Deleted building${buildingID ? ` ${buildingID}` : ""}: ${countLabel(rackCount, "rack")} unassigned`;
 };
 
+// Rollout descriptions already contain the server's display label and target.
+// Preserve that searchable text, including user-authored names and versions.
+const formatRolloutDescription = (entry: ActivityEntry): string => entry.description || formatLabel(entry.eventType);
+
 const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | undefined> = {
   login: () => "Logged in",
   login_failed: () => "Couldn't log in",
@@ -194,6 +198,16 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   curtailment_admin_terminated_replay: () => "Curtailment already stopped",
   curtailment_updated: () => "Updated curtailment",
   curtailment_force_released: () => "Released curtailment ownership",
+
+  rollout_started: formatRolloutDescription,
+  rollout_review_ready: formatRolloutDescription,
+  rollout_continued: formatRolloutDescription,
+  rollout_paused: formatRolloutDescription,
+  rollout_resumed: formatRolloutDescription,
+  rollout_canceled: formatRolloutDescription,
+  rollout_completed: formatRolloutDescription,
+  rollout_completed_with_failures: formatRolloutDescription,
+  rollout_retried: formatRolloutDescription,
 
   command_preflight_blocked: (entry) => {
     const skippedCount = metadataNumber(entry, "skipped_count");
