@@ -59,7 +59,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
         })
         .catch((err) => {
           // A cancel from navigation/unmount is teardown, not a fetch failure.
-          if (isAbortError(err)) return;
+          if (isAbortError(err) || !accept()) return;
           setSystemInfoError(err?.error?.message ?? "An error occurred");
         })
         .finally(() => {
