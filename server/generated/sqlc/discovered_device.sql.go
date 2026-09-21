@@ -322,7 +322,7 @@ INSERT INTO discovered_device (
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
-    device_class = EXCLUDED.device_class,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,

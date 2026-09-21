@@ -140,6 +140,34 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	}
 }
 
+func TestFleetNodeDiscoveryPreservesKnownDeviceClass(t *testing.T) {
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-class")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:class")
+
+	for _, reportClass := range []commonpb.DeviceClass{
+		commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+		commonpb.DeviceClass_DEVICE_CLASS_RIG,
+	} {
+		accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+			{DeviceIdentifier: "mac:class", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual", DeviceClass: reportClass},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []int{0}, accepted)
+		require.Zero(t, rejected)
+		devices, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, devices, 1)
+		wantClass := reportClass
+		if wantClass == commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+			wantClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+		}
+		require.Equal(t, wantClass, devices[0].DeviceClass)
+		require.Equal(t, "10.0.0.9", devices[0].IPAddress)
+	}
+}
+
 func TestListFleetNodeDiscoveredDevices_ExcludesWhenAnyDeviceRowIsBound(t *testing.T) {
 	// Arrange: one discovered device with two live device rows -- one bound to
 	// the node, one not. The whole discovered device must be excluded, not

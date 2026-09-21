@@ -477,7 +477,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     url_scheme = EXCLUDED.url_scheme,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
-    device_class = EXCLUDED.device_class,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     firmware_version = EXCLUDED.firmware_version,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,

@@ -10,6 +10,7 @@ import (
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -1358,6 +1359,65 @@ func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t 
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
+func TestPairer_PerformReconciliation_DeviceClass(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		oldClass      commonpb.DeviceClass
+		newClass      commonpb.DeviceClass
+		expectedClass commonpb.DeviceClass
+	}{
+		{
+			name:          "learns previously unspecified class",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+		{
+			name:          "updates known class",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_RIG,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+		{
+			name:          "preserves known class when new class is unspecified",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockDiscoveredDeviceStore(ctrl)
+			pairer := &Pairer{discoveredDeviceStore: store}
+			oldDOI := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "old-discovery", OrgID: 1}
+			newDOI := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "new-discovery", OrgID: 1}
+			oldDevice := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: oldDOI.DeviceIdentifier, DeviceClass: tt.oldClass},
+				OrgID:  1,
+			}
+			newDevice := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: newDOI.DeviceIdentifier, DeviceClass: tt.newClass},
+				OrgID:  1,
+			}
+			store.EXPECT().GetDevice(gomock.Any(), oldDOI).Return(oldDevice, nil)
+			store.EXPECT().Save(gomock.Any(), oldDOI, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, saved *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					assert.Equal(t, tt.expectedClass, saved.DeviceClass)
+					return saved, nil
+				},
+			)
+			store.EXPECT().SoftDelete(gomock.Any(), newDOI).Return(nil)
+
+			_, err := pairer.performReconciliation(t.Context(), newDevice, &stores.PairedDeviceInfo{
+				DeviceIdentifier:           "paired-device",
+				DiscoveredDeviceIdentifier: oldDOI.DeviceIdentifier,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "paired-device", newDevice.DeviceIdentifier)
+		})
+	}
 }
 
 func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {

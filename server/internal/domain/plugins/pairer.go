@@ -452,7 +452,7 @@ func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *dis
 	return p.performReconciliation(ctx, discoveredDevice, pairedDevice)
 }
 
-// performReconciliation updates the OLD discovered_device's network info to match the new one,
+// performReconciliation updates the OLD discovered_device's network info and known device class,
 // soft-deletes the NEW orphaned discovered_device record, and updates the discoveredDevice's
 // DeviceIdentifier to match the existing device. This enables re-pairing after a device
 // moves to a new subnet without breaking the device→discovered_device link.
@@ -467,6 +467,9 @@ func (p *Pairer) performReconciliation(ctx context.Context, discoveredDevice *di
 		return nil, fleeterror.NewInternalErrorf("failed to get old discovered device: %v", err)
 	}
 	oldDiscoveredDevice.UpdateNetworkInfo(discoveredDevice.IpAddress, discoveredDevice.Port, discoveredDevice.UrlScheme)
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+		oldDiscoveredDevice.DeviceClass = discoveredDevice.DeviceClass
+	}
 	if _, err := p.discoveredDeviceStore.Save(ctx, oldDOI, oldDiscoveredDevice); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to update old discovered device network info: %v", err)
 	}

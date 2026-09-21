@@ -61,6 +61,14 @@ func TestDeviceClassSurvivesDiscoveryPairingAndRediscovery(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, int32(device.DeviceClass), rows[0].DeviceClass)
 
+	// A report without class information preserves the known identity.
+	device.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED
+	_, err = discovered.Save(ctx, doi, device)
+	require.NoError(t, err)
+	paired, err = devices.GetDeviceByDeviceIdentifier(ctx, doi.DeviceIdentifier, orgID)
+	require.NoError(t, err)
+	require.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, paired.DeviceClass)
+
 	// A new explicit report replaces the stored class without consulting model.
 	device.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_RIG
 	_, err = discovered.Save(ctx, doi, device)
