@@ -3,7 +3,7 @@ module github.com/block/proto-fleet/plugin/proto
 go 1.26.0
 
 require (
-	github.com/block/proto-fleet/server v0.0.0-20260901205622-d5504553ab20
+	github.com/block/proto-fleet/server v0.0.0-20260918222756-913811d3d482
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/moby/moby/api v1.55.0
