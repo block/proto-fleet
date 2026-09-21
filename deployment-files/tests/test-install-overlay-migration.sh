@@ -91,8 +91,14 @@ printf '%s\n' "$*" > "$HA_TEST_LOG"
 if [ -n "${HA_TEST_ENV_LOG:-}" ]; then
   printf '%s\n' "${DD_API_KEY-unset}" > "$HA_TEST_ENV_LOG"
 fi
+if [ -n "${HA_TEST_EXECUTABLE_LOG:-}" ]; then
+  printf '%s\n' "${BASH_SOURCE[0]}" > "$HA_TEST_EXECUTABLE_LOG"
+fi
+exit "${HA_TEST_EXIT_CODE:-0}"
 EOF
   chmod 755 "$release_root/deployment/ha/fleet-ha"
+  printf 'version: v9.9.9\nrelease_repository: block/proto-fleet\n' \
+    > "$release_root/deployment/version.txt"
   tar -czf "$tar_path" -C "$release_root" deployment
 }
 
@@ -155,6 +161,256 @@ id() {
   fi
   command id "$@"
 }
+
+# Temporary release files may need an executable filesystem on hardened hosts.
+# Exercise the real path checks and allocation without downloading a release.
+if (
+  FAKE_UID=$(command id -u)
+  parent="$TEST_TMP/scratch parent"
+  mkdir -m 700 "$parent"
+  download=$(umask 000; create_install_download_dir "$parent") || exit 1
+  case "$download" in "$parent"/proto-fleet-install.*) ;; *) exit 1 ;; esac
+  [ "$(install_path_metadata "$download")" = "$FAKE_UID 700" ] \
+    && [ ! -L "$download" ]
+); then
+  pass "custom scratch uses a fresh private directory, including paths with spaces"
+else
+  fail "custom scratch did not allocate a private release directory"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  default_parent=$(cd /tmp && pwd -P)
+  # Some developer hosts have an unsafe non-sticky /tmp. Do not chmod a host
+  # directory to make a test pass: require fail-closed there; Linux CI exercises
+  # real allocation under its root-owned sticky /tmp.
+  if [ "$(install_path_metadata "$default_parent")" = '0 777' ]; then
+    ! create_install_download_dir > /dev/null 2> "$TEST_TMP/scratch-default.err" \
+      && grep -q 'group- or world-writable' "$TEST_TMP/scratch-default.err"
+    exit $?
+  fi
+  DOWNLOAD_DIR=$(create_install_download_dir) || exit 1
+  case "$DOWNLOAD_DIR" in "$default_parent"/proto-fleet-install.*) ;; *) exit 1 ;; esac
+  [ "$(install_path_metadata "$DOWNLOAD_DIR")" = "$FAKE_UID 700" ] || exit 1
+  (trap installer_exit_cleanup EXIT; exit 0)
+  [ ! -e "$DOWNLOAD_DIR" ] && [ -d "$default_parent" ]
+); then
+  pass "default scratch validates /tmp and cleans only its private child when safe"
+else
+  fail "default scratch allocation or cleanup changed"
+fi
+
+for invalid_parent in relative-path "$TEST_TMP/missing-scratch"; do
+  if (
+    FAKE_UID=$(command id -u)
+    ! create_install_download_dir "$invalid_parent" > /dev/null 2> "$TEST_TMP/scratch-invalid.err" \
+      && grep -q 'Temporary directory' "$TEST_TMP/scratch-invalid.err" \
+      && [ ! -e "$invalid_parent" ]
+  ); then
+    pass "scratch rejects invalid parent: $invalid_parent"
+  else
+    fail "scratch accepted or created an invalid parent: $invalid_parent"
+  fi
+done
+
+if (
+  FAKE_UID=$(command id -u)
+  parent="$TEST_TMP/scratch-unsafe"
+  mkdir -m 777 "$parent"
+  ! create_install_download_dir "$parent" > /dev/null 2> "$TEST_TMP/scratch-writable.err" \
+    && grep -q 'group- or world-writable' "$TEST_TMP/scratch-writable.err" \
+    && [ -z "$(ls -A "$parent")" ]
+); then
+  pass "scratch rejects writable parents before creating files"
+else
+  fail "scratch accepted a writable parent"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  target="$TEST_TMP/scratch-link-target"
+  mkdir -m 700 "$target"
+  ln -s "$target" "$TEST_TMP/scratch-link"
+  for suffix in '' / //; do
+    ! create_install_download_dir "$TEST_TMP/scratch-link$suffix" > /dev/null 2> "$TEST_TMP/scratch-link.err" \
+      && grep -q 'non-symlink directory' "$TEST_TMP/scratch-link.err" \
+      && [ -z "$(ls -A "$target")" ] || exit 1
+  done
+); then
+  pass "scratch rejects a symlink parent without modifying its target"
+else
+  fail "scratch followed a symlink parent"
+fi
+
+if (
+  parent="$TEST_TMP/scratch-sudo-owner"
+  mkdir -m 700 "$parent"
+  FAKE_UID=0
+  SUDO_UID=1000
+  install_path_metadata() {
+    if [ "$1" = "$parent" ]; then printf '1000 700\n'; else printf '0 755\n'; fi
+  }
+  ! create_install_download_dir "$parent" > /dev/null 2> "$TEST_TMP/scratch-sudo.err" \
+    && grep -q 'owned by unrelated UID 1000' "$TEST_TMP/scratch-sudo.err" \
+    && [ -z "$(ls -A "$parent")" ]
+); then
+  pass "root scratch does not trust a SUDO_UID-owned parent"
+else
+  fail "root scratch inherited deployment ownership permissions"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  parent="$TEST_TMP/scratch-unsafe-ancestor"
+  mkdir -m 777 "$parent"
+  mkdir -m 700 "$parent/private"
+  ! create_install_download_dir "$parent/private" > /dev/null 2> "$TEST_TMP/scratch-ancestor.err" \
+    && grep -q 'group- or world-writable' "$TEST_TMP/scratch-ancestor.err" \
+    && [ -z "$(ls -A "$parent/private")" ]
+); then
+  pass "a private leaf cannot hide an unsafe scratch ancestor"
+else
+  fail "scratch accepted an unsafe ancestor"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  parent="$TEST_TMP/scratch-allocation-failure"
+  mkdir -m 700 "$parent"
+  mktemp() { return 1; }
+  ! create_install_download_dir "$parent" > "$TEST_TMP/scratch-allocation.out" \
+    && [ ! -s "$TEST_TMP/scratch-allocation.out" ] \
+    && [ -z "$(ls -A "$parent")" ]
+); then
+  pass "allocation failure does not yield a download or cleanup target"
+else
+  fail "scratch allocation failure returned a usable path"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  parent="$TEST_TMP/scratch-cleanup-parent"
+  mkdir -m 700 "$parent"
+  printf 'keep\n' > "$parent/unrelated"
+  DOWNLOAD_DIR=$(create_install_download_dir "$parent") || exit 1
+  printf 'temporary\n' > "$DOWNLOAD_DIR/archive"
+  (trap installer_exit_cleanup EXIT; exit 7)
+  status=$?
+  [ "$status" -eq 7 ] && [ ! -e "$DOWNLOAD_DIR" ] \
+    && [ "$(cat "$parent/unrelated")" = keep ]
+); then
+  pass "failed install removes custom scratch without deleting parent or siblings"
+else
+  fail "custom scratch cleanup did not preserve its boundary and exit status"
+fi
+
+if bash "$INSTALL_SCRIPT" --temp-dir > "$TEST_TMP/scratch-option.err" 2>&1; then
+  fail "--temp-dir without a value should fail"
+elif grep -q -- '--temp-dir requires a nonempty path' "$TEST_TMP/scratch-option.err"; then
+  pass "--temp-dir requires an explicit path"
+else
+  fail "--temp-dir is not parsed by the installer"
+fi
+
+if bash "$INSTALL_SCRIPT" --temp-dir '' > "$TEST_TMP/scratch-empty-option.err" 2>&1; then
+  fail "--temp-dir must reject an empty value"
+elif grep -q -- '--temp-dir requires a nonempty path' "$TEST_TMP/scratch-empty-option.err"; then
+  pass "an empty --temp-dir value cannot silently select the default"
+else
+  fail "empty --temp-dir value was not rejected by argument parsing"
+fi
+
+# Run the complete CLI with local downloads and a harmless HA payload. Relocate
+# only fixed host paths; parsing, allocation, checksum verification, extraction,
+# dispatch and EXIT cleanup all run from the actual installer source.
+(
+  set -euo pipefail
+  export HA_CLI_ROOT="$TEST_TMP/scratch cli"
+  export HA_CLI_PARENT="$HA_CLI_ROOT/parent with spaces"
+  mkdir -m 700 "$HA_CLI_ROOT" "$HA_CLI_PARENT" "$HA_CLI_ROOT/bin"
+  printf 'keep\n' > "$HA_CLI_PARENT/unrelated"
+  printf '{}\n' > "$HA_CLI_ROOT/host.json"
+  chmod 600 "$HA_CLI_ROOT/host.json"
+  sed \
+    -e 's|^HA_BUNDLE_PATH=.*|HA_BUNDLE_PATH="$HA_CLI_ROOT/host.json"|' \
+    -e 's|^UPDATER_ENV_PATH=.*|UPDATER_ENV_PATH="$HA_CLI_ROOT/updater.env"|' \
+    -e 's|^  INSTALL_DIR="/opt/proto-fleet"$|  INSTALL_DIR="$HA_CLI_ROOT/install"|' \
+    "$INSTALL_SCRIPT" > "$HA_CLI_ROOT/install.sh"
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) exit 1 ;;
+  esac
+  export HA_CLI_ARCHIVE="$HA_CLI_ROOT/proto-fleet-v9.9.9-$arch.tar.gz"
+  make_ha_release_archive "$HA_CLI_ROOT/release" "$HA_CLI_ARCHIVE"
+  if command -v sha256sum >/dev/null 2>&1; then
+    checksum=$(sha256sum "$HA_CLI_ARCHIVE" | awk '{print $1}')
+  else
+    checksum=$(shasum -a 256 "$HA_CLI_ARCHIVE" | awk '{print $1}')
+  fi
+  printf '%s  %s\n' "$checksum" "${HA_CLI_ARCHIVE##*/}" > "$HA_CLI_ARCHIVE.sha256"
+  cat > "$HA_CLI_ROOT/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$#" = 4 ] && [ "$1" = -fsSL ] && [ "$3" = -o ]
+archive_name=${HA_CLI_ARCHIVE##*/}
+case "$2" in
+  "https://github.com/block/proto-fleet/releases/download/v9.9.9/$archive_name") source_file=$HA_CLI_ARCHIVE ;;
+  "https://github.com/block/proto-fleet/releases/download/v9.9.9/$archive_name.sha256") source_file=$HA_CLI_ARCHIVE.sha256 ;;
+  *) echo 'Unexpected fixture download' >&2; exit 1 ;;
+esac
+case "$4" in
+  "$HA_CLI_PARENT"/proto-fleet-install.*/"${source_file##*/}") ;;
+  *) echo 'Download escaped the requested scratch parent' >&2; exit 1 ;;
+esac
+printf '%s\n' "$4" >> "$HA_CLI_ROOT/downloads"
+cp "$source_file" "$4"
+EOF
+  chmod 700 "$HA_CLI_ROOT/bin/curl"
+  export HA_TEST_LOG="$HA_CLI_ROOT/arguments"
+  export HA_TEST_EXECUTABLE_LOG="$HA_CLI_ROOT/executable"
+  export HA_TEST_EXIT_CODE
+  for HA_TEST_EXIT_CODE in 0 7; do
+    : > "$HA_CLI_ROOT/downloads"
+    status=0
+    PATH="$HA_CLI_ROOT/bin:$PATH" bash "$HA_CLI_ROOT/install.sh" \
+      --ha --temp-dir "$HA_CLI_PARENT" v9.9.9 \
+      > "$HA_CLI_ROOT/run-$HA_TEST_EXIT_CODE.log" 2>&1 || status=$?
+    [ "$status" = "$HA_TEST_EXIT_CODE" ]
+    [ "$(cat "$HA_TEST_LOG")" = "install $HA_CLI_ROOT/host.json" ]
+    executable=$(cat "$HA_TEST_EXECUTABLE_LOG")
+    case "$executable" in
+      "$HA_CLI_PARENT"/proto-fleet-install.*/ha-release/deployment/ha/fleet-ha) ;;
+      *) exit 1 ;;
+    esac
+    download_dir=${executable%/ha-release/deployment/ha/fleet-ha}
+    printf '%s\n' "$download_dir/${HA_CLI_ARCHIVE##*/}" \
+      "$download_dir/${HA_CLI_ARCHIVE##*/}.sha256" > "$HA_CLI_ROOT/expected-downloads"
+    cmp "$HA_CLI_ROOT/expected-downloads" "$HA_CLI_ROOT/downloads"
+    [ ! -e "$download_dir" ]
+    [ "$(ls -A "$HA_CLI_PARENT")" = unrelated ]
+    [ "$(cat "$HA_CLI_PARENT/unrelated")" = keep ]
+  done
+  # A correctly named but incorrect checksum must stop before payload dispatch.
+  printf '%064d  %s\n' 0 "${HA_CLI_ARCHIVE##*/}" > "$HA_CLI_ARCHIVE.sha256"
+  : > "$HA_TEST_EXECUTABLE_LOG"
+  if PATH="$HA_CLI_ROOT/bin:$PATH" bash "$HA_CLI_ROOT/install.sh" \
+      --ha --temp-dir "$HA_CLI_PARENT" v9.9.9 \
+      > "$HA_CLI_ROOT/checksum-failure.log" 2>&1; then
+    exit 1
+  fi
+  [ ! -s "$HA_TEST_EXECUTABLE_LOG" ]
+  [ "$(ls -A "$HA_CLI_PARENT")" = unrelated ]
+  [ "$(cat "$HA_CLI_PARENT/unrelated")" = keep ]
+)
+if [ "$?" -eq 0 ]; then
+  pass "complete CLI honors custom scratch, verifies checksum and cleans up on success/failure"
+else
+  fail "complete CLI custom scratch regression"
+  for log in "$TEST_TMP/scratch cli/"*.log; do
+    [ ! -f "$log" ] || cat "$log" >&2
+  done
+fi
 
 # Explicit settings are authoritative, including false, and avoid Docker
 # inspection entirely.
