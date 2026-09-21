@@ -1129,8 +1129,9 @@ export class BasePage {
       return;
     }
 
-    const trigger = await this.getVisibleAddFilterTrigger();
-    await trigger.click();
+    // Dismiss outside the menu without toggling it back open if a filter update
+    // closes it between the visibility check and the click.
+    await this.page.getByTestId("fleet-layout").getByRole("heading", { name: "Fleet", exact: true }).click();
     await expect(popover).toBeHidden();
   }
 

@@ -21,27 +21,58 @@ interface RolloutPillProps {
   rollouts: Rollout[];
 }
 
+// Pointer activation blurs the trigger in PageHeaderPopoverPill. Keyboard
+// activation keeps it focused, so move into the portal after positioning.
+// Focus the top of the content without scrolling a long list to its footer.
+function focusKeyboardOpenedContent(content: HTMLDivElement | null) {
+  const trigger = document.activeElement;
+  if (!content || !(trigger instanceof HTMLElement) || !trigger.closest(".rollout-pill-trigger")) return;
+  const frame = requestAnimationFrame(() => {
+    if (content.isConnected && document.activeElement === trigger) content.focus({ preventScroll: true });
+  });
+  return () => {
+    cancelAnimationFrame(frame);
+    if (trigger.isConnected && content.contains(document.activeElement)) trigger.focus({ preventScroll: true });
+  };
+}
+
 // Trigger copy leads with what needs a human: an update parked at a review
 // gate or carrying failed miners outranks updates that are merely running.
-function triggerLabel(rollouts: Rollout[], attentionCount: number): string {
+function triggerLabel(rollouts: Rollout[], attentionCount: number, pausedCount: number): string {
   if (attentionCount === 1) return "Firmware update needs attention";
   if (attentionCount > 1) return `${attentionCount} firmware updates need attention`;
+  if (pausedCount === rollouts.length) {
+    return pausedCount === 1 ? "Firmware update paused" : `${pausedCount} firmware updates paused`;
+  }
+  if (pausedCount > 0) {
+    const runningCount = rollouts.length - pausedCount;
+    return `${runningCount} firmware ${runningCount === 1 ? "update" : "updates"} in progress, ${pausedCount} paused`;
+  }
   return rollouts.length === 1 ? "Firmware update in progress" : `${rollouts.length} firmware updates in progress`;
 }
 
 function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
   const attentionCount = rollouts.filter(rolloutNeedsAttention).length;
+  const pausedCount = rollouts.filter(isPaused).length;
+  const isProgressing = attentionCount === 0 && pausedCount < rollouts.length;
   return (
     <PageHeaderPopoverPill
       ariaLabel="View ongoing firmware updates"
+      constrainHeightToViewport
       // Solid while something waits on you, pulsing while the fleet is still
       // being worked on.
-      dotClassName={attentionCount > 0 ? "bg-intent-warning-fill" : "animate-pulse bg-intent-warning-fill"}
+      dotClassName={isProgressing ? "animate-pulse bg-intent-warning-fill" : "bg-intent-warning-fill"}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={triggerLabel(rollouts, attentionCount)}
+      triggerLabel={triggerLabel(rollouts, attentionCount, pausedCount)}
     >
       {({ closePopover }) => (
-        <div className="flex flex-col gap-3">
+        <div
+          ref={focusKeyboardOpenedContent}
+          tabIndex={-1}
+          role="region"
+          aria-label="Ongoing firmware updates"
+          className="flex flex-col gap-3"
+        >
           <div className="flex flex-col gap-3">
             {rollouts.map((rollout) => {
               const counts = scopeCounts(rollout);

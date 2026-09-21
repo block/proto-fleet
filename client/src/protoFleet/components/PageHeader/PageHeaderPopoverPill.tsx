@@ -10,6 +10,7 @@ import { classNameToSelectors } from "@/shared/utils/cssUtils";
 interface PageHeaderPopoverPillProps {
   ariaLabel: string;
   children: (props: { closePopover: () => void }) => ReactNode;
+  constrainHeightToViewport?: boolean;
   dotClassName?: string;
   popoverSize?: keyof typeof popoverSizes;
   prefixIcon?: ReactNode;
@@ -20,6 +21,7 @@ interface PageHeaderPopoverPillProps {
 function PageHeaderPopoverPillContent({
   ariaLabel,
   children,
+  constrainHeightToViewport = false,
   dotClassName,
   popoverSize = popoverSizes.small,
   prefixIcon,
@@ -64,6 +66,10 @@ function PageHeaderPopoverPillContent({
           className="!space-y-0 px-4 pt-4 pb-3"
           closePopover={closePopover}
           closeIgnoreSelectors={closeIgnoreSelectors}
+          // The shared viewport cap requires fixed positioning, including
+          // desktop where header popovers otherwise render inline.
+          freezePosition={constrainHeightToViewport}
+          constrainHeightToViewport={constrainHeightToViewport}
         >
           {children({ closePopover })}
         </Popover>
