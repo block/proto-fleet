@@ -18,7 +18,10 @@ export const useDeviceType = (): DeviceType =>
   useMinerStore((state) => state.systemInfo.data?.identity.deviceType ?? "rig");
 export const useModuleModel = () => useMinerStore((state) => state.systemInfo.data?.moduleModel ?? "unknown");
 export const useIsWebServerRunning = () =>
-  useMinerStore((state) => state.systemInfo.data?.webServer?.health === "running");
+  useMinerStore((state) => {
+    const { resource } = state.systemInfo;
+    return resource.status === "ready" || (resource.status === "loading" && resource.updatedAtMs !== undefined);
+  });
 export const useIsMiningDriverRunning = () =>
   useMinerStore((state) => state.systemInfo.data?.miningDriver?.health === "running");
 export const useHasFirmwareUpdate = () =>

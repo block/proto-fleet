@@ -39,7 +39,10 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
 
   setPending: (pending) =>
     set((state) => {
-      if (pending) state.systemInfo.resource = { status: "loading" };
+      if (pending) {
+        // Preserve successful reachability during polling; setError clears it on failure.
+        state.systemInfo.resource = { status: "loading", updatedAtMs: state.systemInfo.resource.updatedAtMs };
+      }
     }),
 
   reset: () =>
