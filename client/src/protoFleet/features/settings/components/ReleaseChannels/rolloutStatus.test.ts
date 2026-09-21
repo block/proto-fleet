@@ -19,6 +19,8 @@ import {
 } from "./ReleaseChannels.fixtures";
 import {
   activeRolloutForGroup,
+  activeUpdateSummary,
+  canRetryRemaining,
   channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
@@ -46,6 +48,7 @@ import { isScopeEmpty, scopeSummary } from "./scopeUtils";
 import {
   ReleaseChannelScopeSchema,
   RolloutBehaviorSchema,
+  RolloutCancelReason,
   RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
@@ -98,6 +101,111 @@ describe("active rollout identity", () => {
     );
     expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 0n }, rollouts)).toBeUndefined();
     expect(activeRolloutForGroup(1n, { ...group, activeRolloutId: 999n }, rollouts)).toBeUndefined();
+  });
+});
+
+describe("remaining rollout retry eligibility", () => {
+  const rollout = completedWithFailuresRigRollout;
+  const group = {
+    ...rigGroup,
+    assignmentGeneration: rollout.assignmentGeneration,
+    firmwareChecksum: rollout.firmwareChecksum,
+    activeRolloutId: 0n,
+  };
+  const channel = { ...canaryChannel, modelGroups: [group] };
+
+  it("allows active retries without requiring the channel snapshot", () => {
+    expect(canRetryRemaining(batchedRigRollout, [], [batchedRigRollout])).toBe(true);
+    expect(canRetryRemaining(activeRigRollout, [], [activeRigRollout])).toBe(true);
+  });
+
+  it("allows a finished retry of the current assignment, including normalized observed model names", () => {
+    expect(
+      canRetryRemaining(
+        rollout,
+        [{ ...channel, modelGroups: [{ ...group, manufacturer: " proto ", model: " rig " }] }],
+        [rollout],
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    { assignmentGeneration: rollout.assignmentGeneration + 1n },
+    { firmwareChecksum: "another-firmware-payload" },
+    { firmwareChecksum: "" },
+    { activeRolloutId: 999n },
+    { manufacturer: "Other" },
+    { model: "Other" },
+  ])("hides finished retry when the assignment or active-pair precondition is not met (%#)", (patch) => {
+    expect(canRetryRemaining(rollout, [{ ...channel, modelGroups: [{ ...group, ...patch }] }], [rollout])).toBe(false);
+  });
+
+  it("hides finished retry while its channel or model group is missing", () => {
+    expect(canRetryRemaining(rollout, [], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [{ ...channel, id: 99n }], [rollout])).toBe(false);
+    expect(canRetryRemaining(rollout, [{ ...channel, modelGroups: [] }], [rollout])).toBe(false);
+  });
+
+  it("also honors an active rollout summary when the channel snapshot has not caught up", () => {
+    const active = { ...activeRigRollout, manufacturer: " proto ", model: " rig " };
+    expect(canRetryRemaining(rollout, [channel], [rollout, active])).toBe(false);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, channelId: 99n }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, manufacturer: "Other" }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, model: "Other" }])).toBe(true);
+    expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
+  });
+
+  it.each([{ done: 6 }, { done: 5, skipped: 1 }, { done: 5, excluded: 1 }])(
+    "allows a current successful rollout to retry suppressed miners beyond its own counts (%#)",
+    (counts) => {
+      const completed = {
+        ...rollout,
+        status: RolloutStatus.COMPLETED,
+        state: RolloutState.COMPLETED,
+        deviceCounts: create(RolloutDeviceCountsSchema, counts),
+      };
+      // Earlier runs are not necessarily present in this snapshot. Suppression
+      // belongs to the generation, including miners that left and rejoined.
+      expect(canRetryRemaining(completed, [channel], [completed])).toBe(true);
+    },
+  );
+
+  it.each([{ queued: 3 }, { inProgress: 2 }, { failed: 1, skipped: 1 }, { excluded: 1 }])(
+    "allows current canceled-remaining rollouts with any historical phase mix (%#)",
+    (counts) => {
+      const canceled = {
+        ...rollout,
+        status: RolloutStatus.CANCELED,
+        state: RolloutState.CANCELED,
+        cancelReason: RolloutCancelReason.CANCELED_REMAINING,
+        deviceCounts: create(RolloutDeviceCountsSchema, counts),
+      };
+      expect(canRetryRemaining(canceled, [channel], [canceled])).toBe(true);
+      expect(
+        canRetryRemaining(
+          canceled,
+          [{ ...channel, modelGroups: [{ ...group, assignmentGeneration: group.assignmentGeneration + 1n }] }],
+          [canceled],
+        ),
+      ).toBe(false);
+      expect(
+        canRetryRemaining(canceled, [{ ...channel, modelGroups: [{ ...group, firmwareChecksum: "" }] }], [canceled]),
+      ).toBe(false);
+      expect(canRetryRemaining(canceled, [channel], [canceled, activeRigRollout])).toBe(false);
+    },
+  );
+
+  it.each([
+    RolloutCancelReason.SUPERSEDED,
+    RolloutCancelReason.ROLLED_BACK,
+    RolloutCancelReason.CLEARED,
+    RolloutCancelReason.UNSPECIFIED,
+  ])("does not offer retries for cancellation reason %s even when snapshots disagree", (cancelReason) => {
+    expect(canRetryRemaining({ ...rollout, status: RolloutStatus.CANCELED, cancelReason }, [channel], [])).toBe(false);
+  });
+
+  it("does not offer retries for an unknown rollout status", () => {
+    expect(canRetryRemaining({ ...rollout, status: RolloutStatus.UNSPECIFIED }, [channel], [])).toBe(false);
   });
 });
 
@@ -365,6 +473,30 @@ describe("device counts and progress", () => {
       expect(scopeCounts(rollout)).toEqual(deviceCounts(devices));
     },
   );
+
+  it("summarizes an active update for banners and the header pill", () => {
+    expect(activeUpdateSummary(activeRigRollout)).toBe("2 of 6 miners updated");
+    expect(activeUpdateSummary(gatedRigRollout)).toBe("2 of 6 miners updated, Pilot batch review");
+    expect(activeUpdateSummary(batchedRigRollout)).toBe("3 of 6 miners updated, 1 failed, Batch review");
+    expect(activeUpdateSummary(pausedRigRollout)).toBe("2 of 6 miners updated, Paused");
+  });
+
+  it.each([
+    { deviceCounts: { skipped: 6 }, expected: "0 of 6 miners updated, 6 skipped" },
+    { deviceCounts: { excluded: 6 }, expected: "0 of 6 miners updated, 6 excluded" },
+    {
+      deviceCounts: { done: 2, failed: 1, skipped: 2, excluded: 1 },
+      expected: "2 of 6 miners updated, 1 failed, 2 skipped, 1 excluded",
+    },
+  ])("includes neutral targets in active-update summaries: $expected", ({ deviceCounts, expected }) => {
+    const rollout = create(RolloutSchema, {
+      ...activeRigRollout,
+      deviceCount: 6,
+      deviceCounts: create(RolloutDeviceCountsSchema, deviceCounts),
+      behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }),
+    });
+    expect(activeUpdateSummary(rollout)).toBe(expected);
+  });
 
   it("flags rollouts that need a human", () => {
     expect(rolloutNeedsAttention(gatedRigRollout)).toBe(true);

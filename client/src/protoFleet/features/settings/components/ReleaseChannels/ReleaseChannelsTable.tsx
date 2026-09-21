@@ -110,15 +110,19 @@ const ReleaseChannelsTable = ({
     const active = new Map<bigint, Rollout>();
     const unavailableAssignments = new Set<string>();
     let refreshing = false;
+    let rollbackPending = false;
     for (const group of channel.modelGroups) {
+      rollbackPending ||= !!group.rollbackPending;
       if (hasUnavailableAssignedFirmware(group)) unavailableAssignments.add(pairKey(group));
       const rollout = activeRolloutForGroup(channel.id, group, rolloutsById);
       if (group.activeRolloutId > 0n && !rollout) refreshing = true;
       if (rollout) active.set(rollout.id, rollout);
     }
-    const status = refreshing
-      ? { label: "Refreshing update status", tone: "active" as const }
-      : channelUpdateStatus([...active.values()]);
+    const status = rollbackPending
+      ? { label: "Rollback saved; refreshing assignment", tone: "none" as const }
+      : refreshing
+        ? { label: "Refreshing update status", tone: "active" as const }
+        : channelUpdateStatus([...active.values()]);
     if (unavailableAssignments.size === 0) return status;
     const unavailable = `${unavailableAssignments.size} firmware ${unavailableAssignments.size === 1 ? "assignment" : "assignments"} unavailable`;
     return {

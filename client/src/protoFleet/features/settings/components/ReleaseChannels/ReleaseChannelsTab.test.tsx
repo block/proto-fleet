@@ -16,6 +16,7 @@ import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import { useFleetStore } from "@/protoFleet/store";
 
 const { listFirmwareFiles, pushToast } = vi.hoisted(() => ({ listFirmwareFiles: vi.fn(), pushToast: vi.fn() }));
+const historyActions = { onViewRollout: vi.fn(), onRollbackRollout: vi.fn() };
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({ useFirmwareApi: () => ({ listFirmwareFiles }) }));
 vi.mock("@/shared/features/toaster", () => ({
@@ -84,7 +85,7 @@ describe("release channel history on demand", () => {
     const { api, historical } = historyApi();
     const pending = pendingHistory();
     vi.mocked(api.listChannelRollouts).mockReturnValueOnce(pending.promise);
-    const { rerender } = render(<ReleaseChannelsTab api={api} />);
+    const { rerender } = render(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     expect(api.listChannelRollouts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
@@ -92,7 +93,7 @@ describe("release channel history on demand", () => {
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("Loading update history");
     await act(async () => pending.resolve([historical]));
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
-    rerender(<ReleaseChannelsTab api={{ ...api, rollouts: [] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, rollouts: [] }} />);
     expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent("2 failed to update");
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
@@ -110,7 +111,7 @@ describe("release channel history on demand", () => {
     const expanded = pendingHistory();
     const managed = pendingHistory();
     vi.mocked(api.listChannelRollouts).mockReturnValueOnce(expanded.promise).mockReturnValueOnce(managed.promise);
-    render(<ReleaseChannelsTab api={api} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     fireEvent.click(screen.getByTestId("channel-toggle-Canary"));
     const expandedSignal = vi.mocked(api.listChannelRollouts).mock.calls[0][1]!;
@@ -134,7 +135,7 @@ describe("release channel history on demand", () => {
     vi.mocked(api.listChannelRollouts)
       .mockRejectedValueOnce(new Error("History service unavailable"))
       .mockResolvedValueOnce([historical]);
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Update history unavailable");
     expect(screen.getByTestId(`channel-history-error-${canaryChannel.id}`)).toHaveTextContent(
@@ -162,7 +163,7 @@ describe("release channel deletion coordination", () => {
       await refreshed.promise;
       return undefined;
     });
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
     fireEvent.click(screen.getByTestId("delete-channel"));
@@ -195,7 +196,7 @@ describe("release channel deletion coordination", () => {
       await applied.promise;
       return [];
     });
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
@@ -223,7 +224,7 @@ describe("release channel deletion coordination", () => {
     const api = apiFor();
     const deleted = deferredWrite();
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
-    render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     openPicker();
@@ -269,34 +270,36 @@ describe("acknowledged channel writes", () => {
     const api = { ...apiFor(), channels: [canaryChannel, productionChannel] };
     const deleted = deferredWrite();
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     fireEvent.click(screen.getByTestId("delete-channel"));
     fireEvent.click(deleteConfirm());
     const failed = { ...api, error: new Error("Refresh failed") };
-    rerender(<ReleaseChannelsTab api={failed} initialManagedChannelId={canaryChannel.id} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={failed} initialManagedChannelId={canaryChannel.id} />);
     await act(async () => deleted.resolve());
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     expect(screen.getByTestId("manage-channel-Production")).toBeInTheDocument();
     // An unrelated successful-looking render still contains the deleted row.
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [...api.channels] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("manage-channel-Production"));
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
-    rerender(<ReleaseChannelsTab api={{ ...failed, channels: [...api.channels] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...failed, channels: [...api.channels] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
     expect(api.deleteChannel).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
 
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [productionChannel] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [productionChannel] }} />);
     await flush();
     expect(screen.queryByTestId("channel-row-Production")).not.toBeInTheDocument();
     expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
-    rerender(<ReleaseChannelsTab api={{ ...api, channels: [] }} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: [] }} />);
     expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
     expect(screen.getByText("No release channels")).toBeInTheDocument();
   });
@@ -311,16 +314,16 @@ describe("acknowledged channel writes", () => {
         await committed.promise;
         return created;
       });
-      const { rerender } = render(<ReleaseChannelsTab api={api} />);
+      const { rerender } = render(<ReleaseChannelsTab {...historyActions} api={api} />);
       await flush();
       fireEvent.click(screen.getByTestId("create-release-channel"));
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: created.name } });
       fireEvent.click(screen.getByTestId("save-channel"));
       // An older poll finishes while the mutation's own follow-up read is pending.
       const olderSnapshot = [...api.channels];
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: olderSnapshot }} />);
       const failed = { ...api, channels: olderSnapshot, error: new Error("Refresh failed") };
-      rerender(<ReleaseChannelsTab api={failed} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={failed} />);
       await act(async () => committed.resolve());
       expect(screen.getByText("Channel details will appear after a successful refresh.")).toBeInTheDocument();
       fireEvent.click(screen.getByTestId("back-to-channels"));
@@ -332,18 +335,23 @@ describe("acknowledged channel writes", () => {
       expect(api.createChannel).toHaveBeenCalledOnce();
 
       // Clearing an error without a newer snapshot does not confirm the create.
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: olderSnapshot }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...api, channels: olderSnapshot }} />);
       expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
       const retry = deferredWrite();
       api.refresh = vi.fn().mockReturnValue(retry.promise);
-      rerender(<ReleaseChannelsTab api={{ ...failed, refresh: api.refresh }} />);
+      rerender(<ReleaseChannelsTab {...historyActions} api={{ ...failed, refresh: api.refresh }} />);
       fireEvent.click(screen.getByRole("button", { name: "Refresh channel list" }));
       fireEvent.click(screen.getByRole("button", { name: "Refreshing..." }));
       expect(api.refresh).toHaveBeenCalledOnce();
       await act(async () => retry.reject(new Error("Still unavailable")));
       expect(screen.getByTestId("channel-write-pending")).toBeInTheDocument();
 
-      rerender(<ReleaseChannelsTab api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }} />);
+      rerender(
+        <ReleaseChannelsTab
+          {...historyActions}
+          api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }}
+        />,
+      );
       expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
       if (screen.queryByTestId("back-to-channels")) fireEvent.click(screen.getByTestId("back-to-channels"));
       await flush();
@@ -356,13 +364,15 @@ describe("acknowledged channel writes", () => {
 
   it("does not carry a deleted-channel acknowledgement into a replacement session", async () => {
     const api = apiFor();
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     act(() => useFleetStore.setState({ auth: { ...useFleetStore.getState().auth, sessionGeneration: 2 } }));
-    rerender(<ReleaseChannelsTab api={api} />);
+    rerender(<ReleaseChannelsTab {...historyActions} api={api} />);
     await flush();
     expect(screen.getByTestId("channel-row-Canary")).toBeInTheDocument();
     expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
@@ -379,7 +389,7 @@ describe("acknowledged channel writes", () => {
         return created;
       });
       api.deleteChannel = vi.fn().mockReturnValue(committed.promise);
-      render(<ReleaseChannelsTab api={api} />);
+      render(<ReleaseChannelsTab {...historyActions} api={api} />);
       await flush();
       if (operation === "create") {
         fireEvent.click(screen.getByTestId("create-release-channel"));
@@ -405,7 +415,7 @@ describe("acknowledged channel writes", () => {
 describe("release channel firmware catalog", () => {
   it("retries an initial failure once and accepts an empty catalog without losing the draft", async () => {
     listFirmwareFiles.mockRejectedValueOnce(new Error("Catalog unavailable"));
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load firmware files");
     expect(screen.getByRole("alert")).toHaveTextContent("Catalog unavailable");
@@ -431,7 +441,9 @@ describe("release channel firmware catalog", () => {
 
   it("refreshes uploads, deletions, and retargets while preserving the open form and staged clear", async () => {
     const api = apiFor();
-    const { rerender } = render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+    const { rerender } = render(
+      <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
+    );
     await flush();
     const nameInput = screen.getByLabelText("Name");
     fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
@@ -446,7 +458,11 @@ describe("release channel firmware catalog", () => {
     ]);
 
     rerender(
-      <ReleaseChannelsTab api={{ ...api, channels: [...api.channels] }} initialManagedChannelId={canaryChannel.id} />,
+      <ReleaseChannelsTab
+        {...historyActions}
+        api={{ ...api, channels: [...api.channels] }}
+        initialManagedChannelId={canaryChannel.id}
+      />,
     );
     await poll();
 
@@ -460,7 +476,7 @@ describe("release channel firmware catalog", () => {
   });
 
   it("retains the last complete catalog on a refresh failure and recovers on the next poll", async () => {
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     listFirmwareFiles.mockRejectedValueOnce(new Error("Temporary outage"));
@@ -481,7 +497,7 @@ describe("release channel firmware catalog", () => {
     "blocks a staged file that is %s during polling and recovers through the picker without losing the draft",
     async (change) => {
       const api = apiFor();
-      render(<ReleaseChannelsTab api={api} initialManagedChannelId={canaryChannel.id} />);
+      render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
       await flush();
       const nameInput = screen.getByLabelText("Name");
       fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
@@ -529,7 +545,7 @@ describe("release channel firmware catalog", () => {
   );
 
   it.each(["resolve", "reject"] as const)("ignores an obsolete request's late %s after a new login", async (result) => {
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     await flush();
     openPicker();
     const obsolete = deferredCatalog();
@@ -564,7 +580,7 @@ describe("release channel firmware catalog", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
     );
-    render(<ReleaseChannelsTab api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} initialManagedChannelId={canaryChannel.id} />);
     expect(screen.getByText("Loading firmware files...")).toBeInTheDocument();
     await poll();
 
@@ -582,7 +598,7 @@ describe("release channel firmware catalog", () => {
   it("aborts pending requests and stops polling on unmount or logout", async () => {
     const pending = deferredCatalog();
     listFirmwareFiles.mockReturnValueOnce(pending.promise);
-    const { unmount } = render(<ReleaseChannelsTab api={apiFor()} />);
+    const { unmount } = render(<ReleaseChannelsTab {...historyActions} api={apiFor()} />);
     const signal = listFirmwareFiles.mock.calls[0][0] as AbortSignal;
     unmount();
     expect(signal.aborted).toBe(true);
@@ -591,7 +607,7 @@ describe("release channel firmware catalog", () => {
     expect(listFirmwareFiles).toHaveBeenCalledOnce();
 
     act(() => useFleetStore.getState().auth.logout());
-    render(<ReleaseChannelsTab api={apiFor()} />);
+    render(<ReleaseChannelsTab {...historyActions} api={apiFor()} />);
     await poll();
     expect(listFirmwareFiles).toHaveBeenCalledOnce();
   });

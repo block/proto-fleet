@@ -28,6 +28,7 @@ export const manageViewProps = () => ({
 export const releaseChannelsApi = (): Mocked<ReleaseChannelsApi> => ({
   channels: [],
   rollouts: [],
+  acknowledgedRollbacks: [],
   minerNames: {},
   isLoading: false,
   hasLoaded: true,

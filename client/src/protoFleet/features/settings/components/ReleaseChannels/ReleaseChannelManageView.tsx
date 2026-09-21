@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactElement, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 
 import { behaviorForComparison, defaultBehavior, rebaseBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
@@ -26,7 +26,6 @@ import type { ChannelHistoryState } from "./useChannelHistory";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelMiner,
-  type ReleaseChannelModelGroup,
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
   type Rollout,
@@ -37,7 +36,12 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { rolloutBehaviorForRequest } from "@/protoFleet/api/rolloutBehavior";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import type { AssignmentDraft, ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
+import type {
+  AssignmentDraft,
+  ChannelView,
+  ReleaseChannelDraft,
+  ChannelModelGroupView as ReleaseChannelModelGroup,
+} from "@/protoFleet/api/useReleaseChannels";
 import {
   minerTargetKey,
   trimMinerTarget,
@@ -155,6 +159,13 @@ const FirmwarePickerCell = ({
     ],
     [firmwareFiles, group],
   );
+  if (group.rollbackPending) {
+    return (
+      <p role="status" className="text-200 text-text-primary-70">
+        Rollback saved. Refreshing firmware assignment…
+      </p>
+    );
+  }
   // The checksum identifies the assignment even when its uploaded file is gone.
   // Keep that state distinct from an explicitly staged clear (the empty string).
   const value =
@@ -217,6 +228,8 @@ interface ReleaseChannelManageViewProps {
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onDelete?: (channel: ChannelView) => void;
+  onShowHistory?: (channel: ChannelView) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onApply: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[] | void>;
   writeLock?: { isLocked: boolean; tryAcquire: () => boolean; release: () => void };
 }
@@ -236,6 +249,8 @@ const ReleaseChannelManageView = ({
   listRolloutDevices,
   onSave,
   onDelete,
+  onShowHistory,
+  onDirtyChange,
   onApply,
   writeLock,
 }: ReleaseChannelManageViewProps) => {
@@ -392,7 +407,9 @@ const ReleaseChannelManageView = ({
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
   const minersGroup =
-    minersPair !== null ? modelGroups.find((group) => observedPairKey(group) === minersPair) : undefined;
+    minersPair !== null
+      ? modelGroups.find((group) => observedPairKey(group) === minersPair && !group.rollbackPending)
+      : undefined;
   const minersRollout = minersGroup ? activeForGroup(minersGroup) : undefined;
   const minersRolloutPending = minersGroup && minersGroup.activeRolloutId > 0n && !minersRollout;
 
@@ -401,6 +418,9 @@ const ReleaseChannelManageView = ({
   for (const group of modelGroups) {
     const key = pairKey(group);
     const fileId = staged[key];
+    if (group.rollbackPending && fileId !== undefined) {
+      invalidSelections.set(key, "Wait for the firmware assignment to refresh before applying changes.");
+    }
     const acknowledged = acknowledgedAssignments[key];
     const savedFileId = acknowledged?.firmwareFileId ?? group.firmwareFileId;
     const hasAssignment = acknowledged ? acknowledged.firmwareFileId !== "" : group.firmwareChecksum !== "";
@@ -450,6 +470,10 @@ const ReleaseChannelManageView = ({
     }
   }
   const dirtyAssignments = [...dirtyAssignmentsByPair.values()];
+  const hasUnsavedChanges = dirty || dirtyAssignments.length > 0;
+  useLayoutEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
   const assignmentCount = dirtyAssignments.filter((assignment) => assignment.firmwareFileId !== "").length;
   const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
@@ -557,6 +581,15 @@ const ReleaseChannelManageView = ({
           ) : null}
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
+          {channel && onShowHistory ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="History"
+              onClick={() => onShowHistory(channel)}
+              testId="channel-history"
+            />
+          ) : null}
           {channel && onDelete ? (
             <Button
               variant={variants.danger}
@@ -699,7 +732,7 @@ const ReleaseChannelManageView = ({
                             variant={variants.secondary}
                             size={sizes.compact}
                             text="View miners"
-                            disabled={acknowledged !== undefined || rolloutPending}
+                            disabled={acknowledged !== undefined || rolloutPending || group.rollbackPending}
                             onClick={() => setMinersPair(observedPairKey(group))}
                             testId={`view-miners-${group.model}`}
                           />
