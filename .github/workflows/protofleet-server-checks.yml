@@ -66,7 +66,7 @@ jobs:
       # the step). Cache the built image (same approach as the E2E build job)
       # and load it first so `docker compose up` finds it and skips the build.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Rotate the cache weekly (ISO year-week) so a cache hit still rebuilds
       # against fresh upstream base images and packages (ubuntu, PostgreSQL,
