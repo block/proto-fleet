@@ -35,7 +35,8 @@ INSERT INTO discovered_device (
     port,
     url_scheme,
     is_active,
-    driver_name
+    driver_name,
+    device_class
 ) VALUES (
     $1,
     $2,
@@ -46,10 +47,12 @@ INSERT INTO discovered_device (
     $7,
     $8,
     $9,
-    $10
+    $10,
+    $11
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
@@ -67,7 +70,7 @@ RETURNING id;
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
-       dd.driver_name,
+       dd.driver_name, dd.device_class,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL

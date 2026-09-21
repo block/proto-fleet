@@ -2,6 +2,7 @@ import { useState } from "react";
 import { action } from "storybook/actions";
 import FoundMinersModal from "./FoundMinersModal";
 import type { MinerWithSelected } from "./types";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 
 export default {
   title: "Proto Fleet/Onboarding/FoundMinersModal",
@@ -66,7 +67,6 @@ export const Default = () => {
       <FoundMinersModal
         open={open}
         miners={mockMiners}
-        models={["S19 Pro", "S19j Pro", "S19 XP"]}
         setDeselectedMiners={(deselected) => action("setDeselectedMiners")(deselected)}
         onDismiss={() => {
           action("onDismiss")();
@@ -84,6 +84,7 @@ const mixedMiners = [
     $typeName: "pairing.v1.Device" as const,
     deviceIdentifier: "cu-001",
     model: "CU1",
+    deviceClass: DeviceClass.CONTAINER,
     ipAddress: "192.168.1.30",
     macAddress: "AA:BB:CC:DD:EE:30",
     selected: true,
@@ -92,6 +93,7 @@ const mixedMiners = [
     $typeName: "pairing.v1.Device" as const,
     deviceIdentifier: "cu-002",
     model: "cu-200",
+    deviceClass: DeviceClass.CONTAINER,
     ipAddress: "192.168.1.31",
     macAddress: "AA:BB:CC:DD:EE:31",
     selected: true,
@@ -121,7 +123,6 @@ export const MixedContainersAndRigs = () => {
       <FoundMinersModal
         open={open}
         miners={mixedMiners}
-        models={["CU1", "cu-200", "S21 Pro"]}
         setDeselectedMiners={(deselected) => action("setDeselectedMiners")(deselected)}
         onDismiss={() => {
           action("onDismiss")();

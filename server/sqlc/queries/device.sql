@@ -638,6 +638,7 @@ SELECT
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
     dd.driver_name,
+    dd.device_class,
     d.custom_name,
     d.site_id,
     COALESCE(s.name, '') as site_label,

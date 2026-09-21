@@ -436,7 +436,6 @@ const Miners = ({
                     ...miner,
                     selected: !deselectedMiners.includes(miner.deviceIdentifier),
                   }))}
-                  models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />
               ) : null}

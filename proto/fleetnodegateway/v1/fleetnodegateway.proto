@@ -9,6 +9,7 @@ package fleetnodegateway.v1;
 
 import "buf/validate/validate.proto";
 import "common/v1/cooling.proto";
+import "common/v1/common.proto";
 import "curtailment/v1/curtailment.proto";
 import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
@@ -189,6 +190,7 @@ message DiscoveredDeviceReport {
     string model            = 6 [(buf.validate.field).string.max_len = 255];
     string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 8 [(buf.validate.field).string.max_len = 255];
+    common.v1.DeviceClass device_class = 9 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ReportDiscoveredDevicesResponse {
@@ -228,6 +230,7 @@ message FleetNodePairResult {
     // password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
     // operators can remediate it from the security flow.
     optional bool default_password_active = 12;
+    common.v1.DeviceClass device_class = 14 [(buf.validate.field).enum.defined_only = true];
     // The credentials the node authenticated with, encrypted by the fleet node
     // under its local credential key. Cloud stores the fields in miner_credentials
     // and returns them in MinerConnectionDescriptor for node-side

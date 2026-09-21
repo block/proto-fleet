@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,7 +17,7 @@ import (
 func upsertNodeDiscovered(t *testing.T, svc *fleetnodepairing.Service, orgID, fleetNodeID int64, identifier string) {
 	t.Helper()
 	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: identifier, IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual", Model: "M", Manufacturer: "Mf", FirmwareVersion: "v1"},
+		{DeviceIdentifier: identifier, IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "M", Manufacturer: "Mf", FirmwareVersion: "v1"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), rejected)
@@ -106,7 +108,8 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert
-	assert.Equal(t, []int{0}, accepted, "own-node PAIRED device refreshes; cloud paired-like devices are rejected")
+	require.Len(t, accepted, 1, "own-node PAIRED device refreshes; cloud paired-like devices are rejected")
+	assert.Equal(t, "mac:guard-bound", accepted[0].DeviceIdentifier)
 	assert.Equal(t, int64(2), rejected)
 }
 
@@ -134,6 +137,36 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	assert.NotContains(t, aIDs, "mac:list-b1")
 	for _, d := range aOnly {
 		assert.Equal(t, nodeA, d.FleetNodeID)
+		assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, d.DeviceClass)
+	}
+}
+
+func TestFleetNodeDiscoveryPreservesKnownDeviceClass(t *testing.T) {
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-class")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:class")
+
+	for _, reportClass := range []commonpb.DeviceClass{
+		commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+		commonpb.DeviceClass_DEVICE_CLASS_RIG,
+	} {
+		accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+			{DeviceIdentifier: "mac:class", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual", DeviceClass: reportClass},
+		})
+		require.NoError(t, err)
+		require.Len(t, accepted, 1)
+		require.Zero(t, rejected)
+		devices, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, devices, 1)
+		wantClass := reportClass
+		if wantClass == commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+			wantClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+		}
+		require.Equal(t, wantClass, devices[0].DeviceClass)
+		require.Equal(t, wantClass, accepted[0].DeviceClass)
+		require.Equal(t, "10.0.0.9", devices[0].IPAddress)
 	}
 }
 

@@ -20,7 +20,7 @@ import { getAsicId, getPsuId } from "@/protoOS/store";
 import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
-  it("maps a CU model to the container product family and CT1 module profile", () => {
+  it("keeps v1 rig identity independent of the model prefix", () => {
     const systemInfo = toCanonicalSystemInfo({
       product_name: "Proto CU1",
       model: "CU1",
@@ -28,8 +28,8 @@ describe("MDK v1 normalization", () => {
       os: { name: "ProtoOS", version: "1.8.2" },
     });
 
-    expect(systemInfo.identity.deviceType).toBe("container");
-    expect(systemInfo.moduleModel).toBe("ct1");
+    expect(systemInfo.identity.deviceType).toBe("rig");
+    expect(systemInfo.moduleModel).toBe("r2");
     expect(systemInfo.identity.serialNumber).toBe("controller-1");
   });
 

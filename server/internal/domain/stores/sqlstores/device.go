@@ -13,6 +13,7 @@ import (
 
 	"github.com/lib/pq"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -126,6 +127,7 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		MacAddress:       device.MacAddress,
 		SerialNumber:     device.SerialNumber.String,
 		Model:            discoveredDevice.Model.String,
+		DeviceClass:      commonpb.DeviceClass(discoveredDevice.DeviceClass),
 		Manufacturer:     discoveredDevice.Manufacturer.String,
 		IpAddress:        discoveredDevice.IpAddress,
 		Port:             discoveredDevice.Port,
@@ -376,6 +378,7 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			MacAddress:       device.MacAddress,
 			SerialNumber:     device.SerialNumber.String,
 			Model:            discoveredDevice.Model.String,
+			DeviceClass:      commonpb.DeviceClass(discoveredDevice.DeviceClass),
 			Manufacturer:     discoveredDevice.Manufacturer.String,
 			IpAddress:        discoveredDevice.IpAddress,
 			Port:             discoveredDevice.Port,
@@ -1083,6 +1086,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.CursorID,
 			&row.DeviceID,
 			&row.DriverName,
+			&row.DeviceClass,
 			&row.CustomName,
 			&row.SiteID,
 			&row.SiteLabel,

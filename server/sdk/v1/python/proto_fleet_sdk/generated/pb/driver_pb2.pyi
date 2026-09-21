@@ -55,6 +55,12 @@ class CurtailLevel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CURTAIL_LEVEL_EFFICIENCY: _ClassVar[CurtailLevel]
     CURTAIL_LEVEL_FULL: _ClassVar[CurtailLevel]
 
+class DeviceClass(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DEVICE_CLASS_UNSPECIFIED: _ClassVar[DeviceClass]
+    DEVICE_CLASS_RIG: _ClassVar[DeviceClass]
+    DEVICE_CLASS_CONTAINER: _ClassVar[DeviceClass]
+
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MINER_ERROR_UNSPECIFIED: _ClassVar[MinerError]
@@ -151,6 +157,9 @@ PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
 CURTAIL_LEVEL_UNSPECIFIED: CurtailLevel
 CURTAIL_LEVEL_EFFICIENCY: CurtailLevel
 CURTAIL_LEVEL_FULL: CurtailLevel
+DEVICE_CLASS_UNSPECIFIED: DeviceClass
+DEVICE_CLASS_RIG: DeviceClass
+DEVICE_CLASS_CONTAINER: DeviceClass
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
 PSU_MODEL_MISMATCH: MinerError
@@ -661,7 +670,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -671,6 +680,7 @@ class DeviceInfo(_message.Message):
     MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_CLASS_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -680,7 +690,8 @@ class DeviceInfo(_message.Message):
     mac_address: str
     firmware_version: str
     default_password_active: bool
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
+    device_class: DeviceClass
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")

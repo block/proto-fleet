@@ -2104,14 +2104,14 @@ type Querier interface {
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
-	// 0 rows on conflict signals rejection. A remote report must not redirect the
+	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
 	// unless the row is already attributed to this fleet node or to a revoked node
 	// that can be reclaimed. Devices paired to the reporting node itself stay
 	// refreshable, subject to the attribution guard. The agent synthesizes a stable
 	// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 	// the same row.
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error)
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error)
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error

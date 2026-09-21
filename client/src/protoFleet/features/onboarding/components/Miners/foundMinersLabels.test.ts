@@ -1,60 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { deviceGroupLabel, entityNoun, foundSummary, isContainerModel } from "./foundMinersLabels";
-
-describe("isContainerModel", () => {
-  it('treats models starting with "CU" as containers (case-insensitive)', () => {
-    expect(isContainerModel("CU1")).toBe(true);
-    expect(isContainerModel("cu-200")).toBe(true);
-    expect(isContainerModel("Cu2")).toBe(true);
-  });
-
-  it("treats rig models as non-containers", () => {
-    expect(isContainerModel("Antminer S21")).toBe(false);
-    expect(isContainerModel("Proto Rig")).toBe(false);
-    expect(isContainerModel("")).toBe(false);
-  });
-
-  it("is safe for non-string input", () => {
-    // Discovery data can be malformed; guard against runtime nulls.
-    expect(isContainerModel(undefined as unknown as string)).toBe(false);
-  });
-});
+import { deviceGroupLabel, entityNoun, foundSummary } from "./foundMinersLabels";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 
 describe("entityNoun", () => {
   it('pluralizes container groups as "container"/"containers"', () => {
-    expect(entityNoun("CU1", 1)).toBe("container");
-    expect(entityNoun("CU1", 2)).toBe("containers");
+    expect(entityNoun(DeviceClass.CONTAINER, 1)).toBe("container");
+    expect(entityNoun(DeviceClass.CONTAINER, 2)).toBe("containers");
   });
 
   it('pluralizes rig groups as "miner"/"miners"', () => {
-    expect(entityNoun("Antminer S21", 1)).toBe("miner");
-    expect(entityNoun("Antminer S21", 3)).toBe("miners");
+    expect(entityNoun(DeviceClass.RIG, 1)).toBe("miner");
+    expect(entityNoun(DeviceClass.RIG, 3)).toBe("miners");
   });
 });
 
 describe("deviceGroupLabel", () => {
+  it("does not infer containers from CU-prefixed rig or unspecified models", () => {
+    expect(deviceGroupLabel("Proto", "CU1", DeviceClass.RIG)).toBe("Proto CU1");
+    expect(deviceGroupLabel("Proto", "CU1", DeviceClass.UNSPECIFIED)).toBe("Proto CU1");
+  });
   it('labels container groups "Proto Container"', () => {
-    expect(deviceGroupLabel("Proto", "CU1")).toBe("Proto Container");
-    expect(deviceGroupLabel("Proto", "cu-200")).toBe("Proto Container");
+    expect(deviceGroupLabel("Proto", "CT1", DeviceClass.CONTAINER)).toBe("Proto Container");
+    expect(deviceGroupLabel("Proto", "Any model", DeviceClass.CONTAINER)).toBe("Proto Container");
   });
 
   it("drops a redundant manufacturer prefix already present in the model", () => {
-    expect(deviceGroupLabel("Proto", "Proto Rig")).toBe("Proto Rig");
-    expect(deviceGroupLabel("proto", "Proto Rig")).toBe("Proto Rig");
+    expect(deviceGroupLabel("Proto", "Proto Rig", DeviceClass.RIG)).toBe("Proto Rig");
+    expect(deviceGroupLabel("proto", "Proto Rig", DeviceClass.RIG)).toBe("Proto Rig");
   });
 
   it("joins manufacturer and model when they differ", () => {
-    expect(deviceGroupLabel("Bitmain", "Antminer S21")).toBe("Bitmain Antminer S21");
+    expect(deviceGroupLabel("Bitmain", "Antminer S21", DeviceClass.RIG)).toBe("Bitmain Antminer S21");
   });
 
   it("only dedupes on a whole-word prefix, not a partial match", () => {
-    expect(deviceGroupLabel("Proto", "Protocol Miner")).toBe("Proto Protocol Miner");
+    expect(deviceGroupLabel("Proto", "Protocol Miner", DeviceClass.RIG)).toBe("Proto Protocol Miner");
   });
 
   it("handles missing manufacturer or model", () => {
-    expect(deviceGroupLabel("", "Antminer S21")).toBe("Antminer S21");
-    expect(deviceGroupLabel("Bitmain", "")).toBe("Bitmain");
-    expect(deviceGroupLabel("Proto", "Proto")).toBe("Proto");
+    expect(deviceGroupLabel("", "Antminer S21", DeviceClass.RIG)).toBe("Antminer S21");
+    expect(deviceGroupLabel("Bitmain", "", DeviceClass.RIG)).toBe("Bitmain");
+    expect(deviceGroupLabel("Proto", "Proto", DeviceClass.RIG)).toBe("Proto");
   });
 });
 

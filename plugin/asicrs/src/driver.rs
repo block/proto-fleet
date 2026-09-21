@@ -405,6 +405,7 @@ impl Driver for DriverService {
 
         Ok(Response::new(pb::DiscoverDeviceResponse {
             device: Some(pb::DeviceInfo {
+                device_class: pb::DeviceClass::Rig as i32,
                 host: req.ip_address,
                 port: port as i32,
                 url_scheme: url_scheme.into(),
@@ -562,6 +563,7 @@ impl Driver for DriverService {
         // Populate the response entirely from fresh device data
         Ok(Response::new(pb::PairDeviceResponse {
             device: Some(pb::DeviceInfo {
+                device_class: pb::DeviceClass::Rig as i32,
                 host: device_info.host,
                 port: device_info.port,
                 url_scheme: device_info.url_scheme,

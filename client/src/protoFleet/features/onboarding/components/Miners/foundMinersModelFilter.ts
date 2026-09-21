@@ -1,21 +1,22 @@
-import { isContainerModel } from "./foundMinersLabels";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
 import type { ActiveFilters, DropdownFilterItem } from "@/shared/components/List/Filters/types";
 
-const CONTAINER_MODEL_FILTER_ID = "CU";
+type DiscoveredModel = { model: string; deviceClass: DeviceClass };
+const CONTAINER_FILTER_ID = "container";
 
-function modelFilterId(model: string): string {
-  return isContainerModel(model) ? CONTAINER_MODEL_FILTER_ID : model;
+function modelFilterId(device: DiscoveredModel): string {
+  return device.deviceClass === DeviceClass.CONTAINER ? CONTAINER_FILTER_ID : `model:${device.model}`;
 }
 
-/** Creates one logical model option for every discovered container variant. */
-export function createFoundMinersModelFilter(models: string[]): DropdownFilterItem {
-  const modelIds = Array.from(new Set(models.map(modelFilterId)));
-
-  return createModelFilter(modelIds, (model) => (model === CONTAINER_MODEL_FILTER_ID ? "Proto Container" : model));
+/** Containers share an option; rig model IDs remain distinct even if their labels match. */
+export function createFoundMinersModelFilter(devices: DiscoveredModel[]): DropdownFilterItem {
+  const modelIds = Array.from(new Set(devices.map(modelFilterId)));
+  return createModelFilter(modelIds, (id) =>
+    id === CONTAINER_FILTER_ID ? "Proto Container" : id.slice("model:".length),
+  );
 }
 
-/** Matches every raw container model when the logical container option is selected. */
-export function filterFoundMinerByModel<T extends { model: string }>(item: T, filters: ActiveFilters): boolean {
-  return filterByModel({ model: modelFilterId(item.model) }, filters);
+export function filterFoundMinerByModel(item: DiscoveredModel, filters: ActiveFilters): boolean {
+  return filterByModel({ model: modelFilterId(item) }, filters);
 }

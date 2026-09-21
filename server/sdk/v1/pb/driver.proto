@@ -400,6 +400,14 @@ message DownloadLogsResponse {
   bool more_data = 2;  // true if more data is available (use same batch_log_uuid)
 }
 
+// DeviceClass identifies the independently discoverable hardware unit.
+// Tanks and modules belong to a container; they are not separate devices.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_RIG = 1;
+  DEVICE_CLASS_CONTAINER = 2;
+}
+
 message DeviceInfo {
   string host = 1; // e.g., "192.168.1.100"
   int32 port = 2;      // e.g., "22"
@@ -440,6 +448,7 @@ message DeviceInfo {
   // DEFAULT_PASSWORD remediation state immediately instead of waiting for the
   // first telemetry poll.
   optional bool default_password_active = 10;
+  DeviceClass device_class = 11;
 }
 
 message DiscoverDeviceRequest {

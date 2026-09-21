@@ -14,6 +14,7 @@ import (
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -174,6 +175,9 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
+	if updatedDeviceInfo.DeviceClass != sdk.DeviceClassUnspecified {
+		discoveredDevice.DeviceClass = commonpb.DeviceClass(updatedDeviceInfo.DeviceClass)
+	}
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 	discoveredDevice.DefaultPasswordActive = updatedDeviceInfo.DefaultPasswordActive
@@ -448,7 +452,7 @@ func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *dis
 	return p.performReconciliation(ctx, discoveredDevice, pairedDevice)
 }
 
-// performReconciliation updates the OLD discovered_device's network info to match the new one,
+// performReconciliation updates the OLD discovered_device's network info and known device class,
 // soft-deletes the NEW orphaned discovered_device record, and updates the discoveredDevice's
 // DeviceIdentifier to match the existing device. This enables re-pairing after a device
 // moves to a new subnet without breaking the device→discovered_device link.
@@ -463,6 +467,9 @@ func (p *Pairer) performReconciliation(ctx context.Context, discoveredDevice *di
 		return nil, fleeterror.NewInternalErrorf("failed to get old discovered device: %v", err)
 	}
 	oldDiscoveredDevice.UpdateNetworkInfo(discoveredDevice.IpAddress, discoveredDevice.Port, discoveredDevice.UrlScheme)
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+		oldDiscoveredDevice.DeviceClass = discoveredDevice.DeviceClass
+	}
 	if _, err := p.discoveredDeviceStore.Save(ctx, oldDOI, oldDiscoveredDevice); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to update old discovered device network info: %v", err)
 	}
@@ -536,6 +543,7 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		URLScheme:       device.UrlScheme,
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
+		DeviceClass:     sdk.DeviceClass(device.DeviceClass),
 		Manufacturer:    device.Manufacturer,
 		MacAddress:      device.MacAddress,
 		FirmwareVersion: device.FirmwareVersion,

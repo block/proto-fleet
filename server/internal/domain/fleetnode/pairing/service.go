@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -36,7 +37,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
@@ -326,12 +327,12 @@ func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID i
 
 // UpsertDiscoveredDevices validates the whole batch up front, then runs
 // every upsert inside a single transaction so a mid-batch failure can't
-// leave a committed prefix. Ownership-rejected rows (0 rows affected) are
+// leave a committed prefix. Ownership-rejected rows are
 // counted in rejectedOwnership without aborting the tx — they're the
 // store's normal "we refused to overwrite a hijacked row" signal.
-// Returns the indices into reports the store actually accepted so the
-// caller can forward only those rows to operator-facing consumers.
-func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedIdx []int, rejectedOwnership int64, err error) {
+// Returns accepted reports with their persisted class so operator-facing
+// consumers retain known classes when a node omits them on rediscovery.
+func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedReports []DiscoveredDeviceReport, rejectedOwnership int64, err error) {
 	for i, r := range reports {
 		if vErr := validateReport(r); vErr != nil {
 			return nil, 0, fleeterror.NewInvalidArgumentErrorf("report %d: %v", i, vErr)
@@ -341,22 +342,23 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 	// locals reset on each entry; accumulating onto the named returns would
 	// double-count a retried batch.
 	var (
-		accepted []int
+		accepted []DiscoveredDeviceReport
 		rejected int64
 	)
 	if txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		accepted = accepted[:0]
 		rejected = 0
-		for i, r := range reports {
-			rows, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
+		for _, r := range reports {
+			deviceClass, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
 			if upErr != nil {
 				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
 			}
-			if rows == 0 {
+			if !stored {
 				rejected++
 				continue
 			}
-			accepted = append(accepted, i)
+			r.DeviceClass = deviceClass
+			accepted = append(accepted, r)
 		}
 		return nil
 	}); txErr != nil {

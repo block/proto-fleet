@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -73,6 +74,7 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 		UrlScheme:        device.UrlScheme,
 		IsActive:         device.IsActive,
 		DriverName:       device.Device.DriverName,
+		DeviceClass:      int32(device.DeviceClass),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %v", err)
@@ -184,6 +186,7 @@ func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesR
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
 			Model:            dbDevice.Model.String,
+			DeviceClass:      commonpb.DeviceClass(dbDevice.DeviceClass),
 			Manufacturer:     dbDevice.Manufacturer.String,
 			FirmwareVersion:  dbDevice.FirmwareVersion.String,
 			IpAddress:        dbDevice.IpAddress,
@@ -231,6 +234,7 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
 			Model:            dbDevice.Model.String,
+			DeviceClass:      commonpb.DeviceClass(dbDevice.DeviceClass),
 			Manufacturer:     dbDevice.Manufacturer.String,
 			FirmwareVersion:  dbDevice.FirmwareVersion.String,
 			IpAddress:        dbDevice.IpAddress,

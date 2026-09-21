@@ -3,6 +3,8 @@ package pairing
 import (
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 )
 
@@ -22,6 +24,7 @@ type DiscoveredDeviceReport struct {
 	Port             string
 	URLScheme        string
 	DriverName       string
+	DeviceClass      commonpb.DeviceClass
 	Model            string
 	Manufacturer     string
 	FirmwareVersion  string
@@ -47,6 +50,7 @@ type FleetNodeDiscoveredDevice struct {
 	Port             string
 	URLScheme        string
 	DriverName       string
+	DeviceClass      commonpb.DeviceClass
 	Model            string
 	Manufacturer     string
 	FirmwareVersion  string

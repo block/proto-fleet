@@ -135,7 +135,8 @@ message MinerStateSnapshot {
   // Manufacturer name (populated for unpaired devices)
   string manufacturer = 15;
 
-  reserved 16;
+  // Hardware class reported by the device driver, independent of model name.
+  common.v1.DeviceClass device_class = 16;
   reserved "type";
 
   // Device capabilities indicating supported features (populated for unpaired devices)

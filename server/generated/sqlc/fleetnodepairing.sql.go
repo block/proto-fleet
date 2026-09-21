@@ -222,6 +222,7 @@ WITH candidate AS (
          dd.url_scheme,
          dd.driver_name,
          dd.model,
+         dd.device_class,
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
@@ -282,7 +283,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -311,6 +312,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	UrlScheme               string
 	DriverName              string
 	Model                   sql.NullString
+	DeviceClass             int32
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	LastSeen                sql.NullTime
@@ -360,6 +362,7 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.UrlScheme,
 			&i.DriverName,
 			&i.Model,
+			&i.DeviceClass,
 			&i.Manufacturer,
 			&i.FirmwareVersion,
 			&i.LastSeen,
@@ -452,7 +455,7 @@ func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int
 	return result.RowsAffected()
 }
 
-const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :execrows
+const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :one
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -464,15 +467,17 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    device_class
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     firmware_version = EXCLUDED.firmware_version,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
@@ -531,6 +536,7 @@ WHERE (
         )
       )
 )
+RETURNING device_class
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
@@ -544,17 +550,18 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	DiscoveredByFleetNodeID sql.NullInt64
+	DeviceClass             int32
 }
 
-// 0 rows on conflict signals rejection. A remote report must not redirect the
+// No returned row on conflict signals rejection. A remote report must not redirect the
 // endpoint/credentials of a miner the cloud owns, so the update is blocked
 // unless the row is already attributed to this fleet node or to a revoked node
 // that can be reclaimed. Devices paired to the reporting node itself stay
 // refreshable, subject to the attribution guard. The agent synthesizes a stable
 // per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 // the same row.
-func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
-	result, err := q.exec(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
+func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error) {
+	row := q.queryRow(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
 		arg.DeviceIdentifier,
 		arg.IpAddress,
@@ -565,9 +572,9 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.Manufacturer,
 		arg.FirmwareVersion,
 		arg.DiscoveredByFleetNodeID,
+		arg.DeviceClass,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var device_class int32
+	err := row.Scan(&device_class)
+	return device_class, err
 }

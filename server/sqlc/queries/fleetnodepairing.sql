@@ -1,5 +1,5 @@
--- name: UpsertDiscoveredDeviceFromFleetNode :execrows
--- 0 rows on conflict signals rejection. A remote report must not redirect the
+-- name: UpsertDiscoveredDeviceFromFleetNode :one
+-- No returned row on conflict signals rejection. A remote report must not redirect the
 -- endpoint/credentials of a miner the cloud owns, so the update is blocked
 -- unless the row is already attributed to this fleet node or to a revoked node
 -- that can be reclaimed. Devices paired to the reporting node itself stay
@@ -17,15 +17,17 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    device_class
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     firmware_version = EXCLUDED.firmware_version,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
@@ -83,7 +85,8 @@ WHERE (
             AND fnd.fleet_node_id <> $10
         )
       )
-);
+)
+RETURNING device_class;
 
 -- name: PairDeviceToFleetNode :execrows
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
@@ -205,6 +208,7 @@ WITH candidate AS (
          dd.url_scheme,
          dd.driver_name,
          dd.model,
+         dd.device_class,
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,

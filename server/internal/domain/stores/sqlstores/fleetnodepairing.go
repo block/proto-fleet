@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 )
@@ -123,6 +124,7 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 			URLScheme:        r.UrlScheme,
 			DriverName:       r.DriverName,
 			Model:            r.Model.String,
+			DeviceClass:      commonpb.DeviceClass(r.DeviceClass),
 			Manufacturer:     r.Manufacturer.String,
 			FirmwareVersion:  r.FirmwareVersion.String,
 			LastSeen:         r.LastSeen.Time,
@@ -132,8 +134,8 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (int64, error) {
-	return s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
+func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error) {
+	deviceClass, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
 		OrgID:                   orgID,
 		DeviceIdentifier:        report.DeviceIdentifier,
 		IpAddress:               report.IPAddress,
@@ -141,10 +143,15 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 		UrlScheme:               report.URLScheme,
 		DriverName:              report.DriverName,
 		Model:                   emptyToNullString(report.Model),
+		DeviceClass:             int32(report.DeviceClass),
 		Manufacturer:            emptyToNullString(report.Manufacturer),
 		FirmwareVersion:         emptyToNullString(report.FirmwareVersion),
 		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, false, nil
+	}
+	return commonpb.DeviceClass(deviceClass), err == nil, err
 }
 
 func (s *SQLFleetNodePairingStore) GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error) {

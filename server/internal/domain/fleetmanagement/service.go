@@ -786,6 +786,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		snapshot := &pb.MinerStateSnapshot{
 			DeviceIdentifier:         row.DeviceIdentifier,
 			DriverName:               row.DriverName,
+			DeviceClass:              commonpb.DeviceClass(row.DeviceClass),
 			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
 		}
 

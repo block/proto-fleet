@@ -7,6 +7,7 @@ import (
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -130,6 +131,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 			UrlScheme:        fleetDevice.UrlScheme,
 			SerialNumber:     fleetDevice.SerialNumber,
 			Model:            fleetDevice.Model,
+			DeviceClass:      fleetDevice.DeviceClass,
 			Manufacturer:     fleetDevice.Manufacturer,
 			MacAddress:       fleetDevice.MacAddress,
 			Capabilities:     fleetDevice.Capabilities,
@@ -163,6 +165,7 @@ func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, por
 		UrlScheme:        deviceInfo.URLScheme,
 		SerialNumber:     deviceInfo.SerialNumber,
 		Model:            deviceInfo.Model,
+		DeviceClass:      commonpb.DeviceClass(deviceInfo.DeviceClass),
 		Manufacturer:     deviceInfo.Manufacturer,
 		MacAddress:       macAddress,
 		FirmwareVersion:  deviceInfo.FirmwareVersion,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -121,6 +122,7 @@ func pairTargetsFromDiscoveredDevices(devices []FleetNodeDiscoveredDevice) []*pa
 			DriverName:       d.DriverName,
 			Manufacturer:     d.Manufacturer,
 			FirmwareVersion:  d.FirmwareVersion,
+			DeviceClass:      d.DeviceClass,
 		})
 	}
 	return targets
@@ -349,6 +351,9 @@ func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pair
 // applyReportedIdentity folds the identity the node learned during pairing into
 // the discovered device so the device row and discovery row reflect post-pair truth.
 func applyReportedIdentity(dd *discoverymodels.DiscoveredDevice, result *gatewaypb.FleetNodePairResult) {
+	if class := result.GetDeviceClass(); class != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+		dd.DeviceClass = class
+	}
 	if v := result.GetSerialNumber(); v != "" {
 		dd.SerialNumber = v
 	}
