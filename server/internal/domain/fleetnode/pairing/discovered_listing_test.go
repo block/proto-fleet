@@ -108,7 +108,8 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert
-	assert.Equal(t, []int{0}, accepted, "own-node PAIRED device refreshes; cloud paired-like devices are rejected")
+	require.Len(t, accepted, 1, "own-node PAIRED device refreshes; cloud paired-like devices are rejected")
+	assert.Equal(t, "mac:guard-bound", accepted[0].DeviceIdentifier)
 	assert.Equal(t, int64(2), rejected)
 }
 
@@ -154,7 +155,7 @@ func TestFleetNodeDiscoveryPreservesKnownDeviceClass(t *testing.T) {
 			{DeviceIdentifier: "mac:class", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual", DeviceClass: reportClass},
 		})
 		require.NoError(t, err)
-		require.Equal(t, []int{0}, accepted)
+		require.Len(t, accepted, 1)
 		require.Zero(t, rejected)
 		devices, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
 		require.NoError(t, err)
@@ -164,6 +165,7 @@ func TestFleetNodeDiscoveryPreservesKnownDeviceClass(t *testing.T) {
 			wantClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 		}
 		require.Equal(t, wantClass, devices[0].DeviceClass)
+		require.Equal(t, wantClass, accepted[0].DeviceClass)
 		require.Equal(t, "10.0.0.9", devices[0].IPAddress)
 	}
 }

@@ -7332,8 +7332,8 @@ func (q *retryingQuerier) UpsertDiscoveredDevice(ctx context.Context, arg Upsert
 	return result, err
 }
 
-func (q *retryingQuerier) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
-	var result int64
+func (q *retryingQuerier) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error) {
+	var result int32
 	err := q.retrier.RetryQuery(ctx, "UpsertDiscoveredDeviceFromFleetNode", func() error {
 		callResult, callErr := q.next.UpsertDiscoveredDeviceFromFleetNode(ctx, arg)
 		if callErr == nil {

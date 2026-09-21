@@ -1,5 +1,5 @@
--- name: UpsertDiscoveredDeviceFromFleetNode :execrows
--- 0 rows on conflict signals rejection. A remote report must not redirect the
+-- name: UpsertDiscoveredDeviceFromFleetNode :one
+-- No returned row on conflict signals rejection. A remote report must not redirect the
 -- endpoint/credentials of a miner the cloud owns, so the update is blocked
 -- unless the row is already attributed to this fleet node or to a revoked node
 -- that can be reclaimed. Devices paired to the reporting node itself stay
@@ -85,7 +85,8 @@ WHERE (
             AND fnd.fleet_node_id <> $10
         )
       )
-);
+)
+RETURNING device_class;
 
 -- name: PairDeviceToFleetNode :execrows
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)

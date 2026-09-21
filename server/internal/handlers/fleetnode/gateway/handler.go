@@ -540,7 +540,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
 	}
-	acceptedIdx, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
 	if err != nil {
 		return nil, err
 	}
@@ -552,17 +552,17 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			"ownership_rejected", ownershipRejected,
 		)
 	}
-	if len(acceptedIdx) > 0 {
+	if len(accepted) > 0 {
 		// Forward only store-accepted devices; out-of-scope and
 		// ownership/attribution-rejected rows must not surface to the operator.
-		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(acceptedIdx))}
-		for _, i := range acceptedIdx {
-			batch.Devices = append(batch.Devices, toPairingDevice(inScope[i]))
+		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(accepted))}
+		for _, d := range accepted {
+			batch.Devices = append(batch.Devices, toPairingDevice(d))
 		}
 		h.registry.PublishBatch(subject.FleetNodeID, commandID, batch)
 	}
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{
-		AcceptedCount: int64(len(acceptedIdx)),
+		AcceptedCount: int64(len(accepted)),
 		RejectedCount: ownershipRejected + outOfScope,
 	}), nil
 }
@@ -657,17 +657,17 @@ func defaultPasswordActiveForStatus(status string) *bool {
 	return nil
 }
 
-func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
+func toPairingDevice(d pairing.DiscoveredDeviceReport) *pairingpb.Device {
 	return &pairingpb.Device{
-		DeviceIdentifier: d.GetDeviceIdentifier(),
-		IpAddress:        d.GetIpAddress(),
-		Port:             d.GetPort(),
-		UrlScheme:        d.GetUrlScheme(),
-		DriverName:       d.GetDriverName(),
-		Model:            d.GetModel(),
-		DeviceClass:      d.GetDeviceClass(),
-		Manufacturer:     d.GetManufacturer(),
-		FirmwareVersion:  d.GetFirmwareVersion(),
+		DeviceIdentifier: d.DeviceIdentifier,
+		IpAddress:        d.IPAddress,
+		Port:             d.Port,
+		UrlScheme:        d.URLScheme,
+		DriverName:       d.DriverName,
+		Model:            d.Model,
+		DeviceClass:      d.DeviceClass,
+		Manufacturer:     d.Manufacturer,
+		FirmwareVersion:  d.FirmwareVersion,
 	}
 }
 

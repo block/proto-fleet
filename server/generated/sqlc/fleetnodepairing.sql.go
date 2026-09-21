@@ -455,7 +455,7 @@ func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int
 	return result.RowsAffected()
 }
 
-const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :execrows
+const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :one
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -536,6 +536,7 @@ WHERE (
         )
       )
 )
+RETURNING device_class
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
@@ -552,15 +553,15 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	DeviceClass             int32
 }
 
-// 0 rows on conflict signals rejection. A remote report must not redirect the
+// No returned row on conflict signals rejection. A remote report must not redirect the
 // endpoint/credentials of a miner the cloud owns, so the update is blocked
 // unless the row is already attributed to this fleet node or to a revoked node
 // that can be reclaimed. Devices paired to the reporting node itself stay
 // refreshable, subject to the attribution guard. The agent synthesizes a stable
 // per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 // the same row.
-func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
-	result, err := q.exec(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
+func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error) {
+	row := q.queryRow(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
 		arg.DeviceIdentifier,
 		arg.IpAddress,
@@ -573,8 +574,7 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.DiscoveredByFleetNodeID,
 		arg.DeviceClass,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var device_class int32
+	err := row.Scan(&device_class)
+	return device_class, err
 }
