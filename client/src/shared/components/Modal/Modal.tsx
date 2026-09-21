@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -52,6 +52,8 @@ interface ModalProps {
   testId?: string;
   forceTitleCollapsed?: boolean;
   manageFocus?: boolean;
+  /** Preserve scroll separately for each step of an in-modal navigation flow. */
+  navigationKey?: string;
   fixedFooter?: ReactNode;
 }
 
@@ -81,9 +83,19 @@ const Modal = ({
   testId = "modal",
   forceTitleCollapsed = false,
   manageFocus = false,
+  navigationKey,
   fixedFooter,
 }: ModalProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef(new Map<string, number>());
+  const previousNavigationKey = useRef(navigationKey);
+  useLayoutEffect(() => {
+    if (navigationKey === undefined || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollPositions.current.get(navigationKey) ?? 0;
+    if (manageFocus && previousNavigationKey.current !== navigationKey)
+      scrollRef.current.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    previousNavigationKey.current = navigationKey;
+  }, [navigationKey, manageFocus]);
   const headerRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
@@ -217,6 +229,7 @@ const Modal = ({
           )}
           ref={scrollRef}
           onScroll={(event) => {
+            if (navigationKey !== undefined) scrollPositions.current.set(navigationKey, event.currentTarget.scrollTop);
             if (event.currentTarget.scrollTop <= 1) setIsTitleCollapsed(false);
           }}
           data-testid={testId}

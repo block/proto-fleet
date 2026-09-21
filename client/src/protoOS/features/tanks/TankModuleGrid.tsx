@@ -3,15 +3,8 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 
 import { hashboardAttentionFill } from "./tankStatusColors";
-import {
-  boardStatus,
-  hashboardLabel,
-  moduleHashboards,
-  type ModuleStatus,
-  moduleStatus,
-  statusLabels,
-  tankGrid,
-} from "./tankView";
+import { boardStatus, hashboardLabel, moduleHashboards, type ModuleStatus, statusLabels, tankGrid } from "./tankView";
+import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import type {
   ContainerTopology,
@@ -53,6 +46,7 @@ interface Props {
 }
 
 const TankModuleGridContent = ({ tank, topology, modules, telemetry, onViewModule }: Props) => {
+  const health = useScopeHealth({ kind: "tank", id: tank.id });
   const gridId = useId();
   const { minerRoot } = useMinerHosting();
   const { triggerRef, setPopoverRenderMode } = usePopover();
@@ -76,7 +70,7 @@ const TankModuleGridContent = ({ tank, topology, modules, telemetry, onViewModul
           }}
         >
           {modules.map((module, index) => {
-            const status = moduleStatus(module.hashboardIds.map((id) => telemetry.get(id)));
+            const status = health?.moduleStatuses.get(module.id) ?? "unknown";
             const slot = module.location?.moduleSlot;
             const label = slot === undefined ? String(module.id) : String(slot).padStart(2, "0");
             const boards = moduleHashboards(module, topology);

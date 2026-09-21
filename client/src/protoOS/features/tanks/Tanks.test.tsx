@@ -74,7 +74,7 @@ describe("Container tanks page", () => {
     expect(tank.getAllByText("—")).toHaveLength(4);
     expect(screen.queryByText(/reading unavailable/i)).not.toBeInTheDocument();
     expect(tank.getByText("Healthy").parentElement).toHaveTextContent("14 modules");
-    expect(tank.getByText("Needs attention").parentElement).toHaveTextContent("1 module");
+    expect(tank.getByText("Needs attention", { selector: "dt" }).parentElement).toHaveTextContent("1 module");
     expect(tank.getByText("Offline").parentElement).toHaveTextContent("1 module");
     expect(tank.getAllByRole("button", { name: /^Module/ })).toHaveLength(16);
   });

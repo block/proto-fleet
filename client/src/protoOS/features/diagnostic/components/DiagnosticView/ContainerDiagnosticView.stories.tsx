@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
+import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
 import { asComponentId, asEntityKey, type MetricTelemetry, type MetricUnit } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -74,6 +75,7 @@ const DiagnosticsStory = ({ missingReadings = false, sparseTanks = false, minerS
     });
     const store = useMinerStore.getState();
     store.resetDeviceData();
+    store.systemInfo.setSystemInfo(toCanonicalSystemInfo({ info: { id: "ct1-story", product: "CT1" } }));
     store.hardware.replaceHardware(hardware);
     store.telemetry.mergeTelemetry(telemetry);
     return () => useMinerStore.getState().resetDeviceData();

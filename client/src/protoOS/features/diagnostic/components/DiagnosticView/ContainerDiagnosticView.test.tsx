@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
-import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
+import { toCanonicalContainer, toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
@@ -108,6 +108,7 @@ describe("Container diagnostics", () => {
     });
 
     useMinerStore.getState().resetDeviceData();
+    useMinerStore.getState().systemInfo.setSystemInfo(toCanonicalSystemInfo({ info: { id: "ct1", product: "CT1" } }));
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
     vi.mocked(useTelemetry).mockReturnValue({

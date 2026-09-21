@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
 import LocationBreadcrumb from "@/protoOS/components/LocationBreadcrumb/LocationBreadcrumb";
+import HealthStatusButton from "@/protoOS/components/StatusModal/HealthStatusButton";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ComponentSection from "@/protoOS/features/diagnostic/components/ComponentSection";
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
@@ -108,6 +109,9 @@ const ModuleModal = ({
               />
             </PopoverProvider>
           </div>
+        </div>
+        <div className="flex justify-start">
+          <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
         </div>
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">

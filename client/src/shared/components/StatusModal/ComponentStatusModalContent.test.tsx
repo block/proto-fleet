@@ -33,7 +33,7 @@ const baseProps: ComponentStatusModalProps = {
 
 describe("ComponentStatusModalContent", () => {
   it.each([
-    ["fault", "bg-intent-critical-fill"],
+    ["fault", "text-intent-critical-fill"],
     ["degraded", "text-intent-warning-fill"],
   ] as const)("shows %s health without detailed errors and clears the icon on recovery", (health, color) => {
     const { rerender } = render(<ComponentStatusModalContent {...baseProps} health={health} />);

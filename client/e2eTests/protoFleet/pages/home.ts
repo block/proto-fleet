@@ -157,6 +157,15 @@ export class HomePage extends BasePage {
     return this.page.getByTestId("modal").getByTestId("model").allTextContents();
   }
 
+  async validateMinersToAuthenticate(expectedModels: string[]) {
+    // Pairing feedback appears before the auth-needed list finishes refreshing.
+    await expect
+      .poll(async () => (await this.getListOfMinersToAuthenticate()).sort(), {
+        message: "Expected the authentication list to contain exactly the remaining miners",
+      })
+      .toEqual([...expectedModels].sort());
+  }
+
   async clickShowMinersButton() {
     const modal = this.page.getByTestId("modal");
     const showMinersButton = modal.getByRole("button", { name: "Show miners" });

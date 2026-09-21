@@ -116,11 +116,12 @@ test.describe("Proto Fleet - Onboarding", () => {
         await homePage.clickShowMinersButton();
         await homePage.validateTextInModal("Bulk authenticate");
         await homePage.validateTextInModal("4 miners remaining");
-        const miners = await homePage.getListOfMinersToAuthenticate();
-        expect(miners).toHaveLength(4);
-        expect(miners).toContain("Antminer S21 XP");
-        expect(miners).toContain("Antminer S17 XP");
-        expect(miners.filter((model) => model === "Antminer S19 XP")).toHaveLength(2);
+        await homePage.validateMinersToAuthenticate([
+          "Antminer S21 XP",
+          "Antminer S17 XP",
+          "Antminer S19 XP",
+          "Antminer S19 XP",
+        ]);
       });
 
       await test.step("Bulk authenticate all miners with S19 credentials", async () => {
@@ -133,10 +134,7 @@ test.describe("Proto Fleet - Onboarding", () => {
         await homePage.validateTextInToast("You authenticated 2 of 4 miners.");
         await homePage.validateCalloutInModal("Try your username and password again.");
         await homePage.clickCalloutButton();
-        const miners = await homePage.getListOfMinersToAuthenticate();
-        expect(miners).toHaveLength(2);
-        expect(miners).toContain("Antminer S21 XP");
-        expect(miners).toContain("Antminer S17 XP");
+        await homePage.validateMinersToAuthenticate(["Antminer S21 XP", "Antminer S17 XP"]);
       });
 
       await test.step("Try authenticating S21 miner incorrectly with S17 miner's credentials", async () => {
@@ -161,6 +159,7 @@ test.describe("Proto Fleet - Onboarding", () => {
       await test.step("Validate S21 miner successfully authenticated", async () => {
         await homePage.validateTextInToast("1 miner authenticated.");
         await homePage.validateNoCalloutInModal();
+        await homePage.validateMinersToAuthenticate(["Antminer S17 XP"]);
       });
 
       await test.step("Bulk authenticate last miner - S17", async () => {

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import Tanks from "./Tanks";
 import { tanksFixture } from "./Tanks.fixtures";
+import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const TanksStory = ({
@@ -16,6 +17,9 @@ const TanksStory = ({
   useEffect(() => {
     const fixture = tanksFixture(count, modules, cooling);
     useMinerStore.getState().resetDeviceData();
+    useMinerStore
+      .getState()
+      .systemInfo.setSystemInfo(toCanonicalSystemInfo({ info: { id: "ct1-story", product: "CT1" } }));
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
   }, [count, modules, cooling]);

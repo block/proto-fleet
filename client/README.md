@@ -151,6 +151,20 @@ npm run storybook
 
 ### API Integration
 
+CT1 health uses `ProtoOSStatusModal` with an optional `scope` (`tank` or `module`)
+and `componentAddress` (canonical component reference). The scope determines the
+aggregate list and the destination for Back, Escape, and Done from component
+details; closing the aggregate returns to its opener. Component selection is
+in-app state, not a shareable URL.
+
+`scopeHealth.ts` derives membership from topology and combines current board/PSU
+health with normalized active errors. Tank indicators use the same summary, so a
+PSU-only fault remains visible. Reported health without an error message produces
+a navigable observation, not a fabricated active error. The modal polls current
+errors and telemetry; resolved errors disappear on refresh. R2 retains its
+existing modal flow. Severity presentation and plant alarm grouping are separate
+work. Storybook examples live under **Proto OS / Containers / Health drill-down**.
+
 **ProtoOS** — REST API with generated TypeScript client from `proto-rig-api/openapi/MDK-API.json`. Application code uses hooks in `src/protoOS/api/hooks/` which handle error handling, polling, and automatic store updates. Regenerate types with `npm run generate-api-types`.
 
 **ProtoFleet** — gRPC-Web with Connect-RPC. Generated TypeScript code in `src/protoFleet/api/generated/` from Protobuf definitions. Supports server-to-client streaming for real-time telemetry. Custom hooks in `src/protoFleet/api/`.

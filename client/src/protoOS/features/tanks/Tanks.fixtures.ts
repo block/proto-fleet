@@ -7,6 +7,7 @@ import {
   asModuleId,
   asTankId,
   type CommandCapabilities,
+  type ComponentId,
   type ContainerTopology,
   type HardwareState,
   type HashboardTelemetry,
@@ -46,6 +47,7 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) =
     hashboards: new Map(),
   };
   const telemetry = createEmptyTelemetryState();
+  const psus: HardwareState["psus"] = new Map();
   if (cooling) {
     telemetry.plant.set(plantId, {
       componentId: plantId,
@@ -90,7 +92,7 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) =
         tankId: id,
         hashboardIds: [] as ReturnType<typeof asHashboardId>[],
         controlBoardIds: [],
-        psuIds: [],
+        psuIds: [] as ComponentId[],
         fanIds: [],
         location: { tankLabel: tank.label, moduleSlot: slot },
       };
@@ -119,6 +121,14 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) =
         }
         telemetry.hashboards.set(boardId, board);
       }
+      const psuId = asComponentId(`${moduleId}:psu:1`);
+      module.psuIds.push(psuId);
+      psus.set(psuId, {
+        ref: { id: psuId, kind: "psu", owner: { kind: "module", id: moduleId } },
+        serialNumber: `PSU-T${number}-M${slot}`,
+        model: "CT1 PSU",
+      });
+      telemetry.psus.set(psuId, { componentId: psuId, health: "ok" });
     }
   }
   const hardware: HardwareState = {
@@ -135,7 +145,7 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) =
       ]),
     ),
     asics: new Map(),
-    psus: new Map(),
+    psus,
     fans: new Map(),
     plant: new Map([
       [

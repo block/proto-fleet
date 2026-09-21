@@ -2,6 +2,7 @@
  * ProtoOS-specific StatusModal types
  */
 
+import type { HealthScope } from "./scopeHealth";
 import type { ComponentAddress } from "@/protoOS/store/utils/componentSelection";
 export type { ComponentAddress };
 
@@ -20,6 +21,9 @@ export interface ProtoOSStatusModalProps {
 
   /** Optional initial component to display (defaults to miner view) */
   componentAddress?: ComponentAddress;
+
+  /** CT1 aggregate to show initially and return to from component details. */
+  scope?: HealthScope;
 
   /** Whether to show back button in component views (defaults to true) */
   showBackButton?: boolean;

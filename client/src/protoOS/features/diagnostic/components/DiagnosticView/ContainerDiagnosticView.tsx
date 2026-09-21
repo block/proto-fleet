@@ -6,6 +6,8 @@ import DryCoolerSettingsModal from "./DryCoolerSettingsModal";
 import { useContainerControl } from "./useContainerControl";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
+import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
+import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { tankSide } from "@/protoOS/features/tanks/tankSide";
 import { hashboardAttentionFill } from "@/protoOS/features/tanks/tankStatusColors";
@@ -13,7 +15,6 @@ import {
   boardStatus,
   hashboardLabel,
   moduleHashboards,
-  moduleStatus,
   statusLabels,
   tankGrid,
   tankMiningScope,
@@ -193,19 +194,6 @@ const boardColor = {
   unknown: "border border-border-10 bg-surface-base",
 };
 
-const miningStatusLabels: Record<MiningStatus, string> = {
-  uninitialized: "Not initialized",
-  poweringOn: "Powering on",
-  mining: "Mining",
-  degradedMining: "Mining (needs attention)",
-  poweringOff: "Powering off",
-  stopped: "Stopped",
-  curtailed: "Curtailed",
-  noPools: "No pools",
-  error: "Error",
-  unknown: "Unknown",
-};
-
 const healthLabels: Record<HealthState, string> = {
   ok: "Healthy",
   degraded: "Needs attention",
@@ -249,8 +237,8 @@ const TankDiagnosticCard = ({
   const modules = useMemo(() => tankModules(tank, topology), [tank, topology]);
   const grid = useMemo(() => tankGrid(tank, modules), [tank, modules]);
   const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
-  const statuses = modules.map((module) => moduleStatus(module.hashboardIds.map((id) => telemetry.get(id))));
-  const hasIssue = statuses.includes("attention");
+  const health = useScopeHealth({ kind: "tank", id: tank.id });
+  const hasIssue = health?.needsAttention ?? false;
   const { on, actionable } = tankPowerState(rollup?.miningStatus);
   const boardCount = rollup?.boardCount;
   const onlineBoardCount = rollup?.onlineBoardCount;
@@ -294,7 +282,7 @@ const TankDiagnosticCard = ({
         {modules.map((module, index) => {
           const bySlot = new Map(moduleHashboards(module, topology).map((board) => [board.location?.slot, board]));
           const position = grid.positions[index];
-          const minerStatus = statuses[index];
+          const minerStatus = health?.moduleStatuses.get(module.id) ?? "unknown";
           const needsModuleWarning =
             minerStatus === "attention" &&
             !module.hashboardIds.some((id) => boardStatus(telemetry.get(id)) === "attention");
@@ -367,25 +355,7 @@ const TankDiagnosticCard = ({
         </div>
       </dl>
       {showInfo ? (
-        <DiagnosticStatusModal
-          title={`${tank.label ?? "Tank"} status`}
-          onDismiss={() => setShowInfo(false)}
-          componentType="tank"
-          summary={hasIssue ? "Modules need attention" : "Tank diagnostics"}
-          errors={[]}
-          metrics={[
-            {
-              label: "Online hashboards",
-              value: boardAvailability,
-            },
-            { label: "Modules needing attention", value: statuses.filter((status) => status === "attention").length },
-            { label: "Temperature", value: temperatureText },
-            { label: "Power", value: powerText },
-          ]}
-          metadata={{
-            status: { label: "Mining status", value: miningStatusLabels[rollup?.miningStatus ?? "unknown"] },
-          }}
-        />
+        <ProtoOSStatusModal scope={{ kind: "tank", id: tank.id }} onClose={() => setShowInfo(false)} />
       ) : null}
     </article>
   );

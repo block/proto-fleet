@@ -40,12 +40,6 @@ const renderComponentIcon = (componentType: ComponentStatusModalProps["component
   }
 };
 
-const CriticalIconFrame = ({ children }: { children: ReactNode }) => (
-  <div className="flex size-10 items-center justify-center rounded-lg bg-intent-critical-fill text-text-contrast">
-    {children}
-  </div>
-);
-
 const ComponentStatusModalContent = ({
   summary,
   componentType,
@@ -62,7 +56,7 @@ const ComponentStatusModalContent = ({
     const iconElement = renderComponentIcon(componentType);
 
     if (hasErrors || health === "fault") {
-      return <CriticalIconFrame>{iconElement}</CriticalIconFrame>;
+      return <DialogIcon intent="critical">{iconElement}</DialogIcon>;
     }
 
     return <DialogIcon intent={health === "degraded" ? "warning" : "info"}>{iconElement}</DialogIcon>;

@@ -47,7 +47,10 @@ describe("Container hardware settings", () => {
   });
 
   test("does not invent inventory counts from the design or plant readings", () => {
-    const { hardware } = tanksFixture(1, 1, true);
+    const { hardware, telemetry } = tanksFixture(1, 1, true);
+    hardware.psus.clear();
+    telemetry.psus.clear();
+    for (const module of hardware.topology!.modules.values()) module.psuIds = [];
     render(<ContainerHardwareView hardware={hardware} />);
     for (const name of [
       "PSUs",

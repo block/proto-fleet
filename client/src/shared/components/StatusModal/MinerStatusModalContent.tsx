@@ -7,11 +7,11 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 import { DialogIcon } from "@/shared/components/Dialog";
 
 const componentIcons = {
-  fan: <Fan width={iconSizes.medium} className="text-text-primary-70" />,
-  hashboard: <Hashboard width={iconSizes.medium} className="text-text-primary-70" />,
-  controlBoard: <ControlBoard width={iconSizes.medium} className="text-text-primary-70" />,
-  psu: <LightningAlt width={iconSizes.medium} className="text-text-primary-70" />,
-  other: <Alert width={iconSizes.medium} className="text-text-primary-70" />,
+  fan: <Fan width={iconSizes.medium} className="text-intent-critical-fill" />,
+  hashboard: <Hashboard width={iconSizes.medium} className="text-intent-critical-fill" />,
+  controlBoard: <ControlBoard width={iconSizes.medium} className="text-intent-critical-fill" />,
+  psu: <LightningAlt width={iconSizes.medium} className="text-intent-critical-fill" />,
+  other: <Alert width={iconSizes.medium} className="text-intent-critical-fill" />,
 };
 
 const MINER_ASLEEP_TITLE = "Miner is asleep";
@@ -44,7 +44,7 @@ const MinerStatusModalContent = ({
     } else if (needsAuthentication || needsMiningPool || haserrors) {
       return (
         <DialogIcon intent="critical">
-          <Alert />
+          <Alert className="text-intent-critical-fill" />
         </DialogIcon>
       );
     } else {

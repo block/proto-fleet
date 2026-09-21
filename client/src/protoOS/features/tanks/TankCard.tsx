@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 
 import TankMetrics from "./TankMetrics";
 import TankModuleGrid, { StatusMarker } from "./TankModuleGrid";
-import { moduleStatus, moduleStatuses, statusLabels, tankMiningScope, tankModules } from "./tankView";
+import { moduleStatuses, statusLabels, tankMiningScope, tankModules } from "./tankView";
 import { useTankPower } from "./useTankPower";
+import HealthStatusButton from "@/protoOS/components/StatusModal/HealthStatusButton";
+import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { asEntityKey, type ContainerTopology, type ModuleNode, type TankNode } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -30,14 +32,14 @@ const TankCard = memo(({ tank, topology, label, onViewModule }: Props) => {
   });
   const modules = useMemo(() => tankModules(tank, topology), [tank, topology]);
   const scope = useMemo(() => tankMiningScope(tank, modules), [tank, modules]);
+  const health = useScopeHealth({ kind: "tank", id: tank.id });
   const statuses = useMemo(() => {
     const counts = { attention: 0, offline: 0, isolated: 0, sleeping: 0, healthy: 0, unknown: 0 };
     for (const module of modules) {
-      const boards = module.hashboardIds.map((id) => telemetry.get(id));
-      counts[moduleStatus(boards)]++;
+      counts[health?.moduleStatuses.get(module.id) ?? "unknown"]++;
     }
     return counts;
-  }, [modules, telemetry]);
+  }, [modules, health]);
   const { pending, error, setPower, supported } = useTankPower();
   const [confirmOn, setConfirmOn] = useState<boolean>();
   const known = rollup?.miningStatus !== undefined && rollup.miningStatus !== "unknown";
@@ -61,15 +63,18 @@ const TankCard = memo(({ tank, topology, label, onViewModule }: Props) => {
             {label}
           </Link>
         </h2>
-        <Switch
-          ariaLabel={`${label} power`}
-          label={powerLabel}
-          checked={on}
-          disabled={
-            !supported || tank.capabilities.startStop !== "supported" || !scope || pending || transitioning || !known
-          }
-          setChecked={() => setConfirmOn(!on)}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <HealthStatusButton scope={{ kind: "tank", id: tank.id }} />
+          <Switch
+            ariaLabel={`${label} power`}
+            label={powerLabel}
+            checked={on}
+            disabled={
+              !supported || tank.capabilities.startStop !== "supported" || !scope || pending || transitioning || !known
+            }
+            setChecked={() => setConfirmOn(!on)}
+          />
+        </div>
       </div>
       {error ? (
         <p role="alert" className="mb-4 text-300 text-text-critical">

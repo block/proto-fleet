@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import ContainerHealthModal from "./ContainerHealthModal";
 import { useComponentHardware, useComponentTelemetry } from "./hooks";
 import type { ComponentAddress, ProtoOSStatusModalProps } from "./types";
 import { buildComponentStatusProps, getComponentTitle, transformErrorsForModal } from "./utils";
@@ -8,8 +9,7 @@ import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useMinerStatusTitle } from "@/protoOS/hooks/status";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
-import { useMinerStore } from "@/protoOS/store";
-import { useIsSleeping } from "@/protoOS/store";
+import { useDeviceType, useIsSleeping, useMinerStore } from "@/protoOS/store";
 import type { ComponentRef } from "@/protoOS/store/contract";
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { componentName, resolveComponentAddress } from "@/protoOS/store/utils/componentSelection";
@@ -37,7 +37,7 @@ import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/c
  * />
  * ```
  */
-const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
+const RigStatusModal = ({ open, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
   const isVisible = open ?? true;
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(
@@ -181,6 +181,15 @@ const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = 
       showBackButton={showBackButton}
     />
   );
+};
+
+const ProtoOSStatusModal = (props: ProtoOSStatusModalProps) => {
+  const isContainer = useDeviceType() === "container";
+  if (!isContainer) return <RigStatusModal {...props} />;
+  // Remount each entry point so a previously selected component cannot leak
+  // into another scope or a later opening of the same modal.
+  const scopeKey = props.scope && props.scope.kind !== "container" ? props.scope.id : "container";
+  return <ContainerHealthModal key={`${scopeKey}:${JSON.stringify(props.componentAddress)}`} {...props} />;
 };
 
 export default ProtoOSStatusModal;
