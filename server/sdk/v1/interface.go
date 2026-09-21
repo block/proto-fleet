@@ -352,8 +352,18 @@ type NewDeviceResult struct {
 	Device Device
 }
 
+// DeviceClass identifies the independently discoverable hardware unit.
+type DeviceClass int32
+
+const (
+	DeviceClassUnspecified DeviceClass = iota
+	DeviceClassRig
+	DeviceClassContainer
+)
+
 // DeviceInfo represents information about a discovered device
 type DeviceInfo struct {
+	DeviceClass     DeviceClass
 	Host            string // e.g., "192.168.1.100" (maps to proto 'host')
 	Port            int32  // e.g., 4028 (maps to proto 'port')
 	URLScheme       string // e.g., "http", "https", "ssh" (maps to proto 'url_scheme')

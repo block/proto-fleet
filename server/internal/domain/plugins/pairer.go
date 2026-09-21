@@ -14,6 +14,7 @@ import (
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -174,6 +175,9 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
+	if updatedDeviceInfo.DeviceClass != sdk.DeviceClassUnspecified {
+		discoveredDevice.DeviceClass = commonpb.DeviceClass(updatedDeviceInfo.DeviceClass)
+	}
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 	discoveredDevice.DefaultPasswordActive = updatedDeviceInfo.DefaultPasswordActive
@@ -536,6 +540,7 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		URLScheme:       device.UrlScheme,
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
+		DeviceClass:     sdk.DeviceClass(device.DeviceClass),
 		Manufacturer:    device.Manufacturer,
 		MacAddress:      device.MacAddress,
 		FirmwareVersion: device.FirmwareVersion,

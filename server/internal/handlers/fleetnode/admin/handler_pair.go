@@ -54,6 +54,7 @@ func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *conne
 			Model:            d.Model,
 			Manufacturer:     d.Manufacturer,
 			FirmwareVersion:  d.FirmwareVersion,
+			DeviceClass:      d.DeviceClass,
 			PairingStatus:    d.PairingStatus,
 		}
 		if !d.LastSeen.IsZero() {

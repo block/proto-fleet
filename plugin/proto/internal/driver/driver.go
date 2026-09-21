@@ -295,6 +295,7 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 	}
 
 	return sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClassRig,
 		Host:            ipAddress,
 		Port:            port,
 		URLScheme:       scheme,
@@ -330,6 +331,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	if err != nil {
 		return sdk.DeviceInfo{}, err
 	}
+	deviceInfo.DeviceClass = sdk.DeviceClassRig
 	deviceInfo.SerialNumber = info.SerialNumber
 	deviceInfo.MacAddress = info.MacAddress
 

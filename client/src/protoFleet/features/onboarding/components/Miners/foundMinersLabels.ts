@@ -1,28 +1,19 @@
-// Discovery `Device` carries only model + manufacturer (no device-type field yet),
-// so a container is classified by its model prefix ("CU…") — the same convention
-// as protoOS's useIsContainer. One-line swap once a real type flag lands.
-const CONTAINER_MODEL_PREFIX = "CU";
-
-/** True when a discovered device's model marks it as a container module (model "CU…"). */
-export function isContainerModel(model: string): boolean {
-  return typeof model === "string" && model.toUpperCase().startsWith(CONTAINER_MODEL_PREFIX);
-}
-
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 /** Entity noun for a group's count, pluralized: "container(s)" for containers, "miner(s)" otherwise. */
-export function entityNoun(model: string, count: number): string {
-  if (isContainerModel(model)) return count === 1 ? "container" : "containers";
+export function entityNoun(deviceClass: DeviceClass, count: number): string {
+  if (deviceClass === DeviceClass.CONTAINER) return count === 1 ? "container" : "containers";
   return count === 1 ? "miner" : "miners";
 }
 
 /**
  * Display label for a discovered device group.
- * - Containers (model "CU…") are labelled "Proto Container".
+ * - Containers are labelled "Proto Container".
  * - Otherwise the manufacturer and model are joined ("Bitmain Antminer S21"),
  *   but a redundant manufacturer prefix is dropped when the model already leads
  *   with it as a whole word (manufacturer "Proto" + model "Proto Rig" -> "Proto Rig").
  */
-export function deviceGroupLabel(manufacturer: string, model: string): string {
-  if (isContainerModel(model)) return "Proto Container";
+export function deviceGroupLabel(manufacturer: string, model: string, deviceClass: DeviceClass): string {
+  if (deviceClass === DeviceClass.CONTAINER) return "Proto Container";
 
   const mfr = (manufacturer ?? "").trim();
   const mdl = (model ?? "").trim();
@@ -45,7 +36,7 @@ export function deviceGroupLabel(manufacturer: string, model: string): string {
  */
 export function foundSummary(containerCount: number, minerCount: number): string {
   const parts: string[] = [];
-  if (containerCount > 0) parts.push(`${containerCount} ${containerCount === 1 ? "container" : "containers"}`);
-  if (minerCount > 0) parts.push(`${minerCount} ${minerCount === 1 ? "miner" : "miners"}`);
+  if (containerCount > 0) parts.push(`${containerCount} ${entityNoun(DeviceClass.CONTAINER, containerCount)}`);
+  if (minerCount > 0) parts.push(`${minerCount} ${entityNoun(DeviceClass.RIG, minerCount)}`);
   return `${parts.join(" and ")} found on your network`;
 }

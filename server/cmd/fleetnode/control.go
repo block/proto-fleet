@@ -819,6 +819,7 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 		UrlScheme:        dev.GetUrlScheme(),
 		DriverName:       dev.GetDriverName(),
 		Model:            dev.GetModel(),
+		DeviceClass:      dev.GetDeviceClass(),
 		Manufacturer:     dev.GetManufacturer(),
 		FirmwareVersion:  dev.GetFirmwareVersion(),
 	}

@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -502,7 +503,7 @@ func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T
 	// Arrange: no operator creds; the driver provides a working default.
 	active := true
 	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active, DeviceClass: sdk.DeviceClassContainer},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
 	codec := &credentialCodec{key: bytes.Repeat([]byte{2}, credentialKeySize)}
@@ -520,6 +521,7 @@ func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T
 	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
 	require.NotNil(t, res.DefaultPasswordActive)
 	assert.True(t, res.GetDefaultPasswordActive())
+	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, res.DeviceClass)
 }
 
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {

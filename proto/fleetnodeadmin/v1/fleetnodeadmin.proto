@@ -6,6 +6,7 @@ syntax = "proto3";
 package fleetnodeadmin.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "google/protobuf/timestamp.proto";
 import "pairing/v1/pairing.proto";
@@ -154,6 +155,7 @@ message FleetNodeDiscoveredDevice {
     string model             = 7;
     string manufacturer      = 8;
     string firmware_version  = 9;
+    common.v1.DeviceClass device_class = 12;
     google.protobuf.Timestamp last_seen = 10;
     // Empty when never attempted; "AUTHENTICATION_NEEDED" after a pair attempt
     // that needs credentials.

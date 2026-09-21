@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_common_v1_common: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEiKAoLUmVzb3VyY2VSZWYSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkiuwEKDVBsYWNlbWVudFJlZnMSJAoEc2l0ZRgBIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIoCghidWlsZGluZxgCIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIkCgRyYWNrGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEiYKBmdyb3VwcxgEIAMoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIMCgR6b25lGAUgASgJIm8KEUZsZWV0RXJyb3JEZXRhaWxzEisKBmNvbW1vbhgBIAEoDjIZLmNvbW1vbi52MS5GbGVldEVycm9yQ29kZUgAEhEKB3NlcnZpY2UYAiABKAVIABISCghlbmRwb2ludBgDIAEoBUgAQgYKBGNvZGUqUwoORmxlZXRFcnJvckNvZGUSIAocRkxFRVRfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEh8KG0ZMRUVUX0VSUk9SX0NPREVfTk9UX0FDVElWRRABQqgBCg1jb20uY29tbW9uLnYxQgtDb21tb25Qcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
+    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEiKAoLUmVzb3VyY2VSZWYSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkiuwEKDVBsYWNlbWVudFJlZnMSJAoEc2l0ZRgBIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIoCghidWlsZGluZxgCIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIkCgRyYWNrGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEiYKBmdyb3VwcxgEIAMoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIMCgR6b25lGAUgASgJIm8KEUZsZWV0RXJyb3JEZXRhaWxzEisKBmNvbW1vbhgBIAEoDjIZLmNvbW1vbi52MS5GbGVldEVycm9yQ29kZUgAEhEKB3NlcnZpY2UYAiABKAVIABISCghlbmRwb2ludBgDIAEoBUgAQgYKBGNvZGUqUwoORmxlZXRFcnJvckNvZGUSIAocRkxFRVRfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEh8KG0ZMRUVUX0VSUk9SX0NPREVfTk9UX0FDVElWRRABKl0KC0RldmljZUNsYXNzEhwKGERFVklDRV9DTEFTU19VTlNQRUNJRklFRBAAEhQKEERFVklDRV9DTEFTU19SSUcQARIaChZERVZJQ0VfQ0xBU1NfQ09OVEFJTkVSEAJCqAEKDWNvbS5jb21tb24udjFCC0NvbW1vblByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
   );
 
 /**
@@ -139,3 +139,31 @@ export enum FleetErrorCode {
  * Describes the enum common.v1.FleetErrorCode.
  */
 export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> = /*@__PURE__*/ enumDesc(file_common_v1_common, 0);
+
+/**
+ * DeviceClass identifies the independently discoverable hardware unit.
+ * Tanks and modules belong to a container; they are not separate devices.
+ *
+ * @generated from enum common.v1.DeviceClass
+ */
+export enum DeviceClass {
+  /**
+   * @generated from enum value: DEVICE_CLASS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: DEVICE_CLASS_RIG = 1;
+   */
+  RIG = 1,
+
+  /**
+   * @generated from enum value: DEVICE_CLASS_CONTAINER = 2;
+   */
+  CONTAINER = 2,
+}
+
+/**
+ * Describes the enum common.v1.DeviceClass.
+ */
+export const DeviceClassSchema: GenEnum<DeviceClass> = /*@__PURE__*/ enumDesc(file_common_v1_common, 1);

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/block/proto-fleet/server/sdk/v1/mocks"
@@ -68,6 +70,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			name: "ASIC device discovered by Antminer plugin",
 			deviceInfo: sdk.DeviceInfo{
 				SerialNumber: "TEST123",
+				DeviceClass:  sdk.DeviceClassRig,
 				Model:        "S19",
 				Manufacturer: "Bitmain",
 				URLScheme:    "http",
@@ -75,9 +78,10 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			},
 		},
 		{
-			name: "Bitmain manufacturer",
+			name: "Container class independent of model name",
 			deviceInfo: sdk.DeviceInfo{
 				SerialNumber: "BITMAIN123",
+				DeviceClass:  sdk.DeviceClassContainer,
 				Model:        "S19 Pro",
 				Manufacturer: "Bitmain",
 				URLScheme:    "https",
@@ -144,6 +148,8 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			assert.Equal(t, "80", device.Port)
 			assert.Equal(t, tc.deviceInfo.SerialNumber, device.SerialNumber)
 			assert.Equal(t, tc.deviceInfo.Model, device.Model)
+			assert.Equal(t, commonpb.DeviceClass(tc.deviceInfo.DeviceClass), device.DeviceClass)
+			assert.Equal(t, tc.deviceInfo.DeviceClass, convertFleetDeviceToSDKDeviceInfo(&device.Device).DeviceClass)
 			assert.Equal(t, tc.deviceInfo.Manufacturer, device.Manufacturer)
 			assert.Equal(t, tc.deviceInfo.MacAddress, device.MacAddress)
 			assert.Equal(t, tc.deviceInfo.URLScheme, device.UrlScheme)
@@ -389,6 +395,7 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_VerifyConcurrency(t *tes
 
 	deviceInfo := sdk.DeviceInfo{
 		SerialNumber: "TEST123",
+		DeviceClass:  sdk.DeviceClassRig,
 		Model:        "Test Model",
 		Manufacturer: "Test Manufacturer",
 		URLScheme:    "http",

@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { deviceGroupLabel, entityNoun, foundSummary, isContainerModel } from "./foundMinersLabels";
+import { deviceGroupLabel, entityNoun, foundSummary } from "./foundMinersLabels";
 import type { MinerWithModel } from "./types";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { Fleet, LogoAlt } from "@/shared/assets/icons";
 import Divider from "@/shared/components/Divider";
@@ -23,22 +24,9 @@ type MinersByModel = {
   [key: string]: MinersByModelItem;
 };
 
-class MinerKey {
-  manufacturer: string;
-  model: string;
-
-  constructor(manufacturer: string, model: string) {
-    this.manufacturer = manufacturer;
-    this.model = model;
-  }
-
-  toString(): string {
-    return `${this.manufacturer}:${this.model}`;
-  }
-}
-
 type MinersByModelItem = {
   model: string;
+  deviceClass: DeviceClass;
   manufacturer: string;
   supportedAuthenticationMethods: AuthenticationMethod[];
   miners: MinerWithModel[];
@@ -101,19 +89,20 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
     const _minersByModel: MinersByModel = {};
 
     miners.forEach((miner) => {
-      const minerKey = new MinerKey(miner.manufacturer || "unknown", miner.model || "unknown");
+      const minerKey = JSON.stringify([miner.manufacturer || "unknown", miner.model || "unknown", miner.deviceClass]);
 
-      if (!_minersByModel[minerKey.toString()]) {
+      if (!_minersByModel[minerKey]) {
         const supportedMethods = miner.capabilities?.authentication?.supportedMethods || [];
 
-        _minersByModel[minerKey.toString()] = {
+        _minersByModel[minerKey] = {
           model: miner.model,
+          deviceClass: miner.deviceClass,
           manufacturer: miner.manufacturer || "unknown",
           supportedAuthenticationMethods: supportedMethods,
           miners: [miner],
         };
       } else {
-        _minersByModel[minerKey.toString()].miners.push(miner);
+        _minersByModel[minerKey].miners.push(miner);
       }
     });
 
@@ -129,13 +118,10 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
           inline
           title={(() => {
             const containerCount = modelEntries.reduce(
-              (total, item) => total + (isContainerModel(item.model) ? item.miners.length : 0),
+              (total, item) => total + (item.deviceClass === DeviceClass.CONTAINER ? item.miners.length : 0),
               0,
             );
-            const minerCount = modelEntries.reduce(
-              (total, item) => total + (isContainerModel(item.model) ? 0 : item.miners.length),
-              0,
-            );
+            const minerCount = miners.length - containerCount;
             if (miners.length === 0 && skeletonVisible) return "Finding miners on your network";
             if (miners.length === 0) return "No miners found";
             if (isScanning) return `Finding miners on your network... ${containerCount + minerCount} found so far`;
@@ -164,7 +150,9 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                 <div className="flex gap-4">
                   {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
                   <div>
-                    <div className="h-6 text-emphasis-300">{deviceGroupLabel(model.manufacturer, model.model)}</div>
+                    <div className="h-6 text-emphasis-300">
+                      {deviceGroupLabel(model.manufacturer, model.model, model.deviceClass)}
+                    </div>
                     {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
                       <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
                     ) : (
@@ -178,7 +166,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                     const selectedCount = model.miners.filter(
                       (miner) => !deselectedMiners.includes(miner.deviceIdentifier),
                     ).length;
-                    return `${selectedCount} ${entityNoun(model.model, selectedCount)}`;
+                    return `${selectedCount} ${entityNoun(model.deviceClass, selectedCount)}`;
                   })()}
                 </div>
               </Row>

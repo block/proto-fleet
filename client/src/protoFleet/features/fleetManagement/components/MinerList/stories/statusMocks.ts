@@ -10,6 +10,7 @@ import {
   type TelemetryCapabilities,
   TelemetryCapabilitiesSchema,
 } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   ComponentType,
@@ -86,6 +87,7 @@ const baseMeasurements = {
 
 export const hashingMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:status-hashing",
   serialNumber: "SN-HASHING",
   name: "Hashing Miner",
@@ -106,6 +108,7 @@ export const hashingMiner: MinerStateSnapshot = {
 
 export const offlineMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:status-offline",
   serialNumber: "SN-OFFLINE",
   name: "Offline Miner",
@@ -132,6 +135,7 @@ export const offlineMiner: MinerStateSnapshot = {
 
 export const sleepingMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:status-sleeping",
   serialNumber: "SN-SLEEPING",
   name: "Sleeping Miner",
@@ -167,6 +171,7 @@ export const sleepingMiner: MinerStateSnapshot = {
 
 export const authRequiredMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-auth",
   serialNumber: "SN-AUTH",
   name: "Auth Required",
@@ -193,6 +198,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
 
 export const poolRequiredMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-pool",
   serialNumber: "SN-POOL",
   name: "Pool Required",
@@ -213,6 +219,7 @@ export const poolRequiredMiner: MinerStateSnapshot = {
 
 export const controlBoardFailureMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-controlboard",
   serialNumber: "SN-CTRLBOARD",
   name: "Control Board Issue",
@@ -233,6 +240,7 @@ export const controlBoardFailureMiner: MinerStateSnapshot = {
 
 export const hashboardFailureMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-hashboard",
   serialNumber: "SN-HASHBOARD",
   name: "Hashboard Issue",
@@ -253,6 +261,7 @@ export const hashboardFailureMiner: MinerStateSnapshot = {
 
 export const psuFailureMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-psu",
   serialNumber: "SN-PSU",
   name: "PSU Issue",
@@ -273,6 +282,7 @@ export const psuFailureMiner: MinerStateSnapshot = {
 
 export const fanFailureMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-fan",
   serialNumber: "SN-FAN",
   name: "Fan Issue",
@@ -297,6 +307,7 @@ export const fanFailureMiner: MinerStateSnapshot = {
 
 export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-multiple-hashboards",
   serialNumber: "SN-MULTI-HB",
   name: "Multiple Hashboards",
@@ -317,6 +328,7 @@ export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
 
 export const multipleComponentFailuresMiner: MinerStateSnapshot = {
   $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+  deviceClass: DeviceClass.RIG,
   deviceIdentifier: "uuid:issue-multiple-components",
   serialNumber: "SN-MULTI-COMP",
   name: "Multiple Components",

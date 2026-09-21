@@ -16,6 +16,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -131,8 +132,8 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 
 	// Create 2 unpaired devices
-	for i := 1; i <= 2; i++ {
-		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
+	for i, deviceClass := range []commonpb.DeviceClass{commonpb.DeviceClass_DEVICE_CLASS_RIG, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER} {
+		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i+1)
 		doi := discoverymodels.DeviceOrgIdentifier{
 			DeviceIdentifier: deviceIdentifier,
 			OrgID:            testUser.OrganizationID,
@@ -141,6 +142,7 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 			Device: pairingpb.Device{
 				DeviceIdentifier: deviceIdentifier,
 				Model:            "S19 Pro",
+				DeviceClass:      deviceClass,
 				Manufacturer:     "Bitmain",
 				DriverName:       "ANTMINER",
 				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
@@ -173,6 +175,12 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Len(t, resp.Miners, 4, "Should return both paired and unpaired devices")
 	assert.Equal(t, int32(4), resp.TotalMiners)
+	classes := map[string]commonpb.DeviceClass{}
+	for _, miner := range resp.Miners {
+		classes[miner.DeviceIdentifier] = miner.DeviceClass
+	}
+	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_RIG, classes["unpaired-device-1"])
+	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, classes["unpaired-device-2"])
 	assert.Empty(t, resp.Cursor) // No more pages
 }
 

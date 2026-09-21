@@ -912,6 +912,7 @@ type DiscoveredDevice struct {
 	DriverName              string
 	IpAddressInet           pqtype.Inet
 	DiscoveredByFleetNodeID sql.NullInt64
+	DeviceClass             int32
 }
 
 type Error struct {

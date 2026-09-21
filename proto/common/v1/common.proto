@@ -32,3 +32,11 @@ enum FleetErrorCode {
   FLEET_ERROR_CODE_UNSPECIFIED = 0;
   FLEET_ERROR_CODE_NOT_ACTIVE = 1;
 }
+
+// DeviceClass identifies the independently discoverable hardware unit.
+// Tanks and modules belong to a container; they are not separate devices.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_RIG = 1;
+  DEVICE_CLASS_CONTAINER = 2;
+}

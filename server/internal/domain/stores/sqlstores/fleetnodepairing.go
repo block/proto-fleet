@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 )
@@ -123,6 +124,7 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 			URLScheme:        r.UrlScheme,
 			DriverName:       r.DriverName,
 			Model:            r.Model.String,
+			DeviceClass:      commonpb.DeviceClass(r.DeviceClass),
 			Manufacturer:     r.Manufacturer.String,
 			FirmwareVersion:  r.FirmwareVersion.String,
 			LastSeen:         r.LastSeen.Time,
@@ -141,6 +143,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 		UrlScheme:               report.URLScheme,
 		DriverName:              report.DriverName,
 		Model:                   emptyToNullString(report.Model),
+		DeviceClass:             int32(report.DeviceClass),
 		Manufacturer:            emptyToNullString(report.Manufacturer),
 		FirmwareVersion:         emptyToNullString(report.FirmwareVersion),
 		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},

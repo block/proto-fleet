@@ -1406,3 +1406,10 @@ func TestSDKError_ErrorsAs(t *testing.T) {
 
 	assert.False(t, errors.As(wrappedErr, &extractedErr))
 }
+
+func TestDeviceClassRoundTrip(t *testing.T) {
+	for _, class := range []DeviceClass{DeviceClassUnspecified, DeviceClassRig, DeviceClassContainer} {
+		info := DeviceInfo{DeviceClass: class, Model: "arbitrary model"}
+		require.Equal(t, info, deviceInfoFromProto(deviceInfoToProto(info)))
+	}
+}

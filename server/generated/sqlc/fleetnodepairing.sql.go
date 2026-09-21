@@ -222,6 +222,7 @@ WITH candidate AS (
          dd.url_scheme,
          dd.driver_name,
          dd.model,
+         dd.device_class,
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
@@ -282,7 +283,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -311,6 +312,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	UrlScheme               string
 	DriverName              string
 	Model                   sql.NullString
+	DeviceClass             int32
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	LastSeen                sql.NullTime
@@ -360,6 +362,7 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.UrlScheme,
 			&i.DriverName,
 			&i.Model,
+			&i.DeviceClass,
 			&i.Manufacturer,
 			&i.FirmwareVersion,
 			&i.LastSeen,
@@ -464,15 +467,17 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    device_class
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
+    device_class = EXCLUDED.device_class,
     manufacturer = EXCLUDED.manufacturer,
     firmware_version = EXCLUDED.firmware_version,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
@@ -544,6 +549,7 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	DiscoveredByFleetNodeID sql.NullInt64
+	DeviceClass             int32
 }
 
 // 0 rows on conflict signals rejection. A remote report must not redirect the
@@ -565,6 +571,7 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.Manufacturer,
 		arg.FirmwareVersion,
 		arg.DiscoveredByFleetNodeID,
+		arg.DeviceClass,
 	)
 	if err != nil {
 		return 0, err

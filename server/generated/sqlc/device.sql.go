@@ -1997,6 +1997,7 @@ SELECT
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
     dd.driver_name,
+    dd.device_class,
     d.custom_name,
     d.site_id,
     COALESCE(s.name, '') as site_label,
@@ -2031,6 +2032,7 @@ type ListMinerStateSnapshotsRow struct {
 	CursorID                 int64
 	DeviceID                 int64
 	DriverName               string
+	DeviceClass              int32
 	CustomName               sql.NullString
 	SiteID                   sql.NullInt64
 	SiteLabel                string
@@ -2071,6 +2073,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.CursorID,
 			&i.DeviceID,
 			&i.DriverName,
+			&i.DeviceClass,
 			&i.CustomName,
 			&i.SiteID,
 			&i.SiteLabel,

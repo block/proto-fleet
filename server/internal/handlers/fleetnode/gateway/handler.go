@@ -535,6 +535,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			URLScheme:        d.GetUrlScheme(),
 			DriverName:       d.GetDriverName(),
 			Model:            d.GetModel(),
+			DeviceClass:      d.GetDeviceClass(),
 			Manufacturer:     d.GetManufacturer(),
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
@@ -664,6 +665,7 @@ func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
 		UrlScheme:        d.GetUrlScheme(),
 		DriverName:       d.GetDriverName(),
 		Model:            d.GetModel(),
+		DeviceClass:      d.GetDeviceClass(),
 		Manufacturer:     d.GetManufacturer(),
 		FirmwareVersion:  d.GetFirmwareVersion(),
 	}

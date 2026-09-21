@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,7 +17,7 @@ import (
 func upsertNodeDiscovered(t *testing.T, svc *fleetnodepairing.Service, orgID, fleetNodeID int64, identifier string) {
 	t.Helper()
 	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: identifier, IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual", Model: "M", Manufacturer: "Mf", FirmwareVersion: "v1"},
+		{DeviceIdentifier: identifier, IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "M", Manufacturer: "Mf", FirmwareVersion: "v1"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), rejected)
@@ -134,6 +136,7 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	assert.NotContains(t, aIDs, "mac:list-b1")
 	for _, d := range aOnly {
 		assert.Equal(t, nodeA, d.FleetNodeID)
+		assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, d.DeviceClass)
 	}
 }
 

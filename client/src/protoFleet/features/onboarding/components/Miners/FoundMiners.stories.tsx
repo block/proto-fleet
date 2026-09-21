@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import FoundMiners from "./FoundMiners";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 
 export default {
@@ -14,9 +15,11 @@ function device(
   manufacturer: string,
   ipAddress: string,
   supportedMethods: AuthenticationMethod[] = [],
+  deviceClass: DeviceClass = DeviceClass.RIG,
 ) {
   return create(DeviceSchema, {
     deviceIdentifier,
+    deviceClass,
     model,
     manufacturer,
     ipAddress,
@@ -24,12 +27,12 @@ function device(
   });
 }
 
-// Mixed discovery: two container modules (model "CU…") plus rigs from two vendors.
+// Mixed discovery: two containers plus rigs from two vendors.
 // Header splits the total ("2 containers and 3 miners found on your network") and
 // each group pluralizes by entity ("2 containers", "2 miners", "1 miner").
 const mixedMiners = [
-  device("cu-1", "CU1", "Proto", "192.168.1.30", [AuthenticationMethod.BASIC]),
-  device("cu-2", "CU1", "Proto", "192.168.1.31", [AuthenticationMethod.BASIC]),
+  device("cu-1", "CU1", "Proto", "192.168.1.30", [AuthenticationMethod.BASIC], DeviceClass.CONTAINER),
+  device("cu-2", "CU1", "Proto", "192.168.1.31", [AuthenticationMethod.BASIC], DeviceClass.CONTAINER),
   device("s21-1", "Antminer S21", "Bitmain", "192.168.1.20"),
   device("s21-2", "Antminer S21", "Bitmain", "192.168.1.21"),
   device("rig-1", "Proto Rig", "Proto", "192.168.1.10", [AuthenticationMethod.BASIC]),
@@ -43,8 +46,8 @@ export const MixedContainersAndRigs = () => (
 
 // Containers only: the miner bucket is omitted from the header.
 const containersOnly = [
-  device("cu-1", "CU1", "Proto", "192.168.1.30", [AuthenticationMethod.BASIC]),
-  device("cu-2", "CU1", "Proto", "192.168.1.31", [AuthenticationMethod.BASIC]),
+  device("cu-1", "CU1", "Proto", "192.168.1.30", [AuthenticationMethod.BASIC], DeviceClass.CONTAINER),
+  device("cu-2", "CU1", "Proto", "192.168.1.31", [AuthenticationMethod.BASIC], DeviceClass.CONTAINER),
 ];
 
 export const ContainersOnly = () => (

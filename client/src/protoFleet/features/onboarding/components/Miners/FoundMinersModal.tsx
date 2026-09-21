@@ -1,7 +1,8 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
-import { foundSummary, isContainerModel } from "./foundMinersLabels";
+import { foundSummary } from "./foundMinersLabels";
 import { createFoundMinersModelFilter, filterFoundMinerByModel } from "./foundMinersModelFilter";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -24,7 +25,8 @@ const colConfig = {
     // name ("CU1") leaks into the discovery table, matching the group label and
     // the model filter option. Non-container rows keep their raw model string.
     // Filtering/sorting still key off the untouched `miner.model` field.
-    component: (item: MinerWithSelectedAndAction) => (isContainerModel(item.model) ? "Proto Container" : item.model),
+    component: (item: MinerWithSelectedAndAction) =>
+      item.deviceClass === DeviceClass.CONTAINER ? "Proto Container" : item.model,
   },
   ipAddress: {
     width: "w-full pr-10",
@@ -34,12 +36,11 @@ const colConfig = {
 type FoundMinersModalProps = {
   open?: boolean;
   miners: MinerWithSelected[];
-  models: string[];
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   onDismiss: () => void;
 };
 
-const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
+const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
     dropdownFilters: {},
@@ -65,7 +66,7 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
     [miners, setDeselectedMiners],
   );
 
-  const modelFilter = useMemo(() => createFoundMinersModelFilter(models), [models]);
+  const modelFilter = useMemo(() => createFoundMinersModelFilter(miners), [miners]);
 
   const filteredMiners = useMemo(() => {
     return miners.filter((miner) => filterFoundMinerByModel(miner, activeFilters));
@@ -74,7 +75,10 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
   // Split the discovered total by entity so the modal header matches the inline
   // FoundMiners summary ("N containers and M miners found on your network").
   const summaryTitle = useMemo(() => {
-    const containerCount = miners.reduce((total, miner) => total + (isContainerModel(miner.model) ? 1 : 0), 0);
+    const containerCount = miners.reduce(
+      (total, miner) => total + (miner.deviceClass === DeviceClass.CONTAINER ? 1 : 0),
+      0,
+    );
     return foundSummary(containerCount, miners.length - containerCount);
   }, [miners]);
 

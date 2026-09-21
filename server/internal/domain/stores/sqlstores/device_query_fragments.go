@@ -62,6 +62,7 @@ const minerSelectColumns = `SELECT
     discovered_device.id as cursor_id,
     COALESCE(device.id, 0) as device_id,
     discovered_device.driver_name,
+    discovered_device.device_class,
     device.custom_name,
     device.site_id,
     COALESCE(site.name, '') as site_label,

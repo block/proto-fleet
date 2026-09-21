@@ -29,7 +29,6 @@ import {
   type ComponentId,
   type ControlBoardHardware,
   type CoolingMode,
-  type DeviceType,
   type FanHardware,
   type FanTelemetry,
   type HardwareState,
@@ -195,16 +194,14 @@ export const toCanonicalSystemTag = (value: unknown): string => {
 };
 
 export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoData => {
-  const model = wire.model?.toUpperCase();
-  const deviceType: DeviceType = model?.startsWith("CU") ? "container" : "rig";
-  const moduleModel: ModuleModel = deviceType === "container" ? "ct1" : "r2";
+  // The v1 adapter represents rigs; CT1 identity comes from the v2 product probe.
   const deviceIdentity = wire.cb_sn || wire.model || wire.product_name || "unknown";
   const update = wire.sw_update_status;
 
   return {
     identity: {
       deviceId: asDeviceId(`device:${deviceIdentity}`),
-      deviceType,
+      deviceType: "rig",
       adapterId: "mdk-v1",
       productName: wire.product_name,
       model: wire.model,
@@ -212,7 +209,7 @@ export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
       serialNumber: wire.cb_sn,
       macAddresses: [],
     },
-    moduleModel,
+    moduleModel: "r2",
     operatingSystem: toFirmwareInfo(wire.os),
     operatingSystemStatus: wire.os?.status
       ? {

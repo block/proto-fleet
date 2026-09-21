@@ -1,3 +1,4 @@
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   DeviceOfflineReason,
@@ -10,6 +11,7 @@ import { TemperatureStatus } from "@/protoFleet/api/generated/telemetry/v1/telem
 export const miners: MinerStateSnapshot[] = [
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+    deviceClass: DeviceClass.RIG,
     deviceIdentifier: "uuid:123456789",
     serialNumber: "123456789",
     name: "C1-M01",
@@ -66,6 +68,7 @@ export const miners: MinerStateSnapshot[] = [
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+    deviceClass: DeviceClass.RIG,
     deviceIdentifier: "uuid:1234567890",
     serialNumber: "123456780",
     name: "C1-M02",
@@ -122,6 +125,7 @@ export const miners: MinerStateSnapshot[] = [
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+    deviceClass: DeviceClass.RIG,
     deviceIdentifier: "uuid:123456781",
     serialNumber: "123456781",
     ipAddress: "172.27.244.166",
@@ -178,6 +182,7 @@ export const miners: MinerStateSnapshot[] = [
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
+    deviceClass: DeviceClass.RIG,
     deviceIdentifier: "uuid:123456782",
     serialNumber: "123456782",
     ipAddress: "172.27.244.166",

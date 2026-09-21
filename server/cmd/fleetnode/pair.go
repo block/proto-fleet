@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -86,6 +87,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		URLScheme:       target.GetUrlScheme(),
 		Manufacturer:    target.GetManufacturer(),
 		FirmwareVersion: target.GetFirmwareVersion(),
+		DeviceClass:     sdk.DeviceClass(target.GetDeviceClass()),
 	}
 
 	if bundle, ok := secretBundleFor(plugin.Caps, creds); ok {
@@ -170,6 +172,7 @@ func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Outcome = pb.PairOutcome_PAIR_OUTCOME_PAIRED
 	res.SerialNumber = truncateUTF8(info.SerialNumber, maxPairIdentityBytes)
 	res.MacAddress = truncateUTF8(info.MacAddress, maxPairMACBytes)
+	res.DeviceClass = commonpb.DeviceClass(info.DeviceClass)
 	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
 	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
 	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)
