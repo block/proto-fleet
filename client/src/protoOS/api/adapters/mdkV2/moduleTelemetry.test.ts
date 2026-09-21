@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { V2Hashboard } from "./generated/generatedApi";
 import { toCanonicalContainer, toCanonicalHashboardStatus } from "./normalize";
-import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { asEntityKey, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const normalizeModules = (modules: V2Hashboard[][]) =>
@@ -42,7 +42,7 @@ describe("CT1 efficiency", () => {
     { power: Infinity, hashrate: 100, expected: null },
     { power: 1500, hashrate: NaN, expected: null },
   ])("calculates J/TH from $power W and $hashrate TH/s", ({ power, hashrate, expected }) => {
-    const { telemetry } = normalizeModules([[{ health: { power, hashrate } }]]);
+    const { telemetry } = normalizeModules([[{ health: { power, hashrate, psuElectrical: { inputPower: power } } }]]);
     const board = [...telemetry.hashboards.values()][0];
     expect(board.efficiency?.latest).toEqual({ value: expected, units: "J/TH" });
     const moduleAndTank = [...telemetry.rollupsByEntity.entries()].filter(([id]) => id.includes(":tank:"));
@@ -75,6 +75,64 @@ describe("CT1 efficiency", () => {
 });
 
 describe("module PSU telemetry", () => {
+  test("uses each module's freshest PSU input once for module and tank power and efficiency", () => {
+    const { hardware, telemetry } = normalizeModules([
+      [
+        { health: { power: 1000, hashrate: 100, psuElectrical: { inputPower: 3500, sampleAgeMs: 10 } } },
+        { health: { power: 1000, hashrate: 100, psuElectrical: { inputPower: 3600, sampleAgeMs: 1 } } },
+        { health: { power: 1000, hashrate: 100, psuElectrical: { inputPower: 3600, sampleAgeMs: 1 } } },
+      ],
+      [{ health: { power: 2000, hashrate: 200, psuElectrical: { inputPower: 2400 } } }],
+    ]);
+    const modules = [...hardware.topology!.modules.values()];
+    for (const [id, power, efficiency] of [
+      [modules[0].id, 3600, 12],
+      [modules[1].id, 2400, 12],
+      [modules[0].tankId!, 6000, 12],
+    ] as const) {
+      expect(telemetry.rollupsByEntity.get(asEntityKey(id))).toMatchObject({
+        power: { latest: { value: power, units: "W" } },
+        efficiency: { latest: { value: efficiency, units: "J/TH" } },
+        powerCoverage: { kind: "complete", includesNonHashboardLoads: true },
+      });
+    }
+    expect([...telemetry.hashboards.values()][0].power?.latest?.value).toBe(1000);
+  });
+
+  test.each([undefined, NaN, Infinity, 0])(
+    "preserves missing or zero PSU input (%s) without using board power",
+    (inputPower) => {
+      const { hardware, telemetry } = normalizeModules([
+        [{ health: { power: 1000, hashrate: 100, psuElectrical: { inputPower: 1200 } } }],
+        [{ health: { power: 1000, hashrate: 100, psuElectrical: { inputPower } } }],
+      ]);
+      const modules = [...hardware.topology!.modules.values()];
+      expect(telemetry.rollupsByEntity.get(asEntityKey(modules[1].id))?.power?.latest?.value).toBe(
+        inputPower === 0 ? 0 : null,
+      );
+      expect(telemetry.rollupsByEntity.get(asEntityKey(modules[1].id))?.efficiency?.latest?.value).toBe(
+        inputPower === 0 ? 0 : null,
+      );
+      const tank = telemetry.rollupsByEntity.get(asEntityKey(modules[0].tankId!));
+      expect(tank?.power?.latest?.value).toBe(inputPower === 0 ? 1200 : null);
+      expect(tank?.efficiency?.latest?.value).toBe(inputPower === 0 ? 6 : null);
+    },
+  );
+
+  test("does not omit modules with no PSU snapshot or no boards from tank totals", () => {
+    for (const missingModule of [[{ health: { power: 1000, hashrate: 100 } }], []]) {
+      const { hardware, telemetry } = normalizeModules([
+        [{ health: { power: 1000, hashrate: 100, psuElectrical: { inputPower: 1200 } } }],
+        missingModule,
+      ]);
+      const modules = [...hardware.topology!.modules.values()];
+      for (const id of [modules[1].id, modules[0].tankId!]) {
+        expect(telemetry.rollupsByEntity.get(asEntityKey(id))?.power?.latest?.value).toBeNull();
+        expect(telemetry.rollupsByEntity.get(asEntityKey(id))?.efficiency?.latest?.value).toBeNull();
+      }
+    }
+  });
+
   test("clears missing PSU readings after a partial or absent successful snapshot and preserves history", () => {
     const store = useMinerStore.getState();
     store.resetDeviceData();

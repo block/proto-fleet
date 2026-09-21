@@ -310,7 +310,7 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
   return boards;
 };
 
-const boardRollup = (boards: BoardEntry[]): LevelRollup => {
+const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
   const metric = (value: number | undefined, units: MetricUnit): MetricTelemetry => ({
     latest: { value: value ?? null, units },
   });
@@ -330,7 +330,6 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
   });
   const hashrate = sum(({ board }) => board.health?.hashrate);
-  const power = sum(({ board }) => board.health?.power);
   const boardHealth = boards.map(({ board }) => healthState(board));
   const onlineBoardCount = boards.filter(
     ({ board }) => !board.isolated && board.miningState === V2MiningState.MINING_STATE_MINING,
@@ -358,7 +357,11 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
                 : "degraded",
     boardCount: boards.length,
     onlineBoardCount,
-    powerCoverage: { kind: "hashboardOnly", includesNonHashboardLoads: false, methods: ["topologyMapping"] },
+    powerCoverage: {
+      kind: power === undefined ? "unknown" : "complete",
+      includesNonHashboardLoads: true,
+      methods: ["topologyMapping"],
+    },
   };
 };
 
@@ -680,6 +683,22 @@ export const toCanonicalContainer = (
     modules.get(id)?.psuIds.push(psu.id);
   }
   if (mapWire !== undefined) telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
+  // Boards share a PSU: use its normalized, freshest input reading once per
+  // module. A missing module reading makes the aggregate unknown, not partial.
+  const moduleInputPower = (moduleIds: ModuleId[]): number | undefined => {
+    if (!moduleIds.length) return undefined;
+    let total = 0;
+    for (const id of moduleIds) {
+      const psuIds = modules.get(id)?.psuIds;
+      if (!psuIds?.length) return undefined;
+      for (const psuId of psuIds) {
+        const value = telemetry.psus.get(psuId)?.inputPower?.latest?.value;
+        if (value == null || !Number.isFinite(value)) return undefined;
+        total += value;
+      }
+    }
+    return total;
+  };
   const timestampMs = Date.parse(telemetryWire.timestamp ?? "");
   telemetry.resourceByScope.set(
     asResourceKey(`telemetry:current:${containerId}`),
@@ -693,8 +712,8 @@ export const toCanonicalContainer = (
     ...boardSummary,
     hashrate: latest(statusWire.hashrate, "TH/s"),
     power: latest(statusWire.power, "W"),
-    // Firmware mining power replaces the board sum, so its coverage cannot
-    // inherit the hashboard-only metadata from boardSummary.
+    // Container mining power comes from firmware; its coverage is independent
+    // of the module PSU input totals.
     powerCoverage: { kind: "unknown", includesNonHashboardLoads: false, methods: ["firmwareAggregate"] },
     efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
     temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
@@ -707,11 +726,14 @@ export const toCanonicalContainer = (
   // compatibility projection until the container views select their explicit
   // container/tank entities directly.
   telemetry.rollupsByEntity.set(ROOT_MODULE_KEY, containerRollup);
-  for (const [id] of tanks) {
-    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByTank.get(id) ?? []));
+  for (const [id, tank] of tanks) {
+    telemetry.rollupsByEntity.set(
+      asEntityKey(id),
+      boardRollup(boardsByTank.get(id) ?? [], moduleInputPower(tank.moduleIds)),
+    );
   }
   for (const [id] of modules) {
-    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByModule.get(id) ?? []));
+    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByModule.get(id) ?? [], moduleInputPower([id])));
   }
   for (const entry of boards) {
     telemetry.hashboards.set(entry.hashboardId, toHashboardTelemetry(entry));
