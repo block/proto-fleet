@@ -280,7 +280,9 @@ describe("PageHeader", () => {
       within(mobileWidgets).getByRole("button", { name: "Open node settings for 1 Fleet Node requiring an upgrade" }),
       within(mobileWidgets).getByText("Curtailment pill"),
       within(mobileWidgets).getByText("Night reboot"),
-      within(mobileWidgets).getByRole("button", { name: "View ongoing firmware updates" }),
+      within(mobileWidgets).getByRole("button", {
+        name: "Firmware update in progress. View ongoing firmware updates",
+      }),
       within(mobileWidgets).getByRole("button", { name: "Open update settings for v1.3.0" }),
       within(mobileWidgets).getByRole("button", { name: "Continue setup" }),
     ];

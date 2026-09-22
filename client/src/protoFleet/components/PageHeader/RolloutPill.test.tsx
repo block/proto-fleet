@@ -31,7 +31,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const triggerName = "View ongoing firmware updates";
+const triggerName = /View ongoing firmware updates$/;
 const secondActive = { ...activeRigRollout, id: 101n };
 const secondPaused = { ...pausedRigRollout, id: 102n };
 const waitingForController = create(RolloutSchema, {
@@ -166,11 +166,12 @@ describe("RolloutPill", () => {
       label: "2 firmware updates need attention",
       pulses: false,
     },
-  ])("shows $label with an appropriate activity indicator", ({ rollouts, label, pulses }) => {
+  ])("exposes $label visually and accessibly with an appropriate activity indicator", ({ rollouts, label, pulses }) => {
     renderPill(rollouts);
 
     const trigger = screen.getByRole("button", { name: triggerName });
     expect(trigger).toHaveTextContent(label);
+    expect(trigger).toHaveAccessibleName(`${label}. View ongoing firmware updates`);
     expect(trigger.querySelector(".animate-pulse") !== null).toBe(pulses);
   });
 
@@ -178,6 +179,7 @@ describe("RolloutPill", () => {
     const view = renderPill([waitingForController]);
     const trigger = screen.getByRole("button", { name: triggerName });
     expect(trigger).toHaveTextContent("Firmware update waiting for controller");
+    expect(trigger).toHaveAccessibleName("Firmware update waiting for controller. View ongoing firmware updates");
     expect(trigger.querySelector(".animate-pulse")).toBeNull();
 
     view.rerender(
@@ -194,6 +196,7 @@ describe("RolloutPill", () => {
       </MemoryRouter>,
     );
     expect(trigger).toHaveTextContent("Firmware update in progress");
+    expect(trigger).toHaveAccessibleName("Firmware update in progress. View ongoing firmware updates");
     expect(trigger.querySelector(".animate-pulse")).not.toBeNull();
 
     view.rerender(
@@ -202,6 +205,7 @@ describe("RolloutPill", () => {
       </MemoryRouter>,
     );
     expect(trigger).toHaveTextContent("Firmware update waiting for controller");
+    expect(trigger).toHaveAccessibleName("Firmware update waiting for controller. View ongoing firmware updates");
     expect(trigger.querySelector(".animate-pulse")).toBeNull();
   });
 

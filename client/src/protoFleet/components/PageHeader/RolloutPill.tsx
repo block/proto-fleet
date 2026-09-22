@@ -64,15 +64,16 @@ function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
   const pausedCount = rollouts.filter(isPaused).length;
   const waitingCount = rollouts.filter((rollout) => rollout.state === RolloutState.WAITING_FOR_CONTROLLER).length;
   const isProgressing = attentionCount === 0 && pausedCount + waitingCount < rollouts.length;
+  const label = triggerLabel(rollouts, attentionCount, pausedCount, waitingCount);
   return (
     <PageHeaderPopoverPill
-      ariaLabel="View ongoing firmware updates"
+      ariaLabel={`${label}. View ongoing firmware updates`}
       constrainHeightToViewport
       // Solid while work waits on an operator or controller; pulse only for
       // progressing work when nothing needs attention.
       dotClassName={isProgressing ? "animate-pulse bg-intent-warning-fill" : "bg-intent-warning-fill"}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={triggerLabel(rollouts, attentionCount, pausedCount, waitingCount)}
+      triggerLabel={label}
     >
       {({ closePopover }) => (
         <div
