@@ -114,6 +114,30 @@ func (q *retryingQuerier) AppendFirmwareRolloutDevices(ctx context.Context, arg 
 	})
 }
 
+func (q *retryingQuerier) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ApplyFleetNodeRecoveredEndpoint", func() error {
+		callResult, callErr := q.next.ApplyFleetNodeRecoveredEndpoint(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ApplyFleetNodeRecoveryAuthenticationNeeded", func() error {
+		callResult, callErr := q.next.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AssignBuildingToSite(ctx context.Context, arg AssignBuildingToSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignBuildingToSite", func() error {
@@ -3118,6 +3142,18 @@ func (q *retryingQuerier) GetOfflineDevices(ctx context.Context, limit int32) ([
 	var result []GetOfflineDevicesRow
 	err := q.retrier.RetryQuery(ctx, "GetOfflineDevices", func() error {
 		callResult, callErr := q.next.GetOfflineDevices(ctx, limit)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context, limit int32) ([]GetOfflineFleetNodeDevicesRow, error) {
+	var result []GetOfflineFleetNodeDevicesRow
+	err := q.retrier.RetryQuery(ctx, "GetOfflineFleetNodeDevices", func() error {
+		callResult, callErr := q.next.GetOfflineFleetNodeDevices(ctx, limit)
 		if callErr == nil {
 			result = callResult
 		}

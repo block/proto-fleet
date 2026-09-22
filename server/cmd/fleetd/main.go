@@ -86,6 +86,7 @@ import (
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	fleetnoderecovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/recovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
@@ -490,6 +491,13 @@ func start(config *Config) (result error) {
 		pairingSvc,
 		slog.Default(),
 	)
+	ipScannerService.WithFleetNodeRecovery(fleetnoderecovery.NewService(
+		deviceStore,
+		fleetNodeControlRegistry,
+		minerService,
+		metricsProvider,
+		slog.Default(),
+	))
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 

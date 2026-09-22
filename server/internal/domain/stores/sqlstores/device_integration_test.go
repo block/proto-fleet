@@ -127,6 +127,65 @@ func TestGetOfflineDevices_InvalidLimit(t *testing.T) {
 	}
 }
 
+func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	_, err := conn.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'recovery-org', 'Recovery Org') ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+
+	var nodeID, replacementNodeID, discoveredID, deviceID int64
+	nodeIdentity := make([]byte, 32)
+	nodeIdentity[0] = 1
+	replacementIdentity := make([]byte, 32)
+	replacementIdentity[0] = 2
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'recovery-node', $1, $2, 'CONFIRMED') RETURNING id`, nodeIdentity, nodeIdentity).Scan(&nodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'replacement-node', $1, $2, 'CONFIRMED') RETURNING id`, replacementIdentity, replacementIdentity).Scan(&replacementNodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.10', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&discoveredID))
+	identifier := fmt.Sprintf("recovery-device-%d", discoveredID)
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, 'aa:bb:cc:dd:ee:01', 'recovery-serial', 1, $2) RETURNING id`, identifier, discoveredID).Scan(&deviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '10 minutes')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+
+	targets, err := store.GetOfflineFleetNodeDevices(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target := targets[0]
+	require.Equal(t, identifier, target.DeviceIdentifier)
+
+	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied)
+	var ipAddress, port string
+	require.NoError(t, conn.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress, &port))
+	require.Equal(t, "10.0.0.20", ipAddress)
+	require.Equal(t, "8080", port)
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, replacementNodeID, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
+	var pairingStatus string
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+}
+
 func TestGetKnownSubnets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
