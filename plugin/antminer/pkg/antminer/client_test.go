@@ -297,6 +297,23 @@ func TestClient_GetDeviceInfo(t *testing.T) {
 	assert.Equal(t, "00:11:22:33:44:55", deviceInfo.MacAddress)
 }
 
+func TestClient_GetDeviceInfoReturnsAuthenticatedIdentityFailure(t *testing.T) {
+	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer rpcCtrl.Finish()
+	defer webCtrl.Finish()
+	client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "wrong"}))
+	mockRPCClient.EXPECT().GetVersion(gomock.Any(), gomock.Any()).Return(&rpc.VersionResponse{
+		Version: []rpc.VersionInfo{{Type: "Antminer S19"}},
+	}, nil)
+	mockWebClient.EXPECT().GetSystemInfo(gomock.Any(), gomock.Any()).Return(nil, assert.AnError)
+
+	_, err := client.GetDeviceInfo(t.Context())
+
+	require.ErrorIs(t, err, assert.AnError)
+}
+
 func TestClient_GetStatus(t *testing.T) {
 	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
 	defer rpcCtrl.Finish()

@@ -450,13 +450,20 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	mockClient := mocks.NewMockAntminerClient(ctrl)
 	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
+	mockClient.EXPECT().GetDeviceInfo(gomock.Any()).Return(&antminer.DeviceInfo{
+		SerialNumber: "serial-1",
+		MacAddress:   "aa:bb:cc:dd:ee:ff",
+	}, nil)
 
 	// Test DescribeDevice
 	info, capabilities, err := device.DescribeDevice(t.Context())
 	require.NoError(t, err)
 
 	// Verify device info
-	assert.Equal(t, testDeviceInfo(), info)
+	expectedInfo := testDeviceInfo()
+	expectedInfo.SerialNumber = "serial-1"
+	expectedInfo.MacAddress = "aa:bb:cc:dd:ee:ff"
+	assert.Equal(t, expectedInfo, info)
 
 	// Verify capabilities
 	assert.True(t, capabilities[sdk.CapabilityPollingHost])
@@ -468,6 +475,18 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityMiningStop])
 	assert.True(t, capabilities[sdk.CapabilityCurtailFull])
 	assert.False(t, capabilities[sdk.CapabilityCurtailEfficiency])
+}
+
+func TestDevice_DescribeDeviceReturnsIdentityReadFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+	mockClient.EXPECT().GetDeviceInfo(gomock.Any()).Return(nil, assert.AnError)
+
+	_, _, err := device.DescribeDevice(t.Context())
+
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 func ptrFloat64(v float64) *float64 {

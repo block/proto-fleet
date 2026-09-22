@@ -233,6 +233,14 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityCurtailFull:       true,
 		sdk.CapabilityCurtailEfficiency: true,
 	}
+	if d.deviceInfo.SerialNumber == "" && d.deviceInfo.MacAddress == "" {
+		info, err := d.client.GetDeviceInfo(ctx)
+		if err != nil {
+			return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
+		}
+		d.deviceInfo.SerialNumber = info.SerialNumber
+		d.deviceInfo.MacAddress = info.MacAddress
+	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
 	if d.deviceInfo.FirmwareVersion == "" {

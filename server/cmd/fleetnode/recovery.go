@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
@@ -24,8 +26,8 @@ import (
 )
 
 type recoveryEndpoint struct {
-	ip, port, urlScheme string
-	identity            stableidentity.Identity
+	ip, port, urlScheme, driverName string
+	identity                        stableidentity.Identity
 }
 
 func identityFromTarget(target *pb.MinerConnectionDescriptor) stableidentity.Identity {
@@ -48,7 +50,7 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	results, partial, err := r.recoverMinerEndpoints(cmdCtx, req.GetTargets(), logger)
+	results, partial, err := r.recoverMinerEndpoints(cmdCtx, req.GetTargets(), req.GetScanPorts(), logger)
 	if err != nil && len(results) == 0 {
 		code := pb.AckCode_ACK_CODE_SCAN_FAILED
 		var ce *commandError
@@ -75,8 +77,8 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
 }
 
-func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerConnectionDescriptor, logger *slog.Logger) ([]*pb.MinerEndpointRecoveryResult, bool, error) {
-	endpoints, partial, scanErr := r.scanRecoveryEndpoints(ctx, targets, logger)
+func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerConnectionDescriptor, scanPorts []string, logger *slog.Logger) ([]*pb.MinerEndpointRecoveryResult, bool, error) {
+	endpoints, partial, scanErr := r.scanRecoveryEndpoints(ctx, scanPorts, logger)
 	if scanErr != nil && len(endpoints) == 0 {
 		return nil, partial, scanErr
 	}
@@ -101,22 +103,24 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 
 		matches := make([]recoveryEndpoint, 0, 1)
 		var authFailedIdentity stableidentity.Identity
-		identifiedEndpoints := 0
+		identifiedEndpoints := make(map[string]struct{})
 		identifiedError := false
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
 		for _, candidate := range endpoints {
+			if candidate.driverName != target.GetDriverName() {
+				continue
+			}
+			if candidate.urlScheme == "" {
+				candidate.urlScheme = target.GetUrlScheme()
+			}
 			identifiedBeforeAuth := candidate.identity.Usable() && want.Matches(candidate.identity)
 			if candidate.identity.Usable() && !identifiedBeforeAuth {
 				continue
 			}
 			if identifiedBeforeAuth {
-				identifiedEndpoints++
+				identifiedEndpoints[recoveryEndpointKey(candidate)] = struct{}{}
 			}
-			effectiveScheme := candidate.urlScheme
-			if effectiveScheme == "" {
-				effectiveScheme = target.GetUrlScheme()
-			}
-			cacheKey := strings.Join([]string{candidate.ip, candidate.port, effectiveScheme, credentialKey}, "\x00")
+			cacheKey := strings.Join([]string{candidate.ip, candidate.port, candidate.urlScheme, credentialKey}, "\x00")
 			cached, ok := inspectionCache[cacheKey]
 			if !ok {
 				cached.identity, cached.err = r.inspectRecoveryEndpoint(ctx, target, candidate, bundle)
@@ -133,15 +137,13 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			}
 			if want.Matches(got) {
 				candidate.identity = got
-				if candidate.urlScheme == "" {
-					candidate.urlScheme = target.GetUrlScheme()
-				}
+				identifiedEndpoints[recoveryEndpointKey(candidate)] = struct{}{}
 				matches = append(matches, candidate)
 			}
 		}
 
 		switch {
-		case len(matches) > 1 || identifiedEndpoints > 1:
+		case len(identifiedEndpoints) > 1:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, recoveryEndpoint{}, ""))
 		case len(matches) == 1:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, matches[0], ""))
@@ -159,12 +161,23 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 	return results, partial, scanErr
 }
 
-func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, targets []*pb.MinerConnectionDescriptor, logger *slog.Logger) ([]recoveryEndpoint, bool, error) {
-	ports := append([]string(nil), r.discoverer.DefaultDiscoveryPorts(ctx)...)
-	for _, target := range targets {
-		ports = append(ports, target.GetPort())
+func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, scanPorts []string, logger *slog.Logger) ([]recoveryEndpoint, bool, error) {
+	ports := uniqueStrings(scanPorts)
+	seenPorts := make(map[string]struct{}, len(ports))
+	for _, port := range ports {
+		seenPorts[port] = struct{}{}
 	}
-	parsedPorts, err := netscan.Ports(uniqueStrings(ports), nil)
+	for _, port := range r.discoverer.DefaultDiscoveryPorts(ctx) {
+		if len(ports) == discoverylimits.MaxPortsPerIP {
+			break
+		}
+		if _, seen := seenPorts[port]; seen {
+			continue
+		}
+		seenPorts[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	parsedPorts, err := netscan.Ports(ports, nil)
 	if err != nil {
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid recovery scan port: %s", err)
 	}
@@ -186,8 +199,11 @@ func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, targets []*pb.MinerC
 		return nil
 	})
 	endpoints, probesTruncated := fanOutEndpointWork(ctx, slices.Values(endpoints), probeConcurrency, "recovery probe", logger, func(probeCtx context.Context, candidate recoveryEndpoint) (recoveryEndpoint, bool) {
-		identity, scheme, _ := r.probeRecoveryEndpoint(probeCtx, candidate.ip, candidate.port)
-		return recoveryEndpoint{ip: candidate.ip, port: candidate.port, urlScheme: scheme, identity: identity}, true
+		identity, scheme, driverName, err := r.probeRecoveryEndpoint(probeCtx, candidate.ip, candidate.port)
+		if err != nil || driverName == "" {
+			return recoveryEndpoint{}, false
+		}
+		return recoveryEndpoint{ip: candidate.ip, port: candidate.port, urlScheme: scheme, driverName: driverName, identity: identity}, true
 	})
 	partial := scanErr != nil || probesTruncated || ctx.Err() != nil
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -216,18 +232,18 @@ func uniqueStrings(values []string) []string {
 }
 
 type recoveryDiscoverer interface {
-	ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, error)
+	ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, string, error)
 }
 
-func (r *RunCmd) probeRecoveryEndpoint(ctx context.Context, ip, port string) (stableidentity.Identity, string, error) {
+func (r *RunCmd) probeRecoveryEndpoint(ctx context.Context, ip, port string) (stableidentity.Identity, string, string, error) {
 	if discoverer, ok := r.discoverer.(recoveryDiscoverer); ok {
 		return discoverer.ProbeRecovery(ctx, ip, port)
 	}
 	report, err := r.discoverer.Probe(ctx, ip, port)
 	if err != nil || report == nil {
-		return stableidentity.Identity{}, "", err
+		return stableidentity.Identity{}, "", "", err
 	}
-	return stableidentity.Identity{}, report.GetUrlScheme(), nil
+	return stableidentity.Identity{}, report.GetUrlScheme(), report.GetDriverName(), nil
 }
 
 func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerConnectionDescriptor, endpoint recoveryEndpoint, bundle sdk.SecretBundle) (stableidentity.Identity, error) {
@@ -243,7 +259,7 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 	if scheme == "" {
 		scheme = target.GetUrlScheme()
 	}
-	result, err := driver.NewDevice(ctx, target.GetDeviceIdentifier(), sdk.DeviceInfo{
+	result, err := driver.NewDevice(ctx, "endpoint-recovery-"+uuid.NewString(), sdk.DeviceInfo{
 		Host: endpoint.ip, Port: port, URLScheme: scheme,
 	}, bundle)
 	if err != nil {
@@ -262,6 +278,10 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		return stableidentity.Identity{}, err
 	}
 	return identityFromDevice(info), nil
+}
+
+func recoveryEndpointKey(endpoint recoveryEndpoint) string {
+	return strings.Join([]string{endpoint.ip, endpoint.port, endpoint.urlScheme}, "\x00")
 }
 
 func recoveryCredentialKey(driver string, bundle sdk.SecretBundle) string {

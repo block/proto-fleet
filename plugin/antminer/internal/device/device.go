@@ -150,11 +150,11 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 
 	if credentials.Username != "" && credentials.Password != "" {
 		if err := client.SetCredentials(credentials); err != nil {
-			slog.Warn("Failed to set credentials", "deviceID", deviceID, "username", credentials.Username, "error", err)
+			slog.Warn("Failed to set credentials", "deviceID", deviceID, "error", err)
 		}
 	}
 
-	slog.Debug("Antminer device instance created successfully", "deviceID", deviceID, "username", credentials.Username)
+	slog.Debug("Antminer device instance created successfully", "deviceID", deviceID)
 	return device, nil
 }
 
@@ -220,6 +220,14 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 
 		// Authentication capabilities
 		sdk.CapabilityBasicAuth: true, // We use basic (username/password) authentication
+	}
+	if d.deviceInfo.SerialNumber == "" && d.deviceInfo.MacAddress == "" {
+		info, err := d.client.GetDeviceInfo(ctx)
+		if err != nil {
+			return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
+		}
+		d.deviceInfo.SerialNumber = info.SerialNumber
+		d.deviceInfo.MacAddress = info.MacAddress
 	}
 
 	return d.deviceInfo, capabilities, nil
