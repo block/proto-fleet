@@ -1077,6 +1077,18 @@ export interface LocateSystemParams {
   led_on_time?: number;
 }
 
+/**
+ * Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN.
+ * @example "UNLOCKED"
+ */
+export enum LockStatus {
+  OPEN = "OPEN",
+  CLOSED = "CLOSED",
+  UNLOCKED = "UNLOCKED",
+  UNINITIALIZED = "UNINITIALIZED",
+  UNKNOWN = "UNKNOWN",
+}
+
 /** System log entries from various sources (OS, miner software, pool software) */
 export interface LogsResponse {
   /** Log data response containing system and mining logs */
@@ -1844,7 +1856,7 @@ export interface SecureResponseState {
    */
   "nats-service": string;
   /**
-   * Secure boot status reported by lock_ctrl_ta_client.
+   * Secure boot status reported by lock_ctrl_ta_client: OPEN, CLOSED, UNLOCKED, UNINITIALIZED, or UNKNOWN. UNINITIALIZED means optee ta was never initialized on device equivalent of OPEN state. This hardware status is independent of the effective secure override.
    * @example "CLOSED"
    */
   secureboot: string;
@@ -2263,8 +2275,8 @@ export interface UnlockConfig {
 
 /** Response containing device lock status */
 export interface UnlockResponse {
-  /** @example "UNLOCKED" */
-  "lock-status"?: string;
+  /** Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN. */
+  "lock-status"?: LockStatus;
 }
 
 /** Current status and information about system software updates */
