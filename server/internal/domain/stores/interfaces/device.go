@@ -152,7 +152,6 @@ type OfflineDeviceInfo struct {
 // Node can scan the miner's private LAN for a changed endpoint.
 type FleetNodeRecoveryTarget struct {
 	FleetNodeID        int64
-	DeviceID           int64
 	DeviceIdentifier   string
 	OrgID              int64
 	SerialNumber       string
@@ -224,7 +223,7 @@ type DeviceStore interface {
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
-	GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]FleetNodeRecoveryTarget, error)
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]FleetNodeRecoveryTarget, error)
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target FleetNodeRecoveryTarget) (bool, error)
 	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error)

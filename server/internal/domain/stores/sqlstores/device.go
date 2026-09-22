@@ -941,21 +941,15 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	return offlineDevices, nil
 }
 
-func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]stores.FleetNodeRecoveryTarget, error) {
-	if limit < 1 {
-		return nil, fmt.Errorf("limit must be at least 1, got %d", limit)
-	}
-	if limit > math.MaxInt32 {
-		limit = math.MaxInt32
-	}
-	rows, err := s.getQueries(ctx).GetOfflineFleetNodeDevices(ctx, int32(limit)) // #nosec G115 -- bounded above
+func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stores.FleetNodeRecoveryTarget, error) {
+	rows, err := s.getQueries(ctx).GetOfflineFleetNodeDevices(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get offline Fleet Node devices: %w", err)
 	}
 	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
 	for _, row := range rows {
 		targets = append(targets, stores.FleetNodeRecoveryTarget{
-			FleetNodeID: row.FleetNodeID, DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier,
+			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
 			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
 			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
 			LastKnownScheme: row.UrlScheme, CredentialUsername: decodeFleetNodeCredential(row.UsernameEnc),
@@ -963,16 +957,6 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit i
 		})
 	}
 	return targets, nil
-}
-
-func (s *SQLDeviceStore) MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIDs []int64) error {
-	if len(deviceIDs) == 0 {
-		return nil
-	}
-	if err := s.getQueries(ctx).MarkFleetNodeRecoveryDispatched(ctx, deviceIDs); err != nil {
-		return fmt.Errorf("mark Fleet Node recovery dispatched: %w", err)
-	}
-	return nil
 }
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {

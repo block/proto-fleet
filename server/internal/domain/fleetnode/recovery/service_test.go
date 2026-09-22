@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -26,31 +25,10 @@ type fakeStore struct {
 	authApplied  bool
 	found        []string
 	auth         []string
-	marked       [][]int64
-	dispatched   map[int64]bool
-	markErr      error
 }
 
-func (s *fakeStore) GetOfflineFleetNodeDevices(context.Context, int) ([]stores.FleetNodeRecoveryTarget, error) {
-	targets := append([]stores.FleetNodeRecoveryTarget(nil), s.targets...)
-	sort.SliceStable(targets, func(i, j int) bool {
-		return !s.dispatched[targets[i].DeviceID] && s.dispatched[targets[j].DeviceID]
-	})
-	return targets, s.listErr
-}
-
-func (s *fakeStore) MarkFleetNodeRecoveryDispatched(_ context.Context, deviceIDs []int64) error {
-	if s.markErr != nil {
-		return s.markErr
-	}
-	s.marked = append(s.marked, append([]int64(nil), deviceIDs...))
-	if s.dispatched == nil {
-		s.dispatched = make(map[int64]bool)
-	}
-	for _, deviceID := range deviceIDs {
-		s.dispatched[deviceID] = true
-	}
-	return nil
+func (s *fakeStore) GetOfflineFleetNodeDevices(context.Context) ([]stores.FleetNodeRecoveryTarget, error) {
+	return append([]stores.FleetNodeRecoveryTarget(nil), s.targets...), s.listErr
 }
 
 func (s *fakeStore) ApplyFleetNodeRecoveredEndpoint(_ context.Context, target stores.FleetNodeRecoveryTarget, ip, port, scheme string) (bool, error) {
@@ -105,48 +83,27 @@ func ackWithResults(t *testing.T, code gatewaypb.AckCode, results ...*gatewaypb.
 
 func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
-func TestRunCycleGroupsByOwnerAndCapsOneCommandPerNode(t *testing.T) {
+func TestRunCycleGroupsByOwnerCapsAndAdvancesBatches(t *testing.T) {
 	store := &fakeStore{}
 	for i := range 513 {
 		target := testTarget(7, "node-7-"+strconv.Itoa(i), "serial")
-		target.DeviceID = int64(i + 1)
 		store.targets = append(store.targets, target)
 	}
 	node9 := testTarget(9, "node-9", "serial-9")
-	node9.DeviceID = 900
 	store.targets = append(store.targets, node9)
 	var nodeIDs []int64
 	var targetCounts []int
+	var node7FirstTargets []string
 	sender := sendFunc(func(_ context.Context, nodeID int64, version gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 		assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, version)
 		envelope := &gatewaypb.AgentCommand{}
 		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), envelope))
 		nodeIDs = append(nodeIDs, nodeID)
-		targetCounts = append(targetCounts, len(envelope.GetRecoverMinerEndpoints().GetTargets()))
-		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK), nil
-	})
-
-	NewService(store, sender, nil, nil, testLogger()).RunCycle(t.Context())
-
-	assert.Equal(t, []int64{7, 9}, nodeIDs)
-	assert.Equal(t, []int{512, 1}, targetCounts)
-	require.Len(t, store.marked, 2)
-	assert.Len(t, store.marked[0], 512)
-	assert.Equal(t, []int64{900}, store.marked[1])
-}
-
-func TestRunCycleAdvancesPastFirstBatch(t *testing.T) {
-	store := &fakeStore{}
-	for i := range 513 {
-		target := testTarget(7, "node-7-"+strconv.Itoa(i), "serial")
-		target.DeviceID = int64(i + 1)
-		store.targets = append(store.targets, target)
-	}
-	var firstTargets []string
-	sender := sendFunc(func(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
-		envelope := &gatewaypb.AgentCommand{}
-		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), envelope))
-		firstTargets = append(firstTargets, envelope.GetRecoverMinerEndpoints().GetTargets()[0].GetDeviceIdentifier())
+		targets := envelope.GetRecoverMinerEndpoints().GetTargets()
+		targetCounts = append(targetCounts, len(targets))
+		if nodeID == 7 {
+			node7FirstTargets = append(node7FirstTargets, targets[0].GetDeviceIdentifier())
+		}
 		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK), nil
 	})
 	service := NewService(store, sender, nil, nil, testLogger())
@@ -154,7 +111,9 @@ func TestRunCycleAdvancesPastFirstBatch(t *testing.T) {
 	service.RunCycle(t.Context())
 	service.RunCycle(t.Context())
 
-	assert.Equal(t, []string{"node-7-0", "node-7-512"}, firstTargets)
+	assert.Equal(t, []int64{7, 9, 7, 9}, nodeIDs)
+	assert.Equal(t, []int{512, 1, 512, 1}, targetCounts)
+	assert.Equal(t, []string{"node-7-0", "node-7-512"}, node7FirstTargets)
 }
 
 func TestSelectTargetsHonorsEncodedSizeLimit(t *testing.T) {
@@ -165,7 +124,7 @@ func TestSelectTargetsHonorsEncodedSizeLimit(t *testing.T) {
 		targets[i].CredentialPassword = make([]byte, 4096)
 	}
 
-	selected, payload := selectTargets(targets)
+	selected, payload, _ := selectTargets(targets)
 
 	assert.Less(t, len(selected), 512)
 	assert.LessOrEqual(t, len(payload), maxEncodedRequest)
@@ -179,7 +138,7 @@ func TestSelectTargetsCapsDistinctScanPorts(t *testing.T) {
 		targets[i].LastKnownPort = strconv.Itoa(8000 + i)
 	}
 
-	selected, payload := selectTargets(targets)
+	selected, payload, next := selectTargets(targets)
 	envelope := &gatewaypb.AgentCommand{}
 	require.NoError(t, proto.Unmarshal(payload, envelope))
 
@@ -187,6 +146,7 @@ func TestSelectTargetsCapsDistinctScanPorts(t *testing.T) {
 	assert.Len(t, envelope.GetRecoverMinerEndpoints().GetScanPorts(), 10)
 	assert.Equal(t, "8000", envelope.GetRecoverMinerEndpoints().GetScanPorts()[0])
 	assert.Equal(t, "8009", envelope.GetRecoverMinerEndpoints().GetScanPorts()[9])
+	assert.Equal(t, "miner-10", next)
 }
 
 func TestRunCyclePersistsValidatedResultsAndInvalidatesFoundMiner(t *testing.T) {

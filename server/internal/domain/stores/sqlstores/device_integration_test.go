@@ -175,16 +175,11 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, identitylessDeviceID)
 	require.NoError(t, err)
 
-	targets, err := store.GetOfflineFleetNodeDevices(ctx, 10)
+	targets, err := store.GetOfflineFleetNodeDevices(ctx)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	target := targets[0]
-	require.Equal(t, deviceID, target.DeviceID)
 	require.Equal(t, identifier, target.DeviceIdentifier)
-	require.NoError(t, store.MarkFleetNodeRecoveryDispatched(ctx, []int64{target.DeviceID}))
-	var dispatchedAt sql.NullTime
-	require.NoError(t, conn.QueryRow(`SELECT ip_recovery_last_dispatched_at FROM device_status WHERE device_id=$1`, deviceID).Scan(&dispatchedAt))
-	require.True(t, dispatchedAt.Valid)
 
 	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
 	require.NoError(t, err)

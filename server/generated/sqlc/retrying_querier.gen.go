@@ -3150,10 +3150,10 @@ func (q *retryingQuerier) GetOfflineDevices(ctx context.Context, limit int32) ([
 	return result, err
 }
 
-func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context, limit int32) ([]GetOfflineFleetNodeDevicesRow, error) {
+func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error) {
 	var result []GetOfflineFleetNodeDevicesRow
 	err := q.retrier.RetryQuery(ctx, "GetOfflineFleetNodeDevices", func() error {
-		callResult, callErr := q.next.GetOfflineFleetNodeDevices(ctx, limit)
+		callResult, callErr := q.next.GetOfflineFleetNodeDevices(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5751,12 +5751,6 @@ func (q *retryingQuerier) MarkFirmwareRolloutDevicesSent(ctx context.Context, ar
 func (q *retryingQuerier) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkFirmwareRolloutDevicesVerified", func() error {
 		return q.next.MarkFirmwareRolloutDevicesVerified(ctx, arg)
-	})
-}
-
-func (q *retryingQuerier) MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIds []int64) error {
-	return q.retrier.RetryQuery(ctx, "MarkFleetNodeRecoveryDispatched", func() error {
-		return q.next.MarkFleetNodeRecoveryDispatched(ctx, deviceIds)
 	})
 }
 

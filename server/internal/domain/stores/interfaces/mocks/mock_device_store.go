@@ -396,18 +396,18 @@ func (mr *MockDeviceStoreMockRecorder) GetOfflineDevices(ctx, limit any) *gomock
 }
 
 // GetOfflineFleetNodeDevices mocks base method.
-func (m *MockDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]interfaces.FleetNodeRecoveryTarget, error) {
+func (m *MockDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]interfaces.FleetNodeRecoveryTarget, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOfflineFleetNodeDevices", ctx, limit)
+	ret := m.ctrl.Call(m, "GetOfflineFleetNodeDevices", ctx)
 	ret0, _ := ret[0].([]interfaces.FleetNodeRecoveryTarget)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetOfflineFleetNodeDevices indicates an expected call of GetOfflineFleetNodeDevices.
-func (mr *MockDeviceStoreMockRecorder) GetOfflineFleetNodeDevices(ctx, limit any) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) GetOfflineFleetNodeDevices(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineFleetNodeDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineFleetNodeDevices), ctx, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineFleetNodeDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineFleetNodeDevices), ctx)
 }
 
 // GetPairedDeviceByMACAddress mocks base method.
