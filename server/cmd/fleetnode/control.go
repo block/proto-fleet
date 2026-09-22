@@ -812,15 +812,15 @@ func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*
 	return reportFromDiscovered(dev, ipAddress, port, p.fleetNodeID), nil
 }
 
-func (p *pluginDiscoverer) ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, error) {
+func (p *pluginDiscoverer) ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, string, error) {
 	dev, err := p.multi.Discover(ctx, ipAddress, port)
 	if err != nil {
-		return stableidentity.Identity{}, "", err
+		return stableidentity.Identity{}, "", "", err
 	}
 	if dev == nil {
-		return stableidentity.Identity{}, "", nil
+		return stableidentity.Identity{}, "", "", nil
 	}
-	return stableidentity.New(dev.GetSerialNumber(), dev.GetMacAddress()), dev.GetUrlScheme(), nil
+	return stableidentity.New(dev.GetSerialNumber(), dev.GetMacAddress()), dev.GetUrlScheme(), dev.GetDriverName(), nil
 }
 
 func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {

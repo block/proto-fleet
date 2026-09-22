@@ -469,9 +469,11 @@ func TestDevice_UncurtailAuthFailureReturnsAuthenticationFailed(t *testing.T) {
 func TestDevice_DescribeDeviceAdvertisesFullAndEfficiencyCurtailment(t *testing.T) {
 	dev := newMiningControlTestDevice(t, http.StatusOK)
 
-	_, caps, err := dev.DescribeDevice(context.Background())
+	info, caps, err := dev.DescribeDevice(context.Background())
 
 	require.NoError(t, err)
+	assert.Equal(t, "proto-serial", info.SerialNumber)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", info.MacAddress)
 	assert.True(t, caps[sdk.CapabilityCurtailFull])
 	assert.True(t, caps[sdk.CapabilityCurtailEfficiency])
 }
@@ -872,6 +874,12 @@ func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(poolsJSON))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pairing/info":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"system-info":{"model":"Rig","manufacturer":"Proto"}}`))
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
 			if onControl != nil {
 				onControl(r)
