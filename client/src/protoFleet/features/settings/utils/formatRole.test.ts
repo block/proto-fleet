@@ -21,4 +21,8 @@ describe("formatRole", () => {
   it("should handle empty string", () => {
     expect(formatRole("")).toBe("");
   });
+
+  it.each(["__proto__", "constructor", "toString"])("preserves the custom role %s as a string", (role) => {
+    expect(formatRole(role)).toBe(role);
+  });
 });

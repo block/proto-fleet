@@ -5,10 +5,11 @@ import NavigationMenu from "./NavigationMenu";
 import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
-const { mockUseWindowDimensions, permissionsMock, activeSiteMock } = vi.hoisted(() => ({
+const { mockUseWindowDimensions, permissionsMock, activeSiteMock, accountMock } = vi.hoisted(() => ({
   mockUseWindowDimensions: vi.fn(),
   permissionsMock: { current: [] as string[] },
   activeSiteMock: { current: { kind: "all" } as ActiveSite },
+  accountMock: { username: "achen", role: "SUPER_ADMIN" },
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -18,6 +19,8 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   usePermissions: () => permissionsMock.current,
+  useUsername: () => accountMock.username,
+  useRole: () => accountMock.role,
 }));
 
 vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importOriginal) => ({
@@ -45,6 +48,28 @@ describe("Navigation Menu", () => {
     });
     permissionsMock.current = [];
     activeSiteMock.current = { kind: "all" };
+    accountMock.username = "achen";
+    accountMock.role = "SUPER_ADMIN";
+  });
+
+  it.each([
+    ["SUPER_ADMIN", "achen · Owner"],
+    ["Night Shift", "achen · Night Shift"],
+    ["__proto__", "achen · __proto__"],
+    ["", "achen"],
+  ])("exposes the account identity with role %s when its visible text is hidden", (role, identity) => {
+    accountMock.role = role;
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={items} />
+      </MemoryRouter>,
+    );
+
+    // Simulate the collapsed rail's display:none text block without Tailwind in jsdom.
+    screen.getByText("achen").parentElement!.style.display = "none";
+
+    expect(screen.getByRole("group", { name: identity })).toHaveAttribute("title", identity);
+    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
   it("should render the correct number nav items", () => {

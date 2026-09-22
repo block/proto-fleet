@@ -170,6 +170,10 @@ export class OnboardingVisualHelper {
     await minersPage.clickNavigationMenuIfMobile();
     const navigationMenu = page.getByRole("navigation", { name: "Main" });
     await expect(navigationMenu).toBeVisible();
+    const account = navigationMenu.getByRole("group", { name: `${testConfig.users.admin.username} · Owner` });
+    await expect(account.getByText(testConfig.users.admin.username, { exact: true })).toBeVisible();
+    await expect(account.getByText("Owner", { exact: true })).toBeVisible();
+    await expect(account.getByRole("button", { name: "Log out", exact: true })).toBeVisible();
     const mobileSettingsSubmenu = navigationMenu.getByTestId("secondary-nav");
     if (await mobileSettingsSubmenu.count()) {
       await expect(mobileSettingsSubmenu).toHaveCSS("opacity", "1");
