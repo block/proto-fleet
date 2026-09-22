@@ -32,7 +32,6 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, Dismiss, Info, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -42,6 +41,7 @@ import CompositionBar from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const millisecondsPerSecond = 1000;
