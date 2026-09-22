@@ -48,6 +48,14 @@ type Querier interface {
 	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
+	// The ownership/pairing/offline predicates are repeated at write time so a
+	// stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+	// miner. Returns the device id only when the guarded update applied.
+	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error)
+	// Authentication state is changed only for the still-owned, paired-like,
+	// offline miner named by the acknowledgement. Identity evidence is validated
+	// by the domain layer before this conditional write.
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -753,6 +761,10 @@ type Querier interface {
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
+	// Oldest-offline first so a bounded recovery cycle makes progress without
+	// starving miners that have been unreachable longest. Credentials remain the
+	// Fleet Node-encrypted blobs stored during pairing.
+	GetOfflineFleetNodeDevices(ctx context.Context, limit int32) ([]GetOfflineFleetNodeDevicesRow, error)
 	// Finds an open error (closed_at IS NULL) matching the deduplication key.
 	// Used to determine if an upsert should update an existing error or insert a new one.
 	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)

@@ -51,6 +51,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
 	}
+	if q.applyFleetNodeRecoveredEndpointStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveredEndpoint); err != nil {
+		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveredEndpoint: %w", err)
+	}
+	if q.applyFleetNodeRecoveryAuthenticationNeededStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveryAuthenticationNeeded); err != nil {
+		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveryAuthenticationNeeded: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
@@ -842,6 +848,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
+	}
+	if q.getOfflineFleetNodeDevicesStmt, err = db.PrepareContext(ctx, getOfflineFleetNodeDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOfflineFleetNodeDevices: %w", err)
 	}
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
@@ -2124,6 +2133,16 @@ func (q *Queries) Close() error {
 	if q.appendFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.appendFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing appendFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.applyFleetNodeRecoveredEndpointStmt != nil {
+		if cerr := q.applyFleetNodeRecoveredEndpointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing applyFleetNodeRecoveredEndpointStmt: %w", cerr)
+		}
+	}
+	if q.applyFleetNodeRecoveryAuthenticationNeededStmt != nil {
+		if cerr := q.applyFleetNodeRecoveryAuthenticationNeededStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing applyFleetNodeRecoveryAuthenticationNeededStmt: %w", cerr)
 		}
 	}
 	if q.assignBuildingToSiteStmt != nil {
@@ -3444,6 +3463,11 @@ func (q *Queries) Close() error {
 	if q.getOfflineDevicesStmt != nil {
 		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
+		}
+	}
+	if q.getOfflineFleetNodeDevicesStmt != nil {
+		if cerr := q.getOfflineFleetNodeDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOfflineFleetNodeDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getOpenErrorByDedupKeyStmt != nil {
@@ -5549,6 +5573,8 @@ type Queries struct {
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
 	appendFirmwareRolloutDevicesStmt                             *sql.Stmt
+	applyFleetNodeRecoveredEndpointStmt                          *sql.Stmt
+	applyFleetNodeRecoveryAuthenticationNeededStmt               *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
@@ -5813,6 +5839,7 @@ type Queries struct {
 	getMinerStateSnapshotDeviceRollupsHourlyStmt                 *sql.Stmt
 	getMinerStateSnapshotsStmt                                   *sql.Stmt
 	getOfflineDevicesStmt                                        *sql.Stmt
+	getOfflineFleetNodeDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                   *sql.Stmt
 	getOrgDeviceMetricsHourlyAggregatesStmt                      *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                   *sql.Stmt
@@ -6228,25 +6255,27 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                        tx,
-		tx:                                        tx,
-		acquireFleetRuntimeLeaseStmt:              q.acquireFleetRuntimeLeaseStmt,
-		acquireReconcileLockStmt:                  q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:                 q.addDevicesToDeviceSetStmt,
-		adminResetUserPasswordStmt:                q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:        q.adminTerminateCurtailmentEventStmt,
-		advanceFirmwareRolloutStageStmt:           q.advanceFirmwareRolloutStageStmt,
-		advanceFleetMetricRollupProgressStmt:      q.advanceFleetMetricRollupProgressStmt,
-		allDevicesBelongToOrgStmt:                 q.allDevicesBelongToOrgStmt,
-		appendFirmwareRolloutDevicesStmt:          q.appendFirmwareRolloutDevicesStmt,
-		assignBuildingToSiteStmt:                  q.assignBuildingToSiteStmt,
-		assignBuildingsToSiteBulkStmt:             q.assignBuildingsToSiteBulkStmt,
-		assignDevicesToBuildingStmt:               q.assignDevicesToBuildingStmt,
-		assignDevicesToSiteStmt:                   q.assignDevicesToSiteStmt,
-		assignPermissionToRoleStmt:                q.assignPermissionToRoleStmt,
-		assignRoleStmt:                            q.assignRoleStmt,
-		beginCurtailmentRestorationStmt:           q.beginCurtailmentRestorationStmt,
-		beginCurtailmentTopologyTargetRestoreStmt: q.beginCurtailmentTopologyTargetRestoreStmt,
+		db:                                             tx,
+		tx:                                             tx,
+		acquireFleetRuntimeLeaseStmt:                   q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                       q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                      q.addDevicesToDeviceSetStmt,
+		adminResetUserPasswordStmt:                     q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:             q.adminTerminateCurtailmentEventStmt,
+		advanceFirmwareRolloutStageStmt:                q.advanceFirmwareRolloutStageStmt,
+		advanceFleetMetricRollupProgressStmt:           q.advanceFleetMetricRollupProgressStmt,
+		allDevicesBelongToOrgStmt:                      q.allDevicesBelongToOrgStmt,
+		appendFirmwareRolloutDevicesStmt:               q.appendFirmwareRolloutDevicesStmt,
+		applyFleetNodeRecoveredEndpointStmt:            q.applyFleetNodeRecoveredEndpointStmt,
+		applyFleetNodeRecoveryAuthenticationNeededStmt: q.applyFleetNodeRecoveryAuthenticationNeededStmt,
+		assignBuildingToSiteStmt:                       q.assignBuildingToSiteStmt,
+		assignBuildingsToSiteBulkStmt:                  q.assignBuildingsToSiteBulkStmt,
+		assignDevicesToBuildingStmt:                    q.assignDevicesToBuildingStmt,
+		assignDevicesToSiteStmt:                        q.assignDevicesToSiteStmt,
+		assignPermissionToRoleStmt:                     q.assignPermissionToRoleStmt,
+		assignRoleStmt:                                 q.assignRoleStmt,
+		beginCurtailmentRestorationStmt:                q.beginCurtailmentRestorationStmt,
+		beginCurtailmentTopologyTargetRestoreStmt:      q.beginCurtailmentTopologyTargetRestoreStmt,
 		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
@@ -6503,6 +6532,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotDeviceRollupsHourlyStmt:                 q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getMinerStateSnapshotsStmt:                                   q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
+		getOfflineFleetNodeDevicesStmt:                               q.getOfflineFleetNodeDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                   q.getOpenErrorByDedupKeyStmt,
 		getOrgDeviceMetricsHourlyAggregatesStmt:                      q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                   q.getOrgDeviceMetricsRawBucketAggregatesStmt,

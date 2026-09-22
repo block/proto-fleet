@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -18,6 +19,7 @@ import (
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -959,6 +961,64 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	}
 
 	return offlineDevices, nil
+}
+
+func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]stores.FleetNodeRecoveryTarget, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("limit must be at least 1, got %d", limit)
+	}
+	if limit > math.MaxInt32 {
+		limit = math.MaxInt32
+	}
+	rows, err := s.getQueries(ctx).GetOfflineFleetNodeDevices(ctx, int32(limit)) // #nosec G115 -- bounded above
+	if err != nil {
+		return nil, fmt.Errorf("get offline Fleet Node devices: %w", err)
+	}
+	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, stores.FleetNodeRecoveryTarget{
+			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
+			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
+			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
+			LastKnownScheme: row.UrlScheme, CredentialUsername: decodeFleetNodeCredential(row.UsernameEnc),
+			CredentialPassword: decodeFleetNodeCredential(row.PasswordEnc),
+		})
+	}
+	return targets, nil
+}
+
+func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
+	_, err := s.getQueries(ctx).ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
+		IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
+		DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+		MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget) (bool, error) {
+	_, err := s.getQueries(ctx).ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
+		DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+		MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func decodeFleetNodeCredential(value sql.NullString) []byte {
+	if !value.Valid {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(value.String)
+	if err != nil || !credentialblob.IsValid(decoded) {
+		return nil
+	}
+	return decoded
 }
 
 // GetKnownSubnets retrieves unique subnets inferred from paired devices' last known IP addresses.

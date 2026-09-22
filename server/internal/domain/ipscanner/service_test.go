@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner/mocks"
@@ -21,6 +22,29 @@ type noopDiscoverer struct{}
 
 func (n *noopDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
 	return nil, nil
+}
+
+type recordingFleetNodeRecovery struct{ ran chan struct{} }
+
+func (r recordingFleetNodeRecovery) RunCycle(context.Context) {
+	select {
+	case r.ran <- struct{}{}:
+	default:
+	}
+}
+
+func TestIPScannerServiceRunsFleetNodeRecoveryOnTheSameCadence(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	config := Config{Enabled: true, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1, ScanTimeout: time.Second, SubnetMaskBits: 24}
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().GetOfflineDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	service := NewIPScannerService(config, deviceStore, storemocks.NewMockDiscoveredDeviceStore(ctrl), &noopDiscoverer{}, mocks.NewMockDeviceIdentityCheckService(ctrl), slog.Default())
+	ran := make(chan struct{}, 1)
+	service.WithFleetNodeRecovery(recordingFleetNodeRecovery{ran: ran})
+
+	require.NoError(t, service.Start(t.Context()))
+	waitForScannerSignal(t, ran, "Fleet Node recovery did not run immediately")
+	require.NoError(t, service.Stop(t.Context()))
 }
 
 func TestIPScannerService_StartStopStart(t *testing.T) {

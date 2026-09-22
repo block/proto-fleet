@@ -664,6 +664,89 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY ds.status_timestamp DESC
 LIMIT $1;
 
+-- name: GetOfflineFleetNodeDevices :many
+-- Oldest-offline first so a bounded recovery cycle makes progress without
+-- starving miners that have been unreachable longest. Credentials remain the
+-- Fleet Node-encrypted blobs stored during pairing.
+SELECT
+    fnd.fleet_node_id,
+    d.device_identifier,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    dd.driver_name,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    mc.username_enc,
+    mc.password_enc
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN device_status ds ON ds.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+WHERE d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'OFFLINE'
+ORDER BY ds.status_timestamp ASC, d.id ASC
+LIMIT $1;
+
+-- name: ApplyFleetNodeRecoveredEndpoint :one
+-- The ownership/pairing/offline predicates are repeated at write time so a
+-- stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+-- miner. Returns the device id only when the guarded update applied.
+UPDATE discovered_device dd
+SET ip_address = sqlc.arg(ip_address),
+    port = sqlc.arg(port),
+    url_scheme = sqlc.arg(url_scheme),
+    last_seen = NOW()
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN device_status ds ON ds.device_id = d.id
+WHERE d.discovered_device_id = dd.id
+  AND d.device_identifier = sqlc.arg(device_identifier)
+  AND d.org_id = sqlc.arg(org_id)
+  AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
+  AND d.mac_address = sqlc.arg(mac_address)
+  AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'OFFLINE'
+RETURNING d.id;
+
+-- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
+-- Authentication state is changed only for the still-owned, paired-like,
+-- offline miner named by the acknowledgement. Identity evidence is validated
+-- by the domain layer before this conditional write.
+UPDATE device_pairing dp
+SET pairing_status = 'AUTHENTICATION_NEEDED',
+    last_attempted_at = NOW()
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN device_status ds ON ds.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE dp.device_id = d.id
+  AND d.device_identifier = sqlc.arg(device_identifier)
+  AND d.org_id = sqlc.arg(org_id)
+  AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
+  AND d.mac_address = sqlc.arg(mac_address)
+  AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'OFFLINE'
+RETURNING d.id;
+
 -- name: GetKnownSubnets :many
 SELECT DISTINCT
     set_masklen(network(inet(dd.ip_address)), sqlc.arg('mask_bits'))::text AS subnet

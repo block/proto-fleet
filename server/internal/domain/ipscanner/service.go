@@ -26,9 +26,14 @@ type Service struct {
 	deviceIDCheckService  DeviceIdentityCheckService
 	scanner               *NetworkScanner
 	logger                *slog.Logger
+	fleetNodeRecovery     fleetNodeRecovery
 
 	lifecycleMu sync.Mutex
 	run         *serviceRun
+}
+
+type fleetNodeRecovery interface {
+	RunCycle(ctx context.Context)
 }
 
 var _ runtimejobs.Lifecycle = (*Service)(nil)
@@ -62,6 +67,12 @@ func NewIPScannerService(
 		scanner:               NewNetworkScanner(discoverer, deviceIDCheckService, config.MaxConcurrentIPScansPerSubnet, logger),
 		logger:                logger.With("component", "ipscanner"),
 	}
+}
+
+// WithFleetNodeRecovery adds the Fleet Node-owned half of the recovery cycle.
+// It runs on its own serial loop so a slow LAN scan cannot delay cloud scans.
+func (s *Service) WithFleetNodeRecovery(recovery fleetNodeRecovery) {
+	s.fleetNodeRecovery = recovery
 }
 
 // Start begins the IP scanner service
@@ -118,6 +129,9 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Start main scan loop
 	run.wg.Go(func() { s.scanLoop(ctx, run) })
+	if s.fleetNodeRecovery != nil {
+		run.wg.Go(func() { s.fleetNodeRecoveryLoop(ctx) })
+	}
 
 	go func() {
 		run.wg.Wait()
@@ -125,6 +139,20 @@ func (s *Service) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (s *Service) fleetNodeRecoveryLoop(ctx context.Context) {
+	ticker := time.NewTicker(s.config.ScanInterval)
+	defer ticker.Stop()
+	s.fleetNodeRecovery.RunCycle(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.fleetNodeRecovery.RunCycle(ctx)
+		}
+	}
 }
 
 // Stop gracefully stops the active scanner run, bounded by ctx.
