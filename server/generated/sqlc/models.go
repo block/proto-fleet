@@ -844,12 +844,13 @@ type DeviceSetRack struct {
 }
 
 type DeviceStatus struct {
-	ID              int64
-	DeviceID        int64
-	Status          DeviceStatusEnum
-	StatusTimestamp sql.NullTime
-	StatusDetails   sql.NullString
-	CreatedAt       sql.NullTime
+	ID                         int64
+	DeviceID                   int64
+	Status                     DeviceStatusEnum
+	StatusTimestamp            sql.NullTime
+	StatusDetails              sql.NullString
+	CreatedAt                  sql.NullTime
+	IpRecoveryLastDispatchedAt sql.NullTime
 }
 
 type DeviceStatusDaily struct {

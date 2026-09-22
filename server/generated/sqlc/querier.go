@@ -1550,6 +1550,9 @@ type Querier interface {
 	// Latches convergence for miners that meet every criterion this tick, so the
 	// phase change is a rollout change under the revision rule.
 	MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error
+	// Advance selected targets before dispatch so an unreachable or unresolved
+	// batch cannot monopolize every later recovery cycle.
+	MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIds []int64) error
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)

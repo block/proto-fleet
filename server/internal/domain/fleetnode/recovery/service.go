@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -31,6 +32,7 @@ var commandTimeout = 12 * time.Minute
 
 type Store interface {
 	GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]stores.FleetNodeRecoveryTarget, error)
+	MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIDs []int64) error
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget) (bool, error)
 }
@@ -80,6 +82,14 @@ func (s *Service) RunCycle(ctx context.Context) {
 			s.logger.Warn("Fleet Node recovery targets exceed command limits", "fleet_node_id", nodeID, "available", len(byNode[nodeID]))
 			continue
 		}
+		deviceIDs := make([]int64, len(selected))
+		for i, target := range selected {
+			deviceIDs[i] = target.DeviceID
+		}
+		if err := s.store.MarkFleetNodeRecoveryDispatched(ctx, deviceIDs); err != nil {
+			s.logger.Error("marking Fleet Node recovery targets dispatched", "fleet_node_id", nodeID, "targets", len(selected), "error", err)
+			continue
+		}
 		s.runNode(ctx, nodeID, selected, payload)
 	}
 }
@@ -87,19 +97,35 @@ func (s *Service) RunCycle(ctx context.Context) {
 func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
 	selected := make([]stores.FleetNodeRecoveryTarget, 0, min(len(targets), maxTargetsPerCommand))
 	descriptors := make([]*gatewaypb.MinerConnectionDescriptor, 0, cap(selected))
+	scanPorts := make([]string, 0, discoverylimits.MaxPortsPerIP)
+	seenPorts := make(map[string]struct{}, discoverylimits.MaxPortsPerIP)
 	command := &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_RecoverMinerEndpoints{
-		RecoverMinerEndpoints: &gatewaypb.RecoverMinerEndpointsRequest{Targets: descriptors},
+		RecoverMinerEndpoints: &gatewaypb.RecoverMinerEndpointsRequest{Targets: descriptors, ScanPorts: scanPorts},
 	}}
 	for _, target := range targets {
 		if len(selected) == maxTargetsPerCommand {
 			break
 		}
+		_, seenPort := seenPorts[target.LastKnownPort]
+		if !seenPort && len(scanPorts) == discoverylimits.MaxPortsPerIP {
+			continue
+		}
 		descriptor := descriptorFromTarget(target)
 		descriptors = append(descriptors, descriptor)
+		if !seenPort {
+			seenPorts[target.LastKnownPort] = struct{}{}
+			scanPorts = append(scanPorts, target.LastKnownPort)
+		}
 		command.GetRecoverMinerEndpoints().Targets = descriptors
+		command.GetRecoverMinerEndpoints().ScanPorts = scanPorts
 		if proto.Size(command) > maxEncodedRequest {
 			descriptors = descriptors[:len(descriptors)-1]
+			if !seenPort {
+				delete(seenPorts, target.LastKnownPort)
+				scanPorts = scanPorts[:len(scanPorts)-1]
+			}
 			command.GetRecoverMinerEndpoints().Targets = descriptors
+			command.GetRecoverMinerEndpoints().ScanPorts = scanPorts
 			break
 		}
 		selected = append(selected, target)

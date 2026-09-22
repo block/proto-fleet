@@ -612,6 +612,7 @@ LIMIT $1;
 -- Fleet Node-encrypted blobs stored during pairing.
 SELECT
     fnd.fleet_node_id,
+    d.id AS device_id,
     d.device_identifier,
     d.org_id,
     d.serial_number,
@@ -636,8 +637,18 @@ WHERE d.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
-ORDER BY ds.status_timestamp ASC, d.id ASC
+  AND (BTRIM(COALESCE(d.serial_number, '')) != '' OR BTRIM(COALESCE(d.mac_address, '')) != '')
+ORDER BY ds.ip_recovery_last_dispatched_at ASC NULLS FIRST,
+         ds.status_timestamp ASC,
+         d.id ASC
 LIMIT $1;
+
+-- name: MarkFleetNodeRecoveryDispatched :exec
+-- Advance selected targets before dispatch so an unreachable or unresolved
+-- batch cannot monopolize every later recovery cycle.
+UPDATE device_status
+SET ip_recovery_last_dispatched_at = CURRENT_TIMESTAMP
+WHERE device_id = ANY(sqlc.arg('device_ids')::BIGINT[]);
 
 -- name: ApplyFleetNodeRecoveredEndpoint :one
 -- The ownership/pairing/offline predicates are repeated at write time so a
