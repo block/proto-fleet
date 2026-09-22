@@ -1625,6 +1625,7 @@ func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOffl
 const getOfflineFleetNodeDevices = `-- name: GetOfflineFleetNodeDevices :many
 SELECT
     fnd.fleet_node_id,
+    d.id AS device_id,
     d.device_identifier,
     d.org_id,
     d.serial_number,
@@ -1649,12 +1650,16 @@ WHERE d.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
-ORDER BY ds.status_timestamp ASC, d.id ASC
+  AND (BTRIM(COALESCE(d.serial_number, '')) != '' OR BTRIM(COALESCE(d.mac_address, '')) != '')
+ORDER BY ds.ip_recovery_last_dispatched_at ASC NULLS FIRST,
+         ds.status_timestamp ASC,
+         d.id ASC
 LIMIT $1
 `
 
 type GetOfflineFleetNodeDevicesRow struct {
 	FleetNodeID      int64
+	DeviceID         int64
 	DeviceIdentifier string
 	OrgID            int64
 	SerialNumber     sql.NullString
@@ -1681,6 +1686,7 @@ func (q *Queries) GetOfflineFleetNodeDevices(ctx context.Context, limit int32) (
 		var i GetOfflineFleetNodeDevicesRow
 		if err := rows.Scan(
 			&i.FleetNodeID,
+			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.OrgID,
 			&i.SerialNumber,
@@ -2363,6 +2369,19 @@ func (q *Queries) LockCloudRecoveryDevice(ctx context.Context, arg LockCloudReco
 		return nil, err
 	}
 	return items, nil
+}
+
+const markFleetNodeRecoveryDispatched = `-- name: MarkFleetNodeRecoveryDispatched :exec
+UPDATE device_status
+SET ip_recovery_last_dispatched_at = CURRENT_TIMESTAMP
+WHERE device_id = ANY($1::BIGINT[])
+`
+
+// Advance selected targets before dispatch so an unreachable or unresolved
+// batch cannot monopolize every later recovery cycle.
+func (q *Queries) MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.markFleetNodeRecoveryDispatchedStmt, markFleetNodeRecoveryDispatched, pq.Array(deviceIds))
+	return err
 }
 
 const reconcileAuthenticationNeededPairingStatusByIdentifier = `-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one

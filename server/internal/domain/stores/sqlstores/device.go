@@ -977,7 +977,7 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit i
 	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
 	for _, row := range rows {
 		targets = append(targets, stores.FleetNodeRecoveryTarget{
-			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
+			FleetNodeID: row.FleetNodeID, DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier,
 			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
 			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
 			LastKnownScheme: row.UrlScheme, CredentialUsername: decodeFleetNodeCredential(row.UsernameEnc),
@@ -985,6 +985,16 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context, limit i
 		})
 	}
 	return targets, nil
+}
+
+func (s *SQLDeviceStore) MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIDs []int64) error {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	if err := s.getQueries(ctx).MarkFleetNodeRecoveryDispatched(ctx, deviceIDs); err != nil {
+		return fmt.Errorf("mark Fleet Node recovery dispatched: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {

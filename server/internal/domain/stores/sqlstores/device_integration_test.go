@@ -161,12 +161,30 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	require.NoError(t, err)
 	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
 	require.NoError(t, err)
+	var identitylessDiscoveredID, identitylessDeviceID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.11', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&identitylessDiscoveredID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, '', '', 1, $2) RETURNING id`, fmt.Sprintf("identityless-recovery-device-%d", identitylessDiscoveredID), identitylessDiscoveredID).Scan(&identitylessDeviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '20 minutes')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, identitylessDeviceID)
+	require.NoError(t, err)
 
 	targets, err := store.GetOfflineFleetNodeDevices(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	target := targets[0]
+	require.Equal(t, deviceID, target.DeviceID)
 	require.Equal(t, identifier, target.DeviceIdentifier)
+	require.NoError(t, store.MarkFleetNodeRecoveryDispatched(ctx, []int64{target.DeviceID}))
+	var dispatchedAt sql.NullTime
+	require.NoError(t, conn.QueryRow(`SELECT ip_recovery_last_dispatched_at FROM device_status WHERE device_id=$1`, deviceID).Scan(&dispatchedAt))
+	require.True(t, dispatchedAt.Valid)
 
 	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
 	require.NoError(t, err)

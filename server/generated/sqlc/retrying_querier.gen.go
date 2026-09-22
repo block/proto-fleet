@@ -5802,6 +5802,12 @@ func (q *retryingQuerier) MarkFirmwareRolloutDevicesVerified(ctx context.Context
 	})
 }
 
+func (q *retryingQuerier) MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "MarkFleetNodeRecoveryDispatched", func() error {
+		return q.next.MarkFleetNodeRecoveryDispatched(ctx, deviceIds)
+	})
+}
+
 func (q *retryingQuerier) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkRepairTicketPartsConsumed", func() error {
 		return q.next.MarkRepairTicketPartsConsumed(ctx, arg)

@@ -1545,6 +1545,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markFirmwareRolloutDevicesVerifiedStmt, err = db.PrepareContext(ctx, markFirmwareRolloutDevicesVerified); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkFirmwareRolloutDevicesVerified: %w", err)
 	}
+	if q.markFleetNodeRecoveryDispatchedStmt, err = db.PrepareContext(ctx, markFleetNodeRecoveryDispatched); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkFleetNodeRecoveryDispatched: %w", err)
+	}
 	if q.markRepairTicketPartsConsumedStmt, err = db.PrepareContext(ctx, markRepairTicketPartsConsumed); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkRepairTicketPartsConsumed: %w", err)
 	}
@@ -4625,6 +4628,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markFirmwareRolloutDevicesVerifiedStmt: %w", cerr)
 		}
 	}
+	if q.markFleetNodeRecoveryDispatchedStmt != nil {
+		if cerr := q.markFleetNodeRecoveryDispatchedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markFleetNodeRecoveryDispatchedStmt: %w", cerr)
+		}
+	}
 	if q.markRepairTicketPartsConsumedStmt != nil {
 		if cerr := q.markRepairTicketPartsConsumedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markRepairTicketPartsConsumedStmt: %w", cerr)
@@ -6071,6 +6079,7 @@ type Queries struct {
 	markCommandBatchProcessingStmt                               *sql.Stmt
 	markFirmwareRolloutDevicesSentStmt                           *sql.Stmt
 	markFirmwareRolloutDevicesVerifiedStmt                       *sql.Stmt
+	markFleetNodeRecoveryDispatchedStmt                          *sql.Stmt
 	markRepairTicketPartsConsumedStmt                            *sql.Stmt
 	negateSchedulePrioritiesStmt                                 *sql.Stmt
 	nextRepairTicketNumberStmt                                   *sql.Stmt
@@ -6764,6 +6773,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchProcessingStmt:                               q.markCommandBatchProcessingStmt,
 		markFirmwareRolloutDevicesSentStmt:                           q.markFirmwareRolloutDevicesSentStmt,
 		markFirmwareRolloutDevicesVerifiedStmt:                       q.markFirmwareRolloutDevicesVerifiedStmt,
+		markFleetNodeRecoveryDispatchedStmt:                          q.markFleetNodeRecoveryDispatchedStmt,
 		markRepairTicketPartsConsumedStmt:                            q.markRepairTicketPartsConsumedStmt,
 		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
 		nextRepairTicketNumberStmt:                                   q.nextRepairTicketNumberStmt,
