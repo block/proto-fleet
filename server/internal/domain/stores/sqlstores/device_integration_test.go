@@ -44,6 +44,18 @@ func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {
 	// Seed test data
 	setupOfflineDeviceTestData(t, conn)
 
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'offline-device-query-node', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("offline-device-query-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err := conn.Exec(`
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, 4, 1)
+	`, fleetNodeID)
+	require.NoError(t, err)
+
 	// Execute the ACTUAL query - this would have caught the JOIN bug
 	devices, err := store.GetOfflineDevices(ctx, 10)
 	require.NoError(t, err, "GetOfflineDevices query should succeed")
@@ -217,7 +229,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 'test-device-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
 			(2, 1, 'test-device-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc'),
-			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc')
+			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc'),
+			(4, 1, 'test-device-node-owned', 'proto', 'test-manufacturer', 'proto', '192.168.1.103', '50051', 'grpc')
 	`)
 	require.NoError(t, err)
 
@@ -229,7 +242,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 1, 'test-device-001', 'AA:BB:CC:DD:EE:01'),
 			(2, 1, 2, 'test-device-002', 'AA:BB:CC:DD:EE:02'),
-			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03')
+			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03'),
+			(4, 1, 4, 'test-device-node-owned', 'AA:BB:CC:DD:EE:04')
 	`)
 	require.NoError(t, err)
 
@@ -239,7 +253,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'PAIRED', NOW()),
 			(2, 'PAIRED', NOW()),
-			(3, 'PAIRED', NOW())
+			(3, 'PAIRED', NOW()),
+			(4, 'PAIRED', NOW())
 	`)
 	require.NoError(t, err)
 
@@ -249,7 +264,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'OFFLINE', NOW()),
 			(2, 'OFFLINE', NOW()),
-			(3, 'ACTIVE', NOW())
+			(3, 'ACTIVE', NOW()),
+			(4, 'OFFLINE', NOW())
 	`)
 	require.NoError(t, err)
 }

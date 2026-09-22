@@ -21,6 +21,7 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -745,6 +746,9 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		slog.Error("failed to get paired device", "error", err)
 		return false
 	}
+	identityConfirmed := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress()).Matches(
+		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
+	)
 
 	pairer := s.pairer
 
@@ -756,13 +760,20 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
 	if err != nil {
-		// Check if this is an authentication error and update pairing status
-		if fleeterror.IsAuthenticationError(err) {
-			slog.Info("authentication failed for paired device, updating pairing status",
-				"device_identifier", pairedDevice.DeviceIdentifier)
-			if updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
-				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-					"device_identifier", pairedDevice.DeviceIdentifier, "error", updateErr)
+		// A recovery scan probes multiple same-driver candidates. Authentication
+		// failure identifies the paired miner only when credential-free discovery
+		// already supplied matching stable identity evidence.
+		if fleeterror.IsAuthenticationError(err) && identityConfirmed {
+			eligible, updated, reconcileErr := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier)
+			if reconcileErr != nil {
+				slog.Error("failed to reconcile pairing status to AUTHENTICATION_NEEDED",
+					"device_identifier", pairedDevice.DeviceIdentifier, "error", reconcileErr)
+			} else if updated {
+				slog.Info("authentication failed for identity-confirmed paired device, updated pairing status",
+					"device_identifier", pairedDevice.DeviceIdentifier)
+			} else if !eligible {
+				slog.Debug("authentication remediation skipped for ineligible pairing state",
+					"device_identifier", pairedDevice.DeviceIdentifier)
 			}
 		}
 		slog.Debug("failed to get new discovered device info", "error", err)
