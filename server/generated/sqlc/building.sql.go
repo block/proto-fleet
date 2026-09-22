@@ -1071,7 +1071,7 @@ type SoftDeleteBuildingParams struct {
 }
 
 // Caller is expected to also unassign the building's racks in the same
-// transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+// transaction (cascade-unassign). RETURNING site_id lets the
 // caller stamp the delete audit row with the site of the row actually deleted,
 // race-free: a concurrent site move can't slip between a separate read and the
 // delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.

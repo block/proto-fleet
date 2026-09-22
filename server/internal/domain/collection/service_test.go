@@ -1905,8 +1905,7 @@ func TestActivityLogging_DeleteCollectionLogsEvent(t *testing.T) {
 // TestService_SaveRack_MoveBetweenBuildingsCascadesSite asserts the rack
 // edit/move cascade: when a rack moves to a building whose site differs
 // from the current placement, the rack's site_id is rewritten and every
-// descendant device.site_id is cascaded to match (plan §"Rack edit / move"
-// + issue #220).
+// descendant device.site_id is cascaded to match (issue #220).
 func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	deviceIDs := []string{"device-1"}
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {

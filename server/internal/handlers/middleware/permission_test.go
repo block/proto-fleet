@@ -387,8 +387,8 @@ func connectCode(t *testing.T, err error) connect.Code {
 }
 
 // connectMessage returns the FleetError's debug message, which is what
-// the middleware stuffs the JSON payload into. The plan specifies the
-// payload shape directly in the message body so the client can pick
+// the middleware puts the JSON payload into. The payload is included
+// directly in the message body so the client can pick
 // it up via Connect's standard error.Message().
 func connectMessage(t *testing.T, err error) string {
 	t.Helper()

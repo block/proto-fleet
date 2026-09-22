@@ -11,7 +11,7 @@ import "google/protobuf/timestamp.proto";
 // BuildingService is the admin surface for buildings: per-building
 // config (capacity, layout defaults) under a site (or unassigned).
 // Buildings coexist with the free-form `device_set_rack.zone` string;
-// operators opt into buildings explicitly per the multi-site plan.
+// operators opt into buildings explicitly.
 service BuildingService {
     // ListBuildings returns every live building in the org with its
     // rack_count. site_ids restricts the result to buildings under any

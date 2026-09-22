@@ -1,0 +1,365 @@
+import { type ReactElement, useCallback, useMemo, useState } from "react";
+import clsx from "clsx";
+
+import {
+  type DeltaIntent,
+  evidenceScopeLabel,
+  failedDevices,
+  isActive,
+  metricDisplay,
+  type MetricKind,
+  minerLabel,
+  pairLabel,
+  scopeDevices,
+} from "./rolloutStatus";
+import { useRefreshingRead } from "./useRefreshingRead";
+import {
+  type Rollout,
+  type RolloutDevice,
+  RolloutDevicePhase,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { useTemperatureUnit } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
+import Callout, { intents } from "@/shared/components/Callout";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+import Modal from "@/shared/components/Modal";
+import ProgressCircular from "@/shared/components/ProgressCircular";
+import SegmentedControl from "@/shared/components/SegmentedControl";
+import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
+
+export type RolloutMinerFilter = "all" | "failed";
+
+type MinerColumn = "miner" | "firmware" | "hashrate" | "power" | "efficiency" | "temperature";
+
+const minerColumns: MinerColumn[] = ["miner", "firmware", "hashrate", "power", "efficiency", "temperature"];
+
+const minerColTitles: ColTitles<MinerColumn> = {
+  miner: "Miner",
+  firmware: "Update status",
+  hashrate: "Hashrate",
+  power: "Power",
+  efficiency: "Efficiency",
+  temperature: "Temp",
+};
+
+const deltaTextColor: Record<DeltaIntent, string> = {
+  positive: "text-intent-success-fill",
+  negative: "text-intent-critical-fill",
+  neutral: "text-text-primary-50",
+};
+
+interface MinerRow {
+  id: string;
+  device: RolloutDevice;
+  name: string;
+}
+
+function MinerCell({ row, model }: { row: MinerRow; model: string }): ReactElement {
+  const detail = [model, row.device.ipAddress].filter(Boolean).join(" · ");
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="text-emphasis-300 break-words text-text-primary" title={row.name}>
+        {row.name}
+      </span>
+      {detail ? (
+        <span className="text-200 break-words text-text-primary-50" title={detail}>
+          {detail}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+// Per-miner phase for the status column: the shared StatusCircle dot, an
+// inline spinner while in flight, and the design's phase wording.
+function PhaseCell({ device, rollout }: { device: RolloutDevice; rollout: Rollout }): ReactElement {
+  const targetVersion = rollout.firmwareVersion;
+  // Finished history retains unfinished phases; those rows are no longer
+  // queued for dispatch or actively monitored by this canceled rollout.
+  const canceled =
+    rollout.status === RolloutStatus.CANCELED &&
+    [RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING].includes(device.phase);
+  const dot = (status: keyof typeof statuses) => (
+    <StatusCircle status={status} variant="simple" width="w-[6px]" testId="rollout-column-status" />
+  );
+  let state: ReactElement;
+  switch (device.phase) {
+    case RolloutDevicePhase.DONE:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary">
+          {dot(statuses.normal)}
+          {`Updated to ${targetVersion}`}
+        </span>
+      );
+      break;
+    case RolloutDevicePhase.FAILED:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary">
+          {dot(statuses.error)}
+          Failed
+        </span>
+      );
+      break;
+    case RolloutDevicePhase.RETRYING:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary">
+          {dot(statuses.warning)}
+          <ProgressCircular size={14} indeterminate />
+          {`Retrying (attempt ${device.attempts})`}
+        </span>
+      );
+      break;
+    case RolloutDevicePhase.IN_PROGRESS:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary">
+          {dot(statuses.warning)}
+          <ProgressCircular size={14} indeterminate />
+          {device.firmwareVersion === targetVersion ? "Verifying" : "Updating firmware"}
+        </span>
+      );
+      break;
+    case RolloutDevicePhase.EXCLUDED:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          Excluded (left the channel)
+        </span>
+      );
+      break;
+    case RolloutDevicePhase.SKIPPED:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          Skipped
+        </span>
+      );
+      break;
+    default:
+      state = (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          {device.firmwareVersion ? `Queued (${device.firmwareVersion})` : "Queued"}
+        </span>
+      );
+  }
+
+  const reasons: string[] = [];
+  if (device.phase === RolloutDevicePhase.FAILED && device.lastError) reasons.push(device.lastError);
+  if (device.openErrors > device.baselineOpenErrors) {
+    const added = device.openErrors - device.baselineOpenErrors;
+    reasons.push(added === 1 ? "1 new error" : `${added} new errors`);
+  }
+  if (device.phase !== RolloutDevicePhase.DONE && device.phase !== RolloutDevicePhase.QUEUED && !device.online) {
+    reasons.push(device.status ? `Device ${device.status.toLowerCase()}` : "Offline");
+  }
+
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      {canceled ? (
+        <span className="flex items-center gap-2 text-text-primary-70">
+          {dot(statuses.inactive)}
+          Canceled
+        </span>
+      ) : (
+        state
+      )}
+      {canceled && device.lastError ? (
+        <span className="text-200 break-words text-text-primary-50">{device.lastError}</span>
+      ) : null}
+      {canceled && device.attempts > 0 ? (
+        <span className="text-200 break-words text-text-primary-50">
+          Any update command already sent may still finish.
+        </span>
+      ) : null}
+      {device.phase === RolloutDevicePhase.SKIPPED && device.skipNote ? (
+        <span className="text-200 break-words text-text-primary-50">{device.skipNote}</span>
+      ) : null}
+      {reasons.length > 0 ? (
+        <span className="text-200 break-words text-intent-critical-fill">{reasons.join("; ")}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function MetricCell({ device, kind }: { device: RolloutDevice; kind: MetricKind }): ReactElement {
+  const temperatureUnit = useTemperatureUnit();
+  const metric =
+    kind === "hashrate"
+      ? device.hashRateHs
+      : kind === "power"
+        ? device.powerW
+        : kind === "efficiency"
+          ? device.efficiencyJh
+          : device.tempC;
+  const display = metricDisplay(kind, metric, temperatureUnit);
+  return (
+    <span className="flex min-w-0 flex-col gap-1 text-text-primary" title={`${display.value} ${display.delta ?? ""}`}>
+      <span className="break-words">{display.value}</span>
+      {display.delta ? (
+        <span className={clsx("text-200 break-words", deltaTextColor[display.deltaIntent])}>{display.delta}</span>
+      ) : null}
+    </span>
+  );
+}
+
+interface RolloutMinersModalProps {
+  rollout: Rollout;
+  // deviceIdentifier -> display name.
+  minerNames: Record<string, string>;
+  listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
+  initialFilter?: RolloutMinerFilter;
+  onClose: () => void;
+}
+
+// Miner drill-down for an update: every targeted miner (or just the failed
+// ones) with its phase and telemetry against baseline. The server pages
+// devices separately from the rollout summary, so the list is fetched when
+// the modal opens and again on every poll of the rollout, keeping phases and
+// telemetry live while open.
+const RolloutMinersModal = ({
+  rollout,
+  minerNames,
+  listRolloutDevices,
+  initialFilter = "all",
+  onClose,
+}: RolloutMinersModalProps) => {
+  const [filter, setFilter] = useState<RolloutMinerFilter>(initialFilter);
+  const read = useCallback(
+    (signal: AbortSignal) => listRolloutDevices(rollout.id, signal),
+    [rollout.id, listRolloutDevices],
+  );
+  const {
+    data: devices,
+    isLoading,
+    error,
+    refresh,
+    cancel,
+  } = useRefreshingRead({
+    read,
+    refreshKey: rollout,
+    trailingRefresh: true,
+    errorMessage: "The request failed. Try again.",
+  });
+  const handleClose = () => {
+    cancel();
+    onClose();
+  };
+  const unavailableMessage = isLoading ? "Loading miners…" : "Miner details unavailable.";
+
+  const rows = useMemo<MinerRow[]>(
+    () =>
+      (devices ?? []).map((device) => ({
+        id: device.deviceIdentifier,
+        device,
+        name: minerLabel(device.deviceIdentifier, minerNames),
+      })),
+    [devices, minerNames],
+  );
+  const visibleRows = filter === "failed" ? rows.filter((row) => row.device.phase === RolloutDevicePhase.FAILED) : rows;
+  const failedCount = failedDevices(devices ?? []).length;
+  const evidenceCount = scopeDevices(rollout, devices ?? []).length;
+  const summary =
+    devices === null
+      ? unavailableMessage
+      : filter === "failed"
+        ? `${failedCount.toLocaleString()} ${failedCount === 1 ? "miner" : "miners"} failed to update`
+        : `${rows.length.toLocaleString()} miners in this update${
+            isActive(rollout)
+              ? `; evidence scope: ${evidenceScopeLabel(rollout).toLowerCase()} (${evidenceCount.toLocaleString()} ${evidenceCount === 1 ? "miner" : "miners"})`
+              : ""
+          }`;
+
+  const colConfig: ColConfig<MinerRow, string, MinerColumn> = {
+    miner: {
+      component: (row) => <MinerCell row={row} model={pairLabel(rollout)} />,
+      width: "w-[220px]",
+      allowWrap: true,
+    },
+    firmware: {
+      component: (row) => <PhaseCell device={row.device} rollout={rollout} />,
+      width: "w-[240px]",
+      allowWrap: true,
+    },
+    hashrate: {
+      component: (row) => <MetricCell device={row.device} kind="hashrate" />,
+      width: "w-[128px]",
+      allowWrap: true,
+    },
+    power: { component: (row) => <MetricCell device={row.device} kind="power" />, width: "w-[112px]", allowWrap: true },
+    efficiency: {
+      component: (row) => <MetricCell device={row.device} kind="efficiency" />,
+      width: "w-[128px]",
+      allowWrap: true,
+    },
+    temperature: {
+      component: (row) => <MetricCell device={row.device} kind="temperature" />,
+      width: "w-[112px]",
+      allowWrap: true,
+    },
+  };
+
+  return (
+    <Modal
+      open
+      onDismiss={handleClose}
+      title="Miners in firmware update"
+      description={`${rollout.channelName}, ${pairLabel(rollout)}`}
+      size="large"
+      className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
+      bodyClassName="flex flex-1 min-h-0 flex-col"
+      divider={false}
+      testId="rollout-miners-modal"
+      buttons={[{ text: "Done", variant: "primary", onClick: handleClose, dismissModalOnClick: false }]}
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-4" aria-busy={isLoading}>
+        {error ? (
+          <div role="alert" aria-busy={isLoading}>
+            <Callout
+              intent={intents.warning}
+              prefixIcon={<Alert />}
+              title={devices === null ? "Couldn't load miners" : "Miner details may be out of date"}
+              subtitle={devices === null ? error : `${error} Showing the last loaded data.`}
+              buttonText={isLoading ? "Retrying..." : "Retry"}
+              buttonOnClick={() => {
+                if (!isLoading) refresh();
+              }}
+            />
+          </div>
+        ) : null}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <SegmentedControl
+            segments={[
+              { key: "all", title: "All miners" },
+              { key: "failed", title: "Failed" },
+            ]}
+            initialSegmentKey={initialFilter}
+            onSelect={(key) => setFilter(key as RolloutMinerFilter)}
+          />
+          <div className="text-200 text-text-primary-70">{summary}</div>
+        </div>
+        <List<MinerRow, string, MinerColumn>
+          activeCols={minerColumns}
+          colTitles={minerColTitles}
+          colConfig={colConfig}
+          items={visibleRows}
+          itemKey="id"
+          total={visibleRows.length}
+          itemName={{ singular: "miner", plural: "miners" }}
+          containerClassName="min-h-0"
+          tableClassName="mb-0 w-full !table-fixed"
+          applyColumnWidthsToCells
+          stickyFirstColumn={false}
+          emptyStateRow={
+            <div className="py-10 text-center text-300 text-text-primary-70">
+              {devices === null ? unavailableMessage : filter === "failed" ? "No miners failed." : "No miners to show."}
+            </div>
+          }
+        />
+      </div>
+    </Modal>
+  );
+};
+
+export default RolloutMinersModal;

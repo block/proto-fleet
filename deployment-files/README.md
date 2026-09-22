@@ -28,6 +28,8 @@ If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
 Options:
   --install-dir PATH       Use PATH without prompting.
+  --temp-dir PATH          Existing trusted directory for temporary release
+                           files; must allow execution (default: /tmp).
   --non-interactive        Fail instead of prompting; for an existing install
                            with a complete deployment .env.
 You can override by doing, e.g.:
@@ -59,6 +61,30 @@ The script will:
 - On Linux/systemd with rootful Docker, install the host updater used for
   in-product one-click upgrades
 - Run the deployment script automatically
+
+### Hosts with a non-executable temporary filesystem
+
+The installer extracts executable bootstrap payloads for the host updater and
+HA operator. If `/tmp` is mounted `noexec`, use `--temp-dir` to select an existing
+directory on an executable filesystem; do not remount `/tmp` to enable execution.
+For example, after downloading the release's `install.sh`:
+
+```bash
+sudo install -d -m 0700 /opt/proto-fleet-bootstrap
+sudo bash ./install.sh --temp-dir /opt/proto-fleet-bootstrap "$VERSION"
+```
+
+The path must be absolute, not a symlink, and owned by root or the user running
+the installer. Its ancestor directories must also be trusted and not group- or
+world-writable, except for root-owned sticky directories such as `/tmp`. A
+root-run installer does not trust directories owned by `SUDO_UID`. It creates a
+fresh private child with mode 0700 and removes only that child on exit, preserving
+rollback artifacts if updater restoration fails. The supplied parent is not
+removed. Checksum verification and executable-payload checks remain enabled.
+
+This option works with standalone and `--ha` installs. It controls bootstrap
+scratch only, not the permanent installation directory or runtime updater state.
+Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
 ## Release repositories and forks
 

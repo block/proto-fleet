@@ -5473,7 +5473,7 @@
           },
           "secureboot": {
             "type": "string",
-            "description": "Secure boot status reported by lock_ctrl_ta_client.",
+            "description": "Secure boot status reported by lock_ctrl_ta_client: OPEN, CLOSED, UNLOCKED, UNINITIALIZED, or UNKNOWN. UNINITIALIZED means optee ta was never initialized on device equivalent of OPEN state. This hardware status is independent of the effective secure override.",
             "example": "CLOSED"
           },
           "certificate-validity": {
@@ -5503,13 +5503,24 @@
           "secure_override"
         ]
       },
+      "LockStatus": {
+        "type": "string",
+        "description": "Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN.",
+        "enum": [
+          "OPEN",
+          "CLOSED",
+          "UNLOCKED",
+          "UNINITIALIZED",
+          "UNKNOWN"
+        ],
+        "example": "UNLOCKED"
+      },
       "UnlockResponse": {
         "type": "object",
         "description": "Response containing device lock status",
         "properties": {
           "lock-status": {
-            "type": "string",
-            "example": "UNLOCKED"
+            "$ref": "#/components/schemas/LockStatus"
           }
         }
       },
