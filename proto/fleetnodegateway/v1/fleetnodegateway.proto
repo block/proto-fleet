@@ -326,6 +326,27 @@ message MinerConnectionDescriptor {
 // Credentials stay encrypted for the node and are opened only in node memory.
 message RecoverMinerEndpointsRequest {
     repeated MinerConnectionDescriptor targets = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 512}];
+    // The exact port set the node scans. Every target's last-known port must be
+    // present, and the bound keeps a recovery command within the normal local
+    // discovery budget.
+    repeated string scan_ports = 2 [
+        (buf.validate.field).repeated = {
+            min_items: 1,
+            max_items: 10,
+            unique: true,
+            items: {string: {min_len: 1, max_len: 5}}
+        },
+        (buf.validate.field).cel = {
+            id: "scan_ports.range",
+            message: "scan ports must be decimal numbers in 1..65535",
+            expression: "this.all(p, p.matches('^[1-9][0-9]*$') && int(p) <= 65535)"
+        }
+    ];
+    option (buf.validate.message).cel = {
+        id: "targets.scan_ports",
+        message: "every target port must be included in scan_ports",
+        expression: "this.targets.all(t, t.port in this.scan_ports)"
+    };
 }
 
 enum MinerEndpointRecoveryOutcome {
