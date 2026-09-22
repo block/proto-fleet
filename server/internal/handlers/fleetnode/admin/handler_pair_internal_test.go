@@ -26,11 +26,13 @@ func TestDevicePairingResultFromGatewayResult_DefaultPasswordDoesNotCopyError(t 
 		Outcome:               gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
 		DefaultPasswordActive: &active,
 		ErrorMessage:          "stale authentication failure",
+		MacAddress:            "AA:BB:CC:DD:EE:FF",
 	}
 
 	res := devicePairingResultFromGatewayResult(result)
 
 	assert.Equal(t, "mac:default-password", res.GetDeviceIdentifier())
 	assert.Equal(t, fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD, res.GetPairingStatus())
+	assert.True(t, res.GetAutomaticIpRecoveryEligible())
 	assert.Empty(t, res.GetError())
 }

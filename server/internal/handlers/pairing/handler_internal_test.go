@@ -520,6 +520,26 @@ func TestMergeAllDevicesPairFailuresKeepsCloudFailuresForCloudOnlyDevices(t *tes
 	assert.Equal(t, []string{"cloud-failed"}, got)
 }
 
+func TestRecordFleetNodePairResultsTracksRecoveryIneligibleSuccess(t *testing.T) {
+	failed := map[string]struct{}{
+		"eligible":   {},
+		"ineligible": {},
+		"failed":     {},
+	}
+	route := fleetNodePairRoute{automaticIPRecoveryIneligibleDevices: map[string]struct{}{}}
+
+	recordFleetNodePairResults([]*gatewaypb.FleetNodePairResult{
+		{DeviceIdentifier: "eligible", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED, SerialNumber: "SN-1"},
+		{DeviceIdentifier: "ineligible", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED},
+		{DeviceIdentifier: "failed", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED},
+		{DeviceIdentifier: "unrequested", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED},
+	}, &route, failed)
+
+	assert.True(t, route.remoteSucceeded)
+	assert.Equal(t, map[string]struct{}{"ineligible": {}}, route.automaticIPRecoveryIneligibleDevices)
+	assert.Equal(t, map[string]struct{}{"failed": {}}, failed)
+}
+
 func TestRoutedTargetsFailed(t *testing.T) {
 	routed := map[string]struct{}{"remote-failed": {}}
 

@@ -141,6 +141,10 @@ message PairRequest {
 // Empty message as success/failure is indicated by gRPC status
 message PairResponse {
   repeated string failed_device_ids = 1;
+  // Successfully paired Fleet Node miners that reported neither a stable MAC
+  // address nor a serial number. Pairing still succeeds, but an IP change will
+  // require manual repair.
+  repeated string automatic_ip_recovery_ineligible_device_ids = 2;
 }
 
 // FleetNodePairRequest asks a fleet node to pair (authenticate) a batch of

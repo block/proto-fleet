@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -121,8 +122,9 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 
 func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {
 	res := &pb.DevicePairingResult{
-		DeviceIdentifier: result.GetDeviceIdentifier(),
-		PairingStatus:    pairResultStatus(result),
+		DeviceIdentifier:            result.GetDeviceIdentifier(),
+		PairingStatus:               pairResultStatus(result),
+		AutomaticIpRecoveryEligible: fleetnodepairing.AutomaticIPRecoveryEligible(result),
 	}
 	if !isSuccessfulPairingStatus(res.PairingStatus) {
 		res.Error = result.GetErrorMessage()

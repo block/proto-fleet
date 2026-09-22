@@ -4,6 +4,7 @@ import { pairingClient } from "@/protoFleet/api/clients";
 import { Device, DiscoverRequest, PairRequest } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 interface DiscoverMinersProps {
   discoverRequest: DiscoverRequest;
@@ -74,6 +75,13 @@ const useMinerPairing = () => {
       await pairingClient
         .pair(pairRequest)
         .then((response) => {
+          const ineligibleCount = response.automaticIpRecoveryIneligibleDeviceIds.length;
+          if (ineligibleCount > 0) {
+            pushToast({
+              message: `${ineligibleCount} paired ${ineligibleCount === 1 ? "miner has" : "miners have"} no stable MAC address or serial number. If ${ineligibleCount === 1 ? "its" : "their"} IP address changes, repair ${ineligibleCount === 1 ? "it" : "them"} manually.`,
+              status: TOAST_STATUSES.warning,
+            });
+          }
           onSuccess(response.failedDeviceIds || []);
         })
         .catch((err) => {

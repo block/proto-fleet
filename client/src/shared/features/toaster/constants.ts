@@ -2,6 +2,7 @@ export const STATUSES = {
   queued: "queued",
   loading: "loading",
   success: "success",
+  warning: "warning",
   error: "error",
 } as const;
 

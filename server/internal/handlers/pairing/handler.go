@@ -42,11 +42,12 @@ type fleetNodeDiscoveryRunner interface {
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
 type fleetNodePairRoute struct {
-	allDevices       bool
-	routedExplicit   map[string]struct{}
-	routedAllDevices map[string]struct{}
-	remoteSucceeded  bool
-	remoteErr        error
+	allDevices                           bool
+	routedExplicit                       map[string]struct{}
+	routedAllDevices                     map[string]struct{}
+	automaticIPRecoveryIneligibleDevices map[string]struct{}
+	remoteSucceeded                      bool
+	remoteErr                            error
 }
 
 // NewHandler creates a new instance of Handler
@@ -280,8 +281,9 @@ func handleExplicitCloudPairError(route fleetNodePairRoute, err error) (*connect
 
 func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64, req *pb.PairRequest) (*pb.PairResponse, fleetNodePairRoute, error) {
 	route := fleetNodePairRoute{
-		routedExplicit:   map[string]struct{}{},
-		routedAllDevices: map[string]struct{}{},
+		routedExplicit:                       map[string]struct{}{},
+		routedAllDevices:                     map[string]struct{}{},
+		automaticIPRecoveryIneligibleDevices: map[string]struct{}{},
 	}
 	resp := &pb.PairResponse{}
 	if h.discovery == nil || h.fleetNodePairing == nil {
@@ -343,6 +345,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	}
 
 	resp.FailedDeviceIds = sortedKeys(failed)
+	resp.AutomaticIpRecoveryIneligibleDeviceIds = sortedKeys(route.automaticIPRecoveryIneligibleDevices)
 	return resp, route, nil
 }
 
@@ -391,20 +394,27 @@ func (h *Handler) pairFleetNodeTargetBatch(ctx context.Context, nodeID, orgID, u
 	route.allDevices = route.allDevices || allDevices
 	assignedBy := userID
 	return h.fleetNodePairing.PairOnNode(ctx, nodeID, targets, req.GetCredentials(), orgID, &assignedBy, func(results []*gatewaypb.FleetNodePairResult) error {
-		for _, result := range results {
-			id := result.GetDeviceIdentifier()
-			if _, ok := failed[id]; !ok {
-				continue
-			}
-			if result.GetOutcome() == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
-				delete(failed, id)
-				route.remoteSucceeded = true
-			} else {
-				failed[id] = struct{}{}
-			}
-		}
+		recordFleetNodePairResults(results, route, failed)
 		return nil
 	})
+}
+
+func recordFleetNodePairResults(results []*gatewaypb.FleetNodePairResult, route *fleetNodePairRoute, failed map[string]struct{}) {
+	for _, result := range results {
+		id := result.GetDeviceIdentifier()
+		if _, ok := failed[id]; !ok {
+			continue
+		}
+		if result.GetOutcome() != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+			failed[id] = struct{}{}
+			continue
+		}
+		delete(failed, id)
+		route.remoteSucceeded = true
+		if !fleetnodepairing.AutomaticIPRecoveryEligible(result) {
+			route.automaticIPRecoveryIneligibleDevices[id] = struct{}{}
+		}
+	}
 }
 
 func mergeAllDevicesPairFailures(remoteFailedIDs, cloudFailedIDs []string, route fleetNodePairRoute) []string {

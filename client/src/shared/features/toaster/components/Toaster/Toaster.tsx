@@ -12,7 +12,9 @@ const Toaster = () => {
 
   const basicToasts = useMemo(() => {
     return toasts.filter(
-      (toast) => !toast.longRunning && (toast.status === STATUSES.success || toast.status === STATUSES.error),
+      (toast) =>
+        !toast.longRunning &&
+        (toast.status === STATUSES.success || toast.status === STATUSES.warning || toast.status === STATUSES.error),
     );
   }, [toasts]);
 

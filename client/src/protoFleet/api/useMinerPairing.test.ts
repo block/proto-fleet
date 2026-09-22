@@ -7,19 +7,28 @@ import {
   DeviceSchema,
   DiscoverRequestSchema,
   DiscoverResponseSchema,
+  PairRequestSchema,
+  PairResponseSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 
-const { mockDiscover, mockHandleAuthErrors } = vi.hoisted(() => ({
+const { mockDiscover, mockHandleAuthErrors, mockPair, mockPushToast } = vi.hoisted(() => ({
   mockDiscover: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
+  mockPair: vi.fn(),
+  mockPushToast: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  pairingClient: { discover: mockDiscover },
+  pairingClient: { discover: mockDiscover, pair: mockPair },
 }));
 
 vi.mock("@/protoFleet/store", () => ({
   useAuthErrors: () => ({ handleAuthErrors: mockHandleAuthErrors }),
+}));
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: mockPushToast,
+  STATUSES: { warning: "warning" },
 }));
 
 describe("useMinerPairing discovery", () => {
@@ -119,5 +128,45 @@ describe("useMinerPairing discovery", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
     expect(result.current.discoverPending).toBe(false);
+  });
+});
+
+describe("useMinerPairing pairing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHandleAuthErrors.mockImplementation(({ onError }) => onError());
+  });
+
+  it("warns after a successful pairing that lacks stable recovery identity", async () => {
+    mockPair.mockResolvedValue(
+      create(PairResponseSchema, {
+        automaticIpRecoveryIneligibleDeviceIds: ["miner-1"],
+      }),
+    );
+    const onSuccess = vi.fn();
+    const { result } = renderHook(() => useMinerPairing());
+
+    await act(async () => {
+      await result.current.pair({ pairRequest: create(PairRequestSchema), onSuccess });
+    });
+
+    expect(onSuccess).toHaveBeenCalledWith([]);
+    expect(mockPushToast).toHaveBeenCalledWith({
+      message:
+        "1 paired miner has no stable MAC address or serial number. If its IP address changes, repair it manually.",
+      status: "warning",
+    });
+    expect(result.current.pairingPending).toBe(false);
+  });
+
+  it("does not warn when every paired miner is recovery eligible", async () => {
+    mockPair.mockResolvedValue(create(PairResponseSchema));
+    const { result } = renderHook(() => useMinerPairing());
+
+    await act(async () => {
+      await result.current.pair({ pairRequest: create(PairRequestSchema), onSuccess: vi.fn() });
+    });
+
+    expect(mockPushToast).not.toHaveBeenCalled();
   });
 });
