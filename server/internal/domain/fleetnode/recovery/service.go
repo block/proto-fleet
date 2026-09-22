@@ -3,9 +3,11 @@ package recovery
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -24,15 +26,13 @@ import (
 const (
 	maxTargetsPerCommand  = 512
 	maxEncodedRequest     = 900 * 1024
-	maxTargetsPerCycle    = 4096
 	recoveryOutcomePrefix = "MINER_ENDPOINT_RECOVERY_OUTCOME_"
 )
 
 var commandTimeout = 12 * time.Minute
 
 type Store interface {
-	GetOfflineFleetNodeDevices(ctx context.Context, limit int) ([]stores.FleetNodeRecoveryTarget, error)
-	MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIDs []int64) error
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]stores.FleetNodeRecoveryTarget, error)
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget) (bool, error)
 }
@@ -55,14 +55,25 @@ type Service struct {
 	invalidator MinerInvalidator
 	metrics     MetricsEmitter
 	logger      *slog.Logger
+	cursorMu    sync.Mutex
+	// Recovery writes are guarded and idempotent, so restarting from the oldest
+	// target is preferable to persisting scheduler-only state.
+	nextTarget map[int64]string
 }
 
 func NewService(store Store, sender Sender, invalidator MinerInvalidator, emitter MetricsEmitter, logger *slog.Logger) *Service {
-	return &Service{store: store, sender: sender, invalidator: invalidator, metrics: emitter, logger: logger.With("component", "fleet_node_ip_recovery")}
+	return &Service{
+		store:       store,
+		sender:      sender,
+		invalidator: invalidator,
+		metrics:     emitter,
+		logger:      logger.With("component", "fleet_node_ip_recovery"),
+		nextTarget:  make(map[int64]string),
+	}
 }
 
 func (s *Service) RunCycle(ctx context.Context) {
-	targets, err := s.store.GetOfflineFleetNodeDevices(ctx, maxTargetsPerCycle)
+	targets, err := s.store.GetOfflineFleetNodeDevices(ctx)
 	if err != nil {
 		s.logger.Error("listing offline Fleet Node miners", "error", err)
 		return
@@ -71,43 +82,60 @@ func (s *Service) RunCycle(ctx context.Context) {
 	for _, target := range targets {
 		byNode[target.FleetNodeID] = append(byNode[target.FleetNodeID], target)
 	}
-	nodeIDs := make([]int64, 0, len(byNode))
-	for nodeID := range byNode {
-		nodeIDs = append(nodeIDs, nodeID)
-	}
-	slices.Sort(nodeIDs)
+	nodeIDs := slices.Sorted(maps.Keys(byNode))
 	for _, nodeID := range nodeIDs {
-		selected, payload := selectTargets(byNode[nodeID])
+		selected, payload := s.selectTargets(nodeID, byNode[nodeID])
 		if len(selected) == 0 {
 			s.logger.Warn("Fleet Node recovery targets exceed command limits", "fleet_node_id", nodeID, "available", len(byNode[nodeID]))
-			continue
-		}
-		deviceIDs := make([]int64, len(selected))
-		for i, target := range selected {
-			deviceIDs[i] = target.DeviceID
-		}
-		if err := s.store.MarkFleetNodeRecoveryDispatched(ctx, deviceIDs); err != nil {
-			s.logger.Error("marking Fleet Node recovery targets dispatched", "fleet_node_id", nodeID, "targets", len(selected), "error", err)
 			continue
 		}
 		s.runNode(ctx, nodeID, selected, payload)
 	}
 }
 
-func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
+func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
+
+	start := slices.IndexFunc(targets, func(target stores.FleetNodeRecoveryTarget) bool {
+		return target.DeviceIdentifier == s.nextTarget[nodeID]
+	})
+	if start > 0 {
+		rotated := make([]stores.FleetNodeRecoveryTarget, 0, len(targets))
+		rotated = append(rotated, targets[start:]...)
+		targets = append(rotated, targets[:start]...)
+	}
+	selected, payload, next := selectTargets(targets)
+	// Advance before network I/O so a timeout cannot monopolize the next cycle.
+	if next == "" {
+		delete(s.nextTarget, nodeID)
+	} else {
+		s.nextTarget[nodeID] = next
+	}
+	return selected, payload
+}
+
+func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte, string) {
 	selected := make([]stores.FleetNodeRecoveryTarget, 0, min(len(targets), maxTargetsPerCommand))
 	descriptors := make([]*gatewaypb.MinerConnectionDescriptor, 0, cap(selected))
 	scanPorts := make([]string, 0, discoverylimits.MaxPortsPerIP)
 	seenPorts := make(map[string]struct{}, discoverylimits.MaxPortsPerIP)
+	var nextTarget string
 	command := &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_RecoverMinerEndpoints{
 		RecoverMinerEndpoints: &gatewaypb.RecoverMinerEndpointsRequest{Targets: descriptors, ScanPorts: scanPorts},
 	}}
 	for _, target := range targets {
 		if len(selected) == maxTargetsPerCommand {
+			if nextTarget == "" {
+				nextTarget = target.DeviceIdentifier
+			}
 			break
 		}
 		_, seenPort := seenPorts[target.LastKnownPort]
 		if !seenPort && len(scanPorts) == discoverylimits.MaxPortsPerIP {
+			if nextTarget == "" {
+				nextTarget = target.DeviceIdentifier
+			}
 			continue
 		}
 		descriptor := descriptorFromTarget(target)
@@ -126,18 +154,21 @@ func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNode
 			}
 			command.GetRecoverMinerEndpoints().Targets = descriptors
 			command.GetRecoverMinerEndpoints().ScanPorts = scanPorts
+			if nextTarget == "" {
+				nextTarget = target.DeviceIdentifier
+			}
 			break
 		}
 		selected = append(selected, target)
 	}
 	if len(selected) == 0 {
-		return nil, nil
+		return nil, nil, nextTarget
 	}
 	payload, err := proto.Marshal(command)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nextTarget
 	}
-	return selected, payload
+	return selected, payload, nextTarget
 }
 
 func descriptorFromTarget(target stores.FleetNodeRecoveryTarget) *gatewaypb.MinerConnectionDescriptor {

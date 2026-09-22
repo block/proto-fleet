@@ -761,10 +761,10 @@ type Querier interface {
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
-	// Oldest-offline first so a bounded recovery cycle makes progress without
-	// starving miners that have been unreachable longest. Credentials remain the
-	// Fleet Node-encrypted blobs stored during pairing.
-	GetOfflineFleetNodeDevices(ctx context.Context, limit int32) ([]GetOfflineFleetNodeDevicesRow, error)
+	// Stable oldest-offline ordering lets the recovery service rotate bounded
+	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
+	// blobs stored during pairing.
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error)
 	// Finds an open error (closed_at IS NULL) matching the deduplication key.
 	// Used to determine if an upsert should update an existing error or insert a new one.
 	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
@@ -1565,9 +1565,6 @@ type Querier interface {
 	// Latches convergence for miners that meet every criterion this tick, so the
 	// phase change is a rollout change under the revision rule.
 	MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error
-	// Advance selected targets before dispatch so an unreachable or unresolved
-	// batch cannot monopolize every later recovery cycle.
-	MarkFleetNodeRecoveryDispatched(ctx context.Context, deviceIds []int64) error
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)

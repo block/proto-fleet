@@ -665,12 +665,11 @@ ORDER BY ds.status_timestamp DESC
 LIMIT $1;
 
 -- name: GetOfflineFleetNodeDevices :many
--- Oldest-offline first so a bounded recovery cycle makes progress without
--- starving miners that have been unreachable longest. Credentials remain the
--- Fleet Node-encrypted blobs stored during pairing.
+-- Stable oldest-offline ordering lets the recovery service rotate bounded
+-- per-node batches in memory. Credentials remain the Fleet Node-encrypted
+-- blobs stored during pairing.
 SELECT
     fnd.fleet_node_id,
-    d.id AS device_id,
     d.device_identifier,
     d.org_id,
     d.serial_number,
@@ -696,17 +695,8 @@ WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
   AND (BTRIM(COALESCE(d.serial_number, '')) != '' OR BTRIM(COALESCE(d.mac_address, '')) != '')
-ORDER BY ds.ip_recovery_last_dispatched_at ASC NULLS FIRST,
-         ds.status_timestamp ASC,
-         d.id ASC
-LIMIT $1;
-
--- name: MarkFleetNodeRecoveryDispatched :exec
--- Advance selected targets before dispatch so an unreachable or unresolved
--- batch cannot monopolize every later recovery cycle.
-UPDATE device_status
-SET ip_recovery_last_dispatched_at = CURRENT_TIMESTAMP
-WHERE device_id = ANY(sqlc.arg('device_ids')::BIGINT[]);
+ORDER BY ds.status_timestamp ASC,
+         d.id ASC;
 
 -- name: ApplyFleetNodeRecoveredEndpoint :one
 -- The ownership/pairing/offline predicates are repeated at write time so a
