@@ -16,6 +16,7 @@ import {
 import { useActiveAlertsPillData } from "@/protoFleet/components/PageHeader/useActiveAlertsPillData";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator";
+import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
@@ -43,6 +44,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const fleetNodeUpgradePill = useFleetNodeUpgradeIndicator({ enabled: !hideShellHeader });
   // Same deal for the active-alert poll: no header, no pill to feed.
   const activeAlertsPillData = useActiveAlertsPillData({ enabled: !hideShellHeader });
+  const rolloutPillData = useRolloutPillData({ enabled: !hideShellHeader });
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
@@ -54,6 +56,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
     hasVisibleFleetNodeUpgradePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
+    hasVisibleRolloutPill: rolloutPillData.hasVisiblePill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
@@ -109,6 +112,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
             fleetNodeUpgradePill={fleetNodeUpgradePill}
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}
+            rolloutPillData={rolloutPillData}
             schedulePillData={schedulePillData}
             updatePill={updatePill}
           />

@@ -343,7 +343,7 @@ type ListEffectivePermissionsForUserRow struct {
 // liveness rule the last-SUPER_ADMIN guards below already enforce.
 //
 // The resolver walks this slice to evaluate Has(key, ResourceContext)
-// with the plan's narrowing rule: site-scope assignment overrides the
+// with this narrowing rule: site-scope assignment overrides the
 // org grant at that site; site-scope absence falls back to org-scope.
 func (q *Queries) ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error) {
 	rows, err := q.query(ctx, q.listEffectivePermissionsForUserStmt, listEffectivePermissionsForUser, arg.UserID, arg.OrganizationID)

@@ -4,7 +4,6 @@ import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   type MetricComparison,
   type RolloutDeviceCounts as PbRolloutDeviceCounts,
-  type ReleaseChannelModelGroup,
   type Rollout,
   type RolloutBehavior,
   RolloutCancelReason,
@@ -17,6 +16,11 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type {
+  ChannelView,
+  ChannelModelGroupView as ReleaseChannelModelGroup,
+} from "@/protoFleet/api/useReleaseChannels";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -340,6 +344,19 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
   return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
 }
 
+// "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
+// banners and the header pill.
+export function activeUpdateSummary(rollout: Rollout): string {
+  const counts = rolloutDeviceCounts(rollout);
+  const failed = failedCount(rollout);
+  const parts = [`${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} miners updated`];
+  if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
+  if (counts.skipped > 0) parts.push(`${counts.skipped.toLocaleString()} skipped`);
+  if (counts.excluded > 0) parts.push(`${counts.excluded.toLocaleString()} excluded`);
+  if (isPaused(rollout) || isAwaitingReview(rollout) || isBatchStage(rollout)) parts.push(rolloutStageLabel(rollout));
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // Channel and model status
 // ---------------------------------------------------------------------------
@@ -383,6 +400,29 @@ export interface UpdateStatus {
   tone: UpdateTone;
 }
 
+// An unavailable upload does not clear the checksum-backed assignment. Use
+// the server's availability hint rather than a separately fetched file catalog.
+export const hasUnavailableAssignedFirmware = (group: ReleaseChannelModelGroup): boolean =>
+  !group.rollbackPending && group.firmwareChecksum !== "" && !group.firmwareAvailable;
+
+// Summary and model-group pages are separate reads. The group's active ID is
+// authoritative; another active rollout for its pair may belong to an older scan.
+export function activeRolloutForGroup(
+  channelId: bigint,
+  group: ReleaseChannelModelGroup,
+  rolloutsById: ReadonlyMap<bigint, Rollout>,
+): Rollout | undefined {
+  const rollout = group.activeRolloutId > 0n ? rolloutsById.get(group.activeRolloutId) : undefined;
+  return rollout &&
+    !group.rollbackPending &&
+    isActive(rollout) &&
+    rollout.channelId === channelId &&
+    rollout.assignmentGeneration === group.assignmentGeneration &&
+    pairKey(rollout) === pairKey(group)
+    ? rollout
+    : undefined;
+}
+
 const shortDate = (timestamp?: Timestamp): string =>
   timestamp
     ? new Date(timestampMs(timestamp)).toLocaleDateString(undefined, {
@@ -400,6 +440,8 @@ export function modelUpdateStatus(
   activeRollout: Rollout | undefined,
   lastFinished: Rollout | undefined,
 ): UpdateStatus {
+  if (group.rollbackPending) return { label: "Rollback saved; refreshing assignment", tone: "none" };
+  if (hasUnavailableAssignedFirmware(group)) return { label: "Assigned firmware unavailable", tone: "attention" };
   if (activeRollout) {
     const counts = scopeCounts(activeRollout);
     const progress = `${counts.updated} of ${counts.total}`;
@@ -424,15 +466,17 @@ export function modelUpdateStatus(
       tone: "active",
     };
   }
+  if (group.activeRolloutId > 0n) return { label: "Refreshing update status", tone: "active" };
   if (group.firmwareVersion === "") return { label: "No firmware assigned", tone: "none" };
   if (group.minerCount === 0) return { label: "No miners", tone: "none" };
   const onTarget = group.onTargetCount;
-  if (lastFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
-    const failed = failedCount(lastFinished);
+  const currentFinished = lastFinished?.assignmentGeneration === group.assignmentGeneration ? lastFinished : undefined;
+  if (currentFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
+    const failed = failedCount(currentFinished);
     if (failed > 0) return { label: `${failed} failed to update`, tone: "attention" };
   }
   if (onTarget === group.minerCount) {
-    const finished = lastFinished?.finishedAt ? shortDate(lastFinished.finishedAt) : "";
+    const finished = currentFinished?.finishedAt ? shortDate(currentFinished.finishedAt) : "";
     return { label: finished ? `Updated ${finished}` : "Up to date", tone: "completed" };
   }
   return { label: `${onTarget} of ${group.minerCount} on target`, tone: "none" };
@@ -451,7 +495,104 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
 
 // "current → target" while miners converge on the assignment, or just the
 // assigned version once every miner reports it.
+// A manufacturer/model pair as the UI names it: the observed identity with
+// unknown halves left out.
+export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
+  `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// Device identifiers can also be names inherited from Object.prototype.
+export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<string, string>>): string =>
+  Object.prototype.hasOwnProperty.call(names, deviceIdentifier)
+    ? names[deviceIdentifier] || deviceIdentifier
+    : deviceIdentifier;
+
+// Key joining a model group to the rollouts and assignments of its pair:
+// trimmed and ASCII-folded like the server, so the observed "proto Rig"
+// meets the canonical "Proto Rig". Unknown identities never match anything.
+export const pairKey = (pair: { manufacturer: string; model: string }): string =>
+  minerTargetKey(pair.manufacturer, pair.model) ?? JSON.stringify(["unknown", pair.manufacturer, pair.model]);
+
+// Finished outcomes belong to one assignment, even when the same artifact
+// is selected again later. Raw model variants still share its canonical key.
+export const assignmentKey = (pair: { manufacturer: string; model: string; assignmentGeneration: bigint }): string =>
+  JSON.stringify([pairKey(pair), pair.assignmentGeneration.toString()]);
+
+export const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout): string =>
+  `${channelId.toString()}:${assignmentKey(pair)}`;
+
+// Completion history follows finish time, independently of creation order.
+// Canceled runs do not replace an assignment's completed outcome.
+export function lastFinishedByChannelAssignment(rollouts: Rollout[]): Map<string, Rollout> {
+  const latest = new Map<string, Rollout>();
+  for (const rollout of rollouts) {
+    const finished =
+      rollout.status === RolloutStatus.COMPLETED || rollout.status === RolloutStatus.COMPLETED_WITH_FAILURES;
+    if (!finished || !rollout.finishedAt) continue;
+    const key = channelAssignmentKey(rollout.channelId, rollout);
+    const current = latest.get(key);
+    if (!current?.finishedAt || timestampMs(rollout.finishedAt) > timestampMs(current.finishedAt)) {
+      latest.set(key, rollout);
+    }
+  }
+  return latest;
+}
+
+// The current assignment generation of a rollout's pair, from the polled
+// channels; undefined when the channel or group is not known (yet).
+export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigint | undefined {
+  const channel = channels.find((c) => c.id === rollout.channelId);
+  const key = pairKey(rollout);
+  const group = channel?.modelGroups.find((group) => pairKey(group) === key);
+  return group?.rollbackPending ? undefined : group?.assignmentGeneration;
+}
+
+// Retry covers every suppressed member of the pair's assignment generation,
+// including failed, skipped or canceled work in earlier rollouts. This run's
+// counts cannot tell whether that set is empty; the server safely does nothing
+// when it is. Active retries reuse the rollout. A finished retry starts a new
+// one, so its assignment must still be current and its pair must have no active run.
+export function canRetryRemaining(rollout: Rollout, channels: ChannelView[], rollouts: Rollout[]): boolean {
+  if (isActive(rollout)) return true;
+  const canceledRemaining =
+    rollout.status === RolloutStatus.CANCELED && rollout.cancelReason === RolloutCancelReason.CANCELED_REMAINING;
+  if (
+    rollout.status !== RolloutStatus.COMPLETED &&
+    rollout.status !== RolloutStatus.COMPLETED_WITH_FAILURES &&
+    !canceledRemaining
+  ) {
+    return false;
+  }
+  const key = pairKey(rollout);
+  const channel = channels.find((candidate) => candidate.id === rollout.channelId);
+  const group = channel?.modelGroups.find((candidate) => pairKey(candidate) === key);
+  return (
+    group !== undefined &&
+    !group.rollbackPending &&
+    group.assignmentGeneration === rollout.assignmentGeneration &&
+    group.firmwareChecksum !== "" &&
+    group.firmwareChecksum === rollout.firmwareChecksum &&
+    group.activeRolloutId === 0n &&
+    !rollouts.some(
+      (candidate) => isActive(candidate) && candidate.channelId === rollout.channelId && pairKey(candidate) === key,
+    )
+  );
+}
+
+// Rollback reverses a rollout's assignment lineage while the rollout is
+// current: its generation is the pair's current one. An empty lineage
+// clears the assignment; a nonempty one restores the previous version.
+export function canRollBack(rollout: Rollout, currentGeneration: bigint | undefined): boolean {
+  return currentGeneration !== undefined && rollout.assignmentGeneration === currentGeneration;
+}
+
+export function rollbackLabel(rollout: Rollout): string {
+  return rollout.previousFirmwareVersion === ""
+    ? "Roll back and clear firmware"
+    : `Roll back to ${rollout.previousFirmwareVersion}`;
+}
+
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
+  if (group.rollbackPending) return "Refreshing assignment";
   if (group.firmwareVersion === "") return "—";
   const behind = group.reportedVersions.filter((version) => version !== group.firmwareVersion);
   if (behind.length === 0) return group.firmwareVersion;

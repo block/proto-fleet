@@ -82,6 +82,7 @@
       }
     ],
     "deny_paths": [
+      ".agents/**",
       ".claude/**",
       ".gitattributes",
       ".github/**",

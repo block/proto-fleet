@@ -83,6 +83,7 @@ const Popover = ({
   titleSize = "text-heading-200",
   closePopover,
   closeIgnoreSelectors = [],
+  closeShouldIgnore,
   freezePosition = false,
   disableAutoFlip = false,
   constrainHeightToViewport = false,
@@ -117,6 +118,7 @@ const Popover = ({
       titleSize={titleSize}
       closePopover={closePopover}
       closeIgnoreSelectors={closeIgnoreSelectors}
+      closeShouldIgnore={closeShouldIgnore}
       testId={contentTestId}
     />
   );

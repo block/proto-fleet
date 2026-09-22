@@ -618,7 +618,7 @@ type assignDevicesToSiteTx struct {
 
 // AssignDevicesToSite enforces the cross-collection invariant and,
 // on success, bulk-updates device.site_id for every identifier in one
-// transaction. Per the plan, the entire batch rejects if *any* device
+// transaction. The entire batch rejects if *any* device
 // fails the check; no partial writes. The conflict check and the
 // UPDATE run inside the same row-locked transaction so a concurrent
 // assign can't slip between them.

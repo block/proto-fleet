@@ -117,6 +117,41 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Updated power target: 0/9 miners completed");
   });
 
+  it.each([
+    ["rollout_started", "Started firmware update"],
+    ["rollout_review_ready", "Firmware update ready for review"],
+    ["rollout_continued", "Continued firmware update"],
+    ["rollout_paused", "Paused firmware update"],
+    ["rollout_resumed", "Resumed firmware update"],
+    ["rollout_canceled", "Canceled remaining firmware updates"],
+    ["rollout_completed", "Completed firmware update"],
+    ["rollout_completed_with_failures", "Completed firmware update with failures"],
+    ["rollout_retried", "Retried failed firmware updates"],
+  ])("preserves indexed %s descriptions without requiring metadata", (eventType, label) => {
+    const description = `${label}: Canary Proto Rig → 2.0.0`;
+    const entry = create(ActivityEntrySchema, { eventType, description });
+
+    expect(formatActivityDescription(entry)).toBe(description);
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
+  });
+
+  it("preserves cleanup-like words in rollout target names and firmware versions", () => {
+    const description =
+      "Retried failed firmware updates: Failed devices (id=42) Device device(s) → force-cleared-failed";
+    const entry = create(ActivityEntrySchema, {
+      eventType: "rollout_retried",
+      description,
+      metadata: {
+        channel_name: "Failed devices (id=42)",
+        manufacturer: "Device",
+        model: "device(s)",
+        firmware_version: "force-cleared-failed",
+      },
+    });
+
+    expect(formatActivityDescription(entry)).toBe(description);
+  });
+
   it("cleans fallback descriptions without changing backend values", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "future_event",

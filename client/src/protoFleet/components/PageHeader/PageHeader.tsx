@@ -12,9 +12,11 @@ import {
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "./headerWidgetLayout";
+import RolloutPill from "./RolloutPill";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseActiveAlertsPillDataResult } from "./useActiveAlertsPillData";
+import type { UseRolloutPillDataResult } from "./useRolloutPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
@@ -34,6 +36,7 @@ interface PageHeaderProps {
   fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
+  rolloutPillData?: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   updatePill?: UpdatePillData | null;
 }
@@ -58,6 +61,7 @@ interface HeaderWidgetsProps {
   fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   onContinueSetup: () => void;
   onSelectAlertGroup: (group: ActiveAlertGroup) => void;
+  rolloutPillData: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   stacked?: boolean;
   testId?: string;
@@ -72,7 +76,11 @@ const noActiveAlerts: UseActiveAlertsPillDataResult = {
   hasMore: false,
   hasVisiblePill: false,
 };
-type HeaderWidgetKind = "alerts" | "fleetNodeUpgrade" | "curtailment" | "schedule" | "update" | "setup";
+const noActiveRollouts: UseRolloutPillDataResult = {
+  activeRollouts: [],
+  hasVisiblePill: false,
+};
+type HeaderWidgetKind = "alerts" | "fleetNodeUpgrade" | "curtailment" | "schedule" | "rollout" | "update" | "setup";
 
 function HeaderWidgets({
   activeAlertsPillData,
@@ -84,6 +92,7 @@ function HeaderWidgets({
   fleetNodeUpgradePill,
   onContinueSetup,
   onSelectAlertGroup,
+  rolloutPillData,
   schedulePillData,
   stacked = false,
   testId,
@@ -152,6 +161,10 @@ function HeaderWidgets({
                 onToggleScheduleStatus={onToggleScheduleStatus}
               />
             ) : null;
+          case "rollout":
+            return rolloutPillData.hasVisiblePill ? (
+              <RolloutPill key={widget} rollouts={rolloutPillData.activeRollouts} />
+            ) : null;
           case "update":
             return updatePill ? (
               <Button
@@ -191,6 +204,7 @@ function PageHeader({
   fleetNodeUpgradePill = null,
   isMenuOpen,
   openMenu,
+  rolloutPillData = noActiveRollouts,
   schedulePillData,
   updatePill = null,
 }: PageHeaderProps): ReactElement {
@@ -228,6 +242,7 @@ function PageHeader({
     fleetNodeUpgradePill,
     onContinueSetup: handleCompleteSetup,
     onSelectAlertGroup: setDrilledInAlertGroup,
+    rolloutPillData,
     schedulePillData,
     updatePill,
   };
@@ -240,6 +255,7 @@ function PageHeader({
     ...(hasVisibleFleetNodeUpgradePill ? (["fleetNodeUpgrade"] as const) : []),
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
+    ...(rolloutPillData.hasVisiblePill ? (["rollout"] as const) : []),
     ...(hasVisibleUpdatePill ? (["update"] as const) : []),
     ...(hasDismissedSetup ? (["setup"] as const) : []),
   ];
@@ -249,6 +265,7 @@ function PageHeader({
     hasVisibleFleetNodeUpgradePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
+    hasVisibleRolloutPill: rolloutPillData.hasVisiblePill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);

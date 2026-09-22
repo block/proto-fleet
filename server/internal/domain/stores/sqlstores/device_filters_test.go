@@ -490,7 +490,7 @@ func TestAppendFilterSQL_UnassignedRackBucket_NoRackBranchNotGated(t *testing.T)
 }
 
 // TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos
-// of site_ids + include_unassigned (plan §"device/" filter notes).
+// of site_ids + include_unassigned.
 func TestBuildMinerFilterParams_SiteFilter(t *testing.T) {
 	t.Run("specific sites only", func(t *testing.T) {
 		fp := buildMinerFilterParams(&stores.MinerFilter{SiteIDs: []int64{1, 2}})

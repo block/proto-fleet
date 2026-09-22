@@ -72,14 +72,29 @@ The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ru
 
 ### Pre-Push Checks
 
-The pre-push hooks also run repository checks before a branch can be pushed:
+The pre-push hook runs checks selected from committed, staged, unstaged, and
+untracked files. It always checks diff whitespace, then routes affected paths to:
 
-- `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
-- `server`: `golangci-lint run -c .golangci.yaml`
-- `plugin/proto`: `golangci-lint run -c .golangci.yaml`
-- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
+- Protobuf linting
+- Client linting and TypeScript typechecking
+- Server linting
+- Proto plugin linting
+- Antminer plugin linting
+- Developer-workflow configuration and shared-agent-skill parity tests
 
 ## Git Workflow
+
+### Planning and Documentation
+
+Keep implementation plans, TDDs, PRDs, and task scratchpads out of Git.
+Use issue/PR discussions, external documents, or ignored local
+`docs/plans/` files for planning. Commit maintained documentation that describes
+the current system, such as architecture, API behavior, runbooks, and reusable
+development guidance. When work ships, update those documents with the lasting
+decisions and behavior.
+
+RFCs remain committed under `docs/rfcs/` using the existing
+[RFC process and template](docs/rfcs/README.md).
 
 ### Branch Naming
 
@@ -112,33 +127,11 @@ Prefixes:
 
 ### Pull Requests
 
-Write the description so a reviewer can judge the architecture and technical
-decisions without reading the low-level code. Start with the reviewable line
-diff, then use the remaining structure
-documented in the **PR descriptions** section of [AGENTS.md](./AGENTS.md):
-Reviewable diff, Summary, How it works, Diagrams (mermaid, so they render on
-GitHub), Areas of the code involved, Key technical decisions & trade-offs, and
-Testing & validation. Scale each section to the change — a one-line fix does
-not need a diagram, a new subsystem does.
-
-```bash
-gh pr create --title "Brief description" --body "Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).
-
-## Summary
-- What this delivers and why
-
-## How it works
-- The end-to-end mechanism in plain language
-
-## Areas of the code involved
-| Area / file | What changed | Why it matters for review |
-| --- | --- | --- |
-
-## Testing & validation
-- What was run and how to verify; what is not covered"
-```
-
-Claude Code users can generate a conforming description with `/pr-describe`.
+Follow the [PR description standard](docs/development/pr-descriptions.md),
+including the reviewable diff, architecture, diagrams, and validation evidence.
+Scale the detail to the change while retaining the required structure.
+Claude Code users can generate a conforming description with `/pr-describe`;
+Codex users can run the same shared skill with `$pr-describe`.
 
 ## Cross-Component Workflows
 

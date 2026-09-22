@@ -24,6 +24,7 @@ const PopoverContent = ({
   closePopover,
   titleSize = "text-heading-200",
   closeIgnoreSelectors,
+  closeShouldIgnore,
 }: PopoverContentProps) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const { triggerRef, renderMode } = usePopover();
@@ -32,6 +33,7 @@ const PopoverContent = ({
     ref: popoverRef,
     onClickOutside: closePopover ?? (() => {}),
     ignoreSelectors: closeIgnoreSelectors,
+    shouldIgnore: closeShouldIgnore,
   });
   useEscapeDismiss(closePopover);
 

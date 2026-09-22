@@ -1115,7 +1115,7 @@ type Querier interface {
 	// liveness rule the last-SUPER_ADMIN guards below already enforce.
 	//
 	// The resolver walks this slice to evaluate Has(key, ResourceContext)
-	// with the plan's narrowing rule: site-scope assignment overrides the
+	// with this narrowing rule: site-scope assignment overrides the
 	// org grant at that site; site-scope absence falls back to org-scope.
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
@@ -1790,7 +1790,7 @@ type Querier interface {
 	// no reason to retain its webhook URL / bearer.
 	SoftDeleteAlertChannel(ctx context.Context, arg SoftDeleteAlertChannelParams) (int64, error)
 	// Caller is expected to also unassign the building's racks in the same
-	// transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+	// transaction (cascade-unassign). RETURNING site_id lets the
 	// caller stamp the delete audit row with the site of the row actually deleted,
 	// race-free: a concurrent site move can't slip between a separate read and the
 	// delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
@@ -1831,7 +1831,7 @@ type Querier interface {
 	SoftDeleteRole(ctx context.Context, id int64) error
 	SoftDeleteSchedule(ctx context.Context, arg SoftDeleteScheduleParams) (int64, error)
 	// Caller is expected to also cascade-unassign attached devices/racks and
-	// soft-delete buildings in the same transaction (cascade — see plan J3).
+	// soft-delete buildings in the same transaction (cascade).
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
