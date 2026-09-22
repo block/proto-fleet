@@ -1,15 +1,25 @@
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import RolloutPill, { RELEASE_CHANNELS_PATH } from "./RolloutPill";
-import { type Rollout, RolloutState } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  RolloutBehaviorSchema,
+  RolloutDeviceCountsSchema,
+  RolloutMethod,
+  RolloutSchema,
+  RolloutStage,
+  RolloutState,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
   activeRigRollout,
   batchedRigRollout,
   gatedRigRollout,
   pausedRigRollout,
+  pilotBehavior,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannels.fixtures";
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -24,6 +34,18 @@ afterEach(() => {
 const triggerName = "View ongoing firmware updates";
 const secondActive = { ...activeRigRollout, id: 101n };
 const secondPaused = { ...pausedRigRollout, id: 102n };
+const waitingForController = create(RolloutSchema, {
+  ...activeRigRollout,
+  id: 103n,
+  state: RolloutState.WAITING_FOR_CONTROLLER,
+  behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }),
+  deviceCounts: create(RolloutDeviceCountsSchema, { done: 2, queued: 4 }),
+});
+const waitingWithFailures = create(RolloutSchema, {
+  ...waitingForController,
+  id: 104n,
+  deviceCounts: create(RolloutDeviceCountsSchema, { done: 2, queued: 3, failed: 1 }),
+});
 const pausedWithFailures = {
   ...batchedRigRollout,
   state: RolloutState.PAUSED,
@@ -60,6 +82,71 @@ describe("RolloutPill", () => {
     { rollouts: [pausedRigRollout], label: "Firmware update paused", pulses: false },
     { rollouts: [pausedRigRollout, secondPaused], label: "2 firmware updates paused", pulses: false },
     {
+      rollouts: [waitingForController],
+      label: "Firmware update waiting for controller",
+      pulses: false,
+    },
+    {
+      rollouts: [waitingForController, { ...waitingForController, id: 105n }],
+      label: "2 firmware updates waiting for controller",
+      pulses: false,
+    },
+    {
+      rollouts: [pausedRigRollout, waitingForController],
+      label: "1 firmware update paused, 1 waiting for controller",
+      pulses: false,
+    },
+    {
+      rollouts: [activeRigRollout, waitingForController],
+      label: "1 firmware update in progress, 1 waiting for controller",
+      pulses: true,
+    },
+    {
+      rollouts: [activeRigRollout, pausedRigRollout, waitingForController],
+      label: "1 firmware update in progress, 1 paused, 1 waiting for controller",
+      pulses: true,
+    },
+    {
+      rollouts: [waitingWithFailures],
+      label: "Firmware update needs attention",
+      pulses: false,
+    },
+    {
+      rollouts: [activeRigRollout, waitingForController, gatedRigRollout],
+      label: "Firmware update needs attention",
+      pulses: false,
+    },
+    {
+      rollouts: [
+        create(RolloutSchema, {
+          ...gatedRigRollout,
+          state: RolloutState.STABILIZING_TELEMETRY,
+          behavior: create(RolloutBehaviorSchema, {
+            ...pilotBehavior,
+            autoContinueOnHealthyTelemetry: true,
+          }),
+        }),
+      ],
+      label: "Firmware update in progress",
+      pulses: true,
+    },
+    {
+      rollouts: [
+        create(RolloutSchema, {
+          ...waitingForController,
+          state: RolloutState.IN_PROGRESS,
+          stage: RolloutStage.WAITING,
+          behavior: create(RolloutBehaviorSchema, {
+            method: RolloutMethod.BATCHED,
+            batchSize: 2,
+            waitBetweenBatchesSeconds: 60,
+          }),
+        }),
+      ],
+      label: "Firmware update in progress",
+      pulses: true,
+    },
+    {
       rollouts: [activeRigRollout, pausedRigRollout, secondPaused],
       label: "1 firmware update in progress, 2 paused",
       pulses: true,
@@ -85,6 +172,62 @@ describe("RolloutPill", () => {
     const trigger = screen.getByRole("button", { name: triggerName });
     expect(trigger).toHaveTextContent(label);
     expect(trigger.querySelector(".animate-pulse") !== null).toBe(pulses);
+  });
+
+  it("updates the indicator when a controller starts work and becomes idle again", () => {
+    const view = renderPill([waitingForController]);
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toHaveTextContent("Firmware update waiting for controller");
+    expect(trigger.querySelector(".animate-pulse")).toBeNull();
+
+    view.rerender(
+      <MemoryRouter>
+        <RolloutPill
+          rollouts={[
+            create(RolloutSchema, {
+              ...waitingForController,
+              state: RolloutState.IN_PROGRESS,
+              deviceCounts: create(RolloutDeviceCountsSchema, { done: 2, inProgress: 1, queued: 3 }),
+            }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    expect(trigger).toHaveTextContent("Firmware update in progress");
+    expect(trigger.querySelector(".animate-pulse")).not.toBeNull();
+
+    view.rerender(
+      <MemoryRouter>
+        <RolloutPill rollouts={[waitingForController]} />
+      </MemoryRouter>,
+    );
+    expect(trigger).toHaveTextContent("Firmware update waiting for controller");
+    expect(trigger.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it.each([waitingForController, waitingWithFailures])(
+    "shows the controller wait in rollout $id details",
+    (rollout) => {
+      renderPill([rollout]);
+      fireEvent.click(screen.getByRole("button", { name: triggerName }));
+
+      const entry = screen.getByTestId(`rollout-pill-entry-${rollout.id}`);
+      expect(within(entry).getByText("Waiting for controller")).toBeInTheDocument();
+    },
+  );
+
+  it("distinguishes manufacturers sharing the same channel, model and firmware version", () => {
+    const rollouts = [
+      { ...activeRigRollout, manufacturer: "Acme", model: "Rig" },
+      { ...activeRigRollout, id: 106n, manufacturer: "Other", model: "Rig" },
+    ];
+    renderPill(rollouts);
+    fireEvent.click(screen.getByRole("button", { name: triggerName }));
+
+    for (const rollout of rollouts) {
+      const entry = screen.getByTestId(`rollout-pill-entry-${rollout.id}`);
+      expect(within(entry).getByText(`${rollout.manufacturer} Rig → ${rollout.firmwareVersion}`)).toBeInTheDocument();
+    }
   });
 
   it("keeps a long desktop list and its navigation link inside a scrollable viewport-constrained surface", async () => {

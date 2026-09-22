@@ -2,11 +2,12 @@ import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
-import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { type Rollout, RolloutState } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
   activeUpdateSummary,
   isPaused,
   needsManualReview,
+  pairLabel,
   rolloutNeedsAttention,
   rolloutProgressColorMap,
   rolloutProgressSegments,
@@ -38,32 +39,40 @@ function focusKeyboardOpenedContent(content: HTMLDivElement | null) {
 
 // Trigger copy leads with what needs a human: an update parked at a review
 // gate or carrying failed miners outranks updates that are merely running.
-function triggerLabel(rollouts: Rollout[], attentionCount: number, pausedCount: number): string {
+function triggerLabel(rollouts: Rollout[], attentionCount: number, pausedCount: number, waitingCount: number): string {
   if (attentionCount === 1) return "Firmware update needs attention";
   if (attentionCount > 1) return `${attentionCount} firmware updates need attention`;
-  if (pausedCount === rollouts.length) {
-    return pausedCount === 1 ? "Firmware update paused" : `${pausedCount} firmware updates paused`;
-  }
-  if (pausedCount > 0) {
-    const runningCount = rollouts.length - pausedCount;
-    return `${runningCount} firmware ${runningCount === 1 ? "update" : "updates"} in progress, ${pausedCount} paused`;
-  }
-  return rollouts.length === 1 ? "Firmware update in progress" : `${rollouts.length} firmware updates in progress`;
+  const states = [
+    { count: rollouts.length - pausedCount - waitingCount, label: "in progress" },
+    { count: pausedCount, label: "paused" },
+    { count: waitingCount, label: "waiting for controller" },
+  ].filter(({ count }) => count > 0);
+  return states
+    .map(({ count, label }, index) => {
+      if (index > 0) return `${count} ${label}`;
+      const subject =
+        count === 1 && states.length === 1
+          ? "Firmware update"
+          : `${count} firmware ${count === 1 ? "update" : "updates"}`;
+      return `${subject} ${label}`;
+    })
+    .join(", ");
 }
 
 function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
   const attentionCount = rollouts.filter(rolloutNeedsAttention).length;
   const pausedCount = rollouts.filter(isPaused).length;
-  const isProgressing = attentionCount === 0 && pausedCount < rollouts.length;
+  const waitingCount = rollouts.filter((rollout) => rollout.state === RolloutState.WAITING_FOR_CONTROLLER).length;
+  const isProgressing = attentionCount === 0 && pausedCount + waitingCount < rollouts.length;
   return (
     <PageHeaderPopoverPill
       ariaLabel="View ongoing firmware updates"
       constrainHeightToViewport
-      // Solid while something waits on you, pulsing while the fleet is still
-      // being worked on.
+      // Solid while work waits on an operator or controller; pulse only for
+      // progressing work when nothing needs attention.
       dotClassName={isProgressing ? "animate-pulse bg-intent-warning-fill" : "bg-intent-warning-fill"}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={triggerLabel(rollouts, attentionCount, pausedCount)}
+      triggerLabel={triggerLabel(rollouts, attentionCount, pausedCount, waitingCount)}
     >
       {({ closePopover }) => (
         <div
@@ -85,7 +94,7 @@ function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
                 >
                   <div className="truncate text-heading-100 text-text-primary">{rollout.channelName}</div>
                   <div className="text-200 leading-snug text-text-primary-70">
-                    {`${rollout.model} → ${rollout.firmwareVersion}`}
+                    {`${pairLabel(rollout)} → ${rollout.firmwareVersion}`}
                   </div>
                   <div
                     className={
@@ -94,7 +103,9 @@ function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
                         : "text-200 leading-snug text-text-primary-70"
                     }
                   >
-                    {needsManualReview(rollout) || isPaused(rollout)
+                    {needsManualReview(rollout) ||
+                    isPaused(rollout) ||
+                    rollout.state === RolloutState.WAITING_FOR_CONTROLLER
                       ? rolloutStageLabel(rollout)
                       : activeUpdateSummary(rollout)}
                   </div>
