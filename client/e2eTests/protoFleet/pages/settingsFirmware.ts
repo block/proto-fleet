@@ -3,11 +3,17 @@ import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 import { ModalMinerSelectionList } from "./components/modalMinerSelectionList";
 
-type FirmwareUploadMetadata = {
+type FirmwareTarget = {
   manufacturer: string;
   model: string;
+};
+
+type FirmwareUploadMetadata = FirmwareTarget & {
   firmwareVersion: string;
 };
+
+const targetLabel = ({ manufacturer, model }: FirmwareTarget): string => `${manufacturer} ${model}`.trim();
+const exactText = (text: string): RegExp => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
 export class SettingsFirmwarePage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
@@ -20,7 +26,16 @@ export class SettingsFirmwarePage extends BasePage {
   // --- Release channels ---
 
   async openFilesTab() {
-    await this.page.getByRole("button", { name: "Files", exact: true }).click();
+    const [catalog] = await Promise.all([
+      this.page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith("/api/v1/firmware/files") && response.request().method() === "GET",
+      ),
+      this.page.getByRole("button", { name: "Files", exact: true }).click(),
+    ]);
+    // A failed catalog request also renders the empty state; it must not be
+    // accepted as evidence that cleanup has nothing to remove.
+    expect(catalog.ok(), `Firmware catalog request failed (${catalog.status()})`).toBe(true);
     await expect(this.page.getByRole("button", { name: "Upload firmware" })).toBeVisible();
   }
 
@@ -186,8 +201,13 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   // The expanded per-model row reports an ongoing update.
-  async validateModelRowUpdating(channelName: string, model: string) {
-    await expect(this.page.getByTestId(`model-status-${channelName}-${model}`)).toContainText("Updating");
+  async validateModelRowUpdating(channelName: string, target: FirmwareTarget) {
+    const row = this.page.getByTestId("list-row").filter({
+      has: this.page
+        .getByTestId(`model-row-${channelName}-${target.model}`)
+        .filter({ hasText: exactText(targetLabel(target)) }),
+    });
+    await expect(row.getByTestId(`model-status-${channelName}-${target.model}`)).toContainText("Updating");
   }
 
   // The channel row's status column reports this many active updates.
@@ -204,23 +224,23 @@ export class SettingsFirmwarePage extends BasePage {
     );
   }
 
-  activeUpdateRow(channelName: string, model: string): Locator {
+  activeUpdateRow(channelName: string, target: FirmwareTarget): Locator {
     return this.page.locator('[data-testid^="active-update-"]').filter({
-      hasText: `${channelName}, ${model} firmware update`,
+      has: this.page.getByText(`${channelName}, ${targetLabel(target)} firmware update`, { exact: true }),
     });
   }
 
-  async validateActiveUpdateRow(channelName: string, model: string) {
-    await expect(this.activeUpdateRow(channelName, model)).toBeVisible();
+  async validateActiveUpdateRow(channelName: string, target: FirmwareTarget) {
+    await expect(this.activeUpdateRow(channelName, target)).toBeVisible();
   }
 
   // Opens the detail of an active update, whichever action label the banner
   // currently carries ("View update" or "Review update").
-  async openActiveUpdate(channelName: string, model: string) {
-    await this.activeUpdateRow(channelName, model)
+  async openActiveUpdate(channelName: string, target: FirmwareTarget) {
+    await this.activeUpdateRow(channelName, target)
       .getByRole("button", { name: /^(View|Review) update$/ })
       .click();
-    await this.validateTitleInModal(`${channelName}, ${model} firmware update`);
+    await this.validateTitleInModal(`${channelName}, ${targetLabel(target)} firmware update`);
     await expect(this.page.getByTestId("modal").getByText("Update status", { exact: true })).toBeVisible();
   }
 
@@ -233,12 +253,21 @@ export class SettingsFirmwarePage extends BasePage {
     return this.page.getByTestId("modal");
   }
 
+  private modelGroupRow(channelName: string, target: FirmwareTarget): Locator {
+    return this.channelView(channelName)
+      .getByTestId(`model-group-${target.model}`)
+      .filter({
+        has: this.page.getByRole("cell", { name: targetLabel(target), exact: true }),
+      });
+  }
+
   // Opens the model group's miner table via its "View miners" button.
-  async openModelMiners(channelName: string, model: string) {
-    await this.channelView(channelName).getByTestId(`view-miners-${model}`).click();
-    await this.validateTitleInModal(`${model} miners`);
+  async openModelMiners(channelName: string, target: FirmwareTarget) {
+    await this.modelGroupRow(channelName, target).getByRole("button", { name: "View miners", exact: true }).click();
+    await this.validateTitleInModal(`${targetLabel(target)} miners`);
     // Members are fetched when the modal opens; rows appear once loaded.
     await expect(this.minersModal().getByTestId("channel-miners-loading")).toBeHidden();
+    await expect(this.minersModal().getByRole("alert")).toHaveCount(0);
   }
 
   async closeModelMiners() {
@@ -247,8 +276,8 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   // Display names of the model group's miners, in render order.
-  async getChannelMinerNames(channelName: string, model: string): Promise<string[]> {
-    await this.openModelMiners(channelName, model);
+  async getChannelMinerNames(channelName: string, target: FirmwareTarget): Promise<string[]> {
+    await this.openModelMiners(channelName, target);
     const rows = this.minersModal().locator('[data-testid^="channel-miner-"]');
     const count = await rows.count();
     const names: string[] = [];
@@ -259,21 +288,30 @@ export class SettingsFirmwarePage extends BasePage {
     return names;
   }
 
+  async getChannelMinerIdentifiers(channelName: string, target: FirmwareTarget): Promise<string[]> {
+    await this.openModelMiners(channelName, target);
+    const identifiers = await this.minersModal()
+      .locator('[data-testid^="channel-miner-"]')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid") ?? ""));
+    await this.closeModelMiners();
+    return identifiers;
+  }
+
   // The miners modal lists exactly the model group's miners.
-  async validateModelMinersCount(channelName: string, model: string, count: number) {
-    await this.openModelMiners(channelName, model);
+  async validateModelMinersCount(channelName: string, target: FirmwareTarget, count: number) {
+    await this.openModelMiners(channelName, target);
     await expect(this.minersModal().locator('[data-testid^="channel-miner-"]')).toHaveCount(count);
     await this.closeModelMiners();
   }
 
   // Number of the model group's miners currently reporting this version.
-  async countModelMinersOnVersion(channelName: string, model: string, version: string): Promise<number> {
-    await this.openModelMiners(channelName, model);
+  async countModelMinersOnVersion(channelName: string, target: FirmwareTarget, version: string): Promise<number> {
+    await this.openModelMiners(channelName, target);
     const rows = this.minersModal().locator('[data-testid^="channel-miner-"]');
     const count = await rows.count();
     let matches = 0;
     for (let i = 0; i < count; i++) {
-      if ((await rows.nth(i).innerText()).includes(version)) {
+      if ((await rows.nth(i).getByRole("cell").nth(1).innerText()).trim() === version) {
         matches += 1;
       }
     }
@@ -281,14 +319,21 @@ export class SettingsFirmwarePage extends BasePage {
     return matches;
   }
 
-  async selectChannelFirmware(channelName: string, model: string, optionLabel: string | RegExp) {
-    await this.channelView(channelName).getByTestId(`channel-firmware-select-${model}`).click();
+  async selectChannelFirmware(channelName: string, target: FirmwareTarget, optionLabel: string | RegExp) {
+    await this.modelGroupRow(channelName, target)
+      .getByRole("button", { name: `Firmware for ${targetLabel(target)}`, exact: true })
+      .click();
     await this.page.getByRole("option", { name: optionLabel }).click();
   }
 
   // The firmware picker of the model group shows this version.
-  async validateModelAssignedFirmware(channelName: string, model: string, version: string | RegExp) {
-    await expect(this.channelView(channelName).getByTestId(`channel-firmware-select-${model}`)).toContainText(version);
+  async validateModelAssignedFirmware(channelName: string, target: FirmwareTarget, version: string | RegExp) {
+    await expect(
+      this.modelGroupRow(channelName, target).getByRole("button", {
+        name: `Firmware for ${targetLabel(target)}`,
+        exact: true,
+      }),
+    ).toHaveText(version);
   }
 
   private applyDialog(): Locator {
@@ -395,6 +440,8 @@ export class SettingsFirmwarePage extends BasePage {
   async openChannelHistory(channelName: string) {
     await this.channelView(channelName).getByTestId("channel-history").click();
     await this.validateTitleInModal("Update history");
+    await expect(this.historyModal().getByText("Loading update history…", { exact: true })).toBeHidden();
+    await expect(this.historyModal().getByRole("alert")).toHaveCount(0);
   }
 
   async closeChannelHistory() {
@@ -402,12 +449,27 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.historyModal()).toBeHidden();
   }
 
-  // A history entry for this version carries the given outcome label.
-  async validateHistoryOutcome(channelName: string, version: string, outcome: string) {
+  private historyRowForVersion(version: string): Locator {
+    // History columns are Status, Manufacturer / model, Firmware. Actions
+    // can mention another version, so match only the Firmware cell. Rows
+    // are newest first; an older completed run cannot satisfy the latest run.
+    return this.historyModal()
+      .locator('[data-testid^="history-row-"]')
+      .filter({
+        has: this.page
+          .getByRole("cell")
+          .nth(2)
+          .filter({ hasText: exactText(version) }),
+      })
+      .first();
+  }
+
+  // The newest history entry for this version carries the exact outcome.
+  async validateHistoryOutcome(channelName: string, version: string, outcome: string, timeoutMs = DEFAULT_TIMEOUT) {
     await this.openChannelHistory(channelName);
-    await expect(
-      this.historyModal().locator("tr").filter({ hasText: version }).filter({ hasText: outcome }).first(),
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect(this.historyRowForVersion(version).getByRole("cell").nth(0)).toHaveText(outcome, {
+      timeout: timeoutMs,
+    });
     await this.closeChannelHistory();
   }
 
@@ -469,22 +531,77 @@ export class SettingsFirmwarePage extends BasePage {
   // The update is done when every miner in the model group reports the
   // target version (checked in the live "View miners" modal), the progress
   // bar clears, and the update shows up as completed in the channel's history.
-  async waitForChannelUpdateCompleted(channelName: string, model: string, version: string, timeoutMs: number) {
+  async waitForChannelUpdateCompleted(
+    channelName: string,
+    target: FirmwareTarget,
+    version: string,
+    expectedMinerCount: number,
+    timeoutMs: number,
+  ) {
+    expect(
+      Number.isInteger(expectedMinerCount) && expectedMinerCount > 0,
+      "Completion needs a positive expected miner count",
+    ).toBe(true);
     const view = this.channelView(channelName);
-    await this.openModelMiners(channelName, model);
+    await this.openModelMiners(channelName, target);
     const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
-    const rowCount = await minerRows.count();
-    for (let i = 0; i < rowCount; i++) {
-      await expect(minerRows.nth(i)).toContainText(version, { timeout: timeoutMs });
-    }
+    await expect(minerRows).toHaveCount(expectedMinerCount, { timeout: timeoutMs });
+    // Current firmware is the second column; names and status cannot stand
+    // in for a reported version, and the array assertion also fixes the count.
+    await expect(minerRows.locator("td:nth-child(2)")).toHaveText(Array(expectedMinerCount).fill(version), {
+      timeout: timeoutMs,
+    });
     await this.closeModelMiners();
     // Status flips on the next enforcement tick after the miners report in.
     await expect(view.getByText(`Updating to ${version}`)).toBeHidden({ timeout: timeoutMs });
-    await this.openChannelHistory(channelName);
-    await expect(
-      this.historyModal().locator("tr").filter({ hasText: "Completed" }).filter({ hasText: version }).first(),
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
-    await this.closeChannelHistory();
+    await this.validateHistoryOutcome(channelName, version, "Completed", timeoutMs);
+  }
+
+  // Observe fresh server-backed state across multiple 15-second enforcement
+  // ticks. Reloading also discards the manage view's cached channel history.
+  async validateCanceledUpdateStaysStable(
+    channelName: string,
+    target: FirmwareTarget,
+    targetVersion: string,
+    baseVersion: string,
+    expectedMinerIdentifiers: string[],
+    durationMs = 30_000,
+  ) {
+    expect(expectedMinerIdentifiers).toHaveLength(2);
+    expect(new Set(expectedMinerIdentifiers).size).toBe(2);
+    expect(targetVersion).not.toBe(baseVersion);
+    expect(durationMs).toBeGreaterThanOrEqual(30_000);
+    let startedAt: number | undefined;
+    do {
+      await this.page.reload();
+      await this.openReleaseChannelsTab();
+      await this.manageChannel(channelName);
+      await this.openChannelHistory(channelName);
+      const outcome = (await this.historyRowForVersion(targetVersion).getByRole("cell").nth(0).innerText()).trim();
+      await this.closeChannelHistory();
+      const updateState = {
+        assignment: (
+          await this.modelGroupRow(channelName, target)
+            .getByRole("button", { name: `Firmware for ${targetLabel(target)}`, exact: true })
+            .innerText()
+        ).trim(),
+        outcome,
+        activeUpdates: await this.activeUpdateRow(channelName, target).count(),
+      };
+      expect(updateState).toEqual({ assignment: targetVersion, outcome: "Canceled", activeUpdates: 0 });
+      await this.openModelMiners(channelName, target);
+      const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
+      const identifiers = await minerRows.evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-testid") ?? ""),
+      );
+      const versions = (await minerRows.locator("td:nth-child(2)").allTextContents()).map((version) => version.trim());
+      // These are immediate assertions, not a retrying polling callback:
+      // any observed restart or changed membership fails the scenario.
+      expect(identifiers.sort()).toEqual([...expectedMinerIdentifiers].sort());
+      expect(versions.sort()).toEqual([targetVersion, baseVersion].sort());
+      await this.closeModelMiners();
+      startedAt ??= performance.now();
+    } while (performance.now() - startedAt < durationMs);
   }
 
   // Deletes the channel from its open manage view. Deleting returns to the
@@ -499,11 +616,9 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async deleteChannelIfPresent(channelName: string) {
-    if (
-      await this.channelRow(channelName)
-        .isVisible()
-        .catch(() => false)
-    ) {
+    // The loaded empty state offers Create too, but has no channels table.
+    await expect(this.page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+    if (await this.channelRow(channelName).isVisible()) {
       await this.manageChannel(channelName);
       await this.deleteChannel(channelName);
     }
@@ -537,28 +652,55 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async validateFirmwareFileVisible(fileName: string) {
-    await expect(this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName })).toBeVisible();
+    await expect(this.firmwareFileRow(fileName)).toBeVisible();
+  }
+
+  private firmwareFileRow(fileName: string): Locator {
+    return this.page
+      .getByTestId("list-body")
+      .getByTestId("list-row")
+      .filter({
+        has: this.page.getByTestId("filename").filter({ hasText: exactText(fileName) }),
+      });
+  }
+
+  private async waitForFirmwareFilesLoaded() {
+    await expect(this.page.getByRole("button", { name: "Upload firmware", exact: true })).toBeVisible();
+    await expect(this.page.getByText("Loading firmware files...", { exact: true })).toBeHidden();
+    await expect(async () => {
+      const empty = await this.page.getByText("No firmware files uploaded", { exact: true }).isVisible();
+      const fileNames = await this.page.getByTestId("list-body").getByTestId("filename").count();
+      expect(empty || fileNames > 0).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
+  // Cleanup only the reserved names owned by the calling suite. Exact file
+  // cells keep version strings or similar filenames from selecting a peer.
+  async deleteFirmwareFilesWithPrefix(prefix: string) {
+    expect(prefix.trim().length, "Firmware cleanup requires a nonempty suite prefix").toBeGreaterThan(0);
+    await this.waitForFirmwareFilesLoaded();
+    const fileNames = await this.page.getByTestId("list-body").getByTestId("filename").allTextContents();
+    for (const fileName of fileNames.map((name) => name.trim()).filter((name) => name.startsWith(prefix))) {
+      await this.deleteFirmwareFileByName(fileName);
+    }
   }
 
   async deleteFirmwareFileByName(fileName: string) {
-    const row = this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName }).first();
+    await this.waitForFirmwareFilesLoaded();
+    const row = this.firmwareFileRow(fileName);
 
-    if (!(await row.isVisible().catch(() => false))) {
+    if (!(await row.isVisible())) {
       return;
     }
 
-    const directDeleteButton = row.getByRole("button", { name: "Delete", exact: true });
-    if (await directDeleteButton.isVisible().catch(() => false)) {
-      await directDeleteButton.click();
-    } else {
-      await row.getByTestId("overflow-menu-trigger").click();
-      await this.page.getByRole("button", { name: "Delete", exact: true }).click();
-    }
+    await row.getByRole("button", { name: "Row actions", exact: true }).click();
+    await this.page.getByRole("button", { name: "Delete", exact: true }).click();
 
     const dialog = this.page.getByTestId("delete-firmware-dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await this.waitForFirmwareFilesLoaded();
     await expect(row).toBeHidden();
   }
 
