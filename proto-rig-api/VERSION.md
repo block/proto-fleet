@@ -2,14 +2,15 @@
 
 ## Source
 - Repository: miner-firmware (private)
-  - Commit SHA: 89ef557cbec85ebe7aced9fc47d0bdfde744e913
-  - Commit Date: 2026-08-27
-  - Extraction Date: 2026-08-31
+  - Commit SHA: 43528f31b52379fc12356e88e9497a53a1e97ab6
+  - Commit Date: 2026-09-15
+  - Extraction Date: 2026-09-22
 
-This snapshot tracks the `proto-apps-1.8.5` source revision. The
-`POST /api/v1/system/update/check` contract drops its unreachable `400`,
-`422`, and `500` responses (the endpoint only returns `200`, `409`, or
-`401`), and JWT examples are replaced with a neutral placeholder string.
+This snapshot tracks the `proto-apps-1.9.0` source revision. The
+`UnlockResponse.lock-status` field uses a `LockStatus` enum with `OPEN`,
+`CLOSED`, `UNLOCKED`, `UNINITIALIZED`, and `UNKNOWN` states. Secure-boot
+documentation clarifies that the hardware lock state is independent of
+the effective secure override.
 
 ## Files Extracted
 
