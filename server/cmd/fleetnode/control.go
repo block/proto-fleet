@@ -30,6 +30,7 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
+	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
@@ -469,7 +470,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	case *pb.AgentCommand_Telemetry:
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	case *pb.AgentCommand_RecoverMinerEndpoints:
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "endpoint recovery is not supported by this Fleet Node build", logger)
+		r.handleRecoverMinerEndpoints(ctx, stream, commandID, k.RecoverMinerEndpoints, logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
@@ -616,9 +617,41 @@ func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string)
 // so a plugin Probe that ignores ctx can't pin the agent; truncated=true
 // lets the caller ack PARTIAL.
 func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
+	return fanOutEndpointWork(ctx, endpoints, concurrency, "probe", logger, func(probeCtx context.Context, e endpoint) (*pb.DiscoveredDeviceReport, bool) {
+		report, err := probe(probeCtx, e.ip, e.port)
+		if err != nil {
+			logger.Debug("probe failed", "ip", e.ip, "port", e.port, "err", err)
+			return nil, false
+		}
+		if report == nil || report.GetDeviceIdentifier() == "" {
+			return nil, false
+		}
+		// Plugins can return any IpAddress/Port in their DiscoveredDevice;
+		// a buggy or hostile plugin would otherwise let us upload a
+		// spoofed endpoint and poison the server's discovery state.
+		// Override with what we actually probed before validating.
+		report.IpAddress = e.ip
+		report.Port = e.port
+		// One device that violates the gateway's buf-validate rules
+		// (oversized model string, wrong url_scheme, etc.) would fail
+		// the whole ReportDiscoveredDevices batch server-side and lose
+		// every other device in it. Validate per-device here and drop
+		// the bad one instead.
+		if vErr := protovalidate.Validate(report); vErr != nil {
+			logger.Warn("dropping device report that fails gateway validation",
+				"ip", e.ip, "port", e.port,
+				"device_id", report.GetDeviceIdentifier(),
+				"err", vErr)
+			return nil, false
+		}
+		return report, true
+	})
+}
+
+func fanOutEndpointWork[E, T any](ctx context.Context, endpoints iter.Seq[E], concurrency int, noun string, logger *slog.Logger, work func(context.Context, E) (T, bool)) ([]T, bool) {
 	var (
 		mu      sync.Mutex
-		reports []*pb.DiscoveredDeviceReport
+		results []T
 		wg      sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
@@ -626,47 +659,25 @@ func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			out, _ := waitSupervisor(&wg, &mu, &reports, perProbeTimeout*2, "probe", logger)
+			out, _ := waitSupervisor(&wg, &mu, &results, perProbeTimeout*2, noun, logger)
 			return out, true
 		}
 		wg.Add(1)
-		go func(ip, port string) {
+		go func(e E) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
 			defer cancel()
-			report, err := probe(probeCtx, ip, port)
-			if err != nil {
-				logger.Debug("probe failed", "ip", ip, "port", port, "err", err)
-				return
-			}
-			if report == nil || report.GetDeviceIdentifier() == "" {
-				return
-			}
-			// Plugins can return any IpAddress/Port in their DiscoveredDevice;
-			// a buggy or hostile plugin would otherwise let us upload a
-			// spoofed endpoint and poison the server's discovery state.
-			// Override with what we actually probed before validating.
-			report.IpAddress = ip
-			report.Port = port
-			// One device that violates the gateway's buf-validate rules
-			// (oversized model string, wrong url_scheme, etc.) would fail
-			// the whole ReportDiscoveredDevices batch server-side and lose
-			// every other device in it. Validate per-device here and drop
-			// the bad one instead.
-			if vErr := protovalidate.Validate(report); vErr != nil {
-				logger.Warn("dropping device report that fails gateway validation",
-					"ip", ip, "port", port,
-					"device_id", report.GetDeviceIdentifier(),
-					"err", vErr)
+			result, ok := work(probeCtx, e)
+			if !ok {
 				return
 			}
 			mu.Lock()
-			reports = append(reports, report)
+			results = append(results, result)
 			mu.Unlock()
-		}(e.ip, e.port)
+		}(e)
 	}
-	return waitSupervisor(&wg, &mu, &reports, perProbeTimeout*2, "probe", logger)
+	return waitSupervisor(&wg, &mu, &results, perProbeTimeout*2, noun, logger)
 }
 
 // waitSupervisor caps wg.Wait at maxWait so a plugin call that ignores ctx can't
@@ -799,6 +810,17 @@ func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*
 		return nil, nil
 	}
 	return reportFromDiscovered(dev, ipAddress, port, p.fleetNodeID), nil
+}
+
+func (p *pluginDiscoverer) ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, error) {
+	dev, err := p.multi.Discover(ctx, ipAddress, port)
+	if err != nil {
+		return stableidentity.Identity{}, "", err
+	}
+	if dev == nil {
+		return stableidentity.Identity{}, "", nil
+	}
+	return stableidentity.New(dev.GetSerialNumber(), dev.GetMacAddress()), dev.GetUrlScheme(), nil
 }
 
 func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {

@@ -1,0 +1,319 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"iter"
+	"net/netip"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
+	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/sdk/v1/mocks"
+)
+
+type recoveryTestDiscoverer struct {
+	ports         []string
+	identities    map[string]stableidentity.Identity
+	schemes       map[string]string
+	probeRecovery func(context.Context, string, string) (stableidentity.Identity, string, error)
+}
+
+func (d *recoveryTestDiscoverer) Probe(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
+	return &pb.DiscoveredDeviceReport{DeviceIdentifier: "candidate", IpAddress: ip, Port: port, DriverName: "antminer", UrlScheme: d.schemes[ip+"|"+port]}, nil
+}
+
+func (d *recoveryTestDiscoverer) ProbeRecovery(ctx context.Context, ip, port string) (stableidentity.Identity, string, error) {
+	if d.probeRecovery != nil {
+		return d.probeRecovery(ctx, ip, port)
+	}
+	key := ip + "|" + port
+	return d.identities[key], d.schemes[key], nil
+}
+
+func (d *recoveryTestDiscoverer) DefaultDiscoveryPorts(context.Context) []string {
+	return d.ports
+}
+
+type recoveryTestSecrets struct {
+	bundles map[string]sdk.SecretBundle
+	errors  map[string]error
+}
+
+func (s recoveryTestSecrets) SecretBundle(target *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
+	if err := s.errors[target.GetDeviceIdentifier()]; err != nil {
+		return sdk.SecretBundle{}, err
+	}
+	return s.bundles[target.GetDeviceIdentifier()], nil
+}
+
+func (recoveryTestSecrets) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials, error) { return nil, nil }
+
+type recoveryTestDriverGetter struct{ driver sdk.Driver }
+
+func (g recoveryTestDriverGetter) GetDriverByDriverName(string) (sdk.Driver, error) {
+	return g.driver, nil
+}
+
+func recoveryTarget(id, serial, mac string) *pb.MinerConnectionDescriptor {
+	return &pb.MinerConnectionDescriptor{
+		DeviceIdentifier: id,
+		DriverName:       "antminer",
+		IpAddress:        "10.0.0.99",
+		Port:             "80",
+		UrlScheme:        "http",
+		SerialNumber:     serial,
+		MacAddress:       mac,
+	}
+}
+
+func recoveryRunCmd(t *testing.T, identities map[string]stableidentity.Identity, scanErr error, inspect func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error)) (*RunCmd, *atomic.Int32) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	driver := mocks.NewMockDriver(ctrl)
+	calls := &atomic.Int32{}
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(_ context.Context, _ string, endpoint sdk.DeviceInfo, bundle sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			calls.Add(1)
+			info, err := inspect(endpoint, bundle)
+			if err != nil {
+				return sdk.NewDeviceResult{}, err
+			}
+			device := mocks.NewMockDevice(ctrl)
+			device.EXPECT().DescribeDevice(gomock.Any()).Return(info, sdk.Capabilities{}, nil)
+			device.EXPECT().Close(gomock.Any()).Return(nil)
+			return sdk.NewDeviceResult{Device: device}, nil
+		})
+	discoverer := &recoveryTestDiscoverer{
+		ports:      []string{"80"},
+		identities: identities,
+		schemes:    map[string]string{"10.0.0.1|80": "http", "10.0.0.2|80": "http"},
+	}
+	r := &RunCmd{
+		discoverer:   discoverer,
+		driverGetter: recoveryTestDriverGetter{driver: driver},
+		minerSecrets: recoveryTestSecrets{bundles: map[string]sdk.SecretBundle{
+			"miner-1": {Kind: sdk.UsernamePassword{Username: "root", Password: "secret"}},
+			"miner-2": {Kind: sdk.UsernamePassword{Username: "root", Password: "secret"}},
+		}},
+		localSubnets: func() ([]string, error) { return []string{"10.0.0.0/30"}, nil },
+		scanner: scanFunc(func(_ context.Context, _ iter.Seq[netip.Addr], _ []uint16, emit func(netscan.HostResult) error) error {
+			for _, ip := range []string{"10.0.0.1", "10.0.0.2"} {
+				if err := emit(netscan.HostResult{Addr: netip.MustParseAddr(ip), OpenPorts: []uint16{80}}); err != nil {
+					return err
+				}
+			}
+			return scanErr
+		}),
+	}
+	return r, calls
+}
+
+func TestRecoverMinerEndpointsMatchesStableIdentityAndDeduplicatesCredentialProbes(t *testing.T) {
+	r, calls := recoveryRunCmd(t, nil, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		if endpoint.Host == "10.0.0.1" {
+			return sdk.DeviceInfo{SerialNumber: "SERIAL-1", MacAddress: "AA-BB-CC-DD-EE-01"}, nil
+		}
+		return sdk.DeviceInfo{SerialNumber: "SERIAL-2", MacAddress: "AA-BB-CC-DD-EE-02"}, nil
+	})
+	targets := []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+		recoveryTarget("miner-2", "", "aa:bb:cc:dd:ee:02"),
+	}
+
+	results, partial, err := r.recoverMinerEndpoints(t.Context(), targets, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.False(t, partial)
+	require.Len(t, results, 2)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, results[0].GetOutcome())
+	assert.Equal(t, "10.0.0.1", results[0].GetIpAddress())
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, results[1].GetOutcome())
+	assert.Equal(t, "10.0.0.2", results[1].GetIpAddress())
+	assert.EqualValues(t, 2, calls.Load(), "the shared credential should be tried once per endpoint")
+}
+
+func TestRecoverMinerEndpointsTriesDistinctCredentialsSeparately(t *testing.T) {
+	r, calls := recoveryRunCmd(t, nil, nil, func(_ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, nil
+	})
+	secrets, ok := r.minerSecrets.(recoveryTestSecrets)
+	require.True(t, ok)
+	secrets.bundles["miner-2"] = sdk.SecretBundle{Kind: sdk.UsernamePassword{Username: "root", Password: "different"}}
+	r.minerSecrets = secrets
+
+	_, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+		recoveryTarget("miner-2", "SERIAL-2", ""),
+	}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, calls.Load(), "distinct credentials must each be tested against every unidentified endpoint")
+}
+
+func TestRecoverMinerEndpointsDoesNotReuseInspectionAcrossSchemes(t *testing.T) {
+	r, calls := recoveryRunCmd(t, nil, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{SerialNumber: endpoint.URLScheme}, nil
+	})
+	discoverer, ok := r.discoverer.(*recoveryTestDiscoverer)
+	require.True(t, ok)
+	discoverer.schemes = nil
+	httpTarget := recoveryTarget("miner-1", "http", "")
+	httpsTarget := recoveryTarget("miner-2", "https", "")
+	httpsTarget.UrlScheme = "https"
+
+	_, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{httpTarget, httpsTarget}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, calls.Load(), "the effective URL scheme is part of an endpoint inspection")
+}
+
+func TestRecoverMinerEndpointsOnlyReportsAuthenticationFailureAfterCredentialFreeMatch(t *testing.T) {
+	authErr := sdk.SDKError{Code: sdk.ErrCodeAuthenticationFailed, Message: "rejected"}
+	r, calls := recoveryRunCmd(t, map[string]stableidentity.Identity{
+		"10.0.0.1|80": stableidentity.New("SERIAL-1", ""),
+	}, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, authErr
+	})
+
+	results, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+		recoveryTarget("miner-2", "SERIAL-2", ""),
+	}, discardLogger(t))
+
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, results[0].GetOutcome())
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND, results[1].GetOutcome())
+	assert.EqualValues(t, 2, calls.Load())
+}
+
+func TestRecoverMinerEndpointsRejectsUnstableAndAmbiguousMatches(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, nil, func(_ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{SerialNumber: "DUPLICATE"}, nil
+	})
+
+	results, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "", ""),
+		recoveryTarget("miner-2", "DUPLICATE", ""),
+	}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNRECOVERABLE_IDENTITY, results[0].GetOutcome())
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, results[1].GetOutcome())
+}
+
+func TestRecoverMinerEndpointsReturnsPartialResultsAfterScanFailure(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, errors.New("scanner interrupted"), func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{SerialNumber: "SERIAL-1", Host: endpoint.Host}, nil
+	})
+
+	results, partial, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+	}, discardLogger(t))
+
+	require.ErrorContains(t, err, "scanner interrupted")
+	assert.True(t, partial)
+	require.Len(t, results, 1)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, results[0].GetOutcome())
+}
+
+func TestRecoverMinerEndpointsRedactsMalformedCiphertext(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		t.Fatal("malformed credentials must not reach a driver")
+		return sdk.DeviceInfo{}, nil
+	})
+	r.minerSecrets = recoveryTestSecrets{errors: map[string]error{"miner-1": fmt.Errorf("ciphertext contained secret-value")}}
+
+	results, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+	}, discardLogger(t))
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, results[0].GetOutcome())
+	assert.Equal(t, "invalid encrypted credentials", results[0].GetErrorMessage())
+	assert.NotContains(t, results[0].GetErrorMessage(), "secret-value")
+}
+
+func TestRecoverMinerEndpointsHonorsCommandTimeout(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, nil
+	})
+	r.scanner = scanFunc(func(ctx context.Context, _ iter.Seq[netip.Addr], _ []uint16, _ func(netscan.HostResult) error) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+
+	results, partial, err := r.recoverMinerEndpoints(ctx, []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+	}, discardLogger(t))
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, partial)
+	assert.Empty(t, results)
+}
+
+func TestScanRecoveryEndpointsDeduplicatesPortsBeforeValidation(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, nil
+	})
+	r.scanner = scanFunc(func(_ context.Context, _ iter.Seq[netip.Addr], ports []uint16, _ func(netscan.HostResult) error) error {
+		require.Equal(t, []uint16{80}, ports)
+		return nil
+	})
+	targets := make([]*pb.MinerConnectionDescriptor, 11)
+	for i := range targets {
+		targets[i] = recoveryTarget(fmt.Sprintf("miner-%d", i), fmt.Sprintf("SERIAL-%d", i), "")
+	}
+
+	_, _, err := r.scanRecoveryEndpoints(t.Context(), targets, discardLogger(t))
+
+	require.NoError(t, err)
+}
+
+func TestScanRecoveryEndpointsSupervisorReturnsPartialOnStuckProbe(t *testing.T) {
+	previousTimeout := perProbeTimeout
+	perProbeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { perProbeTimeout = previousTimeout })
+
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, nil
+	})
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	discoverer, ok := r.discoverer.(*recoveryTestDiscoverer)
+	require.True(t, ok)
+	discoverer.identities = map[string]stableidentity.Identity{
+		"10.0.0.1|80": stableidentity.New("SERIAL-1", ""),
+	}
+	discoverer.probeRecovery = func(_ context.Context, ip, port string) (stableidentity.Identity, string, error) {
+		if ip == "10.0.0.2" {
+			<-stuck
+		}
+		key := ip + "|" + port
+		return discoverer.identities[key], discoverer.schemes[key], nil
+	}
+
+	start := time.Now()
+	endpoints, partial, err := r.scanRecoveryEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+	}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.True(t, partial)
+	assert.LessOrEqual(t, time.Since(start), perProbeTimeout*2+time.Second)
+	require.Len(t, endpoints, 1)
+	assert.Equal(t, "SERIAL-1", endpoints[0].identity.SerialNumber)
+}
