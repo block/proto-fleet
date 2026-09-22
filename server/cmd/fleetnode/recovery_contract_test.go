@@ -19,7 +19,8 @@ func TestRecoverMinerEndpointsRequestValidation(t *testing.T) {
 	}
 
 	require.NoError(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{
-		Targets: []*pb.MinerConnectionDescriptor{validTarget("miner-1")},
+		Targets:   []*pb.MinerConnectionDescriptor{validTarget("miner-1")},
+		ScanPorts: []string{"80"},
 	}))
 	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{}))
 
@@ -27,7 +28,16 @@ func TestRecoverMinerEndpointsRequestValidation(t *testing.T) {
 	for i := range tooMany {
 		tooMany[i] = validTarget("miner")
 	}
-	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{Targets: tooMany}))
+	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{Targets: tooMany, ScanPorts: []string{"80"}}))
+
+	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{
+		Targets:   []*pb.MinerConnectionDescriptor{validTarget("miner-1")},
+		ScanPorts: []string{"81"},
+	}))
+	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsRequest{
+		Targets:   []*pb.MinerConnectionDescriptor{validTarget("miner-1")},
+		ScanPorts: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
+	}))
 }
 
 func TestRecoverMinerEndpointsResultValidation(t *testing.T) {
