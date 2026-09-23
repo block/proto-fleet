@@ -295,7 +295,8 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
 			slog.Warn("failed to close device created after request cancellation", "device_id", req.DeviceId, "error", closeErr)
 		}
-		return nil, status.FromContextError(ctxErr).Err()
+		ctxStatus := status.FromContextError(ctxErr)
+		return nil, grpcStatusError("new device request canceled", ctxStatus.Code(), ctxStatus.Message())
 	}
 
 	// Verify the device uses the provided ID
