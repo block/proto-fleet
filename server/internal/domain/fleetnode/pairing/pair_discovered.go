@@ -202,22 +202,19 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return logInternal("lookup device", clientErrLookupDeviceForPairing, err)
 		}
 
+		// Every persisted outcome uses Fleet Node -> device -> discovered_device,
+		// matching direct pairing even when an authentication failure is reported.
+		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
+		}
 		var deviceID int64
-		if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
-			// Direct pairing and reported pairing both acquire Fleet Node -> device.
-			// Take those locks before touching discovered_device or device so neither
-			// path can hold a device row while waiting for the Fleet Node row.
-			if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
-				return err
+		if existing != nil {
+			deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
+			if err != nil {
+				return logInternal("resolve device id", clientErrPair, err)
 			}
-			if existing != nil {
-				deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
-				if err != nil {
-					return logInternal("resolve device id", clientErrPair, err)
-				}
-				if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
-					return err
-				}
+			if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+				return err
 			}
 		}
 
@@ -241,10 +238,6 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		// Check before any write and return its real status untouched. A freshly
 		// inserted device (existing == nil) can't be paired yet.
 		if outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && existing != nil {
-			deviceID, err := s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
-			if err != nil {
-				return logInternal("resolve device id", clientErrPair, err)
-			}
 			paired, err := s.store.DeviceHasActivePairing(ctx, deviceID, orgID)
 			if err != nil {
 				return logInternal("check active pairing", clientErrPair, err)

@@ -22,7 +22,8 @@ import (
 
 type orderedPersistStore struct {
 	Store
-	events *[]string
+	events        *[]string
+	activePairing bool
 }
 
 func (s *orderedPersistStore) GetDeviceIDByDeviceIdentifier(context.Context, string) (int64, error) {
@@ -37,6 +38,11 @@ func (s *orderedPersistStore) LockDeviceForFleetNodePairing(context.Context, int
 
 func (s *orderedPersistStore) DeviceHasActiveCloudPairing(context.Context, int64, int64) (bool, error) {
 	return false, nil
+}
+
+func (s *orderedPersistStore) DeviceHasActivePairing(context.Context, int64, int64) (bool, error) {
+	*s.events = append(*s.events, "check_active_pairing")
+	return s.activePairing, nil
 }
 
 func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
@@ -70,59 +76,82 @@ func (s errorEnrollmentStore) LockFleetNodeByID(context.Context, int64, int64) (
 	return nil, s.err
 }
 
-func TestPersistPairedResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	discoveredStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	events := []string{}
-	fleetNodeID := int64(12)
-	orgID := int64(34)
-	identifier := "mac:ordered"
-	dd := &discoverymodels.DiscoveredDevice{
-		Device:                  pairingpb.Device{DeviceIdentifier: identifier},
-		OrgID:                   orgID,
-		DiscoveredByFleetNodeID: &fleetNodeID,
+func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		outcome        gatewaypb.PairOutcome
+		existingStatus string
+	}{
+		{name: "paired", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED},
+		{name: "auth_needed", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED},
+		{name: "auth_failed", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED},
+		{name: "preserve_paired", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, existingStatus: StatusPaired},
+		{name: "preserve_default_password", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED, existingStatus: StatusDefaultPassword},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			deviceStore := storemocks.NewMockDeviceStore(ctrl)
+			discoveredStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
+			events := []string{}
+			fleetNodeID := int64(12)
+			orgID := int64(34)
+			identifier := "mac:ordered"
+			dd := &discoverymodels.DiscoveredDevice{
+				Device:                  pairingpb.Device{DeviceIdentifier: identifier},
+				OrgID:                   orgID,
+				DiscoveredByFleetNodeID: &fleetNodeID,
+			}
+			existing := &pairingpb.Device{DeviceIdentifier: identifier}
+			discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
+			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
+			wantEvents := []string{"lock_node", "resolve_device", "lock_device"}
+			wantStatus := StatusPaired
+			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+				wantEvents = append(wantEvents, "check_active_pairing")
+				wantStatus = StatusAuthenticationNeeded
+			}
+			if tc.existingStatus != "" {
+				wantStatus = tc.existingStatus
+				deviceStore.EXPECT().GetDevicePairingStatusByIdentifier(gomock.Any(), identifier, orgID).Return(tc.existingStatus, nil)
+			} else {
+				wantEvents = append(wantEvents, "save_discovered", "update_device")
+				discoveredStore.EXPECT().Save(gomock.Any(), gomock.Any(), dd).DoAndReturn(
+					func(context.Context, discoverymodels.DeviceOrgIdentifier, *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+						events = append(events, "save_discovered")
+						return dd, nil
+					},
+				)
+				deviceStore.EXPECT().UpdateDeviceInfo(gomock.Any(), gomock.Any(), orgID).DoAndReturn(
+					func(context.Context, *pairingpb.Device, int64) error {
+						events = append(events, "update_device")
+						return nil
+					},
+				)
+				if tc.outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+					deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), orgID, StatusPaired).Return(nil)
+					deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), gomock.Any(), gomock.Any(), "").Return(nil)
+				} else {
+					deviceStore.EXPECT().SetDevicePairingAuthNeededIfNotPaired(gomock.Any(), gomock.Any(), orgID).Return(true, nil)
+				}
+			}
+
+			service := NewService(
+				&orderedPersistStore{events: &events, activePairing: tc.existingStatus != ""},
+				orderedPersistEnrollmentStore{events: &events},
+				passThroughTransactor{},
+			).WithProvisioning(deviceStore, discoveredStore, nil)
+			defaultPasswordActive := false
+			status, err := service.PersistFleetNodePairResult(t.Context(), fleetNodeID, orgID, &gatewaypb.FleetNodePairResult{
+				DeviceIdentifier:      identifier,
+				Outcome:               tc.outcome,
+				DefaultPasswordActive: &defaultPasswordActive,
+			}, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, wantStatus, status)
+			require.Equal(t, wantEvents, events)
+		})
 	}
-	existing := &pairingpb.Device{DeviceIdentifier: identifier}
-
-	discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
-	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
-	discoveredStore.EXPECT().Save(gomock.Any(), gomock.Any(), dd).DoAndReturn(
-		func(context.Context, discoverymodels.DeviceOrgIdentifier, *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-			events = append(events, "save_discovered")
-			return dd, nil
-		},
-	)
-	deviceStore.EXPECT().UpdateDeviceInfo(gomock.Any(), gomock.Any(), orgID).DoAndReturn(
-		func(context.Context, *pairingpb.Device, int64) error {
-			events = append(events, "update_device")
-			return nil
-		},
-	)
-	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), orgID, StatusPaired).Return(nil)
-	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), gomock.Any(), gomock.Any(), "").Return(nil)
-
-	service := NewService(
-		&orderedPersistStore{events: &events},
-		orderedPersistEnrollmentStore{events: &events},
-		passThroughTransactor{},
-	).WithProvisioning(deviceStore, discoveredStore, nil)
-	defaultPasswordActive := false
-	status, err := service.PersistFleetNodePairResult(t.Context(), fleetNodeID, orgID, &gatewaypb.FleetNodePairResult{
-		DeviceIdentifier:      identifier,
-		Outcome:               gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
-		DefaultPasswordActive: &defaultPasswordActive,
-	}, nil)
-
-	require.NoError(t, err)
-	require.Equal(t, StatusPaired, status)
-	require.Equal(t, []string{
-		"lock_node",
-		"resolve_device",
-		"lock_device",
-		"save_discovered",
-		"update_device",
-	}, events)
 }
 
 func TestPairingLockPreservesRetryablePostgresError(t *testing.T) {
