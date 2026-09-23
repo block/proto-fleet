@@ -68,6 +68,24 @@ func (g recoveryTestDriverGetter) GetDriverByDriverName(string) (sdk.Driver, err
 	return g.driver, nil
 }
 
+type recoveryCleanerFunc func(context.Context, string) error
+
+func (f recoveryCleanerFunc) CloseDevice(ctx context.Context, deviceID string) error {
+	return f(ctx, deviceID)
+}
+
+func TestCloseUncertainRecoveryDeviceRetriesEarlyNotFound(t *testing.T) {
+	var calls atomic.Int32
+	closeUncertainRecoveryDevice(t.Context(), recoveryCleanerFunc(func(context.Context, string) error {
+		if calls.Add(1) == 1 {
+			return errors.New("device not found yet")
+		}
+		return nil
+	}), "recovery-device")
+
+	assert.EqualValues(t, 2, calls.Load())
+}
+
 func recoveryTarget(id, serial, mac string) *pb.MinerConnectionDescriptor {
 	return &pb.MinerConnectionDescriptor{
 		DeviceIdentifier: id,

@@ -511,13 +511,6 @@ type Driver interface {
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
 }
 
-// DeviceCreationCleaner provides compensating cleanup when a NewDevice RPC has
-// an uncertain outcome, such as cancellation after the plugin stored the handle
-// but before the caller received the response.
-type DeviceCreationCleaner interface {
-	CloseDevice(ctx context.Context, deviceID string) error
-}
-
 // DefaultCredentialsProvider is an optional interface that drivers can implement
 // to provide default credentials for auto-authentication during pairing.
 // If a driver implements this interface and returns credentials, the server
