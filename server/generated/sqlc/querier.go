@@ -1213,10 +1213,11 @@ type Querier interface {
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
-	// Fleet-node-discovered devices not yet paired to their node. A discovered
-	// device is excluded when ANY of its live device rows is already node-bound
-	// (fleet_node_device) or cloud-paired-like; AUTHENTICATION_NEEDED rows (a pair
-	// attempt that needs credentials) surface for retry. Inverse of
+	// Fleet-node-discovered devices available for pairing or credential retry. A
+	// discovered device is excluded when ANY live device row is cloud-paired-like
+	// or bound to another node. A row bound to the requesting node surfaces only
+	// in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
+	// Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
 	// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 	// The exclusions use NOT EXISTS so a device with more than one live row is
 	// judged across all of them, not just the joined row. They match by
