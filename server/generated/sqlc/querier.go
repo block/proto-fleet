@@ -58,7 +58,8 @@ type Querier interface {
 	// offline miner named by the acknowledgement. Identity evidence is validated
 	// by the domain layer before this conditional write. Locking the ownership and
 	// status rows serializes this recheck with unpairing, reassignment, and
-	// telemetry recovery.
+	// telemetry recovery. The caller separately locks the device row before this
+	// statement so credential repair is observed from a fresh snapshot.
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
@@ -1430,10 +1431,6 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
-	// Cloud recovery takes this device-row lock before checking ownership in a
-	// subsequent statement. Fleet Node assignment takes the same row lock, so the
-	// later transaction observes the earlier ownership decision at READ COMMITTED.
-	LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error)
 	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
@@ -1484,6 +1481,10 @@ type Querier interface {
 	// Topology writes still conflict with this lock, while command queue inserts
 	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
+	// Serialize ownership and authentication reconciliation with pairing changes
+	// and credential repair. Callers recheck their predicates in a subsequent
+	// statement so they see the winner at READ COMMITTED.
+	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the

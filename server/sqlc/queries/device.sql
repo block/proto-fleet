@@ -193,10 +193,10 @@ SELECT
   EXISTS(SELECT 1 FROM candidate) AS eligible,
   EXISTS(SELECT 1 FROM updated) AS updated;
 
--- name: LockCloudRecoveryDevice :many
--- Cloud recovery takes this device-row lock before checking ownership in a
--- subsequent statement. Fleet Node assignment takes the same row lock, so the
--- later transaction observes the earlier ownership decision at READ COMMITTED.
+-- name: LockDeviceByIdentifier :many
+-- Serialize ownership and authentication reconciliation with pairing changes
+-- and credential repair. Callers recheck their predicates in a subsequent
+-- statement so they see the winner at READ COMMITTED.
 SELECT id
 FROM device
 WHERE device_identifier = sqlc.arg('device_identifier')
@@ -743,7 +743,8 @@ RETURNING d.id;
 -- offline miner named by the acknowledgement. Identity evidence is validated
 -- by the domain layer before this conditional write. Locking the ownership and
 -- status rows serializes this recheck with unpairing, reassignment, and
--- telemetry recovery.
+-- telemetry recovery. The caller separately locks the device row before this
+-- statement so credential repair is observed from a fresh snapshot.
 WITH eligible AS MATERIALIZED (
     SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
     FROM fleet_node_device fnd

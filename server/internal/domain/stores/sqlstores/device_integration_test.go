@@ -228,6 +228,40 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 
 	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
 	require.NoError(t, err)
+	type applyResult struct {
+		applied bool
+		err     error
+	}
+	repairTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer repairTx.Rollback()
+	_, err = repairTx.Exec(`SELECT id FROM device WHERE id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	_, err = repairTx.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	result := make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not wait for credential repair", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.NoError(t, repairTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "a stale acknowledgement must not undo credential repair")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after credential repair")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
 	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.True(t, applied)
@@ -269,11 +303,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	_, err = ownerTx.Exec(`SELECT 1 FROM fleet_node_device WHERE device_id=$1 AND org_id=1 FOR UPDATE`, deviceID)
 	require.NoError(t, err)
 
-	type applyResult struct {
-		applied bool
-		err     error
-	}
-	result := make(chan applyResult, 1)
+	result = make(chan applyResult, 1)
 	go func() {
 		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
 		result <- applyResult{applied: ok, err: applyErr}

@@ -1422,9 +1422,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
-	if q.lockCloudRecoveryDeviceStmt, err = db.PrepareContext(ctx, lockCloudRecoveryDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query LockCloudRecoveryDevice: %w", err)
-	}
 	if q.lockCommandBatchStmt, err = db.PrepareContext(ctx, lockCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCommandBatch: %w", err)
 	}
@@ -1472,6 +1469,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentTopologyMemberDeviceSitesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentTopologyMemberDeviceSitesByOrg: %w", err)
+	}
+	if q.lockDeviceByIdentifierStmt, err = db.PrepareContext(ctx, lockDeviceByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceByIdentifier: %w", err)
 	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
@@ -4420,11 +4420,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
-	if q.lockCloudRecoveryDeviceStmt != nil {
-		if cerr := q.lockCloudRecoveryDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockCloudRecoveryDeviceStmt: %w", cerr)
-		}
-	}
 	if q.lockCommandBatchStmt != nil {
 		if cerr := q.lockCommandBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCommandBatchStmt: %w", cerr)
@@ -4503,6 +4498,11 @@ func (q *Queries) Close() error {
 	if q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt != nil {
 		if cerr := q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentTopologyMemberDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceByIdentifierStmt != nil {
+		if cerr := q.lockDeviceByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.lockDevicesForReassignStmt != nil {
@@ -6030,7 +6030,6 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
-	lockCloudRecoveryDeviceStmt                                  *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
 	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
 	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
@@ -6047,6 +6046,7 @@ type Queries struct {
 	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
 	lockCurtailmentTargetPairingStatusesForWriteStmt             *sql.Stmt
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
+	lockDeviceByIdentifierStmt                                   *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
 	lockFleetNodePairingDeviceStmt                               *sql.Stmt
@@ -6723,7 +6723,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
-		lockCloudRecoveryDeviceStmt:                                  q.lockCloudRecoveryDeviceStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
 		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
 		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
@@ -6740,6 +6739,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
 		lockCurtailmentTargetPairingStatusesForWriteStmt:             q.lockCurtailmentTargetPairingStatusesForWriteStmt,
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
+		lockDeviceByIdentifierStmt:                                   q.lockDeviceByIdentifierStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
 		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,

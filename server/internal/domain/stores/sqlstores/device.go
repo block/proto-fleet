@@ -307,7 +307,7 @@ func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(
 }
 
 func (s *SQLDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, error) {
-	rows, err := s.getQueries(ctx).LockCloudRecoveryDevice(ctx, sqlc.LockCloudRecoveryDeviceParams{
+	rows, err := s.getQueries(ctx).LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
 	})
@@ -995,25 +995,34 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 }
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
-	_, err := s.getQueries(ctx).ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
-		IpAddress:             ipAddress,
-		Port:                  port,
-		UrlScheme:             urlScheme,
-		DeviceIdentifier:      target.DeviceIdentifier,
-		OrgID:                 target.OrgID,
-		SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
-		MacAddress:            target.MacAddress,
-		FleetNodeID:           target.FleetNodeID,
-		ExpectedIpAddress:     target.LastKnownIP,
-		ExpectedPort:          target.LastKnownPort,
-		ExpectedUrlScheme:     target.LastKnownScheme,
-		CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
-		CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: target.DeviceIdentifier,
+			OrgID:            target.OrgID,
+		})
+		if err != nil || len(locked) == 0 {
+			return false, err
+		}
+		_, err = q.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
+			IpAddress:             ipAddress,
+			Port:                  port,
+			UrlScheme:             urlScheme,
+			DeviceIdentifier:      target.DeviceIdentifier,
+			OrgID:                 target.OrgID,
+			SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress:            target.MacAddress,
+			FleetNodeID:           target.FleetNodeID,
+			ExpectedIpAddress:     target.LastKnownIP,
+			ExpectedPort:          target.LastKnownPort,
+			ExpectedUrlScheme:     target.LastKnownScheme,
+			CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
+			CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 func decodeFleetNodeCredential(value sql.NullString) []byte {

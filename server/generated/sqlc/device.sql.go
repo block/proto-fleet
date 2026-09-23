@@ -185,7 +185,8 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 // offline miner named by the acknowledgement. Identity evidence is validated
 // by the domain layer before this conditional write. Locking the ownership and
 // status rows serializes this recheck with unpairing, reassignment, and
-// telemetry recovery.
+// telemetry recovery. The caller separately locks the device row before this
+// statement so credential repair is observed from a fresh snapshot.
 func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
 	row := q.queryRow(ctx, q.applyFleetNodeRecoveryAuthenticationNeededStmt, applyFleetNodeRecoveryAuthenticationNeeded,
 		arg.IpAddress,
@@ -2398,7 +2399,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
-const lockCloudRecoveryDevice = `-- name: LockCloudRecoveryDevice :many
+const lockDeviceByIdentifier = `-- name: LockDeviceByIdentifier :many
 SELECT id
 FROM device
 WHERE device_identifier = $1
@@ -2407,16 +2408,16 @@ WHERE device_identifier = $1
 FOR UPDATE
 `
 
-type LockCloudRecoveryDeviceParams struct {
+type LockDeviceByIdentifierParams struct {
 	DeviceIdentifier string
 	OrgID            int64
 }
 
-// Cloud recovery takes this device-row lock before checking ownership in a
-// subsequent statement. Fleet Node assignment takes the same row lock, so the
-// later transaction observes the earlier ownership decision at READ COMMITTED.
-func (q *Queries) LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.lockCloudRecoveryDeviceStmt, lockCloudRecoveryDevice, arg.DeviceIdentifier, arg.OrgID)
+// Serialize ownership and authentication reconciliation with pairing changes
+// and credential repair. Callers recheck their predicates in a subsequent
+// statement so they see the winner at READ COMMITTED.
+func (q *Queries) LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockDeviceByIdentifierStmt, lockDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
