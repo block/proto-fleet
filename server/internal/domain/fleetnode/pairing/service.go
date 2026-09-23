@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 const (
@@ -136,6 +137,16 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 // and transfers discovery attribution. (PairDevice and PersistFleetNodePairResult
 // both wrap it.)
 func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
+	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		return err
+	}
+	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+		return err
+	}
+	return s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy)
+}
+
+func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
 	// Lock-and-recheck in the TX so a concurrent revoke can't soft-delete the node
 	// between the status check and the INSERT. Matches Confirm/Revoke lock order.
 	node, lockErr := s.enrollmentStore.LockFleetNodeByID(ctx, fleetNodeID, orgID)
@@ -143,36 +154,44 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		if fleeterror.IsNotFoundError(lockErr) {
 			return fleeterror.NewNotFoundError("fleet node not found")
 		}
-		return fleeterror.LogInternal(component, "lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
+		return logInternal("lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
 	}
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
+	return nil
+}
+
+func (s *Service) lockDeviceForPairing(ctx context.Context, deviceID, orgID int64) error {
 	// Keep the Fleet Node -> device lock order used by this flow. Cloud recovery
 	// takes only the device lock, so a stale scan that waits here rechecks
 	// ownership after this transaction commits.
 	locked, deviceLockErr := s.store.LockDeviceForFleetNodePairing(ctx, deviceID, orgID)
 	if deviceLockErr != nil {
-		return fleeterror.LogInternal(component, "lock device for pairing", clientErrPair, deviceLockErr)
+		return logInternal("lock device for pairing", clientErrPair, deviceLockErr)
 	}
 	if !locked {
 		return fleeterror.NewNotFoundError("device not found")
 	}
+	return nil
+}
+
+func (s *Service) pairDeviceWithLocks(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	// Refuse a cloud-dialed device: the discovery upsert guard blocks refreshing a
 	// cloud-paired row, so the node could never refresh it. Unpair from cloud first.
 	if cloudPaired, cloudErr := s.store.DeviceHasActiveCloudPairing(ctx, deviceID, orgID); cloudErr != nil {
-		return fleeterror.LogInternal(component, "check cloud pairing", clientErrPair, cloudErr)
+		return logInternal("check cloud pairing", clientErrPair, cloudErr)
 	} else if cloudPaired {
 		return fleeterror.NewFailedPreconditionError("device is cloud-paired; unpair it from the cloud before pairing to a fleet node")
 	}
 	rows, pairErr := s.store.PairDeviceToFleetNode(ctx, fleetNodeID, deviceID, orgID, assignedBy)
 	if pairErr != nil {
-		return fleeterror.LogInternal(component, "pair device", clientErrPair, pairErr)
+		return logInternal("pair device", clientErrPair, pairErr)
 	}
 	if rows == 0 {
 		sameNode, boundErr := s.deviceBoundToFleetNode(ctx, fleetNodeID, deviceID, orgID)
 		if boundErr != nil {
-			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
+			return logInternal("check fleet node binding", clientErrPair, boundErr)
 		}
 		if sameNode {
 			return nil
@@ -185,9 +204,18 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	// Make the paired node the discovery owner so its future reports refresh the row
 	// instead of being rejected by the attribution guard. No-op without a discovered_device.
 	if _, attrErr := s.store.TransferDiscoveredDeviceAttribution(ctx, fleetNodeID, deviceID, orgID); attrErr != nil {
-		return fleeterror.LogInternal(component, "transfer discovery attribution", clientErrPair, attrErr)
+		return logInternal("transfer discovery attribution", clientErrPair, attrErr)
 	}
 	return nil
+}
+
+// logInternal sanitizes ordinary storage errors while allowing the transaction
+// runner to recognize and retry serialization failures and deadlocks.
+func logInternal(op, clientMsg string, err error) error {
+	if db.IsRetryablePostgresError(err) {
+		return err
+	}
+	return fleeterror.LogInternal(component, op, clientMsg, err)
 }
 
 func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error) {
@@ -291,7 +319,7 @@ func (s *Service) deleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, 
 		return fleeterror.NewInternalError("fleet node pairing credential cleanup is not configured")
 	}
 	if _, err := store.DeleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID); err != nil {
-		return fleeterror.LogInternal(component, "clear miner credentials", clientMessage, err)
+		return logInternal("clear miner credentials", clientMessage, err)
 	}
 	return nil
 }
