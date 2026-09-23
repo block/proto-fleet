@@ -314,7 +314,7 @@ func isAuthenticationError(err error) bool {
 }
 
 func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpointRecoveryOutcome, endpoint recoveryEndpoint, message string) *pb.MinerEndpointRecoveryResult {
-	return &pb.MinerEndpointRecoveryResult{
+	result := &pb.MinerEndpointRecoveryResult{
 		DeviceIdentifier: target.GetDeviceIdentifier(),
 		Outcome:          outcome,
 		IpAddress:        endpoint.ip,
@@ -323,5 +323,13 @@ func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpoi
 		SerialNumber:     endpoint.identity.SerialNumber,
 		MacAddress:       endpoint.identity.MACAddress,
 		ErrorMessage:     message,
+	}
+	if err := protovalidate.Validate(result); err == nil {
+		return result
+	}
+	return &pb.MinerEndpointRecoveryResult{
+		DeviceIdentifier: target.GetDeviceIdentifier(),
+		Outcome:          pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR,
+		ErrorMessage:     "plugin returned invalid recovery evidence",
 	}
 }

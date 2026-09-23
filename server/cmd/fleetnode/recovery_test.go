@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -387,4 +388,21 @@ func TestScanRecoveryEndpointsSupervisorReturnsPartialOnStuckProbe(t *testing.T)
 	assert.LessOrEqual(t, time.Since(start), perProbeTimeout*2+time.Second)
 	require.Len(t, endpoints, 1)
 	assert.Equal(t, "SERIAL-1", endpoints[0].identity.SerialNumber)
+}
+
+func TestRecoveryResultIsolatesInvalidPluginEvidence(t *testing.T) {
+	target := recoveryTarget("miner-1", "SERIAL-1", "")
+	invalid := recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, recoveryEndpoint{
+		ip: "10.0.0.1", port: "80", urlScheme: "http",
+		identity: stableidentity.New(strings.Repeat("x", 256), ""),
+	}, "")
+	valid := recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, recoveryEndpoint{
+		ip: "10.0.0.2", port: "80", urlScheme: "http",
+		identity: stableidentity.New("SERIAL-1", ""),
+	}, "")
+
+	require.NoError(t, protovalidate.Validate(&pb.RecoverMinerEndpointsResult{Results: []*pb.MinerEndpointRecoveryResult{invalid, valid}}))
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, invalid.GetOutcome())
+	assert.Equal(t, "plugin returned invalid recovery evidence", invalid.GetErrorMessage())
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, valid.GetOutcome())
 }
