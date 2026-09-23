@@ -282,10 +282,16 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 	if scheme == "" {
 		scheme = target.GetUrlScheme()
 	}
-	result, err := driver.NewDevice(ctx, "endpoint-recovery-"+uuid.NewString(), sdk.DeviceInfo{
+	deviceID := "endpoint-recovery-" + uuid.NewString()
+	result, err := driver.NewDevice(ctx, deviceID, sdk.DeviceInfo{
 		Host: endpoint.ip, Port: port, URLScheme: scheme,
 	}, bundle)
 	if err != nil {
+		if cleaner, ok := driver.(sdk.DeviceCreationCleaner); ok {
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = cleaner.CloseDevice(closeCtx, deviceID)
+		}
 		return stableidentity.Identity{}, err
 	}
 	if result.Device == nil {

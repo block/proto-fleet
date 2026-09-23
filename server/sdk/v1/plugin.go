@@ -1026,6 +1026,13 @@ func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, devic
 	}, nil
 }
 
+// CloseDevice compensates for an uncertain NewDevice RPC outcome. A not-found
+// response is harmless: it means the plugin never retained the requested ID.
+func (c *DriverGRPCClient) CloseDevice(ctx context.Context, deviceID string) error {
+	_, err := c.client.CloseDevice(ctx, &pb.DeviceRef{DeviceId: deviceID})
+	return err
+}
+
 // DeviceGRPCClient implements Device interface as a proxy to the plugin
 type DeviceGRPCClient struct {
 	client   pb.DriverClient
