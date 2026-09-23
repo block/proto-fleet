@@ -169,6 +169,23 @@ describe("PageHeader", () => {
     });
   });
 
+  it.each([{ isPhone: true }, { isPhone: false, isTablet: true }, { isPhone: false, isLaptop: true }])(
+    "offers a menu trigger only when there is no persistent rail: %o",
+    (dimensions) => {
+      mockUseWindowDimensions.mockReturnValue(dimensions);
+      render(
+        <MemoryRouter>
+          <PageHeader schedulePillData={createSchedulePillData()} />
+        </MemoryRouter>,
+      );
+      if (dimensions.isPhone) {
+        expect(screen.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
+      } else {
+        expect(screen.queryByRole("button", { name: "Open navigation menu" })).not.toBeInTheDocument();
+      }
+    },
+  );
+
   it("shows the phone header widget when schedules are available even if setup is not dismissed", () => {
     const schedulePillData = createSchedulePillData({
       hasVisibleSchedules: true,

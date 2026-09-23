@@ -34,6 +34,10 @@ export const VISUAL_SNAPSHOTS = {
   energy: ["visual", "energy-screen.png"],
   settingsPools: ["visual", "settings-pools-screen.png"],
   navigationMenu: ["visual", "navigation-menu.png"],
+  tabletNavigationCollapsedLight: ["visual", "navigation-tablet-collapsed-light.png"],
+  tabletNavigationExpandedLight: ["visual", "navigation-tablet-expanded-light.png"],
+  tabletNavigationCollapsedDark: ["visual", "navigation-tablet-collapsed-dark.png"],
+  tabletNavigationExpandedDark: ["visual", "navigation-tablet-expanded-dark.png"],
   findMiners: ["visual", "find-miners-screen.png"],
   completeSetup: ["visual", "complete-setup-module.png"],
   singleMinerActions: ["visual", "single-miner-actions-menu.png"],
@@ -180,6 +184,52 @@ export class OnboardingVisualHelper {
       await expect(mobileSettingsSubmenu).toHaveCSS("transform", "none");
     }
     await snapshots.captureLocator(navigationMenu, VISUAL_SNAPSHOTS.navigationMenu);
+  }
+
+  async captureTabletNavigation() {
+    const { page, snapshots } = this.deps;
+    const viewport = page.viewportSize();
+    const navigation = page.getByRole("navigation", { name: "Main", exact: true });
+    const expand = page.getByRole("button", { name: "Expand navigation", exact: true });
+    const collapse = page.getByRole("button", { name: "Collapse navigation", exact: true });
+    const account = navigation.getByRole("group", { name: `${testConfig.users.admin.username} · Owner` });
+    try {
+      await page.setViewportSize({ width: 834, height: 1112 });
+      // Fresh sign-up uses the system theme, so exercise the real theme listener.
+      for (const theme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await expect(page.locator("body")).toHaveAttribute("data-theme", theme);
+        await expect(navigation).toHaveCSS("width", "64px");
+        await expect(expand).toBeVisible();
+        await expect(account.getByText("Owner", { exact: true })).toBeHidden();
+        // Capture the whole viewport: a nav-only crop would omit the header toggle
+        // and would not catch the expanded sidebar covering the page incorrectly.
+        await page.mouse.move(833, 1111);
+        await snapshots.capturePage(
+          page,
+          theme === "light"
+            ? VISUAL_SNAPSHOTS.tabletNavigationCollapsedLight
+            : VISUAL_SNAPSHOTS.tabletNavigationCollapsedDark,
+        );
+        await expand.click();
+        await expect(navigation).toHaveCSS("width", "200px");
+        await expect(collapse).toBeVisible();
+        await expect(account.getByText(testConfig.users.admin.username, { exact: true })).toBeVisible();
+        await expect(account.getByText("Owner", { exact: true })).toBeVisible();
+        await page.mouse.move(833, 1111);
+        await snapshots.capturePage(
+          page,
+          theme === "light"
+            ? VISUAL_SNAPSHOTS.tabletNavigationExpandedLight
+            : VISUAL_SNAPSHOTS.tabletNavigationExpandedDark,
+        );
+        await collapse.click();
+      }
+    } finally {
+      if (await collapse.isVisible()) await collapse.click();
+      await page.emulateMedia({ colorScheme: null });
+      if (viewport) await page.setViewportSize(viewport);
+    }
   }
 
   async openFindMinersFromMinersPage() {

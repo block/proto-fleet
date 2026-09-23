@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { createElement, useCallback, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
+import type { NavigationRail } from "./useNavigationRail";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
@@ -9,24 +10,27 @@ import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
-import { Logo, LogoAlt } from "@/shared/assets/icons";
-import { ArrowLeftCompact } from "@/shared/assets/icons";
+import { ArrowLeftCompact, LogoAlt } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type NavigationProps = {
   items: NavItem[];
   className?: string;
+  isFloatingMenu?: boolean;
+  rail?: NavigationRail;
   closeMenu?: () => void;
 };
 
-const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
+const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail }: NavigationProps) => {
   const { pathname } = useLocation();
-  const { isPhone, isTablet } = useWindowDimensions();
-  const isFloatingMenu = isPhone || isTablet;
+  const isExpanded = rail?.isExpanded ?? false;
+  const handleNavigate = () => {
+    rail?.collapse();
+    closeMenu?.();
+  };
   const logout = useLogoutAction();
   const username = useUsername();
   const role = formatRole(useRole());
@@ -107,22 +111,23 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
 
   return (
     <nav
+      ref={rail?.navigationRef}
+      id={rail?.navigationId}
       aria-label="Main"
       className={clsx(
-        "group/nav absolute top-0 left-0 z-30 flex w-60 flex-col justify-between bg-surface-base text-text-primary-70",
-        "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
-        "laptop:bg-surface-base",
-        "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
-        "desktop:bg-surface-base",
-        isFloatingMenu ? "h-dvh max-h-dvh min-h-0 overflow-hidden" : "min-h-screen",
+        "absolute top-0 left-0 z-30 flex h-dvh max-h-dvh min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
+        !isFloatingMenu && (isExpanded ? "tablet:w-50" : "tablet:w-16 desktop:w-50"),
+        !isFloatingMenu && "desktop:border-r desktop:border-core-primary-10 desktop:hover:shadow-lg",
+        isExpanded && "border-r border-core-primary-10 shadow-lg",
         className,
       )}
     >
-      <div className={clsx("flex flex-col items-start gap-1", isFloatingMenu && "min-h-0 flex-1")}>
+      <div className="flex min-h-0 flex-1 flex-col items-start gap-1">
         {homeItem && homeItem.path ? (
           <div
             className={clsx(
-              "flex h-15 w-full shrink-0 items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0",
+              "flex h-15 w-full shrink-0 items-center px-3 py-3",
+              !isFloatingMenu && "tablet:h-12 tablet:py-0 laptop:h-15 desktop:h-13 desktop:pt-3",
               {
                 "border-b border-border-5": isFloatingMenu,
               },
@@ -131,18 +136,13 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             <Link
               to={scopeLink(homeItem)}
               aria-label="Home"
-              className={clsx("flex items-center", {
-                "w-full": isFloatingMenu,
-                "px-2.5": !isFloatingMenu,
-              })}
+              data-testid="navigation-home-link"
+              onClick={handleNavigate}
+              className="flex min-h-[44px] min-w-[44px] items-center px-2.5"
             >
-              {isFloatingMenu ? (
-                <Logo className="h-10 text-text-primary hover:cursor-pointer" />
-              ) : (
-                <div className="flex size-5 shrink-0 items-center justify-center">
-                  <LogoAlt className="text-text-primary hover:cursor-pointer" />
-                </div>
-              )}
+              <div className="flex size-5 shrink-0 items-center justify-center">
+                <LogoAlt testId="navigation-logo" className="text-text-primary hover:cursor-pointer" />
+              </div>
             </Link>
           </div>
         ) : null}
@@ -150,12 +150,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         <ul
           data-testid="navigation-menu"
           className={clsx(
-            "flex w-full flex-col items-start gap-1 px-3",
-            isFloatingMenu && "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3",
+            "flex min-h-0 w-full flex-1 flex-col items-start gap-1 overflow-y-auto overscroll-contain px-3",
+            isFloatingMenu && "pb-3",
           )}
         >
           {visibleItems.map((item) => {
-            // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
+            // In the drawer, render Settings separately with expandable secondary navigation.
             if (
               isFloatingMenu &&
               item.path === "/settings" &&
@@ -168,7 +168,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
               <li key={item.path} className="w-full">
                 <Link
                   to={scopeLink(item)}
-                  onClick={() => closeMenu?.()}
+                  onClick={handleNavigate}
                   aria-label={item.label}
                   aria-current={isCurrentPath(item) ? "page" : undefined}
                   className={clsx(
@@ -187,7 +187,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                       : item.label}
                   </div>
                   {item.icon ? (
-                    <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
+                    <span
+                      className={clsx(
+                        "ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70",
+                        !isFloatingMenu && !isExpanded && "tablet:hidden desktop:inline",
+                      )}
+                    >
                       {item.label}
                     </span>
                   ) : null}
@@ -196,7 +201,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             ) : null;
           })}
 
-          {/* On mobile/tablet: show expandable Settings menu */}
+          {/* In the drawer, show an expandable Settings menu. */}
           {isFloatingMenu && settingsItem && visibleSettingsItems.length > 0 ? (
             <>
               <li className="w-full">
@@ -257,7 +262,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                           <li key={nav.path} className="w-full">
                             <Link
                               to={nav.path}
-                              onClick={() => closeMenu?.()}
+                              onClick={handleNavigate}
                               aria-current={isCurrentPath(nav.path) ? "page" : undefined}
                               className={clsx(
                                 "flex h-10 items-center rounded-lg px-9 text-emphasis-300 text-text-primary-70",
@@ -286,7 +291,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         aria-label={accountIdentity}
         title={accountIdentity}
       >
-        <div className="min-w-0 flex-1 py-2 pr-2 pl-2.5 laptop:hidden laptop:group-hover/nav:block desktop:block">
+        <div
+          className={clsx(
+            "min-w-0 flex-1 py-2 pr-2 pl-2.5",
+            !isFloatingMenu && !isExpanded && "tablet:hidden desktop:block",
+          )}
+        >
           <div className="truncate text-emphasis-300 text-text-primary-70">{username}</div>
           {role ? <div className="truncate text-200 text-text-primary-50">{role}</div> : null}
         </div>
