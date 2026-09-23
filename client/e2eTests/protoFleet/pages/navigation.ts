@@ -134,7 +134,7 @@ export class NavigationPage {
       await this.page.keyboard.press("Shift+Tab");
       await expect(navigation.getByRole("button", { name: "Log out" })).toBeFocused();
       await this.page.keyboard.press("Tab");
-      await expect(navigation.getByTestId("navigation-logo").locator("..").locator("..")).toBeFocused();
+      await expect(navigation.getByTestId("navigation-home-link")).toBeFocused();
       await this.page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       await expect(trigger).toBeFocused();
@@ -222,6 +222,18 @@ export class NavigationPage {
         await expect(navigation).toHaveCSS("width", "64px");
         await expect(logout).toBeInViewport({ ratio: 1 });
       }
+      await page.setViewportSize({ width: 393, height: 852 });
+      await page.getByRole("button", { name: "Open navigation menu", exact: true }).tap();
+      const drawer = page.getByRole("dialog", { name: "Navigation menu" });
+      const home = drawer.getByTestId("navigation-home-link");
+      await expect(home).toBeInViewport({ ratio: 1 });
+      const homeBounds = await home.boundingBox();
+      expect(homeBounds?.width).toBeGreaterThanOrEqual(44);
+      expect(homeBounds?.height).toBeGreaterThanOrEqual(44);
+      // Hit the padding above the symbol, not just the visible artwork.
+      await home.tap({ position: { x: 22, y: 2 } });
+      await expect(page).toHaveURL(/\/dashboard(?:[?#].*)?$/);
+      await expect(drawer).toBeHidden();
     } finally {
       await context.close();
     }

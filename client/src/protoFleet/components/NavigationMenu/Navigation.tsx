@@ -136,8 +136,9 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
             <Link
               to={scopeLink(homeItem)}
               aria-label="Home"
+              data-testid="navigation-home-link"
               onClick={handleNavigate}
-              className="flex items-center px-2.5"
+              className="flex min-h-[44px] min-w-[44px] items-center px-2.5"
             >
               <div className="flex size-5 shrink-0 items-center justify-center">
                 <LogoAlt testId="navigation-logo" className="text-text-primary hover:cursor-pointer" />
