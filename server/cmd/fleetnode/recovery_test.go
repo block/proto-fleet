@@ -203,6 +203,23 @@ func TestRecoverMinerEndpointsOnlyReportsAuthenticationFailureAfterCredentialFre
 	assert.EqualValues(t, 2, calls.Load())
 }
 
+func TestRecoverMinerEndpointsDoesNotDecideAfterFailedUnidentifiedInspection(t *testing.T) {
+	r, _ := recoveryRunCmd(t, nil, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		if endpoint.Host == "10.0.0.1" {
+			return sdk.DeviceInfo{}, errors.New("temporary read failure")
+		}
+		return sdk.DeviceInfo{SerialNumber: "SERIAL-1"}, nil
+	})
+
+	results, _, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+	}, []string{"80"}, discardLogger(t))
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, results[0].GetOutcome())
+}
+
 func TestRecoverMinerEndpointsDoesNotSendCredentialsToUnrecognizedEndpoints(t *testing.T) {
 	r, calls := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		t.Fatal("unrecognized endpoints must not reach credential-backed inspection")

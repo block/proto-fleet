@@ -115,7 +115,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		matches := make([]recoveryEndpoint, 0, 1)
 		var authFailedIdentity stableidentity.Identity
 		identifiedEndpoints := make(map[string]struct{})
-		identifiedError := false
+		inspectionFailed := false
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
 		for _, candidate := range endpoints {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -147,8 +147,8 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			if err != nil {
 				if identifiedBeforeAuth && isAuthenticationError(err) {
 					authFailedIdentity = candidate.identity
-				} else if identifiedBeforeAuth {
-					identifiedError = true
+				} else if !isAuthenticationError(err) {
+					inspectionFailed = true
 				}
 				continue
 			}
@@ -162,12 +162,12 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		switch {
 		case len(identifiedEndpoints) > 1:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, recoveryEndpoint{}, ""))
+		case inspectionFailed:
+			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, recoveryEndpoint{}, "candidate could not be inspected"))
 		case len(matches) == 1:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, matches[0], ""))
 		case authFailedIdentity.Usable():
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, recoveryEndpoint{identity: authFailedIdentity}, ""))
-		case identifiedError:
-			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, recoveryEndpoint{}, "identity-confirmed candidate could not be inspected"))
 		default:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND, recoveryEndpoint{}, ""))
 		}
