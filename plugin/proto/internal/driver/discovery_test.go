@@ -3,6 +3,9 @@ package driver
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"sync"
@@ -461,6 +464,37 @@ func TestDiscoverDevice_ContextCancellation(t *testing.T) {
 	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "80")
 	require.Error(t, err)
 	// The error might be context canceled or connection failure, both are acceptable
+}
+
+func TestDiscoverDeviceClassifiesHTTPMissAndServerFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		status   int
+		wantCode sdk.ErrorCode
+	}{
+		{name: "unrelated service", status: http.StatusNotFound, wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "transient server failure", status: http.StatusServiceUnavailable, wantCode: sdk.ErrCodeDeviceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+			}))
+			defer server.Close()
+			host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			portNumber, err := strconv.Atoi(port)
+			require.NoError(t, err)
+			driver, err := New(portNumber)
+			require.NoError(t, err)
+
+			_, err = driver.DiscoverDevice(t.Context(), host, port)
+
+			require.Error(t, err)
+			var sdkErr sdk.SDKError
+			assert.ErrorAs(t, err, &sdkErr)
+			assert.Equal(t, tc.wantCode, sdkErr.Code)
+		})
+	}
 }
 
 // TestDiscoverDevice_SchemeNegotiation tests HTTPS->HTTP fallback with sim miner

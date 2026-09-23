@@ -14,11 +14,12 @@ package driver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
+	"net/http"
 	"strings"
 
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
@@ -199,7 +200,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	schemes := []string{"https", "http"}
 
-	var lastValidationErr error
+	var definitiveErr error
 	var incompleteErr error
 
 	for _, scheme := range schemes {
@@ -215,9 +216,9 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			return deviceInfo, nil
 		}
 
-		if strings.Contains(err.Error(), "device did not provide") {
-			lastValidationErr = err
-		} else if indeterminateDiscoveryError(ctx, err) {
+		if definitiveDiscoveryMiss(err) {
+			definitiveErr = err
+		} else {
 			incompleteErr = err
 		}
 	}
@@ -226,8 +227,8 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			fmt.Errorf("failed to discover proto miner at %s:%s: %w", ipAddress, port, incompleteErr))
 	}
 
-	if lastValidationErr != nil {
-		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, lastValidationErr)
+	if definitiveErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, definitiveErr)
 	}
 
 	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
@@ -238,12 +239,18 @@ func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
 	return sdk.SDKError{Code: code, Message: err.Error(), Err: err}
 }
 
-func indeterminateDiscoveryError(ctx context.Context, err error) bool {
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+func definitiveDiscoveryMiss(err error) bool {
+	if strings.Contains(err.Error(), "device did not provide") ||
+		strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
 		return true
 	}
-	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
+	var tlsErr tls.RecordHeaderError
+	if errors.As(err, &tlsErr) {
+		return true
+	}
+	var statusErr *proto.HTTPStatusError
+	return errors.As(err, &statusErr) &&
+		(statusErr.StatusCode == http.StatusNotFound || statusErr.StatusCode == http.StatusMethodNotAllowed)
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {
