@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
@@ -36,6 +36,7 @@ interface PageHeaderProps {
   fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
+  navigationToggle?: ReactNode;
   rolloutPillData?: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   updatePill?: UpdatePillData | null;
@@ -204,6 +205,7 @@ function PageHeader({
   fleetNodeUpgradePill = null,
   isMenuOpen,
   openMenu,
+  navigationToggle,
   rolloutPillData = noActiveRollouts,
   schedulePillData,
   updatePill = null,
@@ -291,6 +293,7 @@ function PageHeader({
             className={clsx("flex min-w-0 items-center", !inlineFirstPhoneWidget && "flex-1")}
             data-testid="page-header-location-area"
           >
+            {navigationToggle}
             {isPhone ? (
               <Menu
                 ariaExpanded={isMenuOpen}

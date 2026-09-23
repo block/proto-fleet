@@ -1,12 +1,23 @@
 import { ElementType, useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 
 import { action } from "storybook/actions";
+import NavigationRailToggle from "./NavigationRailToggle";
+import { useNavigationRail } from "./useNavigationRail";
 import NavigationMenuComponent from ".";
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import SitePicker from "@/protoFleet/components/PageHeader/SitePicker";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { useFleetStore } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+
+const sites = [
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, { id: 1n, name: "Block LA", slug: "block-la" }),
+  }),
+];
 
 // Representative owner permissions for the navigation; role is only a display label.
 const navigationPermissions = [
@@ -54,6 +65,7 @@ export const NavigationMenu = ({
   }, [username, role, permissions]);
 
   const [isOpen, setIsOpen] = useState(false);
+  const rail = useNavigationRail();
   const { isPhone } = useWindowDimensions();
   if (!isPhone && isOpen) setIsOpen(false);
 
@@ -61,16 +73,26 @@ export const NavigationMenu = ({
     <>
       <NavigationMenuComponent
         items={primaryNavItems}
+        rail={rail}
         isVisible={isOpen}
         closeMenu={() => {
           setIsOpen(false);
           action("close menu")();
         }}
       />
-      <div className="p-4 tablet:ml-16 desktop:ml-50">
+      <div
+        className={`relative z-20 flex h-12 items-center px-4 laptop:h-15 ${rail.isExpanded ? "tablet:ml-50" : "tablet:ml-16"} desktop:ml-50`}
+      >
+        <NavigationRailToggle rail={rail} />
         {isPhone ? (
-          <Menu ariaLabel="Open navigation menu" ariaExpanded={isOpen} onClick={() => setIsOpen(true)} />
+          <Menu
+            ariaLabel="Open navigation menu"
+            ariaExpanded={isOpen}
+            className="mr-2 text-text-primary"
+            onClick={() => setIsOpen(true)}
+          />
         ) : null}
+        <SitePicker sites={sites} />
       </div>
     </>
   );

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { createElement, useCallback, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
+import type { NavigationRail } from "./useNavigationRail";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
@@ -9,8 +10,7 @@ import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
-import { LogoAlt } from "@/shared/assets/icons";
-import { ArrowLeftCompact } from "@/shared/assets/icons";
+import { ArrowLeftCompact, LogoAlt } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -20,11 +20,17 @@ type NavigationProps = {
   items: NavItem[];
   className?: string;
   isFloatingMenu?: boolean;
+  rail?: NavigationRail;
   closeMenu?: () => void;
 };
 
-const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: NavigationProps) => {
+const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail }: NavigationProps) => {
   const { pathname } = useLocation();
+  const isExpanded = rail?.isExpanded ?? false;
+  const handleNavigate = () => {
+    rail?.collapse();
+    closeMenu?.();
+  };
   const logout = useLogoutAction();
   const username = useUsername();
   const role = formatRole(useRole());
@@ -105,11 +111,14 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
 
   return (
     <nav
+      ref={rail?.navigationRef}
+      id={rail?.navigationId}
       aria-label="Main"
       className={clsx(
-        "group/nav absolute top-0 left-0 z-30 flex h-dvh max-h-dvh min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
-        !isFloatingMenu &&
-          "tablet:w-16 tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg tablet:has-focus-visible:w-50 tablet:has-focus-visible:border-r tablet:has-focus-visible:border-core-primary-10 tablet:has-focus-visible:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
+        "absolute top-0 left-0 z-30 flex h-dvh max-h-dvh min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
+        !isFloatingMenu && (isExpanded ? "tablet:w-50" : "tablet:w-16 desktop:w-50"),
+        !isFloatingMenu && "desktop:border-r desktop:border-core-primary-10 desktop:hover:shadow-lg",
+        isExpanded && "border-r border-core-primary-10 shadow-lg",
         className,
       )}
     >
@@ -118,7 +127,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
           <div
             className={clsx(
               "flex h-15 w-full shrink-0 items-center px-3 py-3",
-              !isFloatingMenu && "tablet:h-13 tablet:!pb-0",
+              !isFloatingMenu && "tablet:h-12 tablet:py-0 laptop:h-15 desktop:h-13 desktop:pt-3",
               {
                 "border-b border-border-5": isFloatingMenu,
               },
@@ -127,7 +136,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
             <Link
               to={scopeLink(homeItem)}
               aria-label="Home"
-              onClick={() => closeMenu?.()}
+              onClick={handleNavigate}
               className="flex items-center px-2.5"
             >
               <div className="flex size-5 shrink-0 items-center justify-center">
@@ -158,7 +167,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
               <li key={item.path} className="w-full">
                 <Link
                   to={scopeLink(item)}
-                  onClick={() => closeMenu?.()}
+                  onClick={handleNavigate}
                   aria-label={item.label}
                   aria-current={isCurrentPath(item) ? "page" : undefined}
                   className={clsx(
@@ -180,8 +189,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
                     <span
                       className={clsx(
                         "ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70",
-                        !isFloatingMenu &&
-                          "tablet:hidden tablet:group-hover/nav:inline tablet:group-has-focus-visible/nav:inline desktop:inline",
+                        !isFloatingMenu && !isExpanded && "tablet:hidden desktop:inline",
                       )}
                     >
                       {item.label}
@@ -253,7 +261,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
                           <li key={nav.path} className="w-full">
                             <Link
                               to={nav.path}
-                              onClick={() => closeMenu?.()}
+                              onClick={handleNavigate}
                               aria-current={isCurrentPath(nav.path) ? "page" : undefined}
                               className={clsx(
                                 "flex h-10 items-center rounded-lg px-9 text-emphasis-300 text-text-primary-70",
@@ -285,8 +293,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
         <div
           className={clsx(
             "min-w-0 flex-1 py-2 pr-2 pl-2.5",
-            !isFloatingMenu &&
-              "tablet:hidden tablet:group-hover/nav:block tablet:group-has-focus-visible/nav:block desktop:block",
+            !isFloatingMenu && !isExpanded && "tablet:hidden desktop:block",
           )}
         >
           <div className="truncate text-emphasis-300 text-text-primary-70">{username}</div>

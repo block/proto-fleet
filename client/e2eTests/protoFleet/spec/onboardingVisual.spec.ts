@@ -66,6 +66,11 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
     await test.step("Capture the navigation menu", async () => {
       await visuals.captureNavigationMenu();
     });
+
+    await test.step("Capture collapsed and expanded tablet navigation in both themes", async (step) => {
+      step.skip(testInfo.project.name !== "desktop", "Tablet baselines are captured once in the desktop project.");
+      await visuals.captureTabletNavigation();
+    });
   });
 
   test("Capture find-miners and complete-setup visuals", async ({

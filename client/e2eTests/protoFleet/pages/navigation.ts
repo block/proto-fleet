@@ -27,6 +27,16 @@ export class NavigationPage {
         await expect(page.getByTestId("app-content")).toHaveCSS("left", railWidth);
         await expect(page.getByTestId("app-header")).toHaveCSS("left", railWidth);
         await expect(page.getByTestId("app-content")).toHaveCSS("top", width >= 960 ? "75px" : "60px");
+        const toggle = page.getByRole("button", { name: "Expand navigation", exact: true });
+        if (width < 1280) {
+          await toggle.click();
+          await expect(navigation).toHaveCSS("width", "250px");
+          await expect(page.getByTestId("app-header")).toHaveCSS("left", "250px");
+          await page.getByRole("button", { name: "Collapse navigation", exact: true }).click();
+          await expect(navigation).toHaveCSS("width", railWidth);
+        } else {
+          await expect(toggle).toBeHidden();
+        }
       }
 
       await page.setViewportSize({ width: 631, height: 900 });
@@ -64,8 +74,25 @@ export class NavigationPage {
         await expect(
           this.page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Security", exact: true }),
         ).toBeVisible();
-        await this.page.keyboard.press("Tab");
-        await navigation.getByRole("link", { name: "Fleet", exact: true }).focus();
+        const toggle = this.page.getByRole("button", { name: "Expand navigation", exact: true });
+        const logoBounds = await navigation.getByTestId("navigation-logo").boundingBox();
+        const toggleBounds = await toggle.boundingBox();
+        if (!logoBounds || !toggleBounds) throw new Error("Navigation logo and header toggle must be visible");
+        expect(Math.abs(logoBounds.y + logoBounds.height / 2 - toggleBounds.y - toggleBounds.height / 2)).toBeLessThan(
+          1,
+        );
+        await toggle.hover();
+        await expect(navigation).toHaveCSS("width", "64px");
+        await toggle.focus();
+        await expect(navigation).toHaveCSS("width", "64px");
+        await this.page.keyboard.press("Enter");
+        await expect(navigation).toHaveCSS("width", "200px");
+        await expect(this.page.getByTestId("app-content")).toHaveCSS("left", "64px");
+        await expect(this.page.getByTestId("app-header")).toHaveCSS("left", "200px");
+        await this.page.keyboard.press("Escape");
+        await expect(navigation).toHaveCSS("width", "64px");
+        await expect(toggle).toBeFocused();
+        await this.page.keyboard.press("Space");
         await expect(navigation).toHaveCSS("width", "200px");
         await this.page.getByText("Add and manage the pools for your fleet.", { exact: true }).click();
         await expect(navigation).toHaveCSS("width", "64px");
@@ -129,6 +156,7 @@ export class NavigationPage {
       await expect(dialog).toBeHidden();
       await expect(navigation).toHaveCSS("width", "200px");
       await expect(trigger).toBeHidden();
+      await expect(this.page.getByRole("button", { name: "Expand navigation", exact: true })).toBeHidden();
       await this.page.setViewportSize({ width: 768, height: 1024 });
       await expect(dialog).toBeHidden();
       await this.page.getByText("Add and manage the pools for your fleet.", { exact: true }).click();
@@ -164,6 +192,18 @@ export class NavigationPage {
         const settings = navigation.getByRole("link", { name: "Settings", exact: true });
         const logout = navigation.getByRole("button", { name: "Log out", exact: true });
         await expect(links.getByRole("link")).toHaveCount(7);
+        const toggle = page.getByRole("button", { name: "Expand navigation", exact: true });
+        await expect(toggle).toBeInViewport({ ratio: 1 });
+        const bounds = await toggle.boundingBox();
+        expect(bounds?.width).toBeGreaterThanOrEqual(32);
+        expect(bounds?.height).toBeGreaterThanOrEqual(44);
+        await expect(navigation.getByText("Owner", { exact: true })).toBeHidden();
+        await toggle.tap();
+        await expect(navigation).toHaveCSS("width", "200px");
+        await expect(navigation.getByText("Owner", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Collapse navigation", exact: true }).tap();
+        await expect(navigation).toHaveCSS("width", "64px");
+        await toggle.tap();
         await expect(logout).toBeInViewport({ ratio: 1 });
         await settings.scrollIntoViewIfNeeded();
         await expect(settings).toBeInViewport({ ratio: 1 });
@@ -172,6 +212,7 @@ export class NavigationPage {
           expect(await links.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
         }
         await settings.tap();
+        await expect(navigation).toHaveCSS("width", "64px");
         await page
           .getByRole("navigation", { name: "Settings" })
           .getByRole("link", { name: "Security", exact: true })
