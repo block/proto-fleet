@@ -39,7 +39,6 @@ func TestNew(t *testing.T) {
 	d, err := New(createMockClientFactory())
 	require.NoError(t, err)
 	require.NotNil(t, d)
-	assert.NotNil(t, d.devices)
 	assert.NotNil(t, d.clientFactory)
 }
 

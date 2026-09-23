@@ -313,6 +313,32 @@ func TestRecoverMinerEndpointsHonorsCommandTimeout(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+func TestRecoverMinerEndpointsStopsInspectingAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var inspections atomic.Int32
+	r, calls := recoveryRunCmd(t, map[string]stableidentity.Identity{
+		"10.0.0.1|80": stableidentity.New("SERIAL-1", ""),
+		"10.0.0.2|80": stableidentity.New("SERIAL-2", ""),
+	}, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		if inspections.Add(1) == 2 {
+			cancel()
+		}
+		return sdk.DeviceInfo{SerialNumber: strings.Replace(endpoint.Host, "10.0.0.", "SERIAL-", 1)}, nil
+	})
+
+	results, partial, err := r.recoverMinerEndpoints(ctx, []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "SERIAL-1", ""),
+		recoveryTarget("miner-2", "SERIAL-2", ""),
+	}, []string{"80"}, discardLogger(t))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, partial)
+	require.Len(t, results, 1)
+	assert.Equal(t, "miner-1", results[0].GetDeviceIdentifier())
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, results[0].GetOutcome())
+	assert.EqualValues(t, 2, calls.Load())
+}
+
 func TestScanRecoveryEndpointsPrioritizesBoundedRequestPorts(t *testing.T) {
 	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		return sdk.DeviceInfo{}, nil

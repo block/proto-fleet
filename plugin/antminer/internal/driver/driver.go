@@ -11,7 +11,6 @@
 //   - Clean SDK interface implementation
 //   - Proper error handling and logging
 //   - Resource management and cleanup
-//   - Concurrent device management
 //   - Antminer-specific RPC protocol handling
 package driver
 
@@ -20,7 +19,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 
 	"github.com/block/proto-fleet/plugin/antminer/internal/device"
 	"github.com/block/proto-fleet/plugin/antminer/internal/types"
@@ -92,9 +90,6 @@ var noEfficiencyModeModels = []string{
 
 // Driver implements the SDK Driver interface for Antminer devices.
 type Driver struct {
-	devices map[string]sdk.Device
-	mutex   sync.RWMutex
-
 	clientFactory types.ClientFactory
 }
 
@@ -104,7 +99,6 @@ type Driver struct {
 // This enables easy testing with mock clients.
 func New(clientFactory types.ClientFactory) (*Driver, error) {
 	driver := &Driver{
-		devices:       make(map[string]sdk.Device),
 		clientFactory: clientFactory,
 	}
 
@@ -335,7 +329,6 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 // It demonstrates:
 //   - Device instance lifecycle management
 //   - Credential handling and storage
-//   - Concurrent device tracking
 func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 	slog.Debug("Creating new Antminer device instance", "deviceID", deviceID, "host", deviceInfo.Host)
 
@@ -353,10 +346,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to connect device: %w", err)
 	}
-
-	d.mutex.Lock()
-	d.devices[deviceID] = dev
-	d.mutex.Unlock()
 
 	return sdk.NewDeviceResult{Device: dev}, nil
 }

@@ -10,7 +10,6 @@
 //   - Clean SDK interface implementation
 //   - Proper error handling and logging
 //   - Resource management and cleanup
-//   - Concurrent device management
 package driver
 
 import (
@@ -19,7 +18,6 @@ import (
 	"log/slog"
 	"math"
 	"strings"
-	"sync"
 
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
@@ -46,8 +44,6 @@ var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
-	devices      map[string]sdk.Device
-	mutex        sync.RWMutex
 	requiredPort int
 }
 
@@ -55,12 +51,9 @@ type Driver struct {
 //
 // This function demonstrates proper driver initialization:
 //   - Sets up authentication services
-//   - Initializes device tracking
 //   - Handles initialization errors gracefully
 func New(port int) (*Driver, error) {
-
 	return &Driver{
-		devices:      make(map[string]sdk.Device),
 		requiredPort: port,
 	}, nil
 }
@@ -364,7 +357,6 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 // It demonstrates:
 //   - Device instance lifecycle management
 //   - Credential handling and storage
-//   - Concurrent device tracking
 func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 	slog.Debug("Plugin NewDevice called",
 		"device_id", deviceID,
@@ -376,10 +368,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
-
-	d.mutex.Lock()
-	d.devices[deviceID] = dev
-	d.mutex.Unlock()
 
 	return sdk.NewDeviceResult{Device: dev}, nil
 }

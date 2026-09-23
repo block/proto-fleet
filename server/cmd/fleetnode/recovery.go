@@ -79,6 +79,9 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 
 func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerConnectionDescriptor, scanPorts []string, logger *slog.Logger) ([]*pb.MinerEndpointRecoveryResult, bool, error) {
 	endpoints, partial, scanErr := r.scanRecoveryEndpoints(ctx, scanPorts, logger)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
+	}
 	if scanErr != nil && len(endpoints) == 0 {
 		return nil, partial, scanErr
 	}
@@ -90,6 +93,9 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 	}
 	inspectionCache := make(map[string]inspection)
 	for _, target := range targets {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
+		}
 		want := identityFromTarget(target)
 		if !want.Usable() {
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNRECOVERABLE_IDENTITY, recoveryEndpoint{}, ""))
@@ -107,6 +113,9 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		identifiedError := false
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
 		for _, candidate := range endpoints {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
+			}
 			if candidate.driverName != target.GetDriverName() {
 				continue
 			}
@@ -125,6 +134,9 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			if !ok {
 				cached.identity, cached.err = r.inspectRecoveryEndpoint(ctx, target, candidate, bundle)
 				inspectionCache[cacheKey] = cached
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
 			}
 			got, err := cached.identity, cached.err
 			if err != nil {
