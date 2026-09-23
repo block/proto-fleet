@@ -51,7 +51,7 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	results, partial, err := r.recoverMinerEndpoints(cmdCtx, req.GetTargets(), req.GetScanPorts(), logger)
-	if err != nil && len(results) == 0 {
+	if err != nil && len(results) == 0 && !partial {
 		code := pb.AckCode_ACK_CODE_SCAN_FAILED
 		var ce *commandError
 		if errors.As(err, &ce) {
@@ -82,8 +82,13 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
 	}
-	if scanErr != nil && len(endpoints) == 0 {
-		return nil, partial, scanErr
+	if partial {
+		// An incomplete candidate set cannot safely prove FOUND, NOT_FOUND, or
+		// AMBIGUOUS. Omit unresolved targets so the server leaves them untouched.
+		return nil, true, scanErr
+	}
+	if scanErr != nil {
+		return nil, false, scanErr
 	}
 
 	results := make([]*pb.MinerEndpointRecoveryResult, 0, len(targets))

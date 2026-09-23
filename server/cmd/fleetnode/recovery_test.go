@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
@@ -261,8 +262,8 @@ func TestRecoverMinerEndpointsRejectsUnstableAndAmbiguousMatches(t *testing.T) {
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, results[1].GetOutcome())
 }
 
-func TestRecoverMinerEndpointsReturnsPartialResultsAfterScanFailure(t *testing.T) {
-	r, _ := recoveryRunCmd(t, nil, errors.New("scanner interrupted"), func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+func TestRecoverMinerEndpointsOmitsResultsAfterPartialScan(t *testing.T) {
+	r, calls := recoveryRunCmd(t, nil, errors.New("scanner interrupted"), func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		return sdk.DeviceInfo{SerialNumber: "SERIAL-1", Host: endpoint.Host}, nil
 	})
 
@@ -272,8 +273,8 @@ func TestRecoverMinerEndpointsReturnsPartialResultsAfterScanFailure(t *testing.T
 
 	require.ErrorContains(t, err, "scanner interrupted")
 	assert.True(t, partial)
-	require.Len(t, results, 1)
-	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, results[0].GetOutcome())
+	assert.Empty(t, results)
+	assert.Zero(t, calls.Load())
 }
 
 func TestRecoverMinerEndpointsRedactsMalformedCiphertext(t *testing.T) {
@@ -294,7 +295,7 @@ func TestRecoverMinerEndpointsRedactsMalformedCiphertext(t *testing.T) {
 	assert.NotContains(t, results[0].GetErrorMessage(), "secret-value")
 }
 
-func TestRecoverMinerEndpointsHonorsCommandTimeout(t *testing.T) {
+func TestHandleRecoverMinerEndpointsReturnsEmptyPartialOnTimeout(t *testing.T) {
 	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		return sdk.DeviceInfo{}, nil
 	})
@@ -302,16 +303,21 @@ func TestRecoverMinerEndpointsHonorsCommandTimeout(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	})
-	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
-	defer cancel()
+	previousTimeout := commandTimeout
+	commandTimeout = time.Millisecond
+	t.Cleanup(func() { commandTimeout = previousTimeout })
+	ack := &capturingAcker{}
+	r.handleRecoverMinerEndpoints(t.Context(), ack, "recover-timeout", &pb.RecoverMinerEndpointsRequest{
+		Targets:   []*pb.MinerConnectionDescriptor{recoveryTarget("miner-1", "SERIAL-1", "")},
+		ScanPorts: []string{"80"},
+	}, discardLogger(t))
 
-	results, partial, err := r.recoverMinerEndpoints(ctx, []*pb.MinerConnectionDescriptor{
-		recoveryTarget("miner-1", "SERIAL-1", ""),
-	}, []string{"80"}, discardLogger(t))
-
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.True(t, partial)
-	assert.Empty(t, results)
+	require.Len(t, ack.sent, 1)
+	got := ack.sent[0].GetAck()
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
+	result := &pb.RecoverMinerEndpointsResult{}
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), result))
+	assert.Empty(t, result.GetResults())
 }
 
 func TestRecoverMinerEndpointsStopsInspectingAfterCancellation(t *testing.T) {
