@@ -59,6 +59,10 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
       await new NavigationPage(page).validateTouchNavigation();
     });
 
+    await test.step("Validate navigation with an enlarged browser default font", async () => {
+      await new NavigationPage(page).validateLargeFontNavigation();
+    });
+
     await test.step("Capture the navigation menu", async () => {
       await visuals.captureNavigationMenu();
     });

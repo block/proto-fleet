@@ -1,7 +1,48 @@
-import { expect, type Page } from "@playwright/test";
+import { chromium, expect, type Page } from "@playwright/test";
 
 export class NavigationPage {
   constructor(private readonly page: Page) {}
+
+  async validateLargeFontNavigation() {
+    // Change the browser's default font, not the page's root font-size: media-query
+    // rem units use the former, so a CSS font-size override would miss this regression.
+    const browser = await chromium.launch({ args: ["--blink-settings=defaultFontSize=20"] });
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 700, height: 900 },
+        storageState: await this.page.context().storageState(),
+      });
+      const page = await context.newPage();
+      await page.goto(this.page.url());
+      await expect(page.locator("html")).toHaveCSS("font-size", "20px");
+      expect(await page.evaluate(() => window.matchMedia("(min-width: 39.5rem)").matches)).toBe(false);
+
+      const navigation = page.getByRole("navigation", { name: "Main", exact: true });
+      const trigger = page.getByRole("button", { name: "Open navigation menu", exact: true });
+      for (const width of [700, 632, 959, 960, 1279, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        const railWidth = width >= 1280 ? "250px" : "80px";
+        await expect(trigger).toBeHidden();
+        await expect(navigation).toHaveCSS("width", railWidth);
+        await expect(page.getByTestId("app-content")).toHaveCSS("left", railWidth);
+        await expect(page.getByTestId("app-header")).toHaveCSS("left", railWidth);
+        await expect(page.getByTestId("app-content")).toHaveCSS("top", width >= 960 ? "75px" : "60px");
+      }
+
+      await page.setViewportSize({ width: 631, height: 900 });
+      await expect(navigation).toBeHidden();
+      await expect(trigger).toBeVisible();
+      await expect(page.getByTestId("app-content")).toHaveCSS("left", "0px");
+      await trigger.click();
+      await expect(page.getByRole("dialog", { name: "Navigation menu" })).toBeVisible();
+      await expect(navigation).toHaveCSS("width", "300px");
+      await page.keyboard.press("Escape");
+      await expect(navigation).toBeHidden();
+      await expect(trigger).toBeFocused();
+    } finally {
+      await browser.close();
+    }
+  }
 
   async validateResponsiveNavigation() {
     const originalViewport = this.page.viewportSize();
