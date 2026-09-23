@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { deferred, manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, deferred, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { activeRigRollout, canaryChannel, gatedRigRollout } from "./ReleaseChannels.fixtures";
@@ -101,6 +101,12 @@ function renderManage(
   };
 }
 
+function renderSettings(...args: Parameters<typeof renderManage>) {
+  const result = renderManage(...args);
+  if (args[0]) openChannelSettings();
+  return result;
+}
+
 const assignedChannel = (firmwareFileId = ""): ChannelView => ({
   ...existingChannel(),
   modelGroups: [
@@ -149,7 +155,7 @@ describe("release channel active sizing validation", () => {
         thresholds: { maxHashrateDropPercent: 10, minSampleCoveragePercent: 50 },
       }),
     };
-    const { onSave } = renderManage(channel);
+    const { onSave } = renderSettings(channel);
     const coverage = screen.getByLabelText("Min sample coverage (%)");
     expect(coverage).toHaveValue("50");
     fireEvent.change(coverage, { target: { value: "0" } });
@@ -175,7 +181,7 @@ describe("release channel active sizing validation", () => {
   ] as const)(
     "blocks %s with active size %s/%s=%s, then recovers or switches methods",
     async (method, label, field, invalidValue) => {
-      const { onSave } = renderManage(existingChannel());
+      const { onSave } = renderSettings(existingChannel());
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
       const chooseMethod = (name: string) => {
         fireEvent.click(screen.getByTestId("rollout-method"));
@@ -184,7 +190,7 @@ describe("release channel active sizing validation", () => {
       chooseMethod(method);
       fireEvent.change(screen.getByLabelText(label), { target: { value: invalidValue } });
       expect(screen.getByLabelText(label)).toHaveAttribute("aria-invalid", "true");
-      expect(screen.getByText("Enter at least 1 miner.")).toBeVisible();
+      await waitFor(() => expect(screen.getByText("Enter at least 1 miner.")).toBeVisible());
       const save = screen.getByTestId("save-channel");
       expect(save).toBeDisabled();
       fireEvent.click(save);
@@ -206,11 +212,12 @@ describe("release channel active sizing validation", () => {
   );
 
   test("allows firmware Apply to use saved settings when an unsaved active size is invalid", async () => {
-    const { onSave, onApply } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
+    const { onSave, onApply } = renderSettings(assignedChannel(), undefined, false, [replacementFile]);
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "0" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
@@ -298,7 +305,7 @@ describe("release channel pacing guidance", () => {
       create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], minerCount: 10 }),
       create(ReleaseChannelModelGroupSchema, { manufacturer: "Bitmain", model: "S21", minerCount: 10 }),
     ];
-    renderManage(channel);
+    renderSettings(channel);
     const controls = screen.getByTestId("rollout-controls");
     expect(controls).not.toHaveTextContent(aggregatePlan);
     expect(
@@ -311,10 +318,12 @@ describe("release channel pacing guidance", () => {
       expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
 
     // Staging only a clear must not turn the whole scope into a predicted update.
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
-    expect(controls).not.toHaveTextContent(aggregatePlan);
+    openChannelSettings();
+    expect(screen.getByTestId("rollout-controls")).not.toHaveTextContent(aggregatePlan);
   });
 
   test("keeps scope counts visible without treating one model or a draft preview as rollout targets", async () => {
@@ -331,7 +340,7 @@ describe("release channel pacing guidance", () => {
         onTargetCount: 4,
       }),
     ];
-    const { previewScope } = renderManage(channel);
+    const { previewScope } = renderSettings(channel);
     const controls = screen.getByTestId("rollout-controls");
     expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
     previewScope.mockResolvedValue(
@@ -366,6 +375,7 @@ describe("release channel write ordering", () => {
   };
 
   const chooseBatches = (batchSize: string) => {
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: batchSize } });
@@ -457,6 +467,7 @@ describe("release channel write ordering", () => {
     const write = deferredWrite();
     onApply.mockReturnValueOnce(write.promise);
     stageReplacement();
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     const save = screen.getByTestId("save-channel");
@@ -523,14 +534,16 @@ describe("release channel firmware assignments", () => {
   });
 
   test("discarding a staged clear restores the unavailable assignment without changing channel edits", () => {
-    renderManage(assignedChannel());
+    renderSettings(assignedChannel());
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    closeChannelSettings();
     const picker = screen.getByTestId("channel-firmware-select-Rig");
     fireEvent.click(picker);
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(picker).toHaveTextContent("1.4.3");
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
     expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
@@ -695,10 +708,12 @@ describe("release channel firmware assignments", () => {
       expect(start).toBeDisabled();
       fireEvent.click(start);
       expect(onApply).not.toHaveBeenCalled();
+      openChannelSettings();
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Independent settings change" } });
       await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
       expect(onSave).toHaveBeenCalledOnce();
       expect(start).toBeDisabled();
+      closeChannelSettings();
 
       fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
       fireEvent.click(screen.getByRole("option", { name: /1.4.5/ }));
@@ -1099,7 +1114,7 @@ describe("effective release channel behavior", () => {
     },
   ])("becomes clean after saving $name while retaining hidden form values", async ({ change, saved }) => {
     const channel = { ...assignedChannel(), behavior: reviewedBatches() };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     const save = screen.getByTestId("save-channel");
     expect(save).toBeDisabled();
     change();
@@ -1130,7 +1145,7 @@ describe("effective release channel behavior", () => {
         waitBetweenBatchesSeconds: 120,
       }),
     };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     const save = screen.getByTestId("save-channel");
     fireEvent.click(screen.getByLabelText("Review after each batch"));
     await act(async () => fireEvent.click(save));
@@ -1179,7 +1194,7 @@ describe("effective release channel behavior", () => {
       thresholds: { maxHashrateDropPercent: 10 },
     });
     const channel = { ...existingChannel(), behavior };
-    const { updateChannel } = renderManage(channel);
+    const { updateChannel } = renderSettings(channel);
     const save = screen.getByTestId("save-channel");
     fireEvent.change(screen.getByLabelText("Max hashrate drop (%)"), { target: { value: "" } });
     await act(async () => fireEvent.click(save));
@@ -1231,7 +1246,7 @@ describe("release channel scope synchronization", () => {
     "keeps a local %s edit while accepting other scope dimensions from polling",
     async (label, field, selection, ids) => {
       const channel = { ...existingChannel(), scope: scopeWith(1n) };
-      const { onSave, updateChannel, previewScope } = renderManage(channel);
+      const { onSave, updateChannel, previewScope } = renderSettings(channel);
       choose(label, selection);
       const incoming = scopeWith(3n);
       updateChannel({ ...channel, scope: incoming }, false);
@@ -1245,7 +1260,7 @@ describe("release channel scope synchronization", () => {
 
   test("preserves a local scope clear while accepting remote additions and removals", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     choose("Sites", "Clear sites");
     const incoming = create(ReleaseChannelScopeSchema, { ...scopeWith(3n), rackIds: [], deviceIdentifiers: [] });
     updateChannel({ ...channel, scope: incoming }, false);
@@ -1259,7 +1274,7 @@ describe("release channel scope synchronization", () => {
 
   test("treats selector reordering as unchanged and accepts a later remote edit to that dimension", async () => {
     const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { onSave, updateChannel, previewScope } = renderManage(channel);
+    const { onSave, updateChannel, previewScope } = renderSettings(channel);
     choose("Sites", "Choose sites 2 and 1");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     const incoming = scopeWith(3n);
@@ -1278,7 +1293,7 @@ describe("release channel scope synchronization", () => {
       .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
       .mockReturnValueOnce(write.promise)
       .mockResolvedValue(undefined);
-    const { updateChannel } = renderManage(channel, onSave);
+    const { updateChannel } = renderSettings(channel, onSave);
     choose("Sites", "Choose site 2");
     fireEvent.click(screen.getByTestId("save-channel"));
     choose("Buildings", "Choose building 2");
@@ -1298,7 +1313,7 @@ describe("release channel scope synchronization", () => {
 
   test("keeps a pending preview when polling changes only selector order", async () => {
     const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { previewScope, updateChannel } = renderManage(channel);
+    const { previewScope, updateChannel } = renderSettings(channel);
     let finishPreview!: (preview: PreviewReleaseChannelScopeResponse) => void;
     previewScope.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -1315,7 +1330,7 @@ describe("release channel scope synchronization", () => {
 
   test("treats an absent remote scope as empty dimensions while retaining a local edit", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     choose("Sites", "Choose site 2");
     updateChannel({ ...channel, scope: undefined }, false);
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
@@ -1464,7 +1479,7 @@ describe("new release channel scope verification", () => {
   });
 
   test("allows existing-channel edits while preview is pending or failed", async () => {
-    const { onSave, previewScope } = renderManage(existingChannel());
+    const { onSave, previewScope } = renderSettings(existingChannel());
     const pending = pendingPreview();
     previewScope.mockReturnValue(pending.promise);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
@@ -1487,7 +1502,7 @@ describe("release channel saves during scope overlaps", () => {
       finishSaving = resolve;
     });
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(completion);
-    renderManage(channel, onSave);
+    renderSettings(channel, onSave);
     await screen.findByTestId("scope-conflicts");
     const save = screen.getByTestId("save-channel");
     expect(save).toBeDisabled();
@@ -1509,7 +1524,7 @@ describe("release channel saves during scope overlaps", () => {
     const onSave = vi
       .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
       .mockRejectedValue(new Error("Scope adds an overlap with Canary"));
-    renderManage(existingChannel(), onSave);
+    renderSettings(existingChannel(), onSave);
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
     await screen.findByTestId("scope-conflicts");
@@ -1545,7 +1560,7 @@ describe("release channel saves during scope overlaps", () => {
 describe("release channel saves while refresh fails", () => {
   test("acknowledges a committed draft until reads recover without hiding subsequent edits", async () => {
     const channel = existingChannel();
-    const { onSave, updateChannel } = renderManage(channel, undefined, true);
+    const { onSave, updateChannel } = renderSettings(channel, undefined, true);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
     const save = screen.getByTestId("save-channel");
     fireEvent.click(save);
@@ -1585,7 +1600,7 @@ describe("release channel saves while refresh fails", () => {
         finishSaving = resolve;
       }),
     );
-    const { updateChannel } = renderManage(channel, onSave);
+    const { updateChannel } = renderSettings(channel, onSave);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
     const save = screen.getByTestId("save-channel");
     fireEvent.click(save);
@@ -1602,7 +1617,7 @@ describe("release channel saves while refresh fails", () => {
 
   test("leaves a rejected write dirty and retryable", async () => {
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockRejectedValue(new Error("Save rejected"));
-    renderManage(existingChannel(), onSave, true);
+    renderSettings(existingChannel(), onSave, true);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     const save = screen.getByTestId("save-channel");
     fireEvent.click(save);

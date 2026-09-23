@@ -26,6 +26,7 @@ export class SettingsFirmwarePage extends BasePage {
   // --- Release channels ---
 
   async openFilesTab() {
+    await this.closeChannelSettings();
     const [catalog] = await Promise.all([
       this.page.waitForResponse(
         (response) =>
@@ -40,6 +41,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openReleaseChannelsTab() {
+    await this.closeChannelSettings();
     await this.page.getByRole("button", { name: "Release channels", exact: true }).click();
     await this.validateTitle("Release channels");
     // The channels table renders only after loading finishes; helpers like
@@ -59,6 +61,27 @@ export class SettingsFirmwarePage extends BasePage {
     return this.page.getByTestId("list-row").filter({ has: this.page.getByTestId(`channel-row-${channelName}`) });
   }
 
+  // New channels keep their settings inline; existing channels edit them in
+  // a separate modal above the assigned miners table.
+  private async openChannelSettings() {
+    if (await this.page.getByTestId("release-channel-new").isVisible()) {
+      return;
+    }
+    const modal = this.page.getByTestId("channel-settings-modal");
+    if (!(await modal.isVisible())) {
+      await this.page.getByTestId("channel-settings").click();
+    }
+    await expect(modal).toBeVisible();
+  }
+
+  private async closeChannelSettings() {
+    const modal = this.page.getByTestId("channel-settings-modal");
+    if (await modal.isVisible()) {
+      await modal.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(modal).toBeHidden();
+    }
+  }
+
   // Opens the create form and names the channel; scope and behavior are set
   // with the helpers below before saveNewChannel.
   async startCreateChannel(channelName: string) {
@@ -76,6 +99,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async saveChannelChanges() {
+    await this.openChannelSettings();
     const save = this.page.getByTestId("save-channel");
     await expect(save).toBeEnabled();
     await save.click();
@@ -84,12 +108,14 @@ export class SettingsFirmwarePage extends BasePage {
 
   // The save action is blocked because the scope overlaps another channel.
   async validateScopeConflict(otherChannelName: string) {
+    await this.openChannelSettings();
     await expect(this.page.getByTestId("scope-conflicts")).toContainText(otherChannelName);
     await expect(this.page.getByTestId("save-channel")).toBeDisabled();
   }
 
   // Opens the "Miners" selector of the Applies to section.
   async openScopeMiners() {
+    await this.openChannelSettings();
     await this.page
       .getByTestId("scope-editor")
       .getByRole("button", { name: /^Miners / })
@@ -129,6 +155,7 @@ export class SettingsFirmwarePage extends BasePage {
 
   // The Applies to preview resolved to this many miners.
   async validateScopeCovers(count: number) {
+    await this.openChannelSettings();
     await expect(this.page.getByTestId("scope-preview")).toContainText(
       `covers ${count} ${count === 1 ? "miner" : "miners"}`,
     );
@@ -137,15 +164,18 @@ export class SettingsFirmwarePage extends BasePage {
   // --- Update behavior controls ---
 
   async setMethod(label: "Single batch" | "Multiple batches" | "Pilot batch, then remaining") {
+    await this.openChannelSettings();
     await this.page.getByTestId("rollout-method").click();
     await this.page.getByRole("option", { name: label }).click();
   }
 
   async setPilotSize(size: number) {
+    await this.openChannelSettings();
     await this.page.locator("#pilot-size").fill(String(size));
   }
 
   async setBatchSize(size: number) {
+    await this.openChannelSettings();
     await this.page.locator("#batch-size").fill(String(size));
   }
 
@@ -159,10 +189,12 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async enableReviewAfterEachBatch() {
+    await this.openChannelSettings();
     await this.turnOnSwitch("review-after-each-batch", "Review after each batch");
   }
 
   async enableAutoContinue({ maxHashrateDropPercent }: { maxHashrateDropPercent: number }) {
+    await this.openChannelSettings();
     await this.turnOnSwitch("auto-continue", "Auto-continue healthy batches");
     await this.page.locator("#max-hashrate-drop").fill(String(maxHashrateDropPercent));
     await this.page.locator("#max-efficiency-increase").fill("");
@@ -179,6 +211,7 @@ export class SettingsFirmwarePage extends BasePage {
 
   // Returns from the manage view to the channels table.
   async backToChannels() {
+    await this.closeChannelSettings();
     await this.page.getByTestId("back-to-channels").click();
     await expect(this.page.getByTestId("channels-table")).toBeVisible();
   }
@@ -237,6 +270,7 @@ export class SettingsFirmwarePage extends BasePage {
   // Opens the detail of an active update, whichever action label the banner
   // currently carries ("View update" or "Review update").
   async openActiveUpdate(channelName: string, target: FirmwareTarget) {
+    await this.closeChannelSettings();
     await this.activeUpdateRow(channelName, target)
       .getByRole("button", { name: /^(View|Review) update$/ })
       .click();
@@ -263,6 +297,7 @@ export class SettingsFirmwarePage extends BasePage {
 
   // Opens the model group's miner table via its "View miners" button.
   async openModelMiners(channelName: string, target: FirmwareTarget) {
+    await this.closeChannelSettings();
     await this.modelGroupRow(channelName, target).getByRole("button", { name: "View miners", exact: true }).click();
     await this.validateTitleInModal(`${targetLabel(target)} miners`);
     // Members are fetched when the modal opens; rows appear once loaded.
@@ -320,6 +355,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async selectChannelFirmware(channelName: string, target: FirmwareTarget, optionLabel: string | RegExp) {
+    await this.closeChannelSettings();
     await this.modelGroupRow(channelName, target)
       .getByRole("button", { name: `Firmware for ${targetLabel(target)}`, exact: true })
       .click();
@@ -343,6 +379,7 @@ export class SettingsFirmwarePage extends BasePage {
   // Applies staged firmware changes through the confirmation dialog; the
   // update runs with the channel's saved behavior.
   async applyFirmwareChanges(channelName: string) {
+    await this.closeChannelSettings();
     await this.channelView(channelName).getByTestId("apply-firmware-changes").click();
     await expect(this.applyDialog()).toBeVisible();
     await this.applyDialog().getByRole("button", { name: "Start update", exact: true }).click();
@@ -438,6 +475,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openChannelHistory(channelName: string) {
+    await this.closeChannelSettings();
     await this.channelView(channelName).getByTestId("channel-history").click();
     await this.validateTitleInModal("Update history");
     await expect(this.historyModal().getByText("Loading update history…", { exact: true })).toBeHidden();
@@ -522,6 +560,7 @@ export class SettingsFirmwarePage extends BasePage {
   // Opens the app-header pill popover and follows its link to the release
   // channels view.
   async followAppRolloutPillToChannels() {
+    await this.closeChannelSettings();
     await this.appRolloutPill().click();
     await this.page.getByRole("link", { name: "View release channels", exact: true }).click();
     await this.validateTitle("Release channels");
@@ -607,6 +646,7 @@ export class SettingsFirmwarePage extends BasePage {
   // Deletes the channel from its open manage view. Deleting returns to the
   // channels table, where the row must be gone.
   async deleteChannel(channelName: string) {
+    await this.closeChannelSettings();
     await this.channelView(channelName).getByTestId("delete-channel").click();
     const dialog = this.page.getByTestId("delete-channel-dialog");
     await expect(dialog).toBeVisible();

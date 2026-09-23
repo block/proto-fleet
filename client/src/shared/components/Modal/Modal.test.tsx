@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Modal from ".";
@@ -12,6 +12,78 @@ vi.mock("motion/react", () => ({
 }));
 
 describe("Modal", () => {
+  it("keeps the title expanded at the top and collapsed consistently while scrolling", () => {
+    render(
+      <Modal title="Channel settings">
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+
+    const scrollArea = screen.getByTestId("modal");
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+
+    expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+
+    for (const scrollTop of [1, 1, 100, 100, 1]) {
+      fireEvent.scroll(scrollArea, { target: { scrollTop } });
+      expect(within(header).getByText("Channel settings")).toBeInTheDocument();
+    }
+
+    fireEvent.scroll(scrollArea, { target: { scrollTop: 0 } });
+    expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+  });
+
+  it("tracks scrolling when first opened and resets the title when reopened", () => {
+    const modal = (open: boolean) => (
+      <Modal title="Channel settings" open={open}>
+        <div>Scrollable settings</div>
+      </Modal>
+    );
+    const { rerender } = render(modal(false));
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+
+    rerender(modal(true));
+    const firstHeader = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(firstHeader).queryByText("Channel settings")).not.toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 100 } });
+    expect(within(firstHeader).getByText("Channel settings")).toBeInTheDocument();
+
+    rerender(modal(false));
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+    rerender(modal(true));
+
+    const reopenedHeader = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(reopenedHeader).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 1 } });
+    expect(within(reopenedHeader).getByText("Channel settings")).toBeInTheDocument();
+  });
+
+  it.each([
+    { name: "forced", props: { forceTitleCollapsed: true } },
+    { name: "fullscreen", props: { size: "fullscreen" as const } },
+  ])("keeps the $name title in the header regardless of scroll position", ({ props }) => {
+    render(
+      <Modal title="Persistent title" {...props}>
+        <div>Scrollable content</div>
+      </Modal>,
+    );
+
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(header).getByText("Persistent title")).toBeInTheDocument();
+    expect(screen.getAllByText("Persistent title")).toHaveLength(1);
+
+    for (const scrollTop of [100, 0]) {
+      fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop } });
+      expect(within(header).getByText("Persistent title")).toBeInTheDocument();
+      expect(screen.getAllByText("Persistent title")).toHaveLength(1);
+    }
+  });
+
   it("uses the full-width top dialog mobile pattern by default", () => {
     render(
       <Modal title="Standard modal">

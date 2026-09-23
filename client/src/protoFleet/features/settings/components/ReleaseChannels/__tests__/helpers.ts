@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { type Mocked, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -58,4 +59,15 @@ export function deferred<T = void>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+export function openChannelSettings() {
+  if (!screen.queryByTestId("channel-settings-modal")) {
+    fireEvent.click(screen.getByTestId("channel-settings"));
+  }
+}
+
+export function closeChannelSettings() {
+  const settings = screen.queryByTestId("channel-settings-modal");
+  if (settings) fireEvent.click(within(settings).getByRole("button", { name: "Close dialog" }));
 }

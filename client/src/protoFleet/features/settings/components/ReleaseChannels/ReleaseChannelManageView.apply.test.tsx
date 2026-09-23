@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { deferred, manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, deferred, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
   ReleaseChannelModelGroupSchema,
@@ -100,10 +100,12 @@ function chooseFile(id: string, model = "Rig") {
   fireEvent.click(within(list).getByRole("option", { name: id === "" ? "No firmware" : new RegExp(`^${id}-`) }));
 }
 function chooseMethod(label: string) {
+  openChannelSettings();
   fireEvent.click(screen.getByTestId("rollout-method"));
   fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${label}`) }));
 }
 async function startApply(button = "Start update") {
+  closeChannelSettings();
   fireEvent.click(screen.getByTestId("apply-firmware-changes"));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: button })));
 }

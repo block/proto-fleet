@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { ReleaseChannelModelGroupSchema, ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -97,10 +97,12 @@ describe("firmware assignment request limit", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
     fireEvent.click(start);
     expect(onApply).not.toHaveBeenCalled();
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
     expect(onSave).toHaveBeenCalledOnce();
+    closeChannelSettings();
     expect(screen.getByText(/101 firmware changes pending/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "old-100" } });

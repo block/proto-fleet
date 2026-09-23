@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useState } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -85,9 +85,6 @@ const Modal = ({
   forceTitleCollapsed = false,
   fixedFooter,
 }: ModalProps) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const isFullscreen = size === sizes.fullscreen;
   const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
@@ -95,29 +92,12 @@ const Modal = ({
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
 
-  useEffect(() => {
-    if (!title || !sentinelRef.current || !scrollRef.current) {
-      setIsTitleCollapsed(false);
-      return;
-    }
-
-    const headerHeight = headerRef.current?.offsetHeight ?? 0;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsTitleCollapsed(!entry.isIntersecting);
-      },
-      {
-        root: scrollRef.current,
-        rootMargin: `-${headerHeight}px 0px 0px 0px`,
-        threshold: 0,
-      },
-    );
-
-    observer.observe(sentinelRef.current);
-
-    return () => observer.disconnect();
-  }, [title, showHeader]);
+  // Header content changes its height, so observing its boundary creates a
+  // collapse/expand feedback loop. Only the scroll position controls the title.
+  // Sync on attachment too: PageOverlay remounts this element when reopened.
+  const syncTitleOnMount = useCallback((element: HTMLDivElement | null) => {
+    if (element) setIsTitleCollapsed(element.scrollTop > 0);
+  }, []);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -184,12 +164,12 @@ const Modal = ({
             },
             className,
           )}
-          ref={scrollRef}
+          ref={syncTitleOnMount}
+          onScroll={(event) => setIsTitleCollapsed(event.currentTarget.scrollTop > 0)}
           data-testid={testId}
         >
           {showHeader ? (
             <div
-              ref={headerRef}
               // Two things keep the sticky background actually opaque:
               //
               // flex-col — headerSpacingClassName is a margin on an empty
@@ -237,16 +217,13 @@ const Modal = ({
             </div>
           ) : null}
           {title && !isFullscreen && !forceTitleCollapsed ? (
-            <>
-              <div ref={sentinelRef} className="h-0 w-0" />
-              <div
-                className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
-                  "phone:mb-0": hideHeaderOnPhone,
-                })}
-              >
-                {title}
-              </div>
-            </>
+            <div
+              className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
+                "phone:mb-0": hideHeaderOnPhone,
+              })}
+            >
+              {title}
+            </div>
           ) : null}
           {description ? <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div> : null}
           <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>

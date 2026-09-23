@@ -40,6 +40,53 @@ const miner = (id: number, firmware: string) =>
   `<tr data-testid="channel-miner-${id}"><td>Miner ${id} ${version}</td><td>${firmware}</td><td>Up to date</td></tr>`;
 
 test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
+  test("new-channel settings helpers keep using the inline form", async ({ page }) => {
+    await page.setContent(`
+      <section data-testid="release-channel-new">
+        <button data-testid="rollout-method" onclick="document.querySelector('#methods').hidden = false">Single batch</button>
+        <div id="methods" hidden>
+          <button role="option" onclick="document.querySelector('[data-testid=rollout-method]').textContent = this.textContent; this.parentElement.hidden = true">Pilot batch, then remaining</button>
+        </div>
+        <input id="pilot-size" type="number" value="1" />
+        <p data-testid="scope-preview">This channel covers 2 miners</p>
+      </section>
+    `);
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.setMethod("Pilot batch, then remaining");
+    await firmware.setPilotSize(2);
+    await firmware.validateScopeCovers(2);
+    await expect(page.getByTestId("rollout-method")).toHaveText("Pilot batch, then remaining");
+    await expect(page.locator("#pilot-size")).toHaveValue("2");
+    await expect(page.getByTestId("channel-settings-modal")).toHaveCount(0);
+  });
+
+  test("existing-channel settings helpers open the modal and dismiss it before viewing history", async ({ page }) => {
+    await renderTables(page, completed);
+    await page.locator("body").evaluate((body) => {
+      body.insertAdjacentHTML(
+        "beforeend",
+        `<button data-testid="channel-settings" onclick="document.querySelector('[data-testid=channel-settings-modal]').hidden = false">Channel settings</button>
+        <section data-testid="channel-settings-modal" hidden style="position: fixed; inset: 0; background: white">
+          <button aria-label="Close dialog" onclick="this.closest('section').hidden = true">Close</button>
+          <input id="pilot-size" type="number" value="1" />
+          <p data-testid="scope-preview">This channel covers 2 miners</p>
+          <button data-testid="save-channel" onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Release channel saved'">Save changes</button>
+        </section>
+        <div data-testid="toaster-container"></div>`,
+      );
+    });
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.setPilotSize(2);
+    await firmware.saveChannelChanges();
+    await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
+
+    await firmware.validateHistoryOutcome(channel, version, "Completed");
+    await expect(page.getByTestId("channel-settings-modal")).toBeHidden();
+    await firmware.validateScopeCovers(2);
+    await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
+    await expect(page.locator("#pilot-size")).toHaveValue("2");
+  });
+
   test("history does not accept the requested version in another row's rollback action", async ({ page }) => {
     await renderTables(
       page,

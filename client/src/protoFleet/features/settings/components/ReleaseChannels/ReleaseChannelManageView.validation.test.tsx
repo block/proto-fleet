@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import RolloutControls from "./RolloutControls";
 import {
@@ -53,6 +53,7 @@ function renderView(behavior = healthyBehavior()) {
       }}
     />,
   );
+  openChannelSettings();
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed production" } });
   return { onSave: props.onSave, onApply: props.onApply };
 }
@@ -145,6 +146,7 @@ describe("release channel numeric safeguards", () => {
     const { onSave, onApply } = renderView();
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "-1" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));

@@ -5,7 +5,7 @@ import { behaviorForComparison, defaultBehavior, rebaseBehavior, rolloutBehavior
 import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
-import RolloutControls from "./RolloutControls";
+import RolloutControls, { type RolloutNumberDraft } from "./RolloutControls";
 import {
   activeRolloutForGroup,
   channelAssignmentKey,
@@ -50,6 +50,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
+import Modal from "@/shared/components/Modal";
 import Textarea from "@/shared/components/Textarea";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -235,8 +236,9 @@ interface ReleaseChannelManageViewProps {
 }
 
 // The per-channel management surface behind "Manage" (and the create flow):
-// General, Applies to and Update behavior are saved together; Firmware is
-// applied per model and starts an update paced by the saved behavior.
+// Assigned miners and firmware are the main management surface. General,
+// Applies to and Update behavior are edited together in channel settings;
+// firmware is applied per model using the saved behavior.
 const ReleaseChannelManageView = ({
   channel,
   hasRefreshError = false,
@@ -266,6 +268,8 @@ const ReleaseChannelManageView = ({
     value: PreviewReleaseChannelScopeResponse;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [numberDraft, setNumberDraft] = useState<RolloutNumberDraft>({});
   const [savedDraft, setSavedDraft] = useState<{
     settings: ReleaseChannelDraft;
     beforeSave: ChannelView | undefined;
@@ -561,59 +565,8 @@ const ReleaseChannelManageView = ({
 
   const lastFinished = lastFinishedByChannelAssignment(channelRollouts);
 
-  return (
-    <div
-      className="flex flex-col gap-8"
-      data-testid={channel ? `release-channel-${channel.name}` : "release-channel-new"}
-    >
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <h2 className="text-heading-200 text-text-primary">{channel ? channel.name : "New release channel"}</h2>
-            {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
-          </div>
-          {channel ? (
-            <div className="flex items-center gap-2 text-200 text-text-primary-50">
-              <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
-              <span>·</span>
-              <span>{modelGroups.length === 1 ? "1 model" : `${modelGroups.length} models`}</span>
-            </div>
-          ) : null}
-        </div>
-        <div className="flex gap-2 phone:flex-col phone:items-stretch">
-          {channel && onShowHistory ? (
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="History"
-              onClick={() => onShowHistory(channel)}
-              testId="channel-history"
-            />
-          ) : null}
-          {channel && onDelete ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Delete"
-              disabled={isWriting}
-              onClick={() => {
-                if (!writeInFlightRef.current && !isWriting) onDelete(channel);
-              }}
-              testId="delete-channel"
-            />
-          ) : null}
-          <Button
-            variant={variants.primary}
-            size={sizes.compact}
-            text={channel ? "Save changes" : "Create channel"}
-            onClick={handleSave}
-            disabled={!canSave}
-            loading={isSaving}
-            testId="save-channel"
-          />
-        </div>
-      </div>
-
+  const settingsFields = (
+    <div className="grid gap-8">
       <Section title="General">
         <div className="grid gap-3">
           <Input
@@ -636,7 +589,7 @@ const ReleaseChannelManageView = ({
 
       <Section
         title="Applies to"
-        subtext="Miners are grouped by hardware model. Firmware is assigned per model below once the channel is saved."
+        subtext="Choose which miners belong to this channel. Firmware is assigned per model after saving these settings."
       >
         <ScopeEditor
           scope={scope}
@@ -659,14 +612,87 @@ const ReleaseChannelManageView = ({
         <RolloutControls
           behavior={behavior}
           onChange={setBehavior}
+          numberDraft={{ values: numberDraft, onChange: setNumberDraft }}
           allowDelegated={savedSettings?.behavior?.method === RolloutMethod.DELEGATED}
         />
       </Section>
+    </div>
+  );
+
+  return (
+    <div
+      className="flex flex-col gap-8"
+      data-testid={channel ? `release-channel-${channel.name}` : "release-channel-new"}
+    >
+      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <h2 className="text-heading-200 text-text-primary">{channel ? channel.name : "New release channel"}</h2>
+            {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
+          </div>
+          {channel ? (
+            <div className="flex items-center gap-2 text-200 text-text-primary-50">
+              <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
+              <span>·</span>
+              <span>{modelGroups.length === 1 ? "1 model" : `${modelGroups.length} models`}</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex gap-2 phone:flex-col phone:items-stretch">
+          {channel ? (
+            <div className="flex items-center gap-2">
+              {dirty ? <span className="text-200 text-text-primary-70">Unsaved settings</span> : null}
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Channel settings"
+                disabled={isWriting}
+                onClick={() => setShowSettings(true)}
+                testId="channel-settings"
+              />
+            </div>
+          ) : null}
+          {channel && onShowHistory ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="History"
+              onClick={() => onShowHistory(channel)}
+              testId="channel-history"
+            />
+          ) : null}
+          {channel && onDelete ? (
+            <Button
+              variant={variants.danger}
+              size={sizes.compact}
+              text="Delete"
+              disabled={isWriting}
+              onClick={() => {
+                if (!writeInFlightRef.current && !isWriting) onDelete(channel);
+              }}
+              testId="delete-channel"
+            />
+          ) : null}
+          {!channel ? (
+            <Button
+              variant={variants.primary}
+              size={sizes.compact}
+              text="Create channel"
+              onClick={handleSave}
+              disabled={!canSave}
+              loading={isSaving}
+              testId="save-channel"
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {!channel ? settingsFields : null}
 
       {channel ? (
         <Section
-          title="Firmware"
-          subtext="Miners not on the assigned version are updated when the assigned firmware file is available."
+          title="Assigned miners"
+          subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
         >
           {delegatedApplyBlocked ? (
             <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
@@ -675,10 +701,10 @@ const ReleaseChannelManageView = ({
           ) : null}
           {modelGroups.length === 0 ? (
             <span className="text-300 text-text-primary-50">
-              No miners in scope yet. Widen the selection above to group miners by model and assign firmware.
+              No miners in scope yet. Open Channel settings and change Applies to to include miners.
             </span>
           ) : (
-            <table className="w-full text-left text-200">
+            <table aria-label="Assigned miners by model" className="w-full text-left text-200">
               <thead>
                 <tr className="text-text-primary-50">
                   <th className="py-1.5 pr-4 font-normal">Model</th>
@@ -801,6 +827,31 @@ const ReleaseChannelManageView = ({
             </div>
           ) : null}
         </Section>
+      ) : null}
+
+      {channel && showSettings ? (
+        <Modal
+          open
+          title="Channel settings"
+          description={channel.name}
+          testId="channel-settings-modal"
+          onDismiss={() => {
+            if (!writeInFlightRef.current && !isWriting) setShowSettings(false);
+          }}
+          buttons={[
+            {
+              text: "Save changes",
+              variant: variants.primary,
+              onClick: handleSave,
+              disabled: !canSave,
+              loading: isSaving,
+              testId: "save-channel",
+              dismissModalOnClick: false,
+            },
+          ]}
+        >
+          {settingsFields}
+        </Modal>
       ) : null}
 
       {channel && minersGroup && !minersRolloutPending && !acknowledgedAssignments[pairKey(minersGroup)] ? (

@@ -48,6 +48,8 @@ const parseNumberDraft = (text: string, optional: boolean, scale: number): numbe
   return value;
 };
 
+export type RolloutNumberDraft = Partial<Record<RolloutNumericField, { text: string; value: number | undefined }>>;
+
 interface RolloutControlsProps {
   behavior: RolloutBehavior;
   onChange: (behavior: RolloutBehavior) => void;
@@ -56,6 +58,8 @@ interface RolloutControlsProps {
   disabled?: boolean;
   // Existing delegated channels can switch back before saving another method.
   allowDelegated?: boolean;
+  // A parent can retain raw numeric edits while this form is closed.
+  numberDraft?: { values: RolloutNumberDraft; onChange: (values: RolloutNumberDraft) => void };
 }
 
 // The "Update behavior" controls, per the release channels design: Method,
@@ -68,12 +72,12 @@ const RolloutControls = ({
   inScopeCount = 0,
   disabled = false,
   allowDelegated = false,
+  numberDraft,
 }: RolloutControlsProps): ReactElement => {
   // Keep raw text above the conditionally mounted fields so hidden invalid
   // edits survive method/gate changes and never become an intentional unset.
-  const [numberText, setNumberText] = useState<
-    Partial<Record<RolloutNumericField, { text: string; value: number | undefined }>>
-  >({});
+  const [localNumberText, setLocalNumberText] = useState<RolloutNumberDraft>({});
+  const numberText = numberDraft?.values ?? localNumberText;
   const update = (patch: Partial<RolloutBehavior>) =>
     onChange(create(RolloutBehaviorSchema, { ...behavior, ...patch }));
   const updateThresholds = (patch: Partial<RolloutAutomationThresholds>) =>
@@ -104,7 +108,9 @@ const RolloutControls = ({
     error: errors[field],
     onChange: (text: string) => {
       const value = parseNumberDraft(text, optional, scale);
-      setNumberText((current) => ({ ...current, [field]: { text, value } }));
+      const nextNumberText = { ...numberText, [field]: { text, value } };
+      if (numberDraft) numberDraft.onChange(nextNumberText);
+      else setLocalNumberText(nextNumberText);
       onNumberChange(value);
     },
   });

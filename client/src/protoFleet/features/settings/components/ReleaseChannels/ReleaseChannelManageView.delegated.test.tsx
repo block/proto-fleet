@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
   ReleaseChannelSchema,
@@ -41,6 +41,7 @@ const delegatedChannel = (order = RolloutOrder.RANDOM): ChannelView => ({
 function renderManage(channel?: ChannelView) {
   const props = manageViewProps();
   render(<ReleaseChannelManageView {...props} channel={channel} />);
+  if (channel) openChannelSettings();
   return props.onSave;
 }
 
@@ -119,9 +120,11 @@ describe("existing delegated release channels", () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
-    expect(
-      screen.getByText("An external controller decides which miners update and when, through the API."),
-    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.getByText("An external controller decides which miners update and when, through the API."),
+      ).toBeVisible(),
+    );
     expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Pilot batch size (miners)")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
@@ -151,14 +154,14 @@ describe("existing delegated release channels", () => {
   it("keeps Save blocked after reverting an unsaved switch to external control", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
-    expect(screen.getByText("120 seconds")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
     chooseMethod("Multiple batches");
     expect(screen.queryByText("Controller timeout")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     chooseMethod("Controlled externally");
 
-    expect(screen.getByText("120 seconds")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
     expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
@@ -166,7 +169,7 @@ describe("existing delegated release channels", () => {
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
 
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    expect(screen.getByTestId("delegated-save-unavailable")).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("delegated-save-unavailable")).toBeVisible());
     expect(onSave).not.toHaveBeenCalled();
   });
 

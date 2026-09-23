@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { deferred, releaseChannelsApi } from "./__tests__/helpers";
+import { closeChannelSettings, deferred, openChannelSettings, releaseChannelsApi } from "./__tests__/helpers";
 import { canaryChannel, firmwareFiles, productionChannel } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTab from "./ReleaseChannelsTab";
 import {
@@ -37,7 +37,10 @@ const deferredCatalog = deferred<FirmwareFileInfo[]>;
 const initialAuth = useFleetStore.getState().auth;
 const flush = () => act(async () => {});
 const poll = () => act(async () => vi.advanceTimersByTime(30_000));
-const openPicker = () => fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+const openPicker = () => {
+  closeChannelSettings();
+  fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -141,6 +144,7 @@ describe("release channel history on demand", () => {
     expect(screen.getByTestId(`channel-history-error-${canaryChannel.id}`)).toHaveTextContent(
       "History service unavailable",
     );
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Updated channel" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
@@ -165,8 +169,10 @@ describe("release channel deletion coordination", () => {
     });
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
     fireEvent.click(screen.getByTestId("delete-channel"));
+    openChannelSettings();
     const save = screen.getByTestId("save-channel");
     const confirm = deleteConfirm();
     const back = screen.getByTestId("back-to-channels");
@@ -182,6 +188,7 @@ describe("release channel deletion coordination", () => {
     expect(back).toBeDisabled();
     await act(async () => committed.resolve());
     expect(confirm).toBeDisabled();
+    openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Saved channel");
     await act(async () => refreshed.resolve());
     expect(deleteConfirm()).toBeEnabled();
@@ -226,11 +233,13 @@ describe("release channel deletion coordination", () => {
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     fireEvent.click(screen.getByTestId("delete-channel"));
+    openChannelSettings();
     const save = screen.getByTestId("save-channel");
     const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
       name: "Clear assignments",
@@ -253,6 +262,7 @@ describe("release channel deletion coordination", () => {
     expect(screen.getByTestId("delete-channel-dialog")).toBeInTheDocument();
     await act(async () => deleted.reject(new Error("Channel deletion failed")));
     expect(pushToast).toHaveBeenCalledWith({ message: "Channel deletion failed", status: "error" });
+    openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
     expect(save).toBeEnabled();
@@ -419,6 +429,7 @@ describe("release channel firmware catalog", () => {
     await flush();
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load firmware files");
     expect(screen.getByRole("alert")).toHaveTextContent("Catalog unavailable");
+    openChannelSettings();
     const nameInput = screen.getByLabelText("Name");
     fireEvent.change(nameInput, { target: { value: "Unsaved channel name" } });
     const retry = deferredCatalog();
@@ -432,6 +443,7 @@ describe("release channel firmware catalog", () => {
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading firmware files...")).not.toBeInTheDocument();
+    openChannelSettings();
     expect(screen.getByLabelText("Name")).toBe(nameInput);
     expect(nameInput).toHaveValue("Unsaved channel name");
     openPicker();
@@ -439,12 +451,13 @@ describe("release channel firmware catalog", () => {
     expect(screen.getByRole("option", { name: "No firmware" })).toBeInTheDocument();
   });
 
-  it("refreshes uploads, deletions, and retargets while preserving the open form and staged clear", async () => {
+  it("refreshes uploads, deletions, and retargets while preserving settings and staged clear", async () => {
     const api = apiFor();
     const { rerender } = render(
       <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
     );
     await flush();
+    openChannelSettings();
     const nameInput = screen.getByLabelText("Name");
     fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
     openPicker();
@@ -467,8 +480,8 @@ describe("release channel firmware catalog", () => {
     await poll();
 
     expect(listFirmwareFiles).toHaveBeenCalledTimes(2);
-    expect(screen.getByLabelText("Name")).toBe(nameInput);
-    expect(nameInput).toHaveValue("Keep this draft");
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
     expect(screen.getByRole("option", { name: "No firmware" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("option", { name: /1\.4\.3/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /1\.4\.4/ })).not.toBeInTheDocument();
@@ -499,6 +512,7 @@ describe("release channel firmware catalog", () => {
       const api = apiFor();
       render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
       await flush();
+      openChannelSettings();
       const nameInput = screen.getByLabelText("Name");
       fireEvent.change(nameInput, { target: { value: "Keep this draft" } });
       openPicker();
@@ -519,8 +533,8 @@ describe("release channel firmware catalog", () => {
       ]);
       await poll();
 
-      expect(screen.getByLabelText("Name")).toBe(nameInput);
-      expect(nameInput).toHaveValue("Keep this draft");
+      openChannelSettings();
+      expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
       expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
       expect(screen.getByRole("alert")).toHaveTextContent(
         "Selected firmware is unavailable for this model. Choose another version or discard the pending changes.",

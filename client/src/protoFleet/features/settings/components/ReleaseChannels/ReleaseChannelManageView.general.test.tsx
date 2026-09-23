@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { canaryChannel } from "./ReleaseChannels.fixtures";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
@@ -21,6 +21,7 @@ vi.mock("@/shared/features/toaster", () => ({
 function renderManage(channel: ChannelView = canaryChannel) {
   const props = { ...manageViewProps(), channel };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
+  openChannelSettings();
   return {
     onSave: props.onSave,
     onApply: props.onApply,
@@ -47,7 +48,7 @@ describe("release channel name and description validation", () => {
 
     expect(input).toHaveValue(invalid);
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText(`${label} must be ${limit} characters or fewer.`)).toBeVisible();
+    await waitFor(() => expect(screen.getByText(`${label} must be ${limit} characters or fewer.`)).toBeVisible());
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
     expect(onSave).not.toHaveBeenCalled();
@@ -66,7 +67,7 @@ describe("release channel name and description validation", () => {
     const { onSave } = renderManage();
     const input = screen.getByLabelText(label);
     fireEvent.change(input, { target: { value: value + "x".repeat(limit) } });
-    expect(screen.getByText(`${label} must be ${limit} characters or fewer.`)).toBeVisible();
+    await waitFor(() => expect(screen.getByText(`${label} must be ${limit} characters or fewer.`)).toBeVisible());
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(input, { target: { value } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
@@ -103,13 +104,13 @@ describe("release channel name and description validation", () => {
     expect(save).toBeDisabled();
   });
 
-  it.each(["Name", "Description"])("rejects null characters in %s without discarding the text", (label) => {
+  it.each(["Name", "Description"])("rejects null characters in %s without discarding the text", async (label) => {
     const { onSave } = renderManage();
     const input = screen.getByLabelText(label);
     fireEvent.change(input, { target: { value: "Before\u0000after" } });
     expect(input).toHaveValue("Before\u0000after");
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText(`${label} cannot contain null characters.`)).toBeVisible();
+    await waitFor(() => expect(screen.getByText(`${label} cannot contain null characters.`)).toBeVisible());
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
     expect(onSave).not.toHaveBeenCalled();
@@ -127,6 +128,7 @@ describe("release channel name and description validation", () => {
     expect(input).toHaveValue(value);
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
@@ -135,6 +137,7 @@ describe("release channel name and description validation", () => {
 
     expect(onApply).toHaveBeenCalledOnce();
     expect(onSave).not.toHaveBeenCalled();
-    expect(input).toHaveValue(value);
+    openChannelSettings();
+    expect(screen.getByLabelText(label)).toHaveValue(value);
   });
 });
