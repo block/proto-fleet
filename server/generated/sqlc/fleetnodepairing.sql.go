@@ -246,9 +246,11 @@ WITH candidate AS (
                OR (db.device_identifier = dd.device_identifier AND db.org_id = dd.org_id))
           AND db.deleted_at IS NULL
           AND (
-            $4::bigint IS NULL
-            OR fnd.fleet_node_id != $4::bigint
-            OR COALESCE(dbp.pairing_status::text, '') != 'AUTHENTICATION_NEEDED'
+            COALESCE(dbp.pairing_status::text, '') != 'AUTHENTICATION_NEEDED'
+            OR (
+              $4::bigint IS NOT NULL
+              AND fnd.fleet_node_id != $4::bigint
+            )
           )
     )
     AND NOT EXISTS (

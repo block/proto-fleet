@@ -241,9 +241,11 @@ WITH candidate AS (
                OR (db.device_identifier = dd.device_identifier AND db.org_id = dd.org_id))
           AND db.deleted_at IS NULL
           AND (
-            sqlc.narg('fleet_node_id')::bigint IS NULL
-            OR fnd.fleet_node_id != sqlc.narg('fleet_node_id')::bigint
-            OR COALESCE(dbp.pairing_status::text, '') != 'AUTHENTICATION_NEEDED'
+            COALESCE(dbp.pairing_status::text, '') != 'AUTHENTICATION_NEEDED'
+            OR (
+              sqlc.narg('fleet_node_id')::bigint IS NOT NULL
+              AND fnd.fleet_node_id != sqlc.narg('fleet_node_id')::bigint
+            )
           )
     )
     AND NOT EXISTS (
