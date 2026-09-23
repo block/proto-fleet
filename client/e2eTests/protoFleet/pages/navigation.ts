@@ -112,12 +112,25 @@ export class NavigationPage {
       for (const viewport of [
         { width: 768, height: 1024 },
         { width: 1024, height: 768 },
+        { width: 667, height: 320 },
       ]) {
         await page.setViewportSize(viewport);
         const navigation = page.getByRole("navigation", { name: "Main" });
         await expect(navigation).toHaveCSS("width", "64px");
+        await expect(navigation).toHaveCSS("height", `${viewport.height}px`);
         await expect(page.getByRole("button", { name: "Open navigation menu", exact: true })).toBeHidden();
-        await navigation.getByRole("link", { name: "Settings", exact: true }).tap();
+        const links = navigation.getByTestId("navigation-menu");
+        const settings = navigation.getByRole("link", { name: "Settings", exact: true });
+        const logout = navigation.getByRole("button", { name: "Log out", exact: true });
+        await expect(links.getByRole("link")).toHaveCount(7);
+        await expect(logout).toBeInViewport({ ratio: 1 });
+        await settings.scrollIntoViewIfNeeded();
+        await expect(settings).toBeInViewport({ ratio: 1 });
+        await expect(logout).toBeInViewport({ ratio: 1 });
+        if (viewport.height === 320) {
+          expect(await links.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+        }
+        await settings.tap();
         await page
           .getByRole("navigation", { name: "Settings" })
           .getByRole("link", { name: "Security", exact: true })
@@ -125,6 +138,7 @@ export class NavigationPage {
         await expect(page).toHaveURL(/\/settings\/security(?:[?#].*)?$/);
         await expect(page.getByRole("dialog", { name: "Navigation menu" })).toBeHidden();
         await expect(navigation).toHaveCSS("width", "64px");
+        await expect(logout).toBeInViewport({ ratio: 1 });
       }
     } finally {
       await context.close();

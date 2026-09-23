@@ -55,7 +55,7 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
       await new NavigationPage(page).validateResponsiveNavigation();
     });
 
-    await test.step("Validate touch navigation in both tablet orientations", async () => {
+    await test.step("Validate touch navigation on tablets and short landscape screens", async () => {
       await new NavigationPage(page).validateTouchNavigation();
     });
 

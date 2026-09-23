@@ -107,14 +107,13 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
     <nav
       aria-label="Main"
       className={clsx(
-        "group/nav absolute top-0 left-0 z-30 flex w-60 flex-col justify-between bg-surface-base text-text-primary-70",
-        isFloatingMenu
-          ? "h-dvh max-h-dvh min-h-0 overflow-hidden"
-          : "min-h-screen tablet:w-16 tablet:overflow-hidden tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg tablet:has-focus-visible:w-50 tablet:has-focus-visible:border-r tablet:has-focus-visible:border-core-primary-10 tablet:has-focus-visible:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
+        "group/nav absolute top-0 left-0 z-30 flex h-dvh max-h-dvh min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
+        !isFloatingMenu &&
+          "tablet:w-16 tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg tablet:has-focus-visible:w-50 tablet:has-focus-visible:border-r tablet:has-focus-visible:border-core-primary-10 tablet:has-focus-visible:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
         className,
       )}
     >
-      <div className={clsx("flex flex-col items-start gap-1", isFloatingMenu && "min-h-0 flex-1")}>
+      <div className="flex min-h-0 flex-1 flex-col items-start gap-1">
         {homeItem && homeItem.path ? (
           <div
             className={clsx(
@@ -141,8 +140,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
         <ul
           data-testid="navigation-menu"
           className={clsx(
-            "flex w-full flex-col items-start gap-1 px-3",
-            isFloatingMenu && "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3",
+            "flex min-h-0 w-full flex-1 flex-col items-start gap-1 overflow-y-auto overscroll-contain px-3",
+            isFloatingMenu && "pb-3",
           )}
         >
           {visibleItems.map((item) => {
