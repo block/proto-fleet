@@ -8,16 +8,50 @@ import { useFleetStore } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-export const NavigationMenu = ({ username, role }: { username: string; role: string }) => {
+// Representative owner permissions for the navigation; role is only a display label.
+const navigationPermissions = [
+  "fleet:read",
+  "miner:read",
+  "rack:read",
+  "site:read",
+  "maintenance:read",
+  "curtailment:read",
+  "activity:read",
+  "pool:manage",
+  "miner:firmware_update",
+  "fleetnode:read",
+  "schedule:manage",
+  "curtailment:manage",
+  "alert:read",
+  "user:read",
+  "role:manage",
+  "apikey:manage",
+  "serverlog:read",
+  "instance:update",
+];
+
+export const NavigationMenu = ({
+  username,
+  role,
+  permissions,
+}: {
+  username: string;
+  role: string;
+  permissions: string[];
+}) => {
   useEffect(() => {
-    const { username: previousUsername, role: previousRole } = useFleetStore.getState().auth;
-    useFleetStore.setState((state) => ({ auth: { ...state.auth, username, role } }));
+    const {
+      username: previousUsername,
+      role: previousRole,
+      permissions: previousPermissions,
+    } = useFleetStore.getState().auth;
+    useFleetStore.setState((state) => ({ auth: { ...state.auth, username, role, permissions } }));
     return () => {
       useFleetStore.setState((state) => ({
-        auth: { ...state.auth, username: previousUsername, role: previousRole },
+        auth: { ...state.auth, username: previousUsername, role: previousRole, permissions: previousPermissions },
       }));
     };
-  }, [username, role]);
+  }, [username, role, permissions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const { isDesktop } = useWindowDimensions();
@@ -47,8 +81,12 @@ export default {
   parameters: {
     withRouter: false,
   },
-  args: { username: "achen", role: "SUPER_ADMIN" },
-  argTypes: { username: { control: "text" }, role: { control: "text" } },
+  args: { username: "achen", role: "SUPER_ADMIN", permissions: navigationPermissions },
+  argTypes: {
+    username: { control: "text" },
+    role: { control: "text" },
+    permissions: { control: "object", description: "Permission keys used to filter navigation entries." },
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter initialEntries={["/settings/network"]}>
