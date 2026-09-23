@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,13 +55,10 @@ func (i *recordingInvalidator) InvalidateMiner(identifier minermodels.DeviceIden
 }
 
 type recordingMetrics struct {
-	mu     sync.Mutex
 	labels []metrics.CommandLabels
 }
 
 func (m *recordingMetrics) EmitCommand(_ context.Context, labels metrics.CommandLabels) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.labels = append(m.labels, labels)
 }
 

@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -55,9 +54,8 @@ type Service struct {
 	invalidator MinerInvalidator
 	metrics     MetricsEmitter
 	logger      *slog.Logger
-	cursorMu    sync.Mutex
-	// Recovery writes are guarded and idempotent, so restarting from the oldest
-	// target is preferable to persisting scheduler-only state.
+	// RunCycle is owned by one serial recovery loop. Recovery writes are guarded
+	// and idempotent, so restarting from the oldest target is safe.
 	nextTarget map[int64]string
 }
 
@@ -94,9 +92,6 @@ func (s *Service) RunCycle(ctx context.Context) {
 }
 
 func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
-	s.cursorMu.Lock()
-	defer s.cursorMu.Unlock()
-
 	start := slices.IndexFunc(targets, func(target stores.FleetNodeRecoveryTarget) bool {
 		return target.DeviceIdentifier == s.nextTarget[nodeID]
 	})
