@@ -6,28 +6,21 @@ interface WindowDimensions {
   height: number;
 }
 
-let windowDimensions: WindowDimensions;
-const getWindowDimensions = (windowResized = false) => {
-  if (windowResized || !windowDimensions) {
-    windowDimensions = {
-      width: window.innerWidth,
-      height: window.innerHeight,
-    };
-  }
-
-  return windowDimensions;
-};
+const getWindowDimensions = (): WindowDimensions => ({
+  width: window.innerWidth,
+  height: window.innerHeight,
+});
 
 const useWindowDimensions = () => {
   const phoneMaxWidth = useCssVariable("--phone-max-width");
   const tabletMaxWidth = useCssVariable("--tablet-max-width");
   const laptopMaxWidth = useCssVariable("--laptop-max-width");
 
-  const [windowDimensions, setWindowDimensions] = useState(getWindowDimensions());
+  const [windowDimensions, setWindowDimensions] = useState(getWindowDimensions);
 
   useEffect(() => {
     const handleResize = () => {
-      setWindowDimensions(getWindowDimensions(true));
+      setWindowDimensions(getWindowDimensions());
     };
 
     window.addEventListener("resize", handleResize);

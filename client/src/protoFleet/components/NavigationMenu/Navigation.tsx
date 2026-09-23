@@ -5,9 +5,10 @@ import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
-import { usePermissions } from "@/protoFleet/store";
+import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
@@ -27,6 +28,9 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const isFloatingMenu = isPhone || isTablet;
   const logout = useLogoutAction();
+  const username = useUsername();
+  const role = formatRole(useRole());
+  const accountIdentity = role ? `${username} · ${role}` : username;
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
   const { activeSite } = useActiveSite({});
@@ -276,14 +280,25 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           ) : null}
         </ul>
       </div>
-      <div className={clsx("shrink-0 px-3 pb-3", isFloatingMenu && "border-t border-border-5 pt-3")}>
+      <div
+        className="mx-3 mb-3 flex shrink-0 items-center border-t border-border-5 pt-3"
+        role="group"
+        aria-label={accountIdentity}
+        title={accountIdentity}
+      >
+        <div className="min-w-0 flex-1 py-2 pr-2 pl-2.5 laptop:hidden laptop:group-hover/nav:block desktop:block">
+          <div className="truncate text-emphasis-300 text-text-primary-70">{username}</div>
+          {role ? <div className="truncate text-200 text-text-primary-50">{role}</div> : null}
+        </div>
         <button
+          type="button"
           onClick={() => {
             logout();
           }}
           aria-label="Log out"
+          title="Log out"
           className={clsx(
-            "group flex h-10 w-full items-center rounded-lg px-2.5 py-2",
+            "group flex size-10 shrink-0 items-center justify-center rounded-lg",
             "hover:cursor-pointer hover:bg-core-primary-10",
           )}
           data-testid="logout-button"
@@ -291,9 +306,6 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           <div className="flex size-5 shrink-0 items-center justify-center">
             <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
           </div>
-          <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
-            Logout
-          </span>
         </button>
       </div>
     </nav>
