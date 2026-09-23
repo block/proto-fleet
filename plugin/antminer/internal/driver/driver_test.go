@@ -372,7 +372,9 @@ func TestDiscoverDevice_NotAntminer(t *testing.T) {
 	// Test discovery
 	_, err = d.DiscoverDevice(t.Context(), testIPAddress, correctPort)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not an Antminer device")
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 func TestDiscoverDevice_RejectsNonStockFirmware(t *testing.T) {

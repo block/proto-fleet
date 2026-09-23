@@ -223,13 +223,13 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	if len(versionResp.Version) == 0 {
-		return sdk.DeviceInfo{}, fmt.Errorf("empty version info from device")
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress, fmt.Errorf("empty version info from device"))
 	}
 
 	versionInfo := versionResp.Version[0]
 
 	if !strings.HasPrefix(versionInfo.Type, versionTypePrefix) {
-		return sdk.DeviceInfo{}, fmt.Errorf("not an Antminer device: %s", versionInfo.Type)
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress, fmt.Errorf("not an Antminer device: %s", versionInfo.Type))
 	}
 
 	model := versionInfo.Type

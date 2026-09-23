@@ -14,9 +14,11 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"strings"
 
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
@@ -180,23 +182,25 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	portInt32, err := sdk.ParsePort(port)
 	if err != nil {
-		return sdk.DeviceInfo{}, err
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
 	}
 
 	portInt := int(portInt32)
 
 	// Note: In integration tests, we may use different ports due to Docker port mapping
 	if !d.isAllowedDiscoveryPort(portInt) {
-		return sdk.DeviceInfo{}, fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port)
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
+			fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port))
 	}
 
 	if strings.TrimSpace(ipAddress) == "" {
-		return sdk.DeviceInfo{}, fmt.Errorf("host address cannot be empty")
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("host address cannot be empty"))
 	}
 
 	schemes := []string{"https", "http"}
 
 	var lastValidationErr error
+	var incompleteErr error
 
 	for _, scheme := range schemes {
 		deviceInfo, err := d.discoverWithScheme(ctx, ipAddress, portInt32, scheme)
@@ -213,14 +217,33 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 		if strings.Contains(err.Error(), "device did not provide") {
 			lastValidationErr = err
+		} else if indeterminateDiscoveryError(ctx, err) {
+			incompleteErr = err
 		}
+	}
+	if incompleteErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceUnavailable,
+			fmt.Errorf("failed to discover proto miner at %s:%s: %w", ipAddress, port, incompleteErr))
 	}
 
 	if lastValidationErr != nil {
-		return sdk.DeviceInfo{}, lastValidationErr
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, lastValidationErr)
 	}
 
-	return sdk.DeviceInfo{}, fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port)
+	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
+		fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port))
+}
+
+func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
+	return sdk.SDKError{Code: code, Message: err.Error(), Err: err}
+}
+
+func indeterminateDiscoveryError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {

@@ -248,12 +248,9 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		// This should fail because driver expects a specific port but we're trying a different one
 		_, err = driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.Error(t, err, "Discovery should fail when driver port doesn't match target port")
-		assert.Contains(
-			t,
-			err.Error(),
-			"proto miners are configured for port",
-			"strict-port discovery should fail before any network call; the reported target port may be a Docker-mapped test port",
-		)
+		var sdkErr sdk.SDKError
+		assert.ErrorAs(t, err, &sdkErr)
+		assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 	})
 
 	t.Run("concurrent discovery", func(t *testing.T) {
