@@ -223,6 +223,17 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
 	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
 	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, nodeID, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`DELETE FROM miner_credentials WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	credentiallessTarget := target
+	credentiallessTarget.CredentialUsername = nil
+	credentiallessTarget.CredentialPassword = nil
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+	require.NoError(t, err)
+	require.True(t, applied, "an absent credential snapshot should still apply when credentials remain absent")
 }
 
 func TestGetKnownSubnets(t *testing.T) {
