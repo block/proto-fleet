@@ -32,14 +32,6 @@ type recoveryEndpoint struct {
 	identity                        stableidentity.Identity
 }
 
-func identityFromTarget(target *pb.MinerConnectionDescriptor) stableidentity.Identity {
-	return stableidentity.New(target.GetSerialNumber(), target.GetMacAddress())
-}
-
-func identityFromDevice(info sdk.DeviceInfo) stableidentity.Identity {
-	return stableidentity.New(info.SerialNumber, info.MacAddress)
-}
-
 func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, commandID string, req *pb.RecoverMinerEndpointsRequest, logger *slog.Logger) {
 	if r.discoverer == nil || r.driverGetter == nil || r.minerSecrets == nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", logger)
@@ -103,7 +95,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
 		}
-		want := identityFromTarget(target)
+		want := stableidentity.New(target.GetSerialNumber(), target.GetMacAddress())
 		if !want.Usable() {
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNRECOVERABLE_IDENTITY, recoveryEndpoint{}, ""))
 			continue
@@ -306,7 +298,7 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 	if err != nil {
 		return stableidentity.Identity{}, err
 	}
-	return identityFromDevice(info), nil
+	return stableidentity.New(info.SerialNumber, info.MacAddress), nil
 }
 
 func recoveryEndpointKey(endpoint recoveryEndpoint) string {
