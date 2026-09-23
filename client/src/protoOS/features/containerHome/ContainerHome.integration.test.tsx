@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ContainerHomeLayout from "./ContainerHomeLayout";
 import ContainerHomePage from "./ContainerHomePage";
 import { containerHistoryKey, type ContainerHistoryRequest } from "@/protoOS/api/adapters/containerHistory";
+import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
 import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import { containerRoutePrefetch, importContainerHome, singleMinerRoutePrefetch } from "@/protoOS/routePrefetch";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -89,6 +90,60 @@ describe("container Home integration", () => {
     await waitFor(() => expect(screen.getByText("History unavailable for this selection.")).toBeInTheDocument());
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
     expect(mocks.adapter.getCurrentTelemetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes live module summaries with one bulk map call per poll and no board histories", async () => {
+    vi.useFakeTimers();
+    const map = {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [
+                  {
+                    hashboard: {
+                      serial: "HB-1",
+                      health: { temperatures: [20], psuElectrical: { inputPower: 4000 } },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const fixture = toCanonicalContainer(map, {}, {}, "ct1");
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    const client = {
+      hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: map }),
+      miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: {} }),
+      telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
+      telemetryServiceQueryTimeSeries: vi.fn(),
+    };
+    const adapter = new MdkV2Adapter(client as unknown as MdkV2Client, { deviceId: "ct1" });
+    mocks.adapter.getCurrentTelemetry.mockImplementation(adapter.getCurrentTelemetry.bind(adapter));
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/power-usage"] });
+    render(<RouterProvider router={router} />);
+    await act(async () => {});
+    expect(screen.getAllByText("4.0 kW")).toHaveLength(3);
+    expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(1);
+
+    map.containerMap.tanks[0].modules[0].slots[0].hashboard.health.psuElectrical.inputPower = 6000;
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(screen.getAllByText("6.0 kW")).toHaveLength(3);
+    expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(2);
+    expect(client.miningServiceGetMiningStatus).toHaveBeenCalledTimes(2);
+    expect(client.telemetryServiceGetContainerHealth).toHaveBeenCalledTimes(2);
+
+    await act(async () => fireEvent.click(screen.getByRole("link", { name: "Temperature" })));
+    expect(screen.getAllByText("20.0 °C")).toHaveLength(3);
+    expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(2);
+    expect(client.telemetryServiceQueryTimeSeries).not.toHaveBeenCalled();
+    expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
   });
 
   it("only polls power history in System mode, including after direct Hashboards entry", async () => {

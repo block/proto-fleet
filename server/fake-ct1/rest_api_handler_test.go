@@ -366,6 +366,34 @@ func TestContainerCoolingActivityFollowsControls(t *testing.T) {
 			if telemetry.Plant.HeatRejectionActive != tc.cooler {
 				t.Errorf("cooler active = %t, want %t", telemetry.Plant.HeatRejectionActive, tc.cooler)
 			}
+			// Inspect the JSON keys too: an observed zero must not disappear as
+			// an omitted optional sensor when the pump is switched off.
+			var wire struct {
+				Plant map[string]any `json:"plant"`
+			}
+			getJSON(t, srv, "/api/v2/telemetry/container", &wire)
+			for _, field := range []string{
+				"coolantPumpSpeedHz", "pumpInletPressurePa", "pumpOutletPressurePa", "pumpPressureDiffPa",
+				"heatRejectionInletPressurePa", "heatRejectionOutletPressurePa", "heatRejectionPressureDiffPa",
+			} {
+				value, ok := wire.Plant[field].(float64)
+				if !ok || math.IsNaN(value) || math.IsInf(value, 0) {
+					t.Fatalf("%s must be a finite JSON number, got %v", field, wire.Plant[field])
+				}
+			}
+			plant := telemetry.Plant
+			if plant.PumpInletPressurePa <= 0 || plant.HeatRejectionOutletPressurePa <= 0 {
+				t.Fatalf("expected positive static pressure: %+v", plant)
+			}
+			closeTo(t, "pump pressure rise", plant.PumpPressureDiffPa, plant.PumpOutletPressurePa-plant.PumpInletPressurePa, 1e-8)
+			closeTo(t, "cooler pressure drop", plant.HeatRejectionPressureDiffPa, plant.HeatRejectionInletPressurePa-plant.HeatRejectionOutletPressurePa, 1e-8)
+			if tc.pump {
+				if plant.CoolantPumpSpeedHz < 49 || plant.CoolantPumpSpeedHz > 51 || plant.PumpPressureDiffPa <= 0 || plant.HeatRejectionPressureDiffPa <= 0 {
+					t.Fatalf("running pump telemetry: %+v", plant)
+				}
+			} else if plant.CoolantPumpSpeedHz != 0 || plant.PumpPressureDiffPa != 0 || plant.HeatRejectionPressureDiffPa != 0 {
+				t.Fatalf("stopped pump must report zero speed and differentials: %+v", plant)
+			}
 		})
 	}
 }

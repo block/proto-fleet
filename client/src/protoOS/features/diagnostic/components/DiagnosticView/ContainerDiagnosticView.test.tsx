@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
-import { toCanonicalContainer, toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
+import {
+  toCanonicalContainer,
+  toCanonicalContainerTelemetry,
+  toCanonicalSystemInfo,
+} from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
@@ -80,7 +84,7 @@ describe("Container diagnostics", () => {
       powered: true,
       heatRejectionActive: true,
       totalPower: { latest: { value: 124_800, units: "W" } },
-      ambientTemperature: { latest: { value: 25.5, units: "°C" } },
+      outsideAmbientTemperature: { latest: { value: 25.5, units: "°C" } },
       inletTemperature: { latest: { value: 33.3, units: "°C" } },
       outletTemperature: { latest: { value: 43.3, units: "°C" } },
       outletATemperature: { latest: { value: 43.1, units: "°C" } },
@@ -119,7 +123,57 @@ describe("Container diagnostics", () => {
   });
 
   afterEach(() => {
-    useMinerStore.getState().ui.setTemperatureUnit("C");
+    act(() => useMinerStore.getState().ui.setTemperatureUnit("C"));
+  });
+
+  test.each([
+    { plant: { outsideAmbientTemperatureC: 20, ambientTemperatureC: 25 }, unit: "C", expected: "20.0°C" },
+    { plant: { outsideAmbientTemperatureC: 0 }, unit: "F", expected: "32.0°F" },
+    { plant: { ambientTemperatureC: 25 }, unit: "C", expected: "25.0°C" },
+    { plant: { insideAmbientTemperatureC: 30 }, unit: "C", expected: "—" },
+  ] as const)("shows outdoor ambient temperature from $plant in $unit", ({ plant, unit, expected }) => {
+    useMinerStore.getState().ui.setTemperatureUnit(unit);
+    useMinerStore.getState().telemetry.mergeTelemetry(toCanonicalContainerTelemetry({}, { plant }, "ct1"));
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByText("Ambient temperature").nextElementSibling?.textContent).toBe(expected);
+  });
+
+  test.each([
+    { plant: { pumpPressureDiffPa: 68_947.57 }, expected: "10.0 psi" },
+    {
+      plant: { pumpPressureDiffPa: 0, pumpInletPressurePa: 68_947.57, pumpOutletPressurePa: 137_895.14 },
+      expected: "0.0 psi",
+    },
+    { plant: { pumpInletPressurePa: 68_947.57, pumpOutletPressurePa: 137_895.14 }, expected: "10.0 psi" },
+    {
+      plant: { pumpPressureDiffPa: Number.NaN, pumpInletPressurePa: 68_947.57, pumpOutletPressurePa: 137_895.14 },
+      expected: "10.0 psi",
+    },
+    { plant: { pumpInletPressurePa: 68_947.57 }, expected: "—" },
+  ])("shows pump pressure delta $expected from $plant", ({ plant, expected }) => {
+    useMinerStore.getState().telemetry.mergeTelemetry(toCanonicalContainerTelemetry({}, { plant }, "ct1"));
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByText("Pressure delta").nextElementSibling?.textContent).toBe(expected);
+  });
+
+  test("clears ambient temperature and pressure delta when the next snapshot omits them", () => {
+    useMinerStore
+      .getState()
+      .telemetry.mergeTelemetry(
+        toCanonicalContainerTelemetry(
+          {},
+          { plant: { outsideAmbientTemperatureC: 20, pumpPressureDiffPa: 68_947.57 } },
+          "ct1",
+        ),
+      );
+    render(<ContainerDiagnosticView />);
+    expect(screen.getByText("Ambient temperature").nextElementSibling).toHaveTextContent("20.0°C");
+    expect(screen.getByText("Pressure delta").nextElementSibling).toHaveTextContent("10.0 psi");
+    act(() => {
+      useMinerStore.getState().telemetry.mergeTelemetry(toCanonicalContainerTelemetry({}, { plant: {} }, "ct1"));
+    });
+    expect(screen.getByText("Ambient temperature").nextElementSibling).toHaveTextContent("—");
+    expect(screen.getByText("Pressure delta").nextElementSibling).toHaveTextContent("—");
   });
 
   test.each<{ reading: Partial<PlantTelemetry> | undefined; expected: string }>([

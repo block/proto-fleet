@@ -19,6 +19,18 @@ export const formatReading = (value: number | null, units: string) =>
 export const temperatureValue = (value: number | null, unit: "C" | "F") =>
   value === null ? null : unit === "F" ? convertCtoF(value) : value;
 
+const summarizeModules = (values: (number | null)[]) => {
+  const readings = values.filter((value): value is number => value !== null);
+  // These labels describe all modules; incomplete coverage must not imply a
+  // container-wide minimum, maximum, or average from only the reporting subset.
+  if (!readings.length || readings.length !== values.length) return { high: null, low: null, average: null };
+  return {
+    high: Math.max(...readings),
+    low: Math.min(...readings),
+    average: readings.reduce((sum, value) => sum + value, 0) / readings.length,
+  };
+};
+
 export function buildContainerLive(hardware: HardwareState, telemetry: TelemetryState, unit: "C" | "F") {
   const topology = hardware.topology;
   const rollup =
@@ -41,6 +53,14 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
   const hashboardPower = rollup?.powerCoverage?.kind === "hashboardOnly" ? latest(rollup.power) : null;
   const moduleEfficiency =
     hashboardPower !== null && hashrate !== null && hashrate > 0 ? hashboardPower / hashrate : null;
+  const modules =
+    topology?.kind === "container"
+      ? [...topology.modules.keys()].map((id) => telemetry.rollupsByEntity.get(asEntityKey(id)))
+      : [];
+  // Match the Modules page: shared PSU input power and average board-sensor
+  // temperature, giving each module equal weight in the live summary.
+  const modulePower = summarizeModules(modules.map((module) => latest(module?.power)));
+  const moduleTemperature = summarizeModules(modules.map((module) => latest(module?.temperature)));
   const pdus = [...hardware.plant.values()].filter((component) => component.kind === "distribution");
   const reading = (id: string, label: string, value: number | null, units: string): HomeReading => ({
     id,
@@ -50,7 +70,9 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
   const powerReadings: HomeReading[] = [
     reading("container-power", "Container power", power === null ? null : power / 1000, "kW"),
     reading("container-efficiency", "Container efficiency", efficiency, "J/TH"),
-    ...["high", "low", "average"].map((stat) => reading(`module-${stat}`, `Module ${stat}`, null, "kW")),
+    ...(["high", "low", "average"] as const).map((stat) =>
+      reading(`module-${stat}`, `Module ${stat}`, modulePower[stat] === null ? null : modulePower[stat] / 1000, "kW"),
+    ),
     reading("module-efficiency", "Module efficiency", moduleEfficiency, "J/TH"),
     ...pdus.map((component) => {
       const value = latest(telemetry.plant.get(component.ref.id)?.totalPower);
@@ -63,7 +85,9 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
     temp("inside", "Ambient temp", latest(plant?.insideAmbientTemperature)),
     temp("outside", "Outdoor temp", latest(plant?.outsideAmbientTemperature)),
     temp("fluid", "Fluid temp", latest(plant?.inletTemperature)),
-    ...["high", "low", "average"].map((stat) => temp(`module-${stat}`, `Module ${stat}`, null)),
+    ...(["high", "low", "average"] as const).map((stat) =>
+      temp(`module-${stat}`, `Module ${stat}`, moduleTemperature[stat]),
+    ),
     ...pdus.map((component) => temp(component.ref.id, component.name, null)),
   ];
   const tanks =

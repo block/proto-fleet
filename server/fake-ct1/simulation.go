@@ -69,8 +69,8 @@ func (s *ContainerState) boardSample(b *Hashboard) boardSample {
 	return boardSample{power, hr, v, temperature, asicTemperature, at}
 }
 
-// Required flow and fan power are imposed demo conditions, not a calibrated
-// hydraulic model. Unknown pump speed, pressures and CU1 feed current are omitted.
+// Flow, pump readings and fan power are imposed demo conditions, not a
+// calibrated hydraulic model. CU1 feed current remains unavailable.
 func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	active, _ := s.boardCounts()
 	mining := active > 0
@@ -126,6 +126,19 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	if pump {
 		pumpPower = 16000
 	}
+	// A nominal 50 Hz pump supplies a 100 kPa pressure rise. Keep a positive
+	// static pressure when stopped, with zero speed and zero pressure differences.
+	pumpSpeed, pumpPressureRise := 0.0, 0.0
+	if pump {
+		pumpSpeed = 50 + .5*s.wave(706, 360)
+		pumpPressureRise = 100000 * math.Pow(pumpSpeed/50, 2)
+	}
+	pumpInletPressure := 190000.0
+	pumpOutletPressure := pumpInletPressure + pumpPressureRise
+	// Assign 80% of the demo loop's pressure drop to the cooler, with the
+	// remaining 20% split across the connecting pipework. Fan state is independent.
+	coolerInletPressure := pumpOutletPressure - .1*pumpPressureRise
+	coolerOutletPressure := pumpInletPressure + .1*pumpPressureRise
 	// A 1 kW controls allowance plus 0.5 kW for each enabled AC unit.
 	other := 1000.0
 	for _, name := range []string{"air_conditioner_1", "air_conditioner_2"} {
@@ -185,7 +198,14 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 			AmbientTemperatureC: ambient, OutsideAmbientTemperatureC: ambient,
 			InsideAmbientTemperatureC: 27 + s.wave(703, 900),
 			CoolantPumpActive:         pump, HeatRejectionActive: cooler,
-			TankALiquidLevelMm: 500 + 5*s.wave(704, 600), TankBLiquidLevelMm: 450 + 5*s.wave(705, 600),
+			CoolantPumpSpeedHz:            pumpSpeed,
+			PumpInletPressurePa:           pumpInletPressure,
+			PumpOutletPressurePa:          pumpOutletPressure,
+			PumpPressureDiffPa:            pumpOutletPressure - pumpInletPressure,
+			HeatRejectionInletPressurePa:  coolerInletPressure,
+			HeatRejectionOutletPressurePa: coolerOutletPressure,
+			HeatRejectionPressureDiffPa:   coolerInletPressure - coolerOutletPressure,
+			TankALiquidLevelMm:            500 + 5*s.wave(704, 600), TankBLiquidLevelMm: 450 + 5*s.wave(705, 600),
 			TotalPowerW: ac, HeatRejectionPowerW: fanPower, FacilityPowerW: facility,
 			PowerFactor: pf, PUE: pue, FlowRateLpm: flow,
 		},

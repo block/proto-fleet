@@ -165,6 +165,9 @@ func TestSlowDeterministicSamplesAndStaleDevices(t *testing.T) {
 	for _, elapsed := range []time.Duration{0, time.Minute, 10 * time.Minute} {
 		a.advance(start.Add(elapsed))
 		b.advance(start.Add(elapsed))
+		if a.containerTelemetry().Plant != b.containerTelemetry().Plant {
+			t.Fatal("seeded plant telemetry differs")
+		}
 		for i, board := range a.eachBoard() {
 			if a.boardSample(board) != b.boardSample(b.eachBoard()[i]) {
 				t.Fatal("seeded simulation differs")

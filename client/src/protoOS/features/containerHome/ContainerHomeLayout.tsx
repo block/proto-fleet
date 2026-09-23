@@ -9,9 +9,9 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useDuration, usePoolsInfo, useSetDuration } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
-// Home only needs the lightweight mining-status and plant-health responses.
-// Topology is bootstrapped by App; no periodic board-map or board-history fetch.
-const LIVE_LEVELS: TelemetryLevel[] = ["miner"];
+// One bulk container-map request adds live module power/temperature to the
+// mining-status and plant-health poll; no per-board requests or histories.
+const LIVE_LEVELS: TelemetryLevel[] = ["miner", "hashboard"];
 
 export default function ContainerHomeLayout() {
   const { minerRoot } = useMinerHosting();

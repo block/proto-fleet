@@ -682,7 +682,10 @@ export const toCanonicalContainer = (
     telemetry.psus.set(psu.id, psu.telemetry);
     modules.get(id)?.psuIds.push(psu.id);
   }
-  if (mapWire !== undefined) telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
+  if (mapWire !== undefined) {
+    telemetry.containerModuleRollups = { containerId };
+    telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
+  }
   // Boards share a PSU: use its normalized, freshest input reading once per
   // module. A missing module reading makes the aggregate unknown, not partial.
   const moduleInputPower = (moduleIds: ModuleId[]): number | undefined => {

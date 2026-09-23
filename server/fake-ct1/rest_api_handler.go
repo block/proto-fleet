@@ -475,14 +475,14 @@ type plantTelemetry struct {
 	InsideAmbientTemperatureC     float64 `json:"insideAmbientTemperatureC"`
 	OutsideAmbientTemperatureC    float64 `json:"outsideAmbientTemperatureC"`
 	CoolantPumpActive             bool    `json:"coolantPumpActive"`
-	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz,omitempty"`
-	PumpInletPressurePa           float64 `json:"pumpInletPressurePa,omitempty"`
-	PumpOutletPressurePa          float64 `json:"pumpOutletPressurePa,omitempty"`
-	PumpPressureDiffPa            float64 `json:"pumpPressureDiffPa,omitempty"`
+	CoolantPumpSpeedHz            float64 `json:"coolantPumpSpeedHz"`
+	PumpInletPressurePa           float64 `json:"pumpInletPressurePa"`
+	PumpOutletPressurePa          float64 `json:"pumpOutletPressurePa"`
+	PumpPressureDiffPa            float64 `json:"pumpPressureDiffPa"`
 	HeatRejectionActive           bool    `json:"heatRejectionActive"`
-	HeatRejectionInletPressurePa  float64 `json:"heatRejectionInletPressurePa,omitempty"`
-	HeatRejectionOutletPressurePa float64 `json:"heatRejectionOutletPressurePa,omitempty"`
-	HeatRejectionPressureDiffPa   float64 `json:"heatRejectionPressureDiffPa,omitempty"`
+	HeatRejectionInletPressurePa  float64 `json:"heatRejectionInletPressurePa"`
+	HeatRejectionOutletPressurePa float64 `json:"heatRejectionOutletPressurePa"`
+	HeatRejectionPressureDiffPa   float64 `json:"heatRejectionPressureDiffPa"`
 	TankALiquidLevelMm            float64 `json:"tankALiquidLevelMm"`
 	TankBLiquidLevelMm            float64 `json:"tankBLiquidLevelMm"`
 	AlarmActive                   bool    `json:"alarmActive"`

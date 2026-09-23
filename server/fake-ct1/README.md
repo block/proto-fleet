@@ -156,9 +156,14 @@ them.
   and a provisional 16 kW pump heat allowance. No hydraulic calibration is claimed.
   The normal rise/flow model is disabled when mining, pump, or cooler is off;
   it does not model transient overheating or circulation in those conditions.
-- Pump speed and absolute pressures are omitted pending hydraulic calibration;
-  consequently pressure differences are also unavailable. CU1 feed current is
-  omitted pending wiring confirmation. The unresolved ASIC voltage channel stays
+- Live pump speed is a seeded, slowly varying **50 ± 0.5 Hz** demo reading.
+  Pump inlet pressure is **190 kPa**; the nominal **100 kPa** pump pressure rise
+  scales with squared speed. The cooler accounts for 80% of that pressure drop.
+  These are illustrative readings in the API's Hz/Pa fields, not calibrated
+  hardware predictions. Disabling the pump reports explicit zero speed and
+  differentials while all pressure readings settle to 190 kPa. Cooler fan
+  controls do not change pump readings. Pump/pressure history remains unsupported.
+- CU1 feed current is omitted pending wiring confirmation. The unresolved ASIC voltage channel stays
   at 385 mV. No new contract fields or hardware identifiers are invented.
 - The other-auxiliary allowance is provisionally split into 1 kW controls and
   0.5 kW per enabled AC unit, so those controls affect facility power.

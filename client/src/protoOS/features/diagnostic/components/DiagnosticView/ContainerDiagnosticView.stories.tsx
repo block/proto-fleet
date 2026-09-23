@@ -52,7 +52,7 @@ const DiagnosticsStory = ({ missingReadings = false, sparseTanks = false, minerS
             powered: true,
             heatRejectionActive: true,
             totalPower: reading(124_800, "W"),
-            ambientTemperature: reading(25.5, "°C"),
+            outsideAmbientTemperature: reading(25.5, "°C"),
             inletTemperature: reading(33.3, "°C"),
             outletTemperature: reading(43.3, "°C"),
             outletATemperature: reading(43.3, "°C"),

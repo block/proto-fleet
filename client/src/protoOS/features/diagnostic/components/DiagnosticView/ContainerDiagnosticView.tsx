@@ -136,6 +136,9 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
   const outlet = latest(plant?.outletTemperature);
   const pumpInlet = latest(plant?.pumpInletPressure);
   const pumpOutlet = latest(plant?.pumpOutletPressure);
+  const pumpPressureDelta =
+    latest(plant?.pumpPressureDelta) ??
+    (pumpInlet === undefined || pumpOutlet === undefined ? undefined : pumpOutlet - pumpInlet);
   const totalPower = latest(plant?.totalPower);
   const state = rollup?.miningStatus;
   const stateLabel =
@@ -147,7 +150,7 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
         <dl className="grid grid-cols-2 gap-x-8 gap-y-8">
           <Stat label="State" value={stateLabel} />
           <Stat label="Total power" value={totalPower === undefined ? "—" : `${decimal(totalPower / 1_000)} kW`} />
-          <Stat label="Ambient temperature" value={formatTemperature(latest(plant?.ambientTemperature), unit)} />
+          <Stat label="Ambient temperature" value={formatTemperature(latest(plant?.outsideAmbientTemperature), unit)} />
           <Stat
             label="Cooler"
             value={plant?.heatRejectionActive === undefined ? "—" : plant.heatRejectionActive ? "Active" : "Inactive"}
@@ -176,10 +179,7 @@ const ContainerSummary = ({ plant, rollup }: { plant?: PlantTelemetry; rollup?: 
             label="Temperature delta"
             value={inlet === undefined || outlet === undefined ? "—" : temperatureDelta(outlet - inlet)}
           />
-          <Stat
-            label="Pressure delta"
-            value={pumpInlet === undefined || pumpOutlet === undefined ? "—" : formatPressure(pumpOutlet - pumpInlet)}
-          />
+          <Stat label="Pressure delta" value={formatPressure(pumpPressureDelta)} />
         </dl>
       </Panel>
     </div>

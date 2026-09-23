@@ -2,8 +2,10 @@ import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
 
 import {
+  asEntityKey,
   type CoolingMode,
   type FanTelemetry,
+  type LevelRollup,
   type Measurement,
   type MetricTelemetry,
   type PlantTelemetry,
@@ -169,6 +171,30 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       const lastApplied = state.telemetry.lastAppliedRequestByEntity;
       const gate = (prefix: string): StalenessGate | undefined =>
         requestId === undefined ? undefined : { requestId, lastApplied, prefix };
+      const rollups = new Map(incoming.rollupsByEntity);
+      const topology = state.hardware.topology;
+      if (topology?.kind === "container" && incoming.containerModuleRollups?.containerId === topology.containerId) {
+        // A module's reported ID can disappear with its last board. Clear the
+        // bootstrap ID's live readings when the full map no longer reports it.
+        // Merge through the usual gate to retain history and reject stale writes.
+        for (const id of topology.modules.keys()) {
+          const key = asEntityKey(id);
+          const previous = state.telemetry.rollupsByEntity.get(key);
+          if (rollups.has(key) || !previous) continue;
+          const cleared: LevelRollup = {
+            health: "unknown",
+            miningStatus: "unknown",
+            boardCount: undefined,
+            onlineBoardCount: undefined,
+            powerCoverage: undefined,
+          };
+          for (const field of metricFields) {
+            const metric = (previous as MetricContainer)[field] as MetricTelemetry | undefined;
+            if (metric?.latest) (cleared as MetricContainer)[field] = { latest: { ...metric.latest, value: null } };
+          }
+          rollups.set(key, cleared);
+        }
+      }
       const plant = new Map(incoming.plant);
       if (incoming.containerPlant) {
         const { containerId, hardware } = incoming.containerPlant;
@@ -232,7 +258,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
         }
       }
       incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
-      mergeMap(state.telemetry.rollupsByEntity, incoming.rollupsByEntity, gate("rollup"));
+      mergeMap(state.telemetry.rollupsByEntity, rollups, gate("rollup"));
       mergeMap(state.telemetry.hashboards, incoming.hashboards, gate("hashboard"));
       mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
       mergeMap(state.telemetry.psus, psus, gate("psu"));
