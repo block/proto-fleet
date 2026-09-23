@@ -39,7 +39,6 @@ var defaultCredentials = []sdk.UsernamePassword{
 // Driver implements sdk.Driver for virtual miners.
 type Driver struct {
 	config         *config.Config
-	devices        map[string]sdk.Device
 	minersByIP     map[string]*config.VirtualMinerConfig
 	sv2ByMakeModel map[modelKey]bool
 	mutex          sync.RWMutex
@@ -72,7 +71,6 @@ func New(configPath string) (*Driver, error) {
 
 	return &Driver{
 		config:         cfg,
-		devices:        make(map[string]sdk.Device),
 		minersByIP:     minersByIP,
 		sv2ByMakeModel: sv2ByMakeModel,
 		latencyRNG:     rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 2)),
@@ -217,10 +215,6 @@ func (d *Driver) NewDevice(_ context.Context, deviceID string, deviceInfo sdk.De
 
 	// Create the device instance
 	dev := device.New(deviceID, deviceInfo, minerCfg)
-
-	d.mutex.Lock()
-	d.devices[deviceID] = dev
-	d.mutex.Unlock()
 
 	slog.Debug("Created virtual device instance", "device_id", deviceID, "serial", deviceInfo.SerialNumber)
 

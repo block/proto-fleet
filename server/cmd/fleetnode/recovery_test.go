@@ -221,6 +221,8 @@ func TestRecoverMinerEndpointsOnlyReportsAuthenticationFailureAfterCredentialFre
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, results[0].GetOutcome())
+	assert.Equal(t, "10.0.0.1", results[0].GetIpAddress())
+	assert.Equal(t, "80", results[0].GetPort())
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND, results[1].GetOutcome())
 	assert.EqualValues(t, 2, calls.Load())
 }

@@ -115,7 +115,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		}
 
 		matches := make([]recoveryEndpoint, 0, 1)
-		var authFailedIdentity stableidentity.Identity
+		authFailedEndpoint := recoveryEndpoint{}
 		identifiedEndpoints := make(map[string]struct{})
 		inspectionFailed := false
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
@@ -148,7 +148,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			got, err := cached.identity, cached.err
 			if err != nil {
 				if identifiedBeforeAuth && isAuthenticationError(err) {
-					authFailedIdentity = candidate.identity
+					authFailedEndpoint = candidate
 				} else if !isAuthenticationError(err) {
 					inspectionFailed = true
 				}
@@ -168,8 +168,8 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, recoveryEndpoint{}, "candidate could not be inspected"))
 		case len(matches) == 1:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, matches[0], ""))
-		case authFailedIdentity.Usable():
-			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, recoveryEndpoint{identity: authFailedIdentity}, ""))
+		case authFailedEndpoint.identity.Usable():
+			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, authFailedEndpoint, ""))
 		default:
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND, recoveryEndpoint{}, ""))
 		}
