@@ -24,8 +24,7 @@ const RELEASE_CHANNELS_DESCRIPTION =
 const FIRMWARE_REFRESH_INTERVAL_MS = 30_000;
 const FIRMWARE_REQUEST_TIMEOUT_MS = 30_000;
 
-// Which surface the tab shows: the channels table, a channel's manage
-// view, or the create form.
+// Creation opens a modal over the channels list; managing a channel replaces it.
 type View = { kind: "list" } | { kind: "manage"; channelId: bigint } | { kind: "create" };
 
 interface AcknowledgedWrites {
@@ -219,7 +218,7 @@ const ReleaseChannelsTab = ({
   const hasPendingWrites = !!pendingCreate || !!currentWrites?.deleted.length;
   const awaitingCreatedChannel =
     view.kind === "manage" && !managedChannel && (pendingCreate?.id === view.channelId || error !== null);
-  const showBack = view.kind === "create" || managedChannel !== undefined || awaitingCreatedChannel;
+  const showBack = managedChannel !== undefined || awaitingCreatedChannel;
   // Handle new navigation without remounting the tab or the same channel's editor.
   // A pending write must settle before its editor can be replaced.
   if (manageRequest !== lastManageRequest && !isWriting) {
@@ -256,7 +255,7 @@ const ReleaseChannelsTab = ({
   // Resolved fresh on every poll so rollback eligibility tracks assignments.
   const historyChannel = historyChannelId !== null ? channels.find((c) => c.id === historyChannelId) : undefined;
   const historyChannelIds =
-    !hasLoaded || view.kind === "create" || awaitingCreatedChannel
+    !hasLoaded || awaitingCreatedChannel
       ? []
       : managedChannel
         ? [managedChannel.id]
@@ -268,7 +267,9 @@ const ReleaseChannelsTab = ({
   });
 
   return (
-    <div className="flex flex-col gap-6">
+    // Modal content is portaled outside this element. Keep the retained list
+    // out of keyboard navigation while a new channel is being edited.
+    <div className="flex flex-col gap-6" inert={view.kind === "create"}>
       <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
 
       {historyChannelIds.map((id) => {
@@ -343,32 +344,6 @@ const ReleaseChannelsTab = ({
         isLoading ? (
           <div className="text-center text-text-primary-50">Loading release channels...</div>
         ) : null
-      ) : view.kind === "create" ? (
-        <ReleaseChannelManageView
-          key="create"
-          onDirtyChange={setHasUnsavedChanges}
-          writeLock={writeLock}
-          rollouts={rollouts}
-          firmwareFiles={firmwareFiles}
-          minerNames={minerNames}
-          previewScope={previewScope}
-          listChannelMiners={listChannelMiners}
-          listRolloutDevices={listRolloutDevices}
-          onSave={async (draft) => {
-            const created = await createChannel(draft);
-            if (!created || !isCurrentSession()) return;
-            const snapshot = latestSnapshotRef.current.channels;
-            setAcknowledgedWrites((previous) => ({
-              authSessionIdentity,
-              created: snapshot.some(({ id }) => id === created.id)
-                ? null
-                : { id: created.id, name: created.name, snapshot },
-              deleted: previous.authSessionIdentity === authSessionIdentity ? previous.deleted : [],
-            }));
-            setView({ kind: "manage", channelId: created.id });
-          }}
-          onApply={async () => {}}
-        />
       ) : managedChannel ? (
         <ReleaseChannelManageView
           key={managedChannel.id.toString()}
@@ -426,6 +401,38 @@ const ReleaseChannelsTab = ({
           }}
         />
       )}
+
+      {hasLoaded && view.kind === "create" ? (
+        <ReleaseChannelManageView
+          key="create"
+          onDirtyChange={setHasUnsavedChanges}
+          onCancelCreate={() => {
+            setHasUnsavedChanges(false);
+            setView({ kind: "list" });
+          }}
+          writeLock={writeLock}
+          rollouts={rollouts}
+          firmwareFiles={firmwareFiles}
+          minerNames={minerNames}
+          previewScope={previewScope}
+          listChannelMiners={listChannelMiners}
+          listRolloutDevices={listRolloutDevices}
+          onSave={async (draft) => {
+            const created = await createChannel(draft);
+            if (!created || !isCurrentSession()) return;
+            const snapshot = latestSnapshotRef.current.channels;
+            setAcknowledgedWrites((previous) => ({
+              authSessionIdentity,
+              created: snapshot.some(({ id }) => id === created.id)
+                ? null
+                : { id: created.id, name: created.name, snapshot },
+              deleted: previous.authSessionIdentity === authSessionIdentity ? previous.deleted : [],
+            }));
+            setView({ kind: "manage", channelId: created.id });
+          }}
+          onApply={async () => {}}
+        />
+      ) : null}
 
       {historyChannel ? (
         <ChannelHistoryModal

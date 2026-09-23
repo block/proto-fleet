@@ -17,6 +17,7 @@ const exactText = (text: string): RegExp => new RegExp(`^${text.replace(/[.*+?^$
 
 export class SettingsFirmwarePage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
+  private readonly createChannelModal = this.page.getByTestId("create-release-channel-modal");
 
   async validateFirmwarePageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
@@ -61,17 +62,18 @@ export class SettingsFirmwarePage extends BasePage {
     return this.page.getByTestId("list-row").filter({ has: this.page.getByTestId(`channel-row-${channelName}`) });
   }
 
-  // New channels keep their settings inline; existing channels edit them in
-  // a separate modal above the assigned miners table.
-  private async openChannelSettings() {
-    if (await this.page.getByTestId("release-channel-new").isVisible()) {
-      return;
+  // New channels already have their settings in the create modal; existing
+  // channels open a separate modal above the assigned miners table.
+  private async openChannelSettings(): Promise<Locator> {
+    if (await this.createChannelModal.isVisible()) {
+      return this.createChannelModal;
     }
     const modal = this.page.getByTestId("channel-settings-modal");
     if (!(await modal.isVisible())) {
       await this.page.getByTestId("channel-settings").click();
     }
     await expect(modal).toBeVisible();
+    return modal;
   }
 
   private async closeChannelSettings() {
@@ -86,21 +88,24 @@ export class SettingsFirmwarePage extends BasePage {
   // with the helpers below before saveNewChannel.
   async startCreateChannel(channelName: string) {
     await this.clickButton("Create release channel");
-    await expect(this.page.getByTestId("release-channel-new")).toBeVisible();
-    await this.page.locator("#channel-name").fill(channelName);
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByText("Create release channel", { exact: true })).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("release-channel-new")).toBeVisible();
+    await this.createChannelModal.locator("#channel-name").fill(channelName);
   }
 
   async saveNewChannel(channelName: string) {
-    const save = this.page.getByTestId("save-channel");
+    const save = this.createChannelModal.getByRole("button", { name: "Create channel", exact: true });
     await expect(save).toBeEnabled();
     await save.click();
     await this.validateTextInToast(`Created release channel ${channelName}`);
+    await expect(this.createChannelModal).toBeHidden();
     await expect(this.channelView(channelName)).toBeVisible();
   }
 
   async saveChannelChanges() {
-    await this.openChannelSettings();
-    const save = this.page.getByTestId("save-channel");
+    const modal = await this.openChannelSettings();
+    const save = modal.getByRole("button", { name: "Save changes", exact: true });
     await expect(save).toBeEnabled();
     await save.click();
     await this.validateTextInToast("Release channel saved");
@@ -108,9 +113,10 @@ export class SettingsFirmwarePage extends BasePage {
 
   // The save action is blocked because the scope overlaps another channel.
   async validateScopeConflict(otherChannelName: string) {
-    await this.openChannelSettings();
-    await expect(this.page.getByTestId("scope-conflicts")).toContainText(otherChannelName);
-    await expect(this.page.getByTestId("save-channel")).toBeDisabled();
+    const modal = await this.openChannelSettings();
+    const action = (await this.createChannelModal.isVisible()) ? "Create channel" : "Save changes";
+    await expect(modal.getByTestId("scope-conflicts")).toContainText(otherChannelName);
+    await expect(modal.getByRole("button", { name: action, exact: true })).toBeDisabled();
   }
 
   // Opens the "Miners" selector of the Applies to section.
@@ -209,8 +215,14 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.channelView(channelName)).toBeVisible();
   }
 
-  // Returns from the manage view to the channels table.
+  // Dismisses an unsaved creation or returns from the manage view to the list.
   async backToChannels() {
+    if (await this.createChannelModal.isVisible()) {
+      await this.createChannelModal.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(this.createChannelModal).toBeHidden();
+      await expect(this.page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+      return;
+    }
     await this.closeChannelSettings();
     await this.page.getByTestId("back-to-channels").click();
     await expect(this.page.getByTestId("channels-table")).toBeVisible();

@@ -102,13 +102,44 @@ describe("channel settings modal", () => {
     if (outcome === "failure") expect(screen.getByText("Unsaved settings")).toBeVisible();
   });
 
-  it("keeps new-channel creation inline", () => {
+  it("shows new-channel settings in the create modal and validates before saving", async () => {
     render(<ReleaseChannelManageView {...manageViewProps()} />);
-    expect(screen.getByLabelText("Name")).toBeVisible();
+    const modal = within(screen.getByTestId("create-release-channel-modal"));
+    expect(modal.getByText("Create release channel")).toBeInTheDocument();
+    expect(modal.getByTestId("release-channel-new")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Name")).toBeVisible());
     expect(screen.getByTestId("scope-editor")).toBeVisible();
     expect(screen.getByTestId("rollout-controls")).toBeVisible();
     expect(screen.getByTestId("save-channel")).toHaveTextContent("Create channel");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel" } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    const offlineLimit = screen.getByLabelText("Max miners offline at once (0 for no limit)");
+    fireEvent.change(offlineLimit, { target: { value: "unfinished" } });
+    expect(offlineLimit).toHaveValue("unfinished");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.change(offlineLimit, { target: { value: "1" } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(screen.queryByTestId("channel-settings")).not.toBeInTheDocument();
     expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
+  });
+
+  it("blocks create-modal dismissal while another channel write holds the lock", () => {
+    const onCancelCreate = vi.fn();
+    const props = {
+      ...manageViewProps(),
+      onCancelCreate,
+      writeLock: { isLocked: true, tryAcquire: vi.fn(), release: vi.fn() },
+    };
+    const { rerender } = render(<ReleaseChannelManageView {...props} />);
+    fireEvent.click(
+      within(screen.getByTestId("create-release-channel-modal")).getByRole("button", { name: "Close dialog" }),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancelCreate).not.toHaveBeenCalled();
+
+    rerender(<ReleaseChannelManageView {...props} writeLock={{ ...props.writeLock, isLocked: false }} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancelCreate).toHaveBeenCalledOnce();
   });
 });

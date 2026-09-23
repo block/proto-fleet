@@ -4,6 +4,21 @@ import { SettingsFirmwarePage } from "../pages/settingsFirmware";
 const channel = "Helper fixture";
 const target = { manufacturer: "Proto", model: "Rig" };
 const version = "3.2.123";
+const responsiveModalActions = `
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    [data-testid="save-channel-mobile"] { display: none; }
+    @media (max-width: 631px) {
+      [data-testid="save-channel"] { display: none; }
+      [data-testid="save-channel-mobile"] { display: inline-block; }
+    }
+  </style>
+`;
+
+const modalSaveButtons = (label: string, onClick = "") =>
+  ["save-channel", "save-channel-mobile"]
+    .map((testId) => `<button data-testid="${testId}" onclick="${onClick}">${label}</button>`)
+    .join("");
 
 // Exercise the real page-object locators against the table structure used by
 // the UI, including misleading text in other cells. No backend state is used.
@@ -11,6 +26,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 async function renderTables(page: Page, historyRows: string, minerRows = "") {
   await page.setContent(`
+    ${responsiveModalActions}
     <section data-testid="release-channel-${channel}">
       <button data-testid="channel-history" onclick="document.querySelector('#modals').innerHTML = document.querySelector('#history').innerHTML">History</button>
       <table><tbody><tr data-testid="model-group-Rig">
@@ -39,44 +55,94 @@ const completed = `<tr data-testid="history-row-2"><td>Completed</td><td>Proto R
 const miner = (id: number, firmware: string) =>
   `<tr data-testid="channel-miner-${id}"><td>Miner ${id} ${version}</td><td>${firmware}</td><td>Up to date</td></tr>`;
 
-test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
-  test("new-channel settings helpers keep using the inline form", async ({ page }) => {
-    await page.setContent(`
+async function renderCreateChannel(page: Page, listContent = '<div data-testid="channels-table">Channels</div>') {
+  await page.setContent(`
+    ${responsiveModalActions}
+    <div id="channels">
+      <button onclick="document.querySelector('#modals').innerHTML = document.querySelector('#create').innerHTML">Create release channel</button>
+      ${listContent}
+    </div>
+    <div id="modals"></div>
+    <div data-testid="toaster-container"></div>
+    <template id="create"><section data-testid="create-release-channel-modal">
+      <h2>Create release channel</h2>
+      <button aria-label="Close dialog" onclick="this.closest('section').remove()">Close</button>
       <section data-testid="release-channel-new">
+        <input id="channel-name" />
         <button data-testid="rollout-method" onclick="document.querySelector('#methods').hidden = false">Single batch</button>
         <div id="methods" hidden>
           <button role="option" onclick="document.querySelector('[data-testid=rollout-method]').textContent = this.textContent; this.parentElement.hidden = true">Pilot batch, then remaining</button>
         </div>
         <input id="pilot-size" type="number" value="1" />
         <p data-testid="scope-preview">This channel covers 2 miners</p>
+        ${modalSaveButtons("Create channel", `document.querySelector('[data-testid=toaster-container]').textContent = 'Created release channel ${channel}'; document.querySelector('#channels').innerHTML = '<section data-testid=&quot;release-channel-${channel}&quot;>Channel created</section>'; document.querySelector('#modals').replaceChildren()`)}
       </section>
-    `);
+    </section></template>
+  `);
+}
+
+test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
+  test("new-channel helpers edit in the create modal and wait for its dismissal after saving", async ({
+    page,
+    isMobile,
+  }) => {
+    await renderCreateChannel(page);
     const firmware = new SettingsFirmwarePage(page);
+    await firmware.startCreateChannel(channel);
+    const modal = page.getByTestId("create-release-channel-modal");
+    await expect(modal.locator("#channel-name")).toHaveValue(channel);
+    await expect(page.getByTestId("channels-table")).toBeVisible();
     await firmware.setMethod("Pilot batch, then remaining");
     await firmware.setPilotSize(2);
     await firmware.validateScopeCovers(2);
-    await expect(page.getByTestId("rollout-method")).toHaveText("Pilot batch, then remaining");
-    await expect(page.locator("#pilot-size")).toHaveValue("2");
+    await expect(modal.getByTestId("rollout-method")).toHaveText("Pilot batch, then remaining");
+    await expect(modal.locator("#pilot-size")).toHaveValue("2");
     await expect(page.getByTestId("channel-settings-modal")).toHaveCount(0);
+    await expect(modal.getByTestId(isMobile ? "save-channel" : "save-channel-mobile")).toBeHidden();
+    await expect(modal.getByTestId(isMobile ? "save-channel-mobile" : "save-channel")).toBeVisible();
+    await firmware.saveNewChannel(channel);
+    await expect(modal).toBeHidden();
+    await expect(firmware.channelView(channel)).toBeVisible();
   });
 
-  test("existing-channel settings helpers open the modal and dismiss it before viewing history", async ({ page }) => {
-    await renderTables(page, completed);
-    await page.locator("body").evaluate((body) => {
-      body.insertAdjacentHTML(
-        "beforeend",
-        `<button data-testid="channel-settings" onclick="document.querySelector('[data-testid=channel-settings-modal]').hidden = false">Channel settings</button>
-        <section data-testid="channel-settings-modal" hidden style="position: fixed; inset: 0; background: white">
-          <button aria-label="Close dialog" onclick="this.closest('section').hidden = true">Close</button>
-          <input id="pilot-size" type="number" value="1" />
-          <p data-testid="scope-preview">This channel covers 2 miners</p>
-          <button data-testid="save-channel" onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Release channel saved'">Save changes</button>
-        </section>
-        <div data-testid="toaster-container"></div>`,
+  for (const hasChannels of [true, false]) {
+    test(`returning to ${hasChannels ? "the channels table" : "the empty state"} dismisses unsaved creation`, async ({
+      page,
+    }) => {
+      await renderCreateChannel(
+        page,
+        hasChannels ? '<div data-testid="channels-table">Channels</div>' : "<h2>No release channels</h2>",
       );
+      const firmware = new SettingsFirmwarePage(page);
+      await firmware.startCreateChannel(channel);
+      await expect(page.getByTestId("back-to-channels")).toHaveCount(0);
+      await firmware.backToChannels();
+      await expect(page.getByTestId("create-release-channel-modal")).toBeHidden();
+      await expect(page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+      await expect(firmware.channelView(channel)).toHaveCount(0);
     });
+  }
+
+  test("existing-channel settings helpers open the modal and dismiss it before viewing history", async ({
+    page,
+    isMobile,
+  }) => {
+    await renderTables(page, completed);
+    await page.locator("body").evaluate(
+      (body, content) => body.insertAdjacentHTML("beforeend", content),
+      `<button data-testid="channel-settings" onclick="document.querySelector('[data-testid=channel-settings-modal]').hidden = false">Channel settings</button>
+      <section data-testid="channel-settings-modal" hidden style="position: fixed; inset: 0; background: white">
+        <button aria-label="Close dialog" onclick="this.closest('section').hidden = true">Close</button>
+        <input id="pilot-size" type="number" value="1" />
+        <p data-testid="scope-preview">This channel covers 2 miners</p>
+        ${modalSaveButtons("Save changes", "document.querySelector('[data-testid=toaster-container]').textContent = 'Release channel saved'")}
+      </section>
+      <div data-testid="toaster-container"></div>`,
+    );
     const firmware = new SettingsFirmwarePage(page);
     await firmware.setPilotSize(2);
+    await expect(page.getByTestId(isMobile ? "save-channel" : "save-channel-mobile")).toBeHidden();
+    await expect(page.getByTestId(isMobile ? "save-channel-mobile" : "save-channel")).toBeVisible();
     await firmware.saveChannelChanges();
     await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
 
@@ -86,6 +152,27 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
     await expect(page.locator("#pilot-size")).toHaveValue("2");
   });
+
+  for (const creating of [true, false]) {
+    const modalTestId = creating ? "create-release-channel-modal" : "channel-settings-modal";
+    const action = creating ? "Create channel" : "Save changes";
+
+    test(`scope conflicts check the visible ${creating ? "creation" : "settings"} action`, async ({ page }) => {
+      await page.setContent(`
+        ${responsiveModalActions}
+        <section data-testid="${modalTestId}">
+          <p data-testid="scope-conflicts">Overlaps another channel</p>
+          ${modalSaveButtons(action)}
+        </section>
+      `);
+      // Only the visible action is disabled, so checking its hidden duplicate
+      // cannot accidentally satisfy the helper's conflict assertion.
+      await page.getByRole("button", { name: action, exact: true }).evaluate((button) => {
+        button.setAttribute("disabled", "");
+      });
+      await new SettingsFirmwarePage(page).validateScopeConflict("another channel");
+    });
+  }
 
   test("history does not accept the requested version in another row's rollback action", async ({ page }) => {
     await renderTables(

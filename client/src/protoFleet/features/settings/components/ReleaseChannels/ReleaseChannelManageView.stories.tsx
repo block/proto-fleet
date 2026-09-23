@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
@@ -19,11 +19,9 @@ import {
   minerNames,
   productionChannel,
 } from "./ReleaseChannels.fixtures";
+import ReleaseChannelsTable from "./ReleaseChannelsTable";
 
-// The per-channel management surface behind "Manage": General, Applies to
-// and Update behavior are saved together; Firmware is assigned per model and
-// starts an update paced by the saved behavior. The same view creates a
-// channel when no channel is passed.
+// Manage prioritizes assigned miners; channel settings and creation use modals.
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Manage View",
   component: ReleaseChannelManageView,
@@ -150,18 +148,32 @@ export const EmptyChannel: Story = {
 
 export const Create: Story = {
   name: "Create a release channel",
-  render: () => (
-    <Frame>
-      <ReleaseChannelManageView
-        rollouts={[activeRigRollout]}
-        firmwareFiles={firmwareFiles}
-        minerNames={minerNames}
-        previewScope={resolveTo(canaryPreview)}
-        listChannelMiners={listChannelMinersFixture}
-        listRolloutDevices={listRolloutDevicesFixture}
-        onSave={settle}
-        onApply={settle}
-      />
-    </Frame>
-  ),
+  render: function CreateStory() {
+    const [isCreating, setIsCreating] = useState(true);
+    return (
+      <Frame>
+        <div inert={isCreating}>
+          <ReleaseChannelsTable
+            channels={[canaryChannel, productionChannel]}
+            rollouts={[activeRigRollout]}
+            onCreate={() => setIsCreating(true)}
+            onManage={() => {}}
+          />
+        </div>
+        {isCreating ? (
+          <ReleaseChannelManageView
+            rollouts={[activeRigRollout]}
+            firmwareFiles={firmwareFiles}
+            minerNames={minerNames}
+            previewScope={resolveTo(canaryPreview)}
+            listChannelMiners={listChannelMinersFixture}
+            listRolloutDevices={listRolloutDevicesFixture}
+            onCancelCreate={() => setIsCreating(false)}
+            onSave={async () => setIsCreating(false)}
+            onApply={settle}
+          />
+        ) : null}
+      </Frame>
+    );
+  },
 };

@@ -6,6 +6,7 @@ import { closeChannelSettings, deferred, openChannelSettings, releaseChannelsApi
 import { canaryChannel, firmwareFiles, productionChannel } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTab from "./ReleaseChannelsTab";
 import {
+  type ReleaseChannel,
   ReleaseChannelSchema,
   type Rollout,
   RolloutSchema,
@@ -63,6 +64,102 @@ const deferredWrite = deferred<void>;
 
 const deleteConfirm = () =>
   within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Delete channel" });
+
+const closeCreate = () =>
+  fireEvent.click(
+    within(screen.getByTestId("create-release-channel-modal")).getByRole("button", { name: "Close dialog" }),
+  );
+
+describe("release channel creation modal", () => {
+  it.each([
+    { hasExisting: false, dismiss: "close button" },
+    { hasExisting: false, dismiss: "Escape" },
+    { hasExisting: true, dismiss: "close button" },
+    { hasExisting: true, dismiss: "Escape" },
+  ])(
+    "keeps the list behind creation and cancels with $dismiss (existing channels: $hasExisting)",
+    async ({ hasExisting, dismiss }) => {
+      const api = { ...apiFor(), channels: hasExisting ? [canaryChannel] : [] };
+      render(<ReleaseChannelsTab {...historyActions} api={api} />);
+      await flush();
+      const background = hasExisting
+        ? screen.getByTestId("channel-row-Canary")
+        : screen.getByText("No release channels");
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+
+      expect(background).toBeInTheDocument();
+      expect(background.closest("[inert]")).not.toBeNull();
+      expect(screen.getByTestId("create-release-channel-modal")).toBeInTheDocument();
+      expect(screen.queryByTestId("back-to-channels")).not.toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Discarded draft" } });
+      fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Discarded description" } });
+      if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+      else closeCreate();
+
+      expect(screen.queryByTestId("create-release-channel-modal")).not.toBeInTheDocument();
+      expect(background).toBeInTheDocument();
+      expect(background.closest("[inert]")).toBeNull();
+      expect(api.createChannel).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+      expect(screen.getByLabelText("Name")).toHaveValue("");
+      expect(screen.getByLabelText("Description")).toHaveValue("");
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
+    },
+  );
+
+  it("blocks dismissal during create, preserves a failed draft, and opens the saved channel after retry", async () => {
+    const api = apiFor();
+    const firstWrite = deferred<ReleaseChannel>();
+    const retryWrite = deferred<ReleaseChannel>();
+    const created = create(ReleaseChannelSchema, { id: 12n, name: "Retry channel", description: "Keep this draft" });
+    api.createChannel = vi.fn().mockReturnValueOnce(firstWrite.promise).mockReturnValueOnce(retryWrite.promise);
+    const { rerender } = render(<ReleaseChannelsTab {...historyActions} api={api} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("create-release-channel"));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: created.name } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: created.description } });
+    const save = screen.getByTestId("save-channel");
+    const close = within(screen.getByTestId("create-release-channel-modal")).getByRole("button", {
+      name: "Close dialog",
+    });
+    act(() => {
+      save.click();
+      save.click();
+      close.click();
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    expect(api.createChannel).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: created.name, description: created.description }),
+    );
+    expect(screen.getByTestId("create-release-channel-modal")).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    closeCreate();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByTestId("create-release-channel-modal")).toBeInTheDocument();
+
+    await act(async () => firstWrite.reject(new Error("Channel creation failed")));
+    expect(pushToast).toHaveBeenCalledWith({ message: "Channel creation failed", status: "error" });
+    expect(screen.getByLabelText("Name")).toHaveValue(created.name);
+    expect(screen.getByLabelText("Description")).toHaveValue(created.description);
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    expect(api.createChannel).toHaveBeenCalledTimes(2);
+    expect(api.createChannel).toHaveBeenLastCalledWith(vi.mocked(api.createChannel).mock.calls[0][0]);
+    rerender(
+      <ReleaseChannelsTab
+        {...historyActions}
+        api={{ ...api, channels: [...api.channels, { ...created, modelGroups: [] }] }}
+      />,
+    );
+    await act(async () => retryWrite.resolve(created));
+
+    expect(screen.queryByTestId("create-release-channel-modal")).not.toBeInTheDocument();
+    expect(screen.getByTestId("release-channel-Retry channel")).toBeInTheDocument();
+    expect(screen.getByTestId("back-to-channels")).toBeInTheDocument();
+    expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
+    expect(pushToast).toHaveBeenLastCalledWith({ message: "Created release channel Retry channel", status: "success" });
+  });
+});
 
 describe("release channel history on demand", () => {
   const historyApi = () => {
@@ -413,7 +510,8 @@ describe("acknowledged channel writes", () => {
       act(() => useFleetStore.setState({ auth: { ...useFleetStore.getState().auth, sessionGeneration: 2 } }));
       await act(async () => committed.resolve());
       expect(screen.queryByTestId("channel-write-pending")).not.toBeInTheDocument();
-      fireEvent.click(screen.getByTestId("back-to-channels"));
+      if (operation === "create") closeCreate();
+      else fireEvent.click(screen.getByTestId("back-to-channels"));
       await flush();
       expect(screen.getByTestId("channel-row-Canary")).toBeInTheDocument();
       fireEvent.click(screen.getByTestId("create-release-channel"));

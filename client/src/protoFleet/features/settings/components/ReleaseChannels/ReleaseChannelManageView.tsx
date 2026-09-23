@@ -228,6 +228,7 @@ interface ReleaseChannelManageViewProps {
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
+  onCancelCreate?: () => void;
   onDelete?: (channel: ChannelView) => void;
   onShowHistory?: (channel: ChannelView) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -250,6 +251,7 @@ const ReleaseChannelManageView = ({
   listChannelMiners,
   listRolloutDevices,
   onSave,
+  onCancelCreate,
   onDelete,
   onShowHistory,
   onDirtyChange,
@@ -588,19 +590,6 @@ const ReleaseChannelManageView = ({
       </Section>
 
       <Section
-        title="Applies to"
-        subtext="Choose which miners belong to this channel. Firmware is assigned per model after saving these settings."
-      >
-        <ScopeEditor
-          scope={scope}
-          onChange={setScope}
-          previewScope={previewForChannel}
-          onPreview={handlePreview}
-          editingExistingChannel={channel !== undefined}
-        />
-      </Section>
-
-      <Section
         title="Update behavior"
         subtext="Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel."
       >
@@ -616,18 +605,54 @@ const ReleaseChannelManageView = ({
           allowDelegated={savedSettings?.behavior?.method === RolloutMethod.DELEGATED}
         />
       </Section>
+
+      <Section
+        title="Applies to"
+        subtext="Choose which miners belong to this channel. Firmware is assigned per model after saving these settings."
+      >
+        <ScopeEditor
+          scope={scope}
+          onChange={setScope}
+          previewScope={previewForChannel}
+          onPreview={handlePreview}
+          editingExistingChannel={channel !== undefined}
+        />
+      </Section>
     </div>
   );
 
+  if (!channel) {
+    return (
+      <Modal
+        open
+        title="Create release channel"
+        testId="create-release-channel-modal"
+        onDismiss={() => {
+          if (!writeInFlightRef.current && !isWriting) onCancelCreate?.();
+        }}
+        buttons={[
+          {
+            text: "Create channel",
+            variant: variants.primary,
+            onClick: handleSave,
+            disabled: !canSave,
+            loading: isSaving,
+            testId: "save-channel",
+            dismissModalOnClick: false,
+          },
+        ]}
+      >
+        <div data-testid="release-channel-new">{settingsFields}</div>
+      </Modal>
+    );
+  }
+
   return (
-    <div
-      className="flex flex-col gap-8"
-      data-testid={channel ? `release-channel-${channel.name}` : "release-channel-new"}
-    >
+    <div className="flex flex-col gap-8" data-testid={`release-channel-${channel.name}`}>
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-3">
-            <h2 className="text-heading-200 text-text-primary">{channel ? channel.name : "New release channel"}</h2>
+            <h2 className="text-heading-200 text-text-primary">{channel.name}</h2>
             {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
           </div>
           {channel ? (
@@ -673,21 +698,8 @@ const ReleaseChannelManageView = ({
               testId="delete-channel"
             />
           ) : null}
-          {!channel ? (
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Create channel"
-              onClick={handleSave}
-              disabled={!canSave}
-              loading={isSaving}
-              testId="save-channel"
-            />
-          ) : null}
         </div>
       </div>
-
-      {!channel ? settingsFields : null}
 
       {channel ? (
         <Section
