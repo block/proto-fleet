@@ -314,6 +314,25 @@ impl AsicRsDevice {
         }
     }
 
+    /// Read live recovery identity and verify that the supplied credentials
+    /// authorize the firmware's control path before the endpoint is accepted.
+    pub async fn inspect_recovery(&self) -> anyhow::Result<MinerData> {
+        let data = self.get_data().await?;
+        let guard = self.connected_miner().await?;
+        let miner = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
+        validate_write_access(
+            miner.as_ref(),
+            miner.supports_set_fault_light(),
+            &data.device_info.make,
+            &data.device_info.firmware,
+            Some(&data),
+        )
+        .await?;
+        Ok(data)
+    }
+
     /// Convert MinerData to proto DeviceMetrics.
     pub fn to_device_metrics(&self, data: &MinerData) -> pb::DeviceMetrics {
         let now = std::time::SystemTime::now();

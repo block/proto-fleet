@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -20,6 +21,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -215,14 +217,18 @@ func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, scanPorts []string, 
 		}
 		return nil
 	})
+	var probeIncomplete atomic.Bool
 	endpoints, probesTruncated := fanOutEndpointWork(ctx, slices.Values(endpoints), probeConcurrency, "recovery probe", logger, func(probeCtx context.Context, candidate recoveryEndpoint) (recoveryEndpoint, bool) {
 		identity, scheme, driverName, err := r.probeRecoveryEndpoint(probeCtx, candidate.ip, candidate.port)
 		if err != nil || driverName == "" {
+			if err != nil && (probeCtx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || plugins.IsIncompleteDiscoveryError(err)) {
+				probeIncomplete.Store(true)
+			}
 			return recoveryEndpoint{}, false
 		}
 		return recoveryEndpoint{ip: candidate.ip, port: candidate.port, urlScheme: scheme, driverName: driverName, identity: identity}, true
 	})
-	partial := scanErr != nil || probesTruncated || ctx.Err() != nil
+	partial := scanErr != nil || probesTruncated || probeIncomplete.Load() || ctx.Err() != nil
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return endpoints, true, fmt.Errorf("recovery endpoint probing canceled: %w", ctxErr)
 	}

@@ -713,7 +713,10 @@ impl Driver for DriverService {
             // Recovery devices are constructed from an endpoint only. Their
             // identity must come from the authenticated live probe, and a failed
             // probe must remain an inspection error rather than NOT_FOUND.
-            let data = device.get_data().await.map_err(device_err_to_status)?;
+            let data = device
+                .inspect_recovery()
+                .await
+                .map_err(device_err_to_status)?;
             device_info.serial_number = data.serial_number.unwrap_or_default();
             device_info.mac_address = data.mac.map(|mac| mac.to_string()).unwrap_or_default();
             if !data.device_info.model.is_empty() {

@@ -413,6 +413,32 @@ func TestScanRecoveryEndpointsSupervisorReturnsPartialOnStuckProbe(t *testing.T)
 	assert.Equal(t, "SERIAL-1", endpoints[0].identity.SerialNumber)
 }
 
+func TestScanRecoveryEndpointsReturnsPartialWhenProbeDeadlineIsObserved(t *testing.T) {
+	previousTimeout := perProbeTimeout
+	perProbeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { perProbeTimeout = previousTimeout })
+
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{}, nil
+	})
+	discoverer, ok := r.discoverer.(*recoveryTestDiscoverer)
+	require.True(t, ok)
+	discoverer.probeRecovery = func(ctx context.Context, ip, _ string) (stableidentity.Identity, string, string, error) {
+		if ip == "10.0.0.1" {
+			<-ctx.Done()
+			return stableidentity.Identity{}, "", "", ctx.Err()
+		}
+		return stableidentity.New("SERIAL-2", ""), "http", "antminer", nil
+	}
+
+	endpoints, partial, err := r.scanRecoveryEndpoints(t.Context(), []string{"80"}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.True(t, partial)
+	require.Len(t, endpoints, 1)
+	assert.Equal(t, "SERIAL-2", endpoints[0].identity.SerialNumber)
+}
+
 func TestRecoveryResultIsolatesInvalidPluginEvidence(t *testing.T) {
 	target := recoveryTarget("miner-1", "SERIAL-1", "")
 	invalid := recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, recoveryEndpoint{
