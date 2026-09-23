@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -161,6 +162,13 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	require.NoError(t, err)
 	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
 	require.NoError(t, err)
+	credentialBlob := append([]byte{1}, []byte("PFNC")...)
+	credentialBlob = append(credentialBlob, make([]byte, 28)...)
+	usernameEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	credentialBlob[len(credentialBlob)-1] = 1
+	passwordEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	_, err = conn.Exec(`INSERT INTO miner_credentials (device_id, username_enc, password_enc) VALUES ($1, $2, $3)`, deviceID, usernameEnc, passwordEnc)
+	require.NoError(t, err)
 	var identitylessDiscoveredID, identitylessDeviceID int64
 	require.NoError(t, conn.QueryRow(`
 		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
@@ -189,12 +197,30 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	require.Equal(t, "10.0.0.20", ipAddress)
 	require.Equal(t, "8080", port)
 
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite repaired credentials")
+	var pairingStatus string
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+
 	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, replacementNodeID, deviceID)
 	require.NoError(t, err)
 	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
 	require.NoError(t, err)
 	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
-	var pairingStatus string
 	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
 	require.Equal(t, "PAIRED", pairingStatus)
 }

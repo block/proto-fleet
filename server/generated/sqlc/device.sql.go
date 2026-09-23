@@ -91,12 +91,12 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 
 const applyFleetNodeRecoveryAuthenticationNeeded = `-- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
 UPDATE device_pairing dp
-SET pairing_status = 'AUTHENTICATION_NEEDED',
-    last_attempted_at = NOW()
+SET pairing_status = 'AUTHENTICATION_NEEDED'
 FROM device d
 JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE dp.device_id = d.id
   AND d.device_identifier = $1
   AND d.org_id = $2
@@ -106,17 +106,21 @@ WHERE dp.device_id = d.id
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
+  AND mc.username_enc = $6
+  AND mc.password_enc = $7
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
 RETURNING d.id
 `
 
 type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
-	DeviceIdentifier string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	FleetNodeID      int64
+	DeviceIdentifier      string
+	OrgID                 int64
+	SerialNumber          sql.NullString
+	MacAddress            string
+	FleetNodeID           int64
+	CredentialUsernameEnc string
+	CredentialPasswordEnc string
 }
 
 // Authentication state is changed only for the still-owned, paired-like,
@@ -129,6 +133,8 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.FleetNodeID,
+		arg.CredentialUsernameEnc,
+		arg.CredentialPasswordEnc,
 	)
 	var id int64
 	err := row.Scan(&id)

@@ -142,15 +142,18 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 func (s *Service) fleetNodeRecoveryLoop(ctx context.Context) {
-	ticker := time.NewTicker(s.config.ScanInterval)
-	defer ticker.Stop()
-	s.fleetNodeRecovery.RunCycle(ctx)
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			s.fleetNodeRecovery.RunCycle(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			timer.Reset(s.config.ScanInterval)
 		}
 	}
 }

@@ -33,6 +33,21 @@ func (r recordingFleetNodeRecovery) RunCycle(context.Context) {
 	}
 }
 
+type blockingFleetNodeRecovery struct {
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	calls        chan struct{}
+	once         sync.Once
+}
+
+func (r *blockingFleetNodeRecovery) RunCycle(context.Context) {
+	r.calls <- struct{}{}
+	r.once.Do(func() {
+		close(r.firstStarted)
+		<-r.releaseFirst
+	})
+}
+
 func TestIPScannerServiceRunsFleetNodeRecoveryOnTheSameCadence(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	config := Config{Enabled: true, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1, ScanTimeout: time.Second, SubnetMaskBits: 24}
@@ -45,6 +60,52 @@ func TestIPScannerServiceRunsFleetNodeRecoveryOnTheSameCadence(t *testing.T) {
 	require.NoError(t, service.Start(t.Context()))
 	waitForScannerSignal(t, ran, "Fleet Node recovery did not run immediately")
 	require.NoError(t, service.Stop(t.Context()))
+}
+
+func TestFleetNodeRecoveryWaitsAFullIntervalAfterSlowCycle(t *testing.T) {
+	interval := 30 * time.Millisecond
+	recovery := &blockingFleetNodeRecovery{
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+		calls:        make(chan struct{}, 2),
+	}
+	service := &Service{config: Config{ScanInterval: interval}, fleetNodeRecovery: recovery}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.fleetNodeRecoveryLoop(ctx)
+	}()
+
+	select {
+	case <-recovery.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first recovery cycle did not start")
+	}
+	<-time.After(2 * interval)
+	close(recovery.releaseFirst)
+	select {
+	case <-recovery.calls:
+		// Drain the first call recorded before it blocked.
+	default:
+		t.Fatal("first recovery call was not recorded")
+	}
+	select {
+	case <-recovery.calls:
+		t.Fatal("second recovery cycle started without waiting a full interval")
+	case <-time.After(interval / 2):
+	}
+	select {
+	case <-recovery.calls:
+	case <-time.After(5 * interval):
+		t.Fatal("second recovery cycle did not start after the interval")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("recovery loop did not stop after cancellation")
+	}
 }
 
 func TestIPScannerService_StartStopStart(t *testing.T) {

@@ -729,12 +729,12 @@ RETURNING d.id;
 -- offline miner named by the acknowledgement. Identity evidence is validated
 -- by the domain layer before this conditional write.
 UPDATE device_pairing dp
-SET pairing_status = 'AUTHENTICATION_NEEDED',
-    last_attempted_at = NOW()
+SET pairing_status = 'AUTHENTICATION_NEEDED'
 FROM device d
 JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE dp.device_id = d.id
   AND d.device_identifier = sqlc.arg(device_identifier)
   AND d.org_id = sqlc.arg(org_id)
@@ -744,6 +744,8 @@ WHERE dp.device_id = d.id
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
+  AND mc.username_enc = sqlc.arg(credential_username_enc)
+  AND mc.password_enc = sqlc.arg(credential_password_enc)
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
 RETURNING d.id;

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -273,6 +274,9 @@ func (s *Service) applyResult(ctx context.Context, target stores.FleetNodeRecove
 			s.logger.Error("persisting Fleet Node miner authentication state", "fleet_node_id", target.FleetNodeID, "error", err)
 			return false
 		}
+		if applied && s.invalidator != nil {
+			s.invalidator.InvalidateMiner(minermodels.DeviceIdentifier(target.DeviceIdentifier))
+		}
 		return applied
 	case gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNSPECIFIED,
 		gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND,
@@ -287,6 +291,10 @@ func (s *Service) applyResult(ctx context.Context, target stores.FleetNodeRecove
 func validPrivateEndpoint(ipAddress, port, scheme string) bool {
 	addr, err := netip.ParseAddr(ipAddress)
 	if err != nil || !addr.IsPrivate() {
+		return false
+	}
+	portNumber, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || portNumber == 0 {
 		return false
 	}
 	protocol, err := networking.ProtocolFromString(scheme)

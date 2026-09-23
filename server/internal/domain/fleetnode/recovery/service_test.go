@@ -167,7 +167,7 @@ func TestRunCyclePersistsValidatedResultsAndInvalidatesFoundMiner(t *testing.T) 
 
 	assert.Equal(t, []string{"found|10.0.0.20|80|http"}, store.found)
 	assert.Equal(t, []string{"auth"}, store.auth)
-	assert.Equal(t, []minermodels.DeviceIdentifier{"found"}, invalidator.identifiers)
+	assert.Equal(t, []minermodels.DeviceIdentifier{"found", "auth"}, invalidator.identifiers)
 	require.Len(t, emitter.labels, 2)
 	assert.Equal(t, metrics.ResultSuccess, emitter.labels[0].Result)
 	assert.Equal(t, metrics.ResultSuccess, emitter.labels[1].Result)
@@ -186,15 +186,17 @@ func TestRunCycleRejectsUntrustedAcknowledgementWithoutWrites(t *testing.T) {
 	assert.Empty(t, store.auth)
 }
 
-func TestRunCycleRejectsMismatchedIdentityAndPublicEndpoint(t *testing.T) {
+func TestRunCycleRejectsMismatchedIdentityAndInvalidEndpoints(t *testing.T) {
 	store := &fakeStore{targets: []stores.FleetNodeRecoveryTarget{
 		testTarget(7, "mismatch", "serial-1"),
 		testTarget(7, "public", "serial-2"),
+		testTarget(7, "zero-port", "serial-3"),
 	}}
 	sender := sendFunc(func(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK,
 			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "mismatch", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, SerialNumber: "other"},
 			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "public", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "8.8.8.8", Port: "80", UrlScheme: "http", SerialNumber: "serial-2"},
+			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "zero-port", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "0", UrlScheme: "http", SerialNumber: "serial-3"},
 		), nil
 	})
 
