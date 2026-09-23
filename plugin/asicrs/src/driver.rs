@@ -708,14 +708,25 @@ impl Driver for DriverService {
     ) -> Result<Response<pb::DescribeDeviceResponse>, Status> {
         let device_id = req.into_inner().device_id;
         let device = self.get_device(&device_id).await?;
-        // Connect to probe live capabilities before returning them.
-        // Errors are non-fatal: return base caps if the device is unreachable.
-        if let Err(e) = device.ensure_connected().await {
+        let mut device_info = device.info.clone();
+        if device_info.serial_number.is_empty() && device_info.mac_address.is_empty() {
+            // Recovery devices are constructed from an endpoint only. Their
+            // identity must come from the authenticated live probe, and a failed
+            // probe must remain an inspection error rather than NOT_FOUND.
+            let data = device.get_data().await.map_err(device_err_to_status)?;
+            device_info.serial_number = data.serial_number.unwrap_or_default();
+            device_info.mac_address = data.mac.map(|mac| mac.to_string()).unwrap_or_default();
+            if !data.device_info.model.is_empty() {
+                device_info.model = data.device_info.model;
+            }
+        } else if let Err(e) = device.ensure_connected().await {
+            // Existing paired handles already carry stable identity. Preserve the
+            // historical base-capability fallback when they are temporarily offline.
             tracing::warn!(device_id = %device_id, error = %e, "describe_device: could not connect");
         }
         let caps = device.get_caps().await;
         Ok(Response::new(pb::DescribeDeviceResponse {
-            device: Some(device.info.clone()),
+            device: Some(device_info),
             caps: Some(pb::Capabilities { flags: caps }),
         }))
     }
