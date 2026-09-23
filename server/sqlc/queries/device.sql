@@ -717,6 +717,9 @@ WHERE d.discovered_device_id = dd.id
   AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
   AND d.mac_address = sqlc.arg(mac_address)
   AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+  AND dd.ip_address = sqlc.arg(expected_ip_address)
+  AND dd.port = sqlc.arg(expected_port)
+  AND dd.url_scheme = sqlc.arg(expected_url_scheme)
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
@@ -741,6 +744,9 @@ WHERE dp.device_id = d.id
   AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
   AND d.mac_address = sqlc.arg(mac_address)
   AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+  AND dd.ip_address = sqlc.arg(expected_ip_address)
+  AND dd.port = sqlc.arg(expected_port)
+  AND dd.url_scheme = sqlc.arg(expected_url_scheme)
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE

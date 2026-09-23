@@ -51,6 +51,9 @@ WHERE d.discovered_device_id = dd.id
   AND COALESCE(d.serial_number, '') = $6
   AND d.mac_address = $7
   AND fnd.fleet_node_id = $8
+  AND dd.ip_address = $9
+  AND dd.port = $10
+  AND dd.url_scheme = $11
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
@@ -60,14 +63,17 @@ RETURNING d.id
 `
 
 type ApplyFleetNodeRecoveredEndpointParams struct {
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	DeviceIdentifier string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	FleetNodeID      int64
+	IpAddress         string
+	Port              string
+	UrlScheme         string
+	DeviceIdentifier  string
+	OrgID             int64
+	SerialNumber      sql.NullString
+	MacAddress        string
+	FleetNodeID       int64
+	ExpectedIpAddress string
+	ExpectedPort      string
+	ExpectedUrlScheme string
 }
 
 // The ownership/pairing/offline predicates are repeated at write time so a
@@ -83,6 +89,9 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.FleetNodeID,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -103,15 +112,18 @@ WHERE dp.device_id = d.id
   AND COALESCE(d.serial_number, '') = $3
   AND d.mac_address = $4
   AND fnd.fleet_node_id = $5
+  AND dd.ip_address = $6
+  AND dd.port = $7
+  AND dd.url_scheme = $8
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND (
       (mc.device_id IS NULL
-       AND $6::text = ''
-       AND $7::text = '')
-      OR (mc.username_enc = $6
-          AND mc.password_enc = $7)
+       AND $9::text = ''
+       AND $10::text = '')
+      OR (mc.username_enc = $9
+          AND mc.password_enc = $10)
   )
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
@@ -124,6 +136,9 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	SerialNumber          sql.NullString
 	MacAddress            string
 	FleetNodeID           int64
+	ExpectedIpAddress     string
+	ExpectedPort          string
+	ExpectedUrlScheme     string
 	CredentialUsernameEnc string
 	CredentialPasswordEnc string
 }
@@ -138,6 +153,9 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.FleetNodeID,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
 		arg.CredentialUsernameEnc,
 		arg.CredentialPasswordEnc,
 	)

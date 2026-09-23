@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
 
 const (
@@ -438,11 +438,8 @@ func validateReport(r DiscoveredDeviceReport) error {
 	// stratum+tcp) so an injection payload such as "javascript:alert(1)//"
 	// can't be stored. The clickable web URL is separately restricted to
 	// http/https at construction (constructWebViewURL).
-	if r.URLScheme != "" && !urlSchemeRE.MatchString(r.URLScheme) {
+	if r.URLScheme != "" && !networking.IsValidURLScheme(r.URLScheme) {
 		return fmt.Errorf("url_scheme %q is not a valid scheme", r.URLScheme)
 	}
 	return nil
 }
-
-// urlSchemeRE is the RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
-var urlSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)

@@ -986,6 +986,7 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 		IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
 		DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
 		MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
+		ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -1000,6 +1001,9 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.
 		SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
 		MacAddress:            target.MacAddress,
 		FleetNodeID:           target.FleetNodeID,
+		ExpectedIpAddress:     target.LastKnownIP,
+		ExpectedPort:          target.LastKnownPort,
+		ExpectedUrlScheme:     target.LastKnownScheme,
 		CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
 		CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
 	})

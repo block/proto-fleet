@@ -189,13 +189,33 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	target := targets[0]
 	require.Equal(t, identifier, target.DeviceIdentifier)
 
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.12' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
 	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite a newer discovered endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.10' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+
+	applied, err = store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
 	require.NoError(t, err)
 	require.True(t, applied)
 	var ipAddress, port string
 	require.NoError(t, conn.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress, &port))
 	require.Equal(t, "10.0.0.20", ipAddress)
 	require.Equal(t, "8080", port)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
+
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8081' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change authentication for a newer endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8080' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
 
 	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
 	require.NoError(t, err)

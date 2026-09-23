@@ -206,6 +206,19 @@ func TestRunCycleRejectsMismatchedIdentityAndInvalidEndpoints(t *testing.T) {
 	assert.Empty(t, store.auth)
 }
 
+func TestRunCycleAcceptsRFC3986EndpointScheme(t *testing.T) {
+	store := &fakeStore{targets: []stores.FleetNodeRecoveryTarget{testTarget(7, "miner", "serial")}, foundApplied: true}
+	sender := sendFunc(func(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK,
+			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "miner", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "22", UrlScheme: "ssh", SerialNumber: "serial"},
+		), nil
+	})
+
+	NewService(store, sender, nil, nil, testLogger()).RunCycle(t.Context())
+
+	assert.Equal(t, []string{"miner|10.0.0.20|22|ssh"}, store.found)
+}
+
 func TestRunCycleLeavesStateUntouchedForVersionMismatchAndDisconnect(t *testing.T) {
 	for _, tc := range []struct {
 		name string
