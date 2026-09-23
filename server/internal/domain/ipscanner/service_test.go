@@ -48,11 +48,10 @@ func (r *blockingFleetNodeRecovery) RunCycle(context.Context) {
 	})
 }
 
-func TestIPScannerServiceRunsFleetNodeRecoveryOnTheSameCadence(t *testing.T) {
+func TestIPScannerServiceRunsFleetNodeRecoveryWhenCloudScannerIsDisabled(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	config := Config{Enabled: true, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1, ScanTimeout: time.Second, SubnetMaskBits: 24}
+	config := Config{Enabled: false, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1, ScanTimeout: time.Second, SubnetMaskBits: 24}
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	deviceStore.EXPECT().GetOfflineDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	service := NewIPScannerService(config, deviceStore, storemocks.NewMockDiscoveredDeviceStore(ctrl), &noopDiscoverer{}, mocks.NewMockDeviceIdentityCheckService(ctrl), slog.Default())
 	ran := make(chan struct{}, 1)
 	service.WithFleetNodeRecovery(recordingFleetNodeRecovery{ran: ran})
