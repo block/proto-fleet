@@ -59,9 +59,13 @@ theme below. Phone and tablet-only cover exact-range layouts. */
 
 @theme {
   --breakpoint-*: initial;
-  --breakpoint-tablet: 39.5rem;
-  --breakpoint-laptop: 60rem;
-  --breakpoint-desktop: 80rem;
+  /* Match useWindowDimensions and the phone/tablet-only variants above.
+  Using rem here makes CSS and JavaScript disagree when the browser's default
+  font size changes. Keep breakpoint units in CSS pixels; typography and spacing
+  can still scale independently. */
+  --breakpoint-tablet: 632px;
+  --breakpoint-laptop: 960px;
+  --breakpoint-desktop: 1280px;
 
   /**
    * Colors : light

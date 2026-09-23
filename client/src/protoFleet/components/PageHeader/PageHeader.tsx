@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
@@ -36,6 +36,7 @@ interface PageHeaderProps {
   fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
+  navigationToggle?: ReactNode;
   rolloutPillData?: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   updatePill?: UpdatePillData | null;
@@ -204,11 +205,12 @@ function PageHeader({
   fleetNodeUpgradePill = null,
   isMenuOpen,
   openMenu,
+  navigationToggle,
   rolloutPillData = noActiveRollouts,
   schedulePillData,
   updatePill = null,
 }: PageHeaderProps): ReactElement {
-  const { isPhone, isTablet } = useWindowDimensions();
+  const { isPhone } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   // The Dashboard renders its own heading-style site selector, so the topbar
   // picker is hidden there to avoid two selectors competing.
@@ -291,7 +293,8 @@ function PageHeader({
             className={clsx("flex min-w-0 items-center", !inlineFirstPhoneWidget && "flex-1")}
             data-testid="page-header-location-area"
           >
-            {isPhone || isTablet ? (
+            {navigationToggle}
+            {isPhone ? (
               <Menu
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"

@@ -306,7 +306,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const renderActionBar = useCallback(
     (selected: string[], clear: () => void, mode: SelectionMode) => (
       <ActionBar
-        className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
+        className="fixed right-0 bottom-4 left-0 z-20 tablet:left-16 desktop:left-50"
         selectedItems={selected}
         selectionMode={mode}
         onClose={clear}
