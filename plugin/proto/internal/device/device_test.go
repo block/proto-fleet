@@ -200,7 +200,7 @@ func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-default-password", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-default-password", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -256,7 +256,7 @@ func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-default-password-change", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-default-password-change", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -321,7 +321,7 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-firmware-reboot", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-firmware-reboot", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -390,7 +390,7 @@ func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-firmware-reboot-retry", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-firmware-reboot-retry", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -898,7 +898,7 @@ func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
@@ -967,7 +967,7 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
@@ -1032,7 +1032,7 @@ func newFullEfficiencyCurtailmentTestDevice(
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",

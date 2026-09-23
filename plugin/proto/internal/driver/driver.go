@@ -394,7 +394,7 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		"host", deviceInfo.Host,
 		"port", deviceInfo.Port)
 
-	dev, err := newDeviceFromSecret(deviceID, deviceInfo, secret)
+	dev, err := newDeviceFromSecret(ctx, deviceID, deviceInfo, secret)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
@@ -402,12 +402,12 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	return sdk.NewDeviceResult{Device: dev}, nil
 }
 
-func newDeviceFromSecret(deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
+func newDeviceFromSecret(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
 	credentials, err := credentialsFromSecret(secret)
 	if err != nil {
 		return nil, err
 	}
-	return device.New(deviceID, deviceInfo, credentials)
+	return device.New(ctx, deviceID, deviceInfo, credentials)
 }
 
 // GetDefaultCredentials implements sdk.DefaultCredentialsProvider, enabling the

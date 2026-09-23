@@ -21,7 +21,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const errDeviceDoesNotSupportCurtailment = "device does not support curtailment"
+const (
+	errDeviceDoesNotSupportCurtailment = "device does not support curtailment"
+	newDeviceCleanupTimeout            = 10 * time.Second
+)
 
 func grpcStatusError(label string, code codes.Code, message string) error {
 	return fmt.Errorf("%s: %w", label, status.Error(code, message))
@@ -282,6 +285,17 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	result, err := s.Impl.NewDevice(ctx, req.DeviceId, deviceInfo, secret)
 	if err != nil {
 		return nil, sdkErrorToGRPCStatus(err)
+	}
+	if result.Device == nil {
+		return nil, errors.New("driver returned no device")
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), newDeviceCleanupTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Warn("failed to close device created after request cancellation", "device_id", req.DeviceId, "error", closeErr)
+		}
+		return nil, status.FromContextError(ctxErr).Err()
 	}
 
 	// Verify the device uses the provided ID
