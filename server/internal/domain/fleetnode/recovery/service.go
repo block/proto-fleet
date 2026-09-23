@@ -6,7 +6,6 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (
@@ -296,7 +296,7 @@ func validPrivateEndpoint(ipAddress, port, scheme string) bool {
 	if err != nil || !addr.IsPrivate() {
 		return false
 	}
-	portNumber, err := strconv.ParseUint(port, 10, 16)
+	portNumber, err := sdk.ParsePort(port)
 	if err != nil || portNumber == 0 {
 		return false
 	}
