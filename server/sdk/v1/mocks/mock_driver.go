@@ -1065,6 +1065,44 @@ func (mr *MockDriverMockRecorder) PairDevice(ctx, device, access any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairDevice", reflect.TypeOf((*MockDriver)(nil).PairDevice), ctx, device, access)
 }
 
+// MockDeviceCreationCleaner is a mock of DeviceCreationCleaner interface.
+type MockDeviceCreationCleaner struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceCreationCleanerMockRecorder
+	isgomock struct{}
+}
+
+// MockDeviceCreationCleanerMockRecorder is the mock recorder for MockDeviceCreationCleaner.
+type MockDeviceCreationCleanerMockRecorder struct {
+	mock *MockDeviceCreationCleaner
+}
+
+// NewMockDeviceCreationCleaner creates a new mock instance.
+func NewMockDeviceCreationCleaner(ctrl *gomock.Controller) *MockDeviceCreationCleaner {
+	mock := &MockDeviceCreationCleaner{ctrl: ctrl}
+	mock.recorder = &MockDeviceCreationCleanerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceCreationCleaner) EXPECT() *MockDeviceCreationCleanerMockRecorder {
+	return m.recorder
+}
+
+// CloseDevice mocks base method.
+func (m *MockDeviceCreationCleaner) CloseDevice(ctx context.Context, deviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CloseDevice", ctx, deviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CloseDevice indicates an expected call of CloseDevice.
+func (mr *MockDeviceCreationCleanerMockRecorder) CloseDevice(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseDevice", reflect.TypeOf((*MockDeviceCreationCleaner)(nil).CloseDevice), ctx, deviceID)
+}
+
 // MockDefaultCredentialsProvider is a mock of DefaultCredentialsProvider interface.
 type MockDefaultCredentialsProvider struct {
 	ctrl     *gomock.Controller
