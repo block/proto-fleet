@@ -41,7 +41,8 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Efficiency = () => {
-  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("efficiency");
+  const { chartData, chartLines, seriesTimestamps, miner, segmentsLabel, series, xAxisDomain } =
+    useKpiMetricData("efficiency");
   const aggregates = miner?.efficiency?.timeSeries?.aggregates;
 
   // Higher J/TH means less efficient, so the highest average is the lowest performer.
@@ -54,6 +55,7 @@ const Efficiency = () => {
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
           <KpiLineChart
             chartData={chartData}
+            seriesTimestamps={seriesTimestamps}
             chartLines={chartLines}
             series={series}
             segmentsLabel={segmentsLabel}

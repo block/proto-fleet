@@ -20,6 +20,7 @@ import {
   type TelemetryState,
 } from "../contract";
 import useMinerStore from "../useMinerStore";
+import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
 import { getHashboardId } from "../utils/entityIds";
 import { getAsicId } from "../utils/getAsicId";
 import { aggregateMetricTimeSeries } from "./kpiChartData";
@@ -207,7 +208,7 @@ describe("useMiner", () => {
     ]);
   });
 
-  it("does not fabricate chart timestamps when bucket metadata is absent", () => {
+  it("uses point timestamps even when bucket metadata is absent", () => {
     useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1 }]);
     useMinerStore.getState().telemetry.mergeTelemetry({
       resourceByScope: new Map(),
@@ -237,10 +238,13 @@ describe("useMiner", () => {
 
     const { result } = renderHook(() => useChartDataForMetric("hashrate"));
 
-    expect(result.current.chartData).toEqual([]);
+    expect(result.current.chartData).toEqual([
+      { datetime: 1_000, miner: 90 },
+      { datetime: 2_000, miner: 100 },
+    ]);
   });
 
-  it("builds container KPI chart series for all six tanks", () => {
+  it.each(["aligned", "misaligned"])("builds container KPI chart series with %s tank histories", (alignment) => {
     const commands: CommandCapabilities = {
       startStop: "unknown",
       powerTarget: "unknown",
@@ -331,6 +335,20 @@ describe("useMiner", () => {
       });
     });
 
+    if (alignment === "misaligned") {
+      rollupsByEntity.set(asEntityKey(String(tanks[0][0])), {
+        hashrate: {
+          timeSeries: {
+            points: [
+              { timestampMs: 3_000, value: 30 },
+              { timestampMs: 500, value: 0 },
+              { timestampMs: 2_000, value: 20 },
+            ],
+          },
+        },
+      });
+    }
+
     useMinerStore.getState().hardware.replaceHardware(hardware);
     useMinerStore.getState().telemetry.mergeTelemetry({
       resourceByScope: new Map(),
@@ -351,12 +369,24 @@ describe("useMiner", () => {
       Array.from({ length: 6 }, (_, index) => ({ label: String(index + 1), name: `Tank ${index + 1}` })),
     );
     expect(result.current.chartLines).toEqual(["miner", ...tanks.map(([id]) => String(id))]);
-    expect(result.current.chartData[0]).toMatchObject({
-      miner: 800,
-      "tank:1": 800,
-      "tank:3": 782,
-      "tank:6": 795,
-    });
+    if (alignment === "misaligned") {
+      expect(
+        result.current.chartData.map(({ datetime, miner, "tank:1": tankOne }) => ({ datetime, miner, tankOne })),
+      ).toEqual([
+        { datetime: 500, miner: null, tankOne: 0 },
+        { datetime: 1_000, miner: 800, tankOne: null },
+        { datetime: 2_000, miner: 810, tankOne: 20 },
+        { datetime: 3_000, miner: null, tankOne: 30 },
+      ]);
+      expect(result.current.xAxisDomain?.[0]).toBe(500);
+    } else {
+      expect(result.current.chartData[0]).toMatchObject({
+        miner: 800,
+        "tank:1": 800,
+        "tank:3": 782,
+        "tank:6": 795,
+      });
+    }
 
     const { result: miner } = renderHook(() => useMiner());
     expect(miner.current?.hashboardSerials).toEqual([]);
@@ -612,9 +642,85 @@ describe("useMiner", () => {
     expect(result.current.chartData).toEqual([
       { datetime: 10_000, miner: 90, "HB-1": 45 },
       { datetime: 11_000, miner: 100, "HB-1": null },
-      { datetime: 12_000, miner: null },
+      { datetime: 12_000, miner: null, "HB-1": null },
     ]);
     expect(result.current.xAxisDomain?.[0]).toBe(10_000);
+  });
+
+  it.each([
+    {
+      name: "a board starting late with an interior gap",
+      minerPoints: [
+        { timestampMs: 1_000, value: 100 },
+        { timestampMs: 2_000, value: 110 },
+        { timestampMs: 3_000, value: 120 },
+        { timestampMs: 4_000, value: 130 },
+      ],
+      boardPoints: [
+        { timestampMs: 2_000, value: 50 },
+        { timestampMs: 4_000, value: 60 },
+      ],
+      expected: [
+        { datetime: 1_000, miner: 100, "HB-1": null },
+        { datetime: 2_000, miner: 110, "HB-1": 50 },
+        { datetime: 3_000, miner: 120, "HB-1": null },
+        { datetime: 4_000, miner: 130, "HB-1": 60 },
+      ],
+    },
+    {
+      name: "unordered readings and board-only timestamps, including zero and null",
+      minerPoints: [
+        { timestampMs: 3_000, value: 120 },
+        { timestampMs: 2_000, value: 0 },
+      ],
+      boardPoints: [
+        { timestampMs: 4_000, value: 60 },
+        { timestampMs: 2_000, value: null },
+        { timestampMs: 1_000, value: 0 },
+      ],
+      expected: [
+        { datetime: 1_000, miner: null, "HB-1": 0 },
+        { datetime: 2_000, miner: 0, "HB-1": null },
+        { datetime: 3_000, miner: 120, "HB-1": null },
+        { datetime: 4_000, miner: null, "HB-1": 60 },
+      ],
+    },
+    {
+      name: "board history without miner history",
+      minerPoints: [],
+      boardPoints: [{ timestampMs: 2_000, value: 50 }],
+      expected: [{ datetime: 2_000, miner: null, "HB-1": 50 }],
+    },
+    {
+      name: "miner history with an empty board series",
+      minerPoints: [{ timestampMs: 1_000, value: 100 }],
+      boardPoints: [],
+      expected: [{ datetime: 1_000, miner: 100, "HB-1": null }],
+    },
+    { name: "empty histories", minerPoints: [], boardPoints: [], expected: [] },
+  ])("aligns chart data by timestamp for $name", ({ minerPoints, boardPoints, expected }) => {
+    useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1 }]);
+    const telemetry = createEmptyTelemetryState();
+    telemetry.rollupsByEntity.set(ROOT_MODULE_KEY, {
+      hashrate: { timeSeries: { points: minerPoints, bucketSizeMs: 1_000 } },
+    });
+    const hashboardId = getHashboardId("HB-1");
+    telemetry.hashboards.set(hashboardId, {
+      hashboardId,
+      hashrate: { timeSeries: { points: boardPoints, bucketSizeMs: 1_000 } },
+    });
+    useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+
+    const { result } = renderHook(() => useChartDataForMetric("hashrate"));
+
+    expect(result.current.chartData).toEqual(expected);
+    expect(result.current.xAxisDomain?.[0]).toBe(expected[0]?.datetime);
+    expect(
+      useMinerStore.getState().telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.timeSeries?.points,
+    ).toEqual(minerPoints);
+    expect(useMinerStore.getState().telemetry.hashboards.get(hashboardId)?.hashrate?.timeSeries?.points).toEqual(
+      boardPoints,
+    );
   });
 
   it("derives aggregate efficiency history from total power and hashrate", () => {

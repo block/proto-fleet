@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { convertAndFormatTemperature, convertTelemetryTemperatureToChartData } from "./utility";
+import {
+  convertAndFormatTemperature,
+  convertTelemetryHashrateToChartData,
+  convertTelemetryTemperatureToChartData,
+} from "./utility";
 
 describe("convertAndFormatTemperature", () => {
   test("formats Celsius with space before degree sign", () => {
@@ -43,14 +47,42 @@ describe("convertTelemetryTemperatureToChartData", () => {
     ],
   };
 
-  test("uses the normalized bucket size", () => {
-    expect(convertTelemetryTemperatureToChartData(metric, 60_000)).toEqual([
+  test("uses the recorded timestamps in seconds", () => {
+    expect(convertTelemetryTemperatureToChartData({ ...metric, bucketSizeMs: 60_000 })).toEqual([
       { datetime: 1, value: 60 },
       { datetime: 61, value: 61 },
     ]);
   });
 
-  test("does not invent timestamps when the bucket size is absent", () => {
-    expect(convertTelemetryTemperatureToChartData(metric, undefined)).toEqual([]);
+  test("uses recorded timestamps when the bucket size is absent", () => {
+    expect(convertTelemetryTemperatureToChartData(metric)).toEqual([
+      { datetime: 1, value: 60 },
+      { datetime: 61, value: 61 },
+    ]);
+  });
+});
+
+describe.each([
+  { name: "temperature", convert: convertTelemetryTemperatureToChartData, value: 60, expectedValue: 60 },
+  { name: "hashrate", convert: convertTelemetryHashrateToChartData, value: 2_000_000, expectedValue: 2 },
+])("$name chart timestamps", ({ convert, value, expectedValue }) => {
+  test("sorts sparse readings by their actual timestamps without changing the input", () => {
+    const points = [
+      { timestampMs: 181_000, value },
+      { timestampMs: 1_000, value: 0 },
+      { timestampMs: 61_000, value: null },
+    ];
+    const original = points.map((point) => ({ ...point }));
+
+    expect(convert({ points, bucketSizeMs: 60_000 })).toEqual([
+      { datetime: 1, value: 0 },
+      { datetime: 61, value: null },
+      { datetime: 181, value: expectedValue },
+    ]);
+    expect(points).toEqual(original);
+  });
+
+  test("handles empty history", () => {
+    expect(convert({ points: [] })).toEqual([]);
   });
 });

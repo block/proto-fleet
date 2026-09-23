@@ -34,7 +34,8 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const PowerUsage = () => {
-  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("power");
+  const { chartData, chartLines, seriesTimestamps, miner, segmentsLabel, series, xAxisDomain } =
+    useKpiMetricData("power");
   const aggregates = miner?.power?.timeSeries?.aggregates;
 
   return (
@@ -44,6 +45,7 @@ const PowerUsage = () => {
           <Stats stats={getStats(aggregates)} />
           <KpiLineChart
             chartData={chartData}
+            seriesTimestamps={seriesTimestamps}
             chartLines={chartLines}
             series={series}
             segmentsLabel={segmentsLabel}

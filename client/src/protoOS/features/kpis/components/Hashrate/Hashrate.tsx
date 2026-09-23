@@ -37,7 +37,8 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Hashrate = () => {
-  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("hashrate");
+  const { chartData, chartLines, seriesTimestamps, miner, segmentsLabel, series, xAxisDomain } =
+    useKpiMetricData("hashrate");
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => getLowestAveragePerformer(series), [series]);
@@ -49,6 +50,7 @@ const Hashrate = () => {
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
           <KpiLineChart
             chartData={chartData}
+            seriesTimestamps={seriesTimestamps}
             chartLines={chartLines}
             series={series}
             segmentsLabel={segmentsLabel}

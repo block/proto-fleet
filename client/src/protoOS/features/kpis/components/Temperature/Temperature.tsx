@@ -53,7 +53,8 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: s
 };
 
 const Temperature = () => {
-  const { chartData, chartLines, miner, segmentsLabel, series, xAxisDomain } = useKpiMetricData("temperature");
+  const { chartData, chartLines, seriesTimestamps, miner, segmentsLabel, series, xAxisDomain } =
+    useKpiMetricData("temperature");
   const temperatureUnit = useTemperatureUnit();
   const aggregates = miner?.temperature?.timeSeries?.aggregates;
 
@@ -66,6 +67,7 @@ const Temperature = () => {
           <Stats stats={getStats({ ...aggregates, lowestPerformer }, temperatureUnit, segmentsLabel)} />
           <KpiLineChart
             chartData={chartData}
+            seriesTimestamps={seriesTimestamps}
             chartLines={chartLines}
             series={series}
             segmentsLabel={segmentsLabel}

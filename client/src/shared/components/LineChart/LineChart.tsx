@@ -2,6 +2,9 @@ import { ComponentType, type CSSProperties, useCallback, useEffect, useMemo, use
 import {
   CartesianGrid,
   Line,
+  LineDrawShape,
+  type LineDrawShapeProps,
+  type LinePointItem,
   LineChart as RechartsLineChart,
   ReferenceLine,
   Tooltip,
@@ -107,8 +110,26 @@ const CustomYAxisTick = ({ payload, x, y, yAxisTicks, yOffset = 20, visibleTickI
   );
 };
 
+const TimestampFilteredLineShape = ({
+  timestamps,
+  ...props
+}: LineDrawShapeProps & { timestamps: ReadonlySet<number> }) => {
+  // Keep the shared rows for axes and tooltip indexing. Filter only the curve
+  // coordinates so other series cannot add gaps.
+  const points = props.points?.filter((point) => {
+    // Recharts' points can lag the current props during a refresh.
+    // Each Line point retains the row it was computed from.
+    const { payload } = point as LinePointItem & { payload: ChartData };
+    return timestamps.has(payload.datetime);
+  });
+
+  return <LineDrawShape {...props} points={points} />;
+};
+
 export interface LineChartProps {
   chartData: ChartData[] | null;
+  /** Timestamps to draw for each line, including real gaps. Other rows are tooltip-only. */
+  seriesTimestamps?: Record<string, number[]>;
   units?: string;
   segmentsLabel?: string;
   aggregateKey: string;
@@ -132,6 +153,7 @@ export interface LineChartProps {
 
 const LineChart = ({
   chartData,
+  seriesTimestamps,
   aggregateKey,
   colorMap,
   activeKeys,
@@ -159,6 +181,11 @@ const LineChart = ({
   const tooltipAnimationFrameRef = useRef<number | null>(null);
 
   const corePrimary10 = useCssVariable("--color-core-primary-10");
+
+  const timestampsBySeries = useMemo(
+    () => new Map(Object.entries(seriesTimestamps ?? {}).map(([key, times]) => [key, new Set(times)])),
+    [seriesTimestamps],
+  );
 
   // Calculate time-based label indices when using xAxisLabelCount
   const timeBasedLabelIndices = useMemo(() => {
@@ -595,9 +622,23 @@ const LineChart = ({
             {(activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : []).map(
               (key, index) => {
                 const strokeColor = colorMap?.[key] ? `var(${colorMap[key]})` : "var(--color-core-primary-fill)";
+                const timestamps = timestampsBySeries.get(key);
 
                 return (
-                  <Line {...lineProps} connectNulls={connectNulls} dataKey={key} key={index} stroke={strokeColor} />
+                  <Line
+                    {...lineProps}
+                    shape={
+                      timestamps
+                        ? (props: LineDrawShapeProps) => (
+                            <TimestampFilteredLineShape {...props} timestamps={timestamps} />
+                          )
+                        : undefined
+                    }
+                    connectNulls={connectNulls}
+                    dataKey={key}
+                    key={index}
+                    stroke={strokeColor}
+                  />
                 );
               },
             )}

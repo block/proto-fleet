@@ -45,34 +45,25 @@ export const convertAndFormatTemperature = (
 /**
  * Convert MetricTimeSeries temperature data to ChartData format
  */
-export const convertTelemetryTemperatureToChartData = (
-  metric: MetricTimeSeries,
-  intervalMs: number | undefined,
-): ChartData[] => {
+export const convertTelemetryTemperatureToChartData = (metric: MetricTimeSeries): ChartData[] => {
   const points = metric?.points ?? [];
-  if (!points.length || intervalMs === undefined) return [];
-
-  // Anchor to the first bucket timestamp, then advance by the fixed bucket interval per index.
-  const startTime = points[0]?.timestampMs ?? 0;
-  return points.map((point, index) => ({
-    datetime: Math.floor((startTime + index * intervalMs) / 1000), // Convert to seconds
-    value: point.value,
-  }));
+  return [...points]
+    .sort((left, right) => left.timestampMs - right.timestampMs)
+    .map((point) => ({
+      datetime: Math.floor(point.timestampMs / 1000), // Convert to seconds
+      value: point.value,
+    }));
 };
 
 /**
  * Convert MetricTimeSeries hashrate data to ChartData format
  */
-export const convertTelemetryHashrateToChartData = (
-  metric: MetricTimeSeries,
-  intervalMs: number | undefined,
-): ChartData[] => {
+export const convertTelemetryHashrateToChartData = (metric: MetricTimeSeries): ChartData[] => {
   const points = metric?.points ?? [];
-  if (!points.length || intervalMs === undefined) return [];
-
-  const startTime = points[0]?.timestampMs ?? 0;
-  return points.map((point, index) => ({
-    datetime: Math.floor((startTime + index * intervalMs) / 1000), // Convert to seconds
-    value: point.value ? convertMegahashSecToTerahashSec(point.value) : point.value, // Convert from MH/s to TH/s
-  }));
+  return [...points]
+    .sort((left, right) => left.timestampMs - right.timestampMs)
+    .map((point) => ({
+      datetime: Math.floor(point.timestampMs / 1000), // Convert to seconds
+      value: point.value ? convertMegahashSecToTerahashSec(point.value) : point.value, // Convert from MH/s to TH/s
+    }));
 };

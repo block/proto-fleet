@@ -51,6 +51,7 @@ const ToolTipItemIcon = ({ itemKey, series, segmentsLabel }: ToolTipItemIconProp
 // Wrapper component for ProtoOS that uses the shared KpiLineChart component
 const KpiLineChart = ({
   chartData,
+  seriesTimestamps,
   chartLines,
   series,
   units,
@@ -147,6 +148,7 @@ const KpiLineChart = ({
       </div>
       <LineChart
         chartData={chartData}
+        seriesTimestamps={seriesTimestamps}
         aggregateKey={aggregateKey}
         activeKeys={activeChartLines.length === 0 ? chartLines : activeChartLines}
         colorMap={colorMap}

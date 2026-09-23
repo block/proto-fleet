@@ -40,6 +40,7 @@ export interface KpiChartSeries {
 
 export interface KpiChartResult {
   chartData: ChartData[];
+  seriesTimestamps: Record<string, number[]>;
   chartLines: string[];
   series: KpiChartSeries[];
   segmentsLabel: "hashboards" | "tanks";
@@ -59,6 +60,7 @@ interface KpiChartSegment {
 
 const emptyHashboardChart = (): KpiChartResult => ({
   chartData: [],
+  seriesTimestamps: {},
   chartLines: [],
   series: [],
   segmentsLabel: "hashboards",
@@ -231,13 +233,48 @@ const seriesFromSegments = (segments: KpiChartSegment[]): KpiChartSeries[] =>
     maximumValue: maximumMetricValue(metric?.timeSeries),
   }));
 
-const valuesBySegmentKey = (segments: KpiChartSegment[]) =>
-  new Map(
-    segments.map(({ key, metric }) => [
-      key,
-      new Map((metric?.timeSeries?.points ?? []).map((point) => [point.timestampMs, point.value])),
-    ]),
+const valuesByTimestamp = (metric: MetricTimeSeries | undefined) => {
+  const values = new Map((metric?.points ?? []).map((point) => [point.timestampMs, point.value]));
+  const bucketSizeMs = metric?.bucketSizeMs;
+  if (bucketSizeMs !== undefined && bucketSizeMs > 0) {
+    const timestamps = [...values.keys()].sort((left, right) => left - right);
+    timestamps.slice(1).forEach((timestamp, index) => {
+      const previousTime = timestamps[index];
+      if (timestamp - previousTime > bucketSizeMs * 1.5) {
+        // Allow small sampling jitter. One null marker breaks the path even
+        // across a long outage, without allocating every missing bucket.
+        values.set(previousTime + bucketSizeMs, null);
+      }
+    });
+  }
+  return values;
+};
+
+const joinChartSeries = (
+  aggregateMetric: MetricTimeSeries | undefined,
+  segments: Pick<KpiChartSegment, "key" | "metric">[],
+): Pick<KpiChartResult, "chartData" | "seriesTimestamps"> => {
+  const metrics = [{ key: "miner", metric: { timeSeries: aggregateMetric } }, ...segments];
+  const valuesByKey = new Map(metrics.map(({ key, metric }) => [key, valuesByTimestamp(metric?.timeSeries)]));
+  // Each series may have its own start time, gaps, or ordering. Keep every
+  // recorded timestamp, including those absent from the aggregate series.
+  const timestamps = [...new Set([...valuesByKey.values()].flatMap((values) => [...values.keys()]))].sort(
+    (left, right) => left - right,
   );
+
+  const chartData = timestamps.map((datetime) => {
+    const dataPoint: ChartData = { datetime };
+    valuesByKey.forEach((values, key) => {
+      dataPoint[key] = values.get(datetime) ?? null;
+    });
+    return dataPoint;
+  });
+
+  // Record which timestamps belong to each line, including its gap markers.
+  // Other nulls in the joined data only align the shared tooltip timeline.
+  const seriesTimestamps = Object.fromEntries([...valuesByKey].map(([key, values]) => [key, [...values.keys()]]));
+  return { chartData, seriesTimestamps };
+};
 
 const chartResultFromSegments = (
   aggregateMetric: MetricTimeSeries | undefined,
@@ -246,23 +283,15 @@ const chartResultFromSegments = (
   segmentsLabel: KpiChartResult["segmentsLabel"],
 ): KpiChartResult => {
   const series = seriesFromSegments(segments);
-  if (!aggregateMetric?.points.length || aggregateMetric.bucketSizeMs === undefined) {
-    return { chartData: [], chartLines: [], series, segmentsLabel };
+  const { chartData, seriesTimestamps } = joinChartSeries(aggregateMetric, segments);
+  if (!chartData.length) {
+    return { chartData: [], seriesTimestamps, chartLines: [], series, segmentsLabel };
   }
-
-  const valuesByKey = valuesBySegmentKey(segments);
-  const chartData = aggregateMetric.points.map((point) => {
-    const dataPoint: ChartData = { datetime: point.timestampMs, miner: point.value };
-    series.forEach(({ key }) => {
-      const value = valuesByKey.get(key)?.get(point.timestampMs);
-      if (value !== undefined) dataPoint[key] = value;
-    });
-    return dataPoint;
-  });
-  const startTime = aggregateMetric.points[0].timestampMs;
+  const startTime = chartData[0].datetime;
 
   return {
     chartData,
+    seriesTimestamps,
     chartLines: ["miner", ...series.map(({ key }) => key)],
     series,
     segmentsLabel,
@@ -396,7 +425,6 @@ const rigChartResult = (
 ): KpiChartResult => {
   const rollup = rollups.get(ROOT_MODULE_KEY);
   const aggregateMetric = rollup?.[metricName]?.timeSeries;
-  if (!aggregateMetric?.points.length || aggregateMetric.bucketSizeMs === undefined) return emptyHashboardChart();
 
   const sortedMinerHashboards = [...hardware.hashboards.values()]
     .flatMap((board) => {
@@ -426,31 +454,20 @@ const rigChartResult = (
       maximumValue: metric?.aggregates?.max?.value,
     };
   });
-  const chartData = aggregateMetric.points.map((point, index) => {
-    const dataPoint: ChartData = {
-      datetime: point.timestampMs,
-      miner: point.value,
-    };
-
-    sortedMinerHashboards.forEach(({ serial, telemetry }) => {
-      const hashboardPoints = telemetry?.[metricName]?.timeSeries?.points;
-      if (hashboardPoints && hashboardPoints.length > index) {
-        dataPoint[serial] = hashboardPoints[index]?.value ?? null;
-      }
-    });
-
-    return dataPoint;
-  });
+  const { chartData, seriesTimestamps } = joinChartSeries(
+    aggregateMetric,
+    sortedMinerHashboards.map(({ serial, telemetry }) => ({ key: serial, metric: telemetry[metricName] })),
+  );
+  if (!chartData.length) return emptyHashboardChart();
+  const startTime = chartData[0].datetime;
 
   return {
     chartData,
+    seriesTimestamps,
     chartLines: ["miner", ...series.map(({ key }) => key)],
     series,
     segmentsLabel: "hashboards",
-    xAxisDomain: [
-      aggregateMetric.points[0].timestampMs,
-      aggregateMetric.points[0].timestampMs + getDurationMs(duration),
-    ],
+    xAxisDomain: [startTime, startTime + getDurationMs(duration)],
   };
 };
 
