@@ -200,7 +200,8 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	schemes := []string{"https", "http"}
 
-	var definitiveErr error
+	var conclusiveErr error
+	var schemeMismatchErr error
 	var incompleteErr error
 
 	for _, scheme := range schemes {
@@ -216,19 +217,27 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			return deviceInfo, nil
 		}
 
-		if definitiveDiscoveryMiss(err) {
-			definitiveErr = err
+		if conclusiveDiscoveryMiss(err) {
+			conclusiveErr = err
+		} else if discoverySchemeMismatch(err) {
+			schemeMismatchErr = err
 		} else {
 			incompleteErr = err
 		}
+	}
+	// A response successfully negotiated over either scheme is authoritative.
+	// The expected failure of trying the other transport must not turn a 404,
+	// 405, or structurally non-Proto response into an incomplete subnet scan.
+	if conclusiveErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, conclusiveErr)
 	}
 	if incompleteErr != nil {
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceUnavailable,
 			fmt.Errorf("failed to discover proto miner at %s:%s: %w", ipAddress, port, incompleteErr))
 	}
 
-	if definitiveErr != nil {
-		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, definitiveErr)
+	if schemeMismatchErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, schemeMismatchErr)
 	}
 
 	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
@@ -239,18 +248,21 @@ func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
 	return sdk.SDKError{Code: code, Message: err.Error(), Err: err}
 }
 
-func definitiveDiscoveryMiss(err error) bool {
-	if strings.Contains(err.Error(), "device did not provide") ||
-		strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
-		return true
-	}
-	var tlsErr tls.RecordHeaderError
-	if errors.As(err, &tlsErr) {
+func conclusiveDiscoveryMiss(err error) bool {
+	if strings.Contains(err.Error(), "device did not provide") {
 		return true
 	}
 	var statusErr *proto.HTTPStatusError
 	return errors.As(err, &statusErr) &&
 		(statusErr.StatusCode == http.StatusNotFound || statusErr.StatusCode == http.StatusMethodNotAllowed)
+}
+
+func discoverySchemeMismatch(err error) bool {
+	if strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
+		return true
+	}
+	var tlsErr tls.RecordHeaderError
+	return errors.As(err, &tlsErr)
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {

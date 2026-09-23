@@ -497,6 +497,24 @@ func TestDiscoverDeviceClassifiesHTTPMissAndServerFailure(t *testing.T) {
 	}
 }
 
+func TestDiscoverDevicePreservesHTTPSMissAcrossHTTPFallback(t *testing.T) {
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	defer server.Close()
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	portNumber, err := strconv.Atoi(port)
+	require.NoError(t, err)
+	driver, err := New(portNumber)
+	require.NoError(t, err)
+
+	_, err = driver.DiscoverDevice(t.Context(), host, port)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
+}
+
 // TestDiscoverDevice_SchemeNegotiation tests HTTPS->HTTP fallback with sim miner
 func TestDiscoverDevice_SchemeNegotiation(t *testing.T) {
 	ctx := t.Context()
