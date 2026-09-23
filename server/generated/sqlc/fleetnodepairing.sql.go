@@ -378,6 +378,46 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 	return items, nil
 }
 
+const lockFleetNodePairingDevice = `-- name: LockFleetNodePairingDevice :many
+SELECT id
+FROM device
+WHERE id = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockFleetNodePairingDeviceParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+// Serialize ownership assignment with cloud IP-recovery authentication
+// reconciliation. Call after locking the Fleet Node and before checking the
+// device's current cloud-pairing state.
+func (q *Queries) LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockFleetNodePairingDeviceStmt, lockFleetNodePairingDevice, arg.DeviceID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pairDeviceToFleetNode = `-- name: PairDeviceToFleetNode :execrows
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)

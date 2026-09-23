@@ -50,8 +50,9 @@ func TestIsSameDevice_AuthenticationFailureRequiresIdentityEvidence(t *testing.T
 func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
 	pairer := pairingmocks.NewMockPairer(ctrl)
-	service := &Service{deviceStore: deviceStore, pairer: pairer}
+	service := &Service{deviceStore: deviceStore, transactor: transactor, pairer: pairer}
 
 	paired := &pb.Device{
 		DeviceIdentifier: "miner-1",
@@ -63,7 +64,12 @@ func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *
 	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
 	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), credentials).
 		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
-	deviceStore.EXPECT().ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), "miner-1").
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	)
+	deviceStore.EXPECT().LockDeviceForCloudRecoveryByIdentifier(gomock.Any(), "miner-1", int64(7)).
+		Return(true, nil)
+	deviceStore.EXPECT().ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), "miner-1", int64(7)).
 		Return(true, true, nil)
 
 	matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{

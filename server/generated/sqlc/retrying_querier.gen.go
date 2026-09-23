@@ -5316,6 +5316,18 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockCloudRecoveryDevice", func() error {
+		callResult, callErr := q.next.LockCloudRecoveryDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error) {
 	var result BatchStatusEnum
 	err := q.retrier.RetryQuery(ctx, "LockCommandBatch", func() error {
@@ -5494,6 +5506,18 @@ func (q *retryingQuerier) LockFleetNodeByID(ctx context.Context, arg LockFleetNo
 	var result LockFleetNodeByIDRow
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeByID", func() error {
 		callResult, callErr := q.next.LockFleetNodeByID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodePairingDevice", func() error {
+		callResult, callErr := q.next.LockFleetNodePairingDevice(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5914,6 +5938,18 @@ func (q *retryingQuerier) ReconcileAuthenticationNeededPairingStatusByIdentifier
 	var result ReconcileAuthenticationNeededPairingStatusByIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "ReconcileAuthenticationNeededPairingStatusByIdentifier", func() error {
 		callResult, callErr := q.next.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ReconcileCloudAuthNeededByIdentifier(ctx context.Context, arg ReconcileCloudAuthNeededByIdentifierParams) (ReconcileCloudAuthNeededByIdentifierRow, error) {
+	var result ReconcileCloudAuthNeededByIdentifierRow
+	err := q.retrier.RetryQuery(ctx, "ReconcileCloudAuthNeededByIdentifier", func() error {
+		callResult, callErr := q.next.ReconcileCloudAuthNeededByIdentifier(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

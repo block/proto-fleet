@@ -471,6 +471,21 @@ func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, curso
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
 }
 
+// LockDeviceForCloudRecoveryByIdentifier mocks base method.
+func (m *MockDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockDeviceForCloudRecoveryByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockDeviceForCloudRecoveryByIdentifier indicates an expected call of LockDeviceForCloudRecoveryByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) LockDeviceForCloudRecoveryByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDeviceForCloudRecoveryByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).LockDeviceForCloudRecoveryByIdentifier), ctx, deviceIdentifier, orgID)
+}
+
 // ReconcileAuthenticationNeededPairingStatusByIdentifier mocks base method.
 func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (bool, bool, error) {
 	m.ctrl.T.Helper()
@@ -485,6 +500,22 @@ func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier
 func (mr *MockDeviceStoreMockRecorder) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileAuthenticationNeededPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileAuthenticationNeededPairingStatusByIdentifier), ctx, deviceIdentifier)
+}
+
+// ReconcileCloudAuthenticationNeededPairingStatusByIdentifier mocks base method.
+func (m *MockDeviceStore) ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileCloudAuthenticationNeededPairingStatusByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReconcileCloudAuthenticationNeededPairingStatusByIdentifier indicates an expected call of ReconcileCloudAuthenticationNeededPairingStatusByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileCloudAuthenticationNeededPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileCloudAuthenticationNeededPairingStatusByIdentifier), ctx, deviceIdentifier, orgID)
 }
 
 // ReconcileDefaultPasswordPairingStatusByIdentifier mocks base method.

@@ -764,7 +764,7 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		// failure identifies the paired miner only when credential-free discovery
 		// already supplied matching stable identity evidence.
 		if fleeterror.IsAuthenticationError(err) && identityConfirmed {
-			eligible, updated, reconcileErr := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier)
+			eligible, updated, reconcileErr := s.reconcileCloudAuthenticationNeeded(ctx, pairedDevice.DeviceIdentifier, orgID)
 			if reconcileErr != nil {
 				slog.Error("failed to reconcile pairing status to AUTHENTICATION_NEEDED",
 					"device_identifier", pairedDevice.DeviceIdentifier, "error", reconcileErr)
@@ -782,6 +782,25 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
 		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+}
+
+func (s *Service) reconcileCloudAuthenticationNeeded(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error) {
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// RunInTx may retry this closure after a serialization failure. Do not
+		// carry a result from an aborted attempt into a later ineligible one.
+		eligible, updated = false, false
+		locked, lockErr := s.deviceStore.LockDeviceForCloudRecoveryByIdentifier(txCtx, deviceIdentifier, orgID)
+		if lockErr != nil {
+			return lockErr
+		}
+		if !locked {
+			return nil
+		}
+
+		eligible, updated, err = s.deviceStore.ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(txCtx, deviceIdentifier, orgID)
+		return err
+	})
+	return eligible, updated, err
 }
 
 // resolveDeviceIdentifiers resolves a DeviceSelector to a list of device identifiers.

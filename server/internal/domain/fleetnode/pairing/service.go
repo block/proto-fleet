@@ -30,6 +30,7 @@ var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -146,6 +147,16 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	}
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
+	}
+	// Keep the Fleet Node -> device lock order used by this flow. Cloud recovery
+	// takes only the device lock, so a stale scan that waits here rechecks
+	// ownership after this transaction commits.
+	locked, deviceLockErr := s.store.LockDeviceForFleetNodePairing(ctx, deviceID, orgID)
+	if deviceLockErr != nil {
+		return fleeterror.LogInternal(component, "lock device for pairing", clientErrPair, deviceLockErr)
+	}
+	if !locked {
+		return fleeterror.NewNotFoundError("device not found")
 	}
 	// Refuse a cloud-dialed device: the discovery upsert guard blocks refreshing a
 	// cloud-paired row, so the node could never refresh it. Unpair from cloud first.

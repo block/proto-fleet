@@ -2792,6 +2792,88 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransi
 	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
 }
 
+func TestCloudAuthReconciliationWaitsForFleetNodeOwnership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7500
+	const deviceIdentifier = "cloud-auth-reconcile-node-race"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:88", sqlc.PairingStatusEnumPAIRED)
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRowContext(ctx, `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'cloud-auth-reconcile-node-race', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("cloud-auth-reconcile-node-race"), make([]byte, 32)).Scan(&fleetNodeID))
+
+	assignmentTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = assignmentTx.Rollback() }()
+	assignmentQueries := sqlc.New(assignmentTx)
+	lockedRows, err := assignmentQueries.LockFleetNodePairingDevice(ctx, sqlc.LockFleetNodePairingDeviceParams{
+		DeviceID: deviceID,
+		OrgID:    1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{deviceID}, lockedRows)
+	_, err = assignmentTx.ExecContext(ctx, `
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, $2, 1)
+	`, fleetNodeID, deviceID)
+	require.NoError(t, err)
+
+	type result struct {
+		eligible bool
+		updated  bool
+		err      error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		store := sqlstores.NewSQLDeviceStore(conn)
+		transactor := sqlstores.NewSQLTransactor(conn)
+		var eligible, updated bool
+		reconcileErr := transactor.RunInTx(reconcileCtx, func(txCtx context.Context) error {
+			locked, lockErr := store.LockDeviceForCloudRecoveryByIdentifier(txCtx, deviceIdentifier, 1)
+			if lockErr != nil || !locked {
+				return lockErr
+			}
+			eligible, updated, lockErr = store.ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(txCtx, deviceIdentifier, 1)
+			return lockErr
+		})
+		resultCh <- result{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.Fail(t, "expected cloud reconciliation to wait for Fleet Node assignment")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, assignmentTx.Commit())
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.False(t, got.eligible)
+		require.False(t, got.updated)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for cloud reconciliation")
+	}
+
+	status, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumPAIRED, status)
+}
+
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

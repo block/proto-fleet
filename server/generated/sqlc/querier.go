@@ -1406,6 +1406,10 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	// Cloud recovery takes this device-row lock before checking ownership in a
+	// subsequent statement. Fleet Node assignment takes the same row lock, so the
+	// later transaction observes the earlier ownership decision at READ COMMITTED.
+	LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error)
 	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
@@ -1462,6 +1466,10 @@ type Querier interface {
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
+	// Serialize ownership assignment with cloud IP-recovery authentication
+	// reconciliation. Call after locking the Fleet Node and before checking the
+	// device's current cloud-pairing state.
+	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1608,6 +1616,10 @@ type Querier interface {
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
 	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	// A credential rejection from cloud IP recovery applies only while the cloud
+	// still owns the device. The caller must first lock the device row above in the
+	// same transaction so Fleet Node assignment and this ownership check serialize.
+	ReconcileCloudAuthNeededByIdentifier(ctx context.Context, arg ReconcileCloudAuthNeededByIdentifierParams) (ReconcileCloudAuthNeededByIdentifierRow, error)
 	// Telemetry reconciles only the paired-like factory-password state machine.
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
