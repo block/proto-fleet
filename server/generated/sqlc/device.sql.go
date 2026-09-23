@@ -115,12 +115,18 @@ WITH eligible AS MATERIALIZED (
     FROM fleet_node_device fnd
     JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
     JOIN device_status ds ON ds.device_id = d.id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
     WHERE d.device_identifier = $4
       AND d.org_id = $5
       AND d.deleted_at IS NULL
       AND fnd.fleet_node_id = $6
       AND ds.status = 'OFFLINE'
-    FOR UPDATE OF fnd, ds
+      AND dd.ip_address = $7
+      AND dd.port = $8
+      AND dd.url_scheme = $9
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+    FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
     UPDATE device_pairing dp
     SET pairing_status = 'AUTHENTICATION_NEEDED'
@@ -131,11 +137,11 @@ WITH eligible AS MATERIALIZED (
     WHERE dp.device_id = d.id
       AND d.device_identifier = $4
       AND d.org_id = $5
-      AND COALESCE(d.serial_number, '') = $7
-      AND d.mac_address = $8
-      AND dd.ip_address = $9
-      AND dd.port = $10
-      AND dd.url_scheme = $11
+      AND COALESCE(d.serial_number, '') = $10
+      AND d.mac_address = $11
+      AND dd.ip_address = $7
+      AND dd.port = $8
+      AND dd.url_scheme = $9
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
       AND dd.is_active = TRUE
@@ -166,11 +172,11 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	DeviceIdentifier      string
 	OrgID                 int64
 	FleetNodeID           int64
-	SerialNumber          sql.NullString
-	MacAddress            string
 	ExpectedIpAddress     string
 	ExpectedPort          string
 	ExpectedUrlScheme     string
+	SerialNumber          sql.NullString
+	MacAddress            string
 	CredentialUsernameEnc string
 	CredentialPasswordEnc string
 }
@@ -188,11 +194,11 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.DeviceIdentifier,
 		arg.OrgID,
 		arg.FleetNodeID,
-		arg.SerialNumber,
-		arg.MacAddress,
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.SerialNumber,
+		arg.MacAddress,
 		arg.CredentialUsernameEnc,
 		arg.CredentialPasswordEnc,
 	)

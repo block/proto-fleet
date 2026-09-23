@@ -749,12 +749,18 @@ WITH eligible AS MATERIALIZED (
     FROM fleet_node_device fnd
     JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
     JOIN device_status ds ON ds.device_id = d.id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
     WHERE d.device_identifier = sqlc.arg(device_identifier)
       AND d.org_id = sqlc.arg(org_id)
       AND d.deleted_at IS NULL
       AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
       AND ds.status = 'OFFLINE'
-    FOR UPDATE OF fnd, ds
+      AND dd.ip_address = sqlc.arg(expected_ip_address)
+      AND dd.port = sqlc.arg(expected_port)
+      AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+    FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
     UPDATE device_pairing dp
     SET pairing_status = 'AUTHENTICATION_NEEDED'
