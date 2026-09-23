@@ -169,8 +169,8 @@ describe("PageHeader", () => {
     });
   });
 
-  it.each([{ isPhone: true }, { isTablet: true }, { isLaptop: true }])(
-    "offers a menu trigger for compact navigation: %o",
+  it.each([{ isPhone: true }, { isPhone: false, isTablet: true }, { isPhone: false, isLaptop: true }])(
+    "offers a menu trigger only when there is no persistent rail: %o",
     (dimensions) => {
       mockUseWindowDimensions.mockReturnValue(dimensions);
       render(
@@ -178,7 +178,11 @@ describe("PageHeader", () => {
           <PageHeader schedulePillData={createSchedulePillData()} />
         </MemoryRouter>,
       );
-      expect(screen.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
+      if (dimensions.isPhone) {
+        expect(screen.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
+      } else {
+        expect(screen.queryByRole("button", { name: "Open navigation menu" })).not.toBeInTheDocument();
+      }
     },
   );
 

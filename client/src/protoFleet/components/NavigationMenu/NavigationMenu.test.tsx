@@ -81,7 +81,7 @@ describe("Navigation Menu", () => {
     mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
     render(
       <MemoryRouter>
-        <NavigationMenu items={primaryNavItems} />
+        <NavigationMenu items={primaryNavItems} isVisible />
       </MemoryRouter>,
     );
     expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
@@ -99,11 +99,8 @@ describe("Navigation Menu", () => {
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
 
-  it.each([
-    { isTablet: true, isLaptop: false },
-    { isTablet: false, isLaptop: true },
-  ])("opens and dismisses a full drawer with keyboard focus restored: %o", async (dimensions) => {
-    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+  it("opens and dismisses the phone drawer with keyboard focus restored", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
     const user = userEvent.setup();
     function Harness() {
       const [open, setOpen] = useState(false);
@@ -119,14 +116,12 @@ describe("Navigation Menu", () => {
         <Harness />
       </MemoryRouter>,
     );
-    const railLogo = screen.getByRole("navigation").querySelector('a[aria-label="Home"] svg')?.outerHTML;
     const trigger = screen.getByRole("button", { name: "Open menu" });
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Navigation menu" });
     expect(screen.getByRole("button", { name: "Settings menu toggle" })).toBeVisible();
     const logoLink = dialog.querySelector('a[aria-label="Home"]');
     expect(logoLink).toHaveFocus();
-    expect(logoLink?.querySelector("svg")?.outerHTML).toBe(railLogo);
     await user.tab({ shift: true });
     expect(screen.getByRole("button", { name: "Log out" })).toHaveFocus();
     await user.tab();
@@ -134,7 +129,7 @@ describe("Navigation Menu", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
-    expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
   });
 
   it("switches between phone, tablet, landscape and desktop navigation without remounting the shell", () => {

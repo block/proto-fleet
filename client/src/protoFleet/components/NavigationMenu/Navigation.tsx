@@ -110,7 +110,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
         "group/nav absolute top-0 left-0 z-30 flex w-60 flex-col justify-between bg-surface-base text-text-primary-70",
         isFloatingMenu
           ? "h-dvh max-h-dvh min-h-0 overflow-hidden"
-          : "min-h-screen tablet:w-16 tablet:overflow-hidden tablet:focus-within:w-50 tablet:focus-within:border-r tablet:focus-within:border-core-primary-10 tablet:focus-within:shadow-lg tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
+          : "min-h-screen tablet:w-16 tablet:overflow-hidden tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg tablet:has-focus-visible:w-50 tablet:has-focus-visible:border-r tablet:has-focus-visible:border-core-primary-10 tablet:has-focus-visible:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
         className,
       )}
     >
@@ -182,7 +182,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
                       className={clsx(
                         "ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70",
                         !isFloatingMenu &&
-                          "tablet:hidden tablet:group-focus-within/nav:inline tablet:group-hover/nav:inline desktop:inline",
+                          "tablet:hidden tablet:group-hover/nav:inline tablet:group-has-focus-visible/nav:inline desktop:inline",
                       )}
                     >
                       {item.label}
@@ -287,7 +287,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: Nav
           className={clsx(
             "min-w-0 flex-1 py-2 pr-2 pl-2.5",
             !isFloatingMenu &&
-              "tablet:hidden tablet:group-focus-within/nav:block tablet:group-hover/nav:block desktop:block",
+              "tablet:hidden tablet:group-hover/nav:block tablet:group-has-focus-visible/nav:block desktop:block",
           )}
         >
           <div className="truncate text-emphasis-300 text-text-primary-70">{username}</div>

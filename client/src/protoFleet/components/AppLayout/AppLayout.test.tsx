@@ -176,7 +176,7 @@ describe("AppLayout", () => {
 
     expect(screen.queryByText("Page header")).not.toBeInTheDocument();
     expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:pt-12", "tablet-only:pt-12");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:pt-12");
     expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
     expect(screen.getByTestId("navigation-menu-button")).toBeInTheDocument();
   });
@@ -200,7 +200,7 @@ describe("AppLayout", () => {
   it.each([
     { isTablet: true, isLaptop: false },
     { isTablet: false, isLaptop: true },
-  ])("reserves rail space and offers a detail-route menu trigger at compact widths: %o", (dimensions) => {
+  ])("reserves rail space without a duplicate detail-route menu trigger: %o", (dimensions) => {
     mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
     render(
       <MemoryRouter>
@@ -210,10 +210,8 @@ describe("AppLayout", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText("Body content").parentElement).toHaveClass("tablet:left-16");
-    const trigger = screen.getByTestId("navigation-menu-button");
-    expect(trigger.parentElement).toHaveClass("tablet:left-16");
-    fireEvent.click(trigger);
-    expect(screen.getByText("Navigation menu")).toBeVisible();
+    expect(screen.queryByTestId("navigation-menu-button")).not.toBeInTheDocument();
+    expect(screen.getByText("Body content").parentElement).not.toHaveClass("tablet-only:pt-12", "laptop:pt-15");
   });
 
   it("keeps the shell header and top offset on non-detail routes", () => {

@@ -54,8 +54,8 @@ export const NavigationMenu = ({
   }, [username, role, permissions]);
 
   const [isOpen, setIsOpen] = useState(false);
-  const { isDesktop } = useWindowDimensions();
-  if (isDesktop && isOpen) setIsOpen(false);
+  const { isPhone } = useWindowDimensions();
+  if (!isPhone && isOpen) setIsOpen(false);
 
   return (
     <>
@@ -68,7 +68,7 @@ export const NavigationMenu = ({
         }}
       />
       <div className="p-4 tablet:ml-16 desktop:ml-50">
-        {!isDesktop ? (
+        {isPhone ? (
           <Menu ariaLabel="Open navigation menu" ariaExpanded={isOpen} onClick={() => setIsOpen(true)} />
         ) : null}
       </div>

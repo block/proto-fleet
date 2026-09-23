@@ -34,7 +34,7 @@ type Props = {
 const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { bgClass } = usePageBackground();
-  const { isPhone, isTablet, isLaptop, isDesktop } = useWindowDimensions();
+  const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
@@ -63,10 +63,10 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
-  // Do not reopen a stale drawer after crossing the permanently expanded desktop breakpoint.
-  if (isDesktop && isMenuOpen) setIsMenuOpen(false);
+  // Do not reopen a stale drawer after crossing into the persistent navigation rail.
+  if (!isPhone && isMenuOpen) setIsMenuOpen(false);
 
-  const showDetailMenuTrigger = hideShellHeader && (isPhone || isTablet || isLaptop);
+  const showDetailMenuTrigger = hideShellHeader && isPhone;
   const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
 
   // Publish the scroll container's vertical-scrollbar width as
@@ -94,7 +94,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
       </div>
 
       {showDetailMenuTrigger ? (
-        <div className="fixed top-0 left-0 z-40 flex h-12 items-center px-4 tablet:left-16 laptop:h-15">
+        <div className="fixed top-0 left-0 z-40 flex h-12 items-center px-4">
           <Menu
             ariaExpanded={isMenuOpen}
             ariaLabel="Open navigation menu"
@@ -132,7 +132,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
             : "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 tablet:left-16 laptop:top-[calc(theme(spacing.1)*15)] desktop:left-50",
           "overflow-y-auto phone:overflow-x-hidden phone:overscroll-x-none tablet-only:overflow-x-hidden tablet-only:overscroll-x-none",
           bgClass,
-          hideShellHeader && "laptop:pt-15 desktop:pt-0 phone:pt-12 tablet-only:pt-12",
+          hideShellHeader && "phone:pt-12",
           !hideShellHeader &&
             (showPhoneWidgets
               ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)
