@@ -254,6 +254,42 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
 	require.NoError(t, err)
 	require.True(t, applied, "an absent credential snapshot should still apply when credentials remain absent")
+
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	ownerTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer ownerTx.Rollback()
+	_, err = ownerTx.Exec(`SELECT 1 FROM fleet_node_device WHERE device_id=$1 AND org_id=1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+
+	type applyResult struct {
+		applied bool
+		err     error
+	}
+	result := make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock ownership", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = ownerTx.Exec(`DELETE FROM fleet_node_device WHERE device_id=$1 AND org_id=1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, ownerTx.Commit())
+
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind unpair must recheck ownership")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after ownership removal")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
 }
 
 func TestGetKnownSubnets(t *testing.T) {

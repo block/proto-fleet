@@ -36,13 +36,27 @@ func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelon
 }
 
 const applyFleetNodeRecoveredEndpoint = `-- name: ApplyFleetNodeRecoveredEndpoint :one
+WITH owned AS MATERIALIZED (
+    SELECT device_id, org_id, fleet_node_id
+    FROM fleet_node_device
+    WHERE device_id = (
+        SELECT id
+        FROM device
+        WHERE device_identifier = $4
+          AND org_id = $5
+          AND deleted_at IS NULL
+    )
+      AND org_id = $5
+      AND fleet_node_id = $11
+    FOR UPDATE
+)
 UPDATE discovered_device dd
 SET ip_address = $1,
     port = $2,
     url_scheme = $3,
     last_seen = NOW()
 FROM device d
-JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN owned fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN device_status ds ON ds.device_id = d.id
 WHERE d.discovered_device_id = dd.id
@@ -50,10 +64,9 @@ WHERE d.discovered_device_id = dd.id
   AND d.org_id = $5
   AND COALESCE(d.serial_number, '') = $6
   AND d.mac_address = $7
-  AND fnd.fleet_node_id = $8
-  AND dd.ip_address = $9
-  AND dd.port = $10
-  AND dd.url_scheme = $11
+  AND dd.ip_address = $8
+  AND dd.port = $9
+  AND dd.url_scheme = $10
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
@@ -70,15 +83,16 @@ type ApplyFleetNodeRecoveredEndpointParams struct {
 	OrgID             int64
 	SerialNumber      sql.NullString
 	MacAddress        string
-	FleetNodeID       int64
 	ExpectedIpAddress string
 	ExpectedPort      string
 	ExpectedUrlScheme string
+	FleetNodeID       int64
 }
 
 // The ownership/pairing/offline predicates are repeated at write time so a
 // stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
-// miner. Returns the device id only when the guarded update applied.
+// miner. Locking the ownership row serializes this recheck with unpairing and
+// reassignment. Returns the device id only when the guarded update applied.
 func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error) {
 	row := q.queryRow(ctx, q.applyFleetNodeRecoveredEndpointStmt, applyFleetNodeRecoveredEndpoint,
 		arg.IpAddress,
@@ -88,10 +102,10 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 		arg.OrgID,
 		arg.SerialNumber,
 		arg.MacAddress,
-		arg.FleetNodeID,
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.FleetNodeID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -99,10 +113,24 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 }
 
 const applyFleetNodeRecoveryAuthenticationNeeded = `-- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
+WITH owned AS MATERIALIZED (
+    SELECT device_id, org_id, fleet_node_id
+    FROM fleet_node_device
+    WHERE device_id = (
+        SELECT id
+        FROM device
+        WHERE device_identifier = $1
+          AND org_id = $2
+          AND deleted_at IS NULL
+    )
+      AND org_id = $2
+      AND fleet_node_id = $10
+    FOR UPDATE
+)
 UPDATE device_pairing dp
 SET pairing_status = 'AUTHENTICATION_NEEDED'
 FROM device d
-JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN owned fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
@@ -111,19 +139,18 @@ WHERE dp.device_id = d.id
   AND d.org_id = $2
   AND COALESCE(d.serial_number, '') = $3
   AND d.mac_address = $4
-  AND fnd.fleet_node_id = $5
-  AND dd.ip_address = $6
-  AND dd.port = $7
-  AND dd.url_scheme = $8
+  AND dd.ip_address = $5
+  AND dd.port = $6
+  AND dd.url_scheme = $7
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND (
       (mc.device_id IS NULL
-       AND $9::text = ''
-       AND $10::text = '')
-      OR (mc.username_enc = $9
-          AND mc.password_enc = $10)
+       AND $8::text = ''
+       AND $9::text = '')
+      OR (mc.username_enc = $8
+          AND mc.password_enc = $9)
   )
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND ds.status = 'OFFLINE'
@@ -135,29 +162,30 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	OrgID                 int64
 	SerialNumber          sql.NullString
 	MacAddress            string
-	FleetNodeID           int64
 	ExpectedIpAddress     string
 	ExpectedPort          string
 	ExpectedUrlScheme     string
 	CredentialUsernameEnc string
 	CredentialPasswordEnc string
+	FleetNodeID           int64
 }
 
 // Authentication state is changed only for the still-owned, paired-like,
 // offline miner named by the acknowledgement. Identity evidence is validated
-// by the domain layer before this conditional write.
+// by the domain layer before this conditional write. Locking the ownership row
+// serializes this recheck with unpairing and reassignment.
 func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
 	row := q.queryRow(ctx, q.applyFleetNodeRecoveryAuthenticationNeededStmt, applyFleetNodeRecoveryAuthenticationNeeded,
 		arg.DeviceIdentifier,
 		arg.OrgID,
 		arg.SerialNumber,
 		arg.MacAddress,
-		arg.FleetNodeID,
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
 		arg.CredentialUsernameEnc,
 		arg.CredentialPasswordEnc,
+		arg.FleetNodeID,
 	)
 	var id int64
 	err := row.Scan(&id)

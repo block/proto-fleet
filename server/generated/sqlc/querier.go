@@ -50,11 +50,13 @@ type Querier interface {
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
 	// The ownership/pairing/offline predicates are repeated at write time so a
 	// stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
-	// miner. Returns the device id only when the guarded update applied.
+	// miner. Locking the ownership row serializes this recheck with unpairing and
+	// reassignment. Returns the device id only when the guarded update applied.
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error)
 	// Authentication state is changed only for the still-owned, paired-like,
 	// offline miner named by the acknowledgement. Identity evidence is validated
-	// by the domain layer before this conditional write.
+	// by the domain layer before this conditional write. Locking the ownership row
+	// serializes this recheck with unpairing and reassignment.
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
