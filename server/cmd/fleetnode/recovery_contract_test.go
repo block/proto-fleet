@@ -56,3 +56,12 @@ func TestRecoverMinerEndpointsResultValidation(t *testing.T) {
 		}},
 	}))
 }
+
+func TestRecoverMinerEndpointsResultRejectsUnspecifiedOutcome(t *testing.T) {
+	require.Error(t, protovalidate.Validate(&pb.RecoverMinerEndpointsResult{
+		Results: []*pb.MinerEndpointRecoveryResult{{
+			DeviceIdentifier: "miner-1",
+			Outcome:          pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNSPECIFIED,
+		}},
+	}))
+}

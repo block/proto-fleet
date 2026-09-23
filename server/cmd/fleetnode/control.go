@@ -468,6 +468,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
 	case *pb.AgentCommand_Telemetry:
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
+	case *pb.AgentCommand_RecoverMinerEndpoints:
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "endpoint recovery is not supported by this Fleet Node build", logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)

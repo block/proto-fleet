@@ -357,6 +357,32 @@ func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
 	require.Len(t, fake.reportsCopy(), 1)
 }
 
+func TestHandleCommand_RecoveryCommandIsUnimplemented(t *testing.T) {
+	// Arrange
+	ack := &capturingAcker{}
+	env := &pb.AgentCommand{Command: &pb.AgentCommand_RecoverMinerEndpoints{
+		RecoverMinerEndpoints: &pb.RecoverMinerEndpointsRequest{},
+	}}
+
+	// Act
+	(&RunCmd{}).handleCommand(
+		context.Background(),
+		nil,
+		ack,
+		&pb.ControlCommand{CommandId: "recover-endpoints"},
+		env,
+		nil,
+		discardLogger(t),
+	)
+
+	// Assert
+	require.Len(t, ack.sent, 1)
+	got := ack.sent[0].GetAck()
+	require.NotNil(t, got)
+	assert.False(t, got.GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, got.GetCode())
+}
+
 func TestControlLoop_KnownCommandIgnoresUnrelatedUnknownFields(t *testing.T) {
 	// Arrange: append a field outside the AgentCommand oneof while keeping the
 	// known discovery arm intact.
