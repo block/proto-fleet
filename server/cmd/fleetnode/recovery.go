@@ -130,7 +130,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 				candidate.urlScheme = target.GetUrlScheme()
 			}
 			identifiedBeforeAuth := candidate.identity.Usable() && want.Matches(candidate.identity)
-			if candidate.identity.Usable() && !identifiedBeforeAuth {
+			if want.Conflicts(candidate.identity) {
 				continue
 			}
 			if identifiedBeforeAuth {

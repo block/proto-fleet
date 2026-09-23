@@ -148,6 +148,28 @@ func TestRecoverMinerEndpointsMatchesStableIdentityAndDeduplicatesCredentialProb
 	assert.EqualValues(t, 2, calls.Load(), "the shared credential should be tried once per endpoint")
 }
 
+func TestRecoverMinerEndpointsInspectsNonOverlappingPartialIdentity(t *testing.T) {
+	r, calls := recoveryRunCmd(t, map[string]stableidentity.Identity{
+		"10.0.0.1|80": stableidentity.New("DISCOVERED-SERIAL", ""),
+	}, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		if endpoint.Host == "10.0.0.1" {
+			return sdk.DeviceInfo{SerialNumber: "DISCOVERED-SERIAL", MacAddress: "AA:BB:CC:DD:EE:01"}, nil
+		}
+		return sdk.DeviceInfo{SerialNumber: "OTHER", MacAddress: "AA:BB:CC:DD:EE:02"}, nil
+	})
+
+	results, partial, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "", "aa:bb:cc:dd:ee:01"),
+	}, []string{"80"}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.False(t, partial)
+	require.Len(t, results, 1)
+	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, results[0].GetOutcome())
+	assert.Equal(t, "10.0.0.1", results[0].GetIpAddress())
+	assert.EqualValues(t, 2, calls.Load())
+}
+
 func TestRecoverMinerEndpointsTriesDistinctCredentialsSeparately(t *testing.T) {
 	r, calls := recoveryRunCmd(t, nil, nil, func(_ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		return sdk.DeviceInfo{}, nil
