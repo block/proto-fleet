@@ -208,7 +208,7 @@ function PageHeader({
   schedulePillData,
   updatePill = null,
 }: PageHeaderProps): ReactElement {
-  const { isPhone, isTablet } = useWindowDimensions();
+  const { isPhone, isTablet, isLaptop } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   // The Dashboard renders its own heading-style site selector, so the topbar
   // picker is hidden there to avoid two selectors competing.
@@ -291,7 +291,7 @@ function PageHeader({
             className={clsx("flex min-w-0 items-center", !inlineFirstPhoneWidget && "flex-1")}
             data-testid="page-header-location-area"
           >
-            {isPhone || isTablet ? (
+            {isPhone || isTablet || isLaptop ? (
               <Menu
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"

@@ -1,6 +1,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { OnboardingVisualHelper, VisualSnapshotHelper } from "../helpers/onboardingVisuals";
+import { NavigationPage } from "../pages/navigation";
 
 test.describe("Proto Fleet - Visual coverage @visual", () => {
   // eslint-disable-next-line playwright/no-skipped-test
@@ -48,6 +49,14 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
 
     await test.step("Capture the empty-state screens", async () => {
       await visuals.captureEmptyStateScreens();
+    });
+
+    await test.step("Validate tablet, phone and desktop navigation", async () => {
+      await new NavigationPage(page).validateResponsiveNavigation();
+    });
+
+    await test.step("Validate touch navigation in both tablet orientations", async () => {
+      await new NavigationPage(page).validateTouchNavigation();
     });
 
     await test.step("Capture the navigation menu", async () => {

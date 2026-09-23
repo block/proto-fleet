@@ -169,6 +169,19 @@ describe("PageHeader", () => {
     });
   });
 
+  it.each([{ isPhone: true }, { isTablet: true }, { isLaptop: true }])(
+    "offers a menu trigger for compact navigation: %o",
+    (dimensions) => {
+      mockUseWindowDimensions.mockReturnValue(dimensions);
+      render(
+        <MemoryRouter>
+          <PageHeader schedulePillData={createSchedulePillData()} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
+    },
+  );
+
   it("shows the phone header widget when schedules are available even if setup is not dismissed", () => {
     const schedulePillData = createSchedulePillData({
       hasVisibleSchedules: true,

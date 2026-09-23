@@ -194,7 +194,26 @@ describe("AppLayout", () => {
     fireEvent.click(screen.getByTestId("navigation-menu-button"));
 
     expect(screen.getByText("Navigation menu")).toBeInTheDocument();
-    expect(screen.queryByTestId("navigation-menu-button")).not.toBeInTheDocument();
+    expect(screen.getByTestId("navigation-menu-button")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it.each([
+    { isTablet: true, isLaptop: false },
+    { isTablet: false, isLaptop: true },
+  ])("reserves rail space and offers a detail-route menu trigger at compact widths: %o", (dimensions) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Body content").parentElement).toHaveClass("tablet:left-16");
+    const trigger = screen.getByTestId("navigation-menu-button");
+    expect(trigger.parentElement).toHaveClass("tablet:left-16");
+    fireEvent.click(trigger);
+    expect(screen.getByText("Navigation menu")).toBeVisible();
   });
 
   it("keeps the shell header and top offset on non-detail routes", () => {

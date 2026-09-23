@@ -530,7 +530,7 @@ const ScopedMinerListBody = ({
         emptyStateRow={
           totalMiners === 0 || deviceItems.length === 0 ? (
             <NoFilterResultsEmptyState
-              className="sticky left-0 !w-screen laptop:!w-[calc(100vw-theme(spacing.1)*16)] desktop:!w-[calc(100vw-theme(spacing.1)*50)]"
+              className="sticky left-0 !w-screen tablet:!w-[calc(100vw-theme(spacing.1)*16)] desktop:!w-[calc(100vw-theme(spacing.1)*50)]"
               hasActiveFilters={hasActiveFilters}
               onClearFilters={handleClearFilters}
             />

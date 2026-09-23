@@ -9,24 +9,22 @@ import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
-import { Logo, LogoAlt } from "@/shared/assets/icons";
+import { LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type NavigationProps = {
   items: NavItem[];
   className?: string;
+  isFloatingMenu?: boolean;
   closeMenu?: () => void;
 };
 
-const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
+const Navigation = ({ items, className, closeMenu, isFloatingMenu = false }: NavigationProps) => {
   const { pathname } = useLocation();
-  const { isPhone, isTablet } = useWindowDimensions();
-  const isFloatingMenu = isPhone || isTablet;
   const logout = useLogoutAction();
   const username = useUsername();
   const role = formatRole(useRole());
@@ -110,11 +108,9 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
       aria-label="Main"
       className={clsx(
         "group/nav absolute top-0 left-0 z-30 flex w-60 flex-col justify-between bg-surface-base text-text-primary-70",
-        "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
-        "laptop:bg-surface-base",
-        "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
-        "desktop:bg-surface-base",
-        isFloatingMenu ? "h-dvh max-h-dvh min-h-0 overflow-hidden" : "min-h-screen",
+        isFloatingMenu
+          ? "h-dvh max-h-dvh min-h-0 overflow-hidden"
+          : "min-h-screen tablet:w-16 tablet:overflow-hidden tablet:focus-within:w-50 tablet:focus-within:border-r tablet:focus-within:border-core-primary-10 tablet:focus-within:shadow-lg tablet:hover:w-50 tablet:hover:border-r tablet:hover:border-core-primary-10 tablet:hover:shadow-lg desktop:w-50 desktop:border-r desktop:border-core-primary-10",
         className,
       )}
     >
@@ -122,7 +118,8 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         {homeItem && homeItem.path ? (
           <div
             className={clsx(
-              "flex h-15 w-full shrink-0 items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0",
+              "flex h-15 w-full shrink-0 items-center px-3 py-3",
+              !isFloatingMenu && "tablet:h-13 tablet:!pb-0",
               {
                 "border-b border-border-5": isFloatingMenu,
               },
@@ -131,18 +128,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             <Link
               to={scopeLink(homeItem)}
               aria-label="Home"
-              className={clsx("flex items-center", {
-                "w-full": isFloatingMenu,
-                "px-2.5": !isFloatingMenu,
-              })}
+              onClick={() => closeMenu?.()}
+              className="flex items-center px-2.5"
             >
-              {isFloatingMenu ? (
-                <Logo className="h-10 text-text-primary hover:cursor-pointer" />
-              ) : (
-                <div className="flex size-5 shrink-0 items-center justify-center">
-                  <LogoAlt className="text-text-primary hover:cursor-pointer" />
-                </div>
-              )}
+              <div className="flex size-5 shrink-0 items-center justify-center">
+                <LogoAlt testId="navigation-logo" className="text-text-primary hover:cursor-pointer" />
+              </div>
             </Link>
           </div>
         ) : null}
@@ -155,7 +146,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           )}
         >
           {visibleItems.map((item) => {
-            // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
+            // In the drawer, render Settings separately with expandable secondary navigation.
             if (
               isFloatingMenu &&
               item.path === "/settings" &&
@@ -187,7 +178,13 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                       : item.label}
                   </div>
                   {item.icon ? (
-                    <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
+                    <span
+                      className={clsx(
+                        "ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70",
+                        !isFloatingMenu &&
+                          "tablet:hidden tablet:group-focus-within/nav:inline tablet:group-hover/nav:inline desktop:inline",
+                      )}
+                    >
                       {item.label}
                     </span>
                   ) : null}
@@ -196,7 +193,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             ) : null;
           })}
 
-          {/* On mobile/tablet: show expandable Settings menu */}
+          {/* In the drawer, show an expandable Settings menu. */}
           {isFloatingMenu && settingsItem && visibleSettingsItems.length > 0 ? (
             <>
               <li className="w-full">
@@ -286,7 +283,13 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         aria-label={accountIdentity}
         title={accountIdentity}
       >
-        <div className="min-w-0 flex-1 py-2 pr-2 pl-2.5 laptop:hidden laptop:group-hover/nav:block desktop:block">
+        <div
+          className={clsx(
+            "min-w-0 flex-1 py-2 pr-2 pl-2.5",
+            !isFloatingMenu &&
+              "tablet:hidden tablet:group-focus-within/nav:block tablet:group-hover/nav:block desktop:block",
+          )}
+        >
           <div className="truncate text-emphasis-300 text-text-primary-70">{username}</div>
           {role ? <div className="truncate text-200 text-text-primary-50">{role}</div> : null}
         </div>

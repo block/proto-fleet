@@ -12,7 +12,7 @@
  *      slide. Without the width it fills the containing block and can't move,
  *      so it scrolls away with the table.
  *
- * The subtracted amounts mirror AppLayout's sidebar offsets (`laptop:left-16`
+ * The subtracted amounts mirror AppLayout's sidebar offsets (`tablet:left-16`
  * = 64px, `desktop:left-50` = 200px); phone has no inline sidebar. We also
  * subtract `--content-scroll-gutter` — the vertical scrollbar width that
  * `100vw` counts but the scroll container's client area does not. Without it
@@ -25,4 +25,4 @@
  * table scroll is still used.
  */
 export const PAGE_SCROLL_CHROME_WIDTH =
-  "w-[calc(100vw-var(--content-scroll-gutter,0px))] laptop:w-[calc(100vw-theme(spacing.1)*16-var(--content-scroll-gutter,0px))] desktop:w-[calc(100vw-theme(spacing.1)*50-var(--content-scroll-gutter,0px))]";
+  "w-[calc(100vw-var(--content-scroll-gutter,0px))] tablet:w-[calc(100vw-theme(spacing.1)*16-var(--content-scroll-gutter,0px))] desktop:w-[calc(100vw-theme(spacing.1)*50-var(--content-scroll-gutter,0px))]";

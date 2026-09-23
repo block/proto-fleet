@@ -1,10 +1,12 @@
-import { ElementType, useEffect } from "react";
+import { ElementType, useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import { action } from "storybook/actions";
 import NavigationMenuComponent from ".";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { useFleetStore } from "@/protoFleet/store";
+import { Menu } from "@/shared/assets/icons";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 export const NavigationMenu = ({ username, role }: { username: string; role: string }) => {
   useEffect(() => {
@@ -17,7 +19,27 @@ export const NavigationMenu = ({ username, role }: { username: string; role: str
     };
   }, [username, role]);
 
-  return <NavigationMenuComponent items={primaryNavItems} isVisible={true} closeMenu={action("close menu")} />;
+  const [isOpen, setIsOpen] = useState(false);
+  const { isDesktop } = useWindowDimensions();
+  if (isDesktop && isOpen) setIsOpen(false);
+
+  return (
+    <>
+      <NavigationMenuComponent
+        items={primaryNavItems}
+        isVisible={isOpen}
+        closeMenu={() => {
+          setIsOpen(false);
+          action("close menu")();
+        }}
+      />
+      <div className="p-4 tablet:ml-16 desktop:ml-50">
+        {!isDesktop ? (
+          <Menu ariaLabel="Open navigation menu" ariaExpanded={isOpen} onClick={() => setIsOpen(true)} />
+        ) : null}
+      </div>
+    </>
+  );
 };
 
 export default {

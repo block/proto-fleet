@@ -10,14 +10,13 @@ type NavigationMenuProps = {
 };
 
 const NavigationMenu = ({ items, isVisible, closeMenu }: NavigationMenuProps) => {
-  const { isPhone, isTablet } = useWindowDimensions();
+  const { isPhone, isTablet, isLaptop } = useWindowDimensions();
 
-  if (isPhone || isTablet) {
-    if (isVisible) {
-      return <FloatingNavigation items={items} closeMenu={closeMenu} />;
-    }
-    return null;
+  if (isVisible && (isPhone || isTablet || isLaptop)) {
+    return <FloatingNavigation items={items} closeMenu={closeMenu} />;
   }
+
+  if (isPhone) return null;
 
   return <Navigation items={items} />;
 };

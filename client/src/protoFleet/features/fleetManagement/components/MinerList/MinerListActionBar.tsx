@@ -97,7 +97,7 @@ const MinerListActionBar = ({
   // covers the bar when open.
   return createPortal(
     <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-[45] laptop:left-16 desktop:left-50"
+      className="fixed right-0 bottom-4 left-0 z-[45] tablet:left-16 desktop:left-50"
       selectedItems={selectedMiners}
       selectionMode={selectionMode}
       totalCount={totalCount}

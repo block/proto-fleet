@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import NavigationMenu from "./NavigationMenu";
 import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
@@ -70,6 +72,90 @@ describe("Navigation Menu", () => {
 
     expect(screen.getByRole("group", { name: identity })).toHaveAttribute("title", identity);
     expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+  });
+
+  it.each([
+    { isTablet: true, isLaptop: false },
+    { isTablet: false, isLaptop: true },
+  ])("shows a closed rail at compact non-phone widths: %o", (dimensions) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={primaryNavItems} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings menu toggle" })).not.toBeInTheDocument();
+  });
+
+  it("keeps phone navigation hidden until opened", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={items} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { isTablet: true, isLaptop: false },
+    { isTablet: false, isLaptop: true },
+  ])("opens and dismisses a full drawer with keyboard focus restored: %o", async (dimensions) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open menu</button>
+          <NavigationMenu items={primaryNavItems} isVisible={open} closeMenu={() => setOpen(false)} />
+        </>
+      );
+    }
+    render(
+      <MemoryRouter>
+        <Harness />
+      </MemoryRouter>,
+    );
+    const railLogo = screen.getByRole("navigation").querySelector('a[aria-label="Home"] svg')?.outerHTML;
+    const trigger = screen.getByRole("button", { name: "Open menu" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Navigation menu" });
+    expect(screen.getByRole("button", { name: "Settings menu toggle" })).toBeVisible();
+    const logoLink = dialog.querySelector('a[aria-label="Home"]');
+    expect(logoLink).toHaveFocus();
+    expect(logoLink?.querySelector("svg")?.outerHTML).toBe(railLogo);
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Log out" })).toHaveFocus();
+    await user.tab();
+    expect(logoLink).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
+  });
+
+  it("switches between phone, tablet, landscape and desktop navigation without remounting the shell", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    const content = (
+      <MemoryRouter>
+        <NavigationMenu items={primaryNavItems} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(content);
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    for (const dimensions of [{ isTablet: true }, { isLaptop: true }, { isDesktop: true }]) {
+      mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+      rerender(
+        <MemoryRouter>
+          <NavigationMenu items={primaryNavItems} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByRole("navigation", { name: "Main" })).toBeVisible();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    }
   });
 
   it("should render the correct number nav items", () => {
