@@ -35,8 +35,8 @@ func (s *fakeStore) ApplyFleetNodeRecoveredEndpoint(_ context.Context, target st
 	return s.foundApplied, nil
 }
 
-func (s *fakeStore) ApplyFleetNodeRecoveryAuthenticationNeeded(_ context.Context, target stores.FleetNodeRecoveryTarget) (bool, error) {
-	s.auth = append(s.auth, target.DeviceIdentifier)
+func (s *fakeStore) ApplyFleetNodeRecoveryAuthenticationNeeded(_ context.Context, target stores.FleetNodeRecoveryTarget, ip, port, scheme string) (bool, error) {
+	s.auth = append(s.auth, target.DeviceIdentifier+"|"+ip+"|"+port+"|"+scheme)
 	return s.authApplied, nil
 }
 
@@ -159,14 +159,14 @@ func TestRunCyclePersistsValidatedResultsAndInvalidatesFoundMiner(t *testing.T) 
 	sender := sendFunc(func(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK,
 			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "found", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "80", UrlScheme: "http", SerialNumber: "serial-found"},
-			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "auth", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, SerialNumber: "serial-auth"},
+			&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "auth", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, IpAddress: "10.0.0.21", Port: "80", UrlScheme: "http", SerialNumber: "serial-auth"},
 		), nil
 	})
 
 	NewService(store, sender, invalidator, emitter, testLogger()).RunCycle(t.Context())
 
 	assert.Equal(t, []string{"found|10.0.0.20|80|http"}, store.found)
-	assert.Equal(t, []string{"auth"}, store.auth)
+	assert.Equal(t, []string{"auth|10.0.0.21|80|http"}, store.auth)
 	assert.Equal(t, []minermodels.DeviceIdentifier{"found", "auth"}, invalidator.identifiers)
 	require.Len(t, emitter.labels, 2)
 	assert.Equal(t, metrics.ResultSuccess, emitter.labels[0].Result)

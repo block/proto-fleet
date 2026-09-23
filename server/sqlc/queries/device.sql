@@ -755,33 +755,42 @@ WITH eligible AS MATERIALIZED (
       AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
       AND ds.status = 'OFFLINE'
     FOR UPDATE OF fnd, ds
+), updated_pairing AS (
+    UPDATE device_pairing dp
+    SET pairing_status = 'AUTHENTICATION_NEEDED'
+    FROM device d
+    JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+    WHERE dp.device_id = d.id
+      AND d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
+      AND d.mac_address = sqlc.arg(mac_address)
+      AND dd.ip_address = sqlc.arg(expected_ip_address)
+      AND dd.port = sqlc.arg(expected_port)
+      AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+      AND d.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND (
+          (mc.device_id IS NULL
+           AND sqlc.arg(credential_username_enc)::text = ''
+           AND sqlc.arg(credential_password_enc)::text = '')
+          OR (mc.username_enc = sqlc.arg(credential_username_enc)
+              AND mc.password_enc = sqlc.arg(credential_password_enc))
+      )
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    RETURNING d.id, d.discovered_device_id
 )
-UPDATE device_pairing dp
-SET pairing_status = 'AUTHENTICATION_NEEDED'
-FROM device d
-JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN miner_credentials mc ON mc.device_id = d.id
-WHERE dp.device_id = d.id
-  AND d.device_identifier = sqlc.arg(device_identifier)
-  AND d.org_id = sqlc.arg(org_id)
-  AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
-  AND d.mac_address = sqlc.arg(mac_address)
-  AND dd.ip_address = sqlc.arg(expected_ip_address)
-  AND dd.port = sqlc.arg(expected_port)
-  AND dd.url_scheme = sqlc.arg(expected_url_scheme)
-  AND d.deleted_at IS NULL
-  AND dd.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND (
-      (mc.device_id IS NULL
-       AND sqlc.arg(credential_username_enc)::text = ''
-       AND sqlc.arg(credential_password_enc)::text = '')
-      OR (mc.username_enc = sqlc.arg(credential_username_enc)
-          AND mc.password_enc = sqlc.arg(credential_password_enc))
-  )
-  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-RETURNING d.id;
+UPDATE discovered_device dd
+SET ip_address = sqlc.arg(ip_address),
+    port = sqlc.arg(port),
+    url_scheme = sqlc.arg(url_scheme),
+    last_seen = NOW()
+FROM updated_pairing up
+WHERE dd.id = up.discovered_device_id
+RETURNING up.id;
 
 -- name: GetKnownSubnets :many
 SELECT DISTINCT

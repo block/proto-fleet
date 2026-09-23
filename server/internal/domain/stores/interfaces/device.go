@@ -227,7 +227,7 @@ type DeviceStore interface {
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
 	GetOfflineFleetNodeDevices(ctx context.Context) ([]FleetNodeRecoveryTarget, error)
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
-	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target FleetNodeRecoveryTarget) (bool, error)
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter, sortConfig *SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)

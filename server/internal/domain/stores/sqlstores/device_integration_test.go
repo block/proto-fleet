@@ -211,7 +211,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 
 	_, err = conn.Exec(`UPDATE discovered_device SET port='8081' WHERE id=$1`, discoveredID)
 	require.NoError(t, err)
-	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.False(t, applied, "a stale acknowledgement must not change authentication for a newer endpoint")
 	_, err = conn.Exec(`UPDATE discovered_device SET port='8080' WHERE id=$1`, discoveredID)
@@ -219,7 +219,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 
 	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
 	require.NoError(t, err)
-	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.False(t, applied, "a stale acknowledgement must not overwrite repaired credentials")
 	var pairingStatus string
@@ -228,17 +228,23 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 
 	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
 	require.NoError(t, err)
-	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.True(t, applied)
 	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
 	require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+	require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+	require.Equal(t, "10.0.0.21", ipAddress, "authentication failure must retain the recovered endpoint for credential retry")
 	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
 	require.NoError(t, err)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
 
 	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, replacementNodeID, deviceID)
 	require.NoError(t, err)
-	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
 	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
@@ -251,7 +257,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	credentiallessTarget := target
 	credentiallessTarget.CredentialUsername = nil
 	credentiallessTarget.CredentialPassword = nil
-	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.21", "8080", "http")
 	require.NoError(t, err)
 	require.True(t, applied, "an absent credential snapshot should still apply when credentials remain absent")
 
@@ -269,7 +275,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	}
 	result := make(chan applyResult, 1)
 	go func() {
-		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
 		result <- applyResult{applied: ok, err: applyErr}
 	}()
 	select {
@@ -300,7 +306,7 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	require.NoError(t, err)
 	result = make(chan applyResult, 1)
 	go func() {
-		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
 		result <- applyResult{applied: ok, err: applyErr}
 	}()
 	select {

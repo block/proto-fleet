@@ -994,8 +994,11 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 	return err == nil, err
 }
 
-func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget) (bool, error) {
+func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	_, err := s.getQueries(ctx).ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
+		IpAddress:             ipAddress,
+		Port:                  port,
+		UrlScheme:             urlScheme,
 		DeviceIdentifier:      target.DeviceIdentifier,
 		OrgID:                 target.OrgID,
 		SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},

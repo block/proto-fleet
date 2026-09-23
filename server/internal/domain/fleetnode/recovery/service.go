@@ -34,7 +34,7 @@ var commandTimeout = 12 * time.Minute
 type Store interface {
 	GetOfflineFleetNodeDevices(ctx context.Context) ([]stores.FleetNodeRecoveryTarget, error)
 	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
-	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget) (bool, error)
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 }
 
 type Sender interface {
@@ -269,7 +269,10 @@ func (s *Service) applyResult(ctx context.Context, target stores.FleetNodeRecove
 		}
 		return applied
 	case gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED:
-		applied, err := s.store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target)
+		if !validPrivateEndpoint(result.GetIpAddress(), result.GetPort(), result.GetUrlScheme()) {
+			return false
+		}
+		applied, err := s.store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, result.GetIpAddress(), result.GetPort(), result.GetUrlScheme())
 		if err != nil {
 			s.logger.Error("persisting Fleet Node miner authentication state", "fleet_node_id", target.FleetNodeID, "error", err)
 			return false

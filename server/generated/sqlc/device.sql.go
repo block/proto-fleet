@@ -115,44 +115,57 @@ WITH eligible AS MATERIALIZED (
     FROM fleet_node_device fnd
     JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
     JOIN device_status ds ON ds.device_id = d.id
-    WHERE d.device_identifier = $1
-      AND d.org_id = $2
+    WHERE d.device_identifier = $4
+      AND d.org_id = $5
       AND d.deleted_at IS NULL
-      AND fnd.fleet_node_id = $10
+      AND fnd.fleet_node_id = $6
       AND ds.status = 'OFFLINE'
     FOR UPDATE OF fnd, ds
+), updated_pairing AS (
+    UPDATE device_pairing dp
+    SET pairing_status = 'AUTHENTICATION_NEEDED'
+    FROM device d
+    JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+    WHERE dp.device_id = d.id
+      AND d.device_identifier = $4
+      AND d.org_id = $5
+      AND COALESCE(d.serial_number, '') = $7
+      AND d.mac_address = $8
+      AND dd.ip_address = $9
+      AND dd.port = $10
+      AND dd.url_scheme = $11
+      AND d.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND (
+          (mc.device_id IS NULL
+           AND $12::text = ''
+           AND $13::text = '')
+          OR (mc.username_enc = $12
+              AND mc.password_enc = $13)
+      )
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    RETURNING d.id, d.discovered_device_id
 )
-UPDATE device_pairing dp
-SET pairing_status = 'AUTHENTICATION_NEEDED'
-FROM device d
-JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN miner_credentials mc ON mc.device_id = d.id
-WHERE dp.device_id = d.id
-  AND d.device_identifier = $1
-  AND d.org_id = $2
-  AND COALESCE(d.serial_number, '') = $3
-  AND d.mac_address = $4
-  AND dd.ip_address = $5
-  AND dd.port = $6
-  AND dd.url_scheme = $7
-  AND d.deleted_at IS NULL
-  AND dd.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND (
-      (mc.device_id IS NULL
-       AND $8::text = ''
-       AND $9::text = '')
-      OR (mc.username_enc = $8
-          AND mc.password_enc = $9)
-  )
-  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-RETURNING d.id
+UPDATE discovered_device dd
+SET ip_address = $1,
+    port = $2,
+    url_scheme = $3,
+    last_seen = NOW()
+FROM updated_pairing up
+WHERE dd.id = up.discovered_device_id
+RETURNING up.id
 `
 
 type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
+	IpAddress             string
+	Port                  string
+	UrlScheme             string
 	DeviceIdentifier      string
 	OrgID                 int64
+	FleetNodeID           int64
 	SerialNumber          sql.NullString
 	MacAddress            string
 	ExpectedIpAddress     string
@@ -160,7 +173,6 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	ExpectedUrlScheme     string
 	CredentialUsernameEnc string
 	CredentialPasswordEnc string
-	FleetNodeID           int64
 }
 
 // Authentication state is changed only for the still-owned, paired-like,
@@ -170,8 +182,12 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 // telemetry recovery.
 func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
 	row := q.queryRow(ctx, q.applyFleetNodeRecoveryAuthenticationNeededStmt, applyFleetNodeRecoveryAuthenticationNeeded,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
 		arg.DeviceIdentifier,
 		arg.OrgID,
+		arg.FleetNodeID,
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.ExpectedIpAddress,
@@ -179,7 +195,6 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.ExpectedUrlScheme,
 		arg.CredentialUsernameEnc,
 		arg.CredentialPasswordEnc,
-		arg.FleetNodeID,
 	)
 	var id int64
 	err := row.Scan(&id)
