@@ -701,21 +701,20 @@ ORDER BY ds.status_timestamp ASC,
 -- name: ApplyFleetNodeRecoveredEndpoint :one
 -- The ownership/pairing/offline predicates are repeated at write time so a
 -- stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
--- miner. Locking the ownership row serializes this recheck with unpairing and
--- reassignment. Returns the device id only when the guarded update applied.
-WITH owned AS MATERIALIZED (
-    SELECT device_id, org_id, fleet_node_id
-    FROM fleet_node_device
-    WHERE device_id = (
-        SELECT id
-        FROM device
-        WHERE device_identifier = sqlc.arg(device_identifier)
-          AND org_id = sqlc.arg(org_id)
-          AND deleted_at IS NULL
-    )
-      AND org_id = sqlc.arg(org_id)
-      AND fleet_node_id = sqlc.arg(fleet_node_id)
-    FOR UPDATE
+-- miner. Locking the ownership and status rows serializes this recheck with
+-- unpairing, reassignment, and telemetry recovery. Returns the device id only
+-- when the guarded update applied.
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+      AND ds.status = 'OFFLINE'
+    FOR UPDATE OF fnd, ds
 )
 UPDATE discovered_device dd
 SET ip_address = sqlc.arg(ip_address),
@@ -723,9 +722,8 @@ SET ip_address = sqlc.arg(ip_address),
     url_scheme = sqlc.arg(url_scheme),
     last_seen = NOW()
 FROM device d
-JOIN owned fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
-JOIN device_status ds ON ds.device_id = d.id
 WHERE d.discovered_device_id = dd.id
   AND d.device_identifier = sqlc.arg(device_identifier)
   AND d.org_id = sqlc.arg(org_id)
@@ -738,33 +736,30 @@ WHERE d.discovered_device_id = dd.id
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-  AND ds.status = 'OFFLINE'
 RETURNING d.id;
 
 -- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
 -- Authentication state is changed only for the still-owned, paired-like,
 -- offline miner named by the acknowledgement. Identity evidence is validated
--- by the domain layer before this conditional write. Locking the ownership row
--- serializes this recheck with unpairing and reassignment.
-WITH owned AS MATERIALIZED (
-    SELECT device_id, org_id, fleet_node_id
-    FROM fleet_node_device
-    WHERE device_id = (
-        SELECT id
-        FROM device
-        WHERE device_identifier = sqlc.arg(device_identifier)
-          AND org_id = sqlc.arg(org_id)
-          AND deleted_at IS NULL
-    )
-      AND org_id = sqlc.arg(org_id)
-      AND fleet_node_id = sqlc.arg(fleet_node_id)
-    FOR UPDATE
+-- by the domain layer before this conditional write. Locking the ownership and
+-- status rows serializes this recheck with unpairing, reassignment, and
+-- telemetry recovery.
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+      AND ds.status = 'OFFLINE'
+    FOR UPDATE OF fnd, ds
 )
 UPDATE device_pairing dp
 SET pairing_status = 'AUTHENTICATION_NEEDED'
 FROM device d
-JOIN owned fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-JOIN device_status ds ON ds.device_id = d.id
+JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE dp.device_id = d.id
@@ -786,7 +781,6 @@ WHERE dp.device_id = d.id
           AND mc.password_enc = sqlc.arg(credential_password_enc))
   )
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-  AND ds.status = 'OFFLINE'
 RETURNING d.id;
 
 -- name: GetKnownSubnets :many

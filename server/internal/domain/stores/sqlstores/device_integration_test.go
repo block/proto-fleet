@@ -290,6 +290,36 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	}
 	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
 	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+	statusTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer statusTx.Rollback()
+	_, err = statusTx.Exec(`SELECT 1 FROM device_status WHERE device_id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	result = make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget)
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock status", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = statusTx.Exec(`UPDATE device_status SET status='ACTIVE', status_timestamp=NOW() WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, statusTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind telemetry must recheck offline status")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after status change")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
 }
 
 func TestGetKnownSubnets(t *testing.T) {
