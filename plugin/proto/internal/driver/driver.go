@@ -35,6 +35,8 @@ const (
 
 var canonicalDiscoveryPorts = []int{443}
 
+var errMissingDeviceIdentity = errors.New("device did not provide")
+
 // defaultCredentials are the factory defaults for Proto rigs, tried during
 // auto-authentication when the operator does not supply credentials.
 var defaultCredentials = []sdk.UsernamePassword{
@@ -249,7 +251,7 @@ func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
 }
 
 func conclusiveDiscoveryMiss(err error) bool {
-	if strings.Contains(err.Error(), "device did not provide") {
+	if errors.Is(err, errMissingDeviceIdentity) || errors.Is(err, proto.ErrHTMLResponse) {
 		return true
 	}
 	var statusErr *proto.HTTPStatusError
@@ -298,10 +300,10 @@ func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto
 	}
 
 	if info.SerialNumber == "" {
-		return nil, fmt.Errorf("device did not provide serial number")
+		return nil, fmt.Errorf("%w serial number", errMissingDeviceIdentity)
 	}
 	if info.MacAddress == "" {
-		return nil, fmt.Errorf("device did not provide MAC address")
+		return nil, fmt.Errorf("%w MAC address", errMissingDeviceIdentity)
 	}
 
 	return info, nil

@@ -166,6 +166,43 @@ func TestRecoverMinerEndpointsMatchesStableIdentityAndDeduplicatesCredentialProb
 	assert.EqualValues(t, 2, calls.Load(), "the shared credential should be tried once per endpoint")
 }
 
+func TestRecoverMinerEndpointsInspectsCandidatesConcurrentlyBeforeDeciding(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+			return sdk.DeviceInfo{SerialNumber: "DUPLICATE"}, nil
+		case <-ctx.Done():
+			return sdk.DeviceInfo{}, ctx.Err()
+		}
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		results, partial, err := r.recoverMinerEndpoints(ctx, []*pb.MinerConnectionDescriptor{
+			recoveryTarget("miner-1", "DUPLICATE", ""),
+		}, []string{"80"}, discardLogger(t))
+		assert.NoError(t, err)
+		assert.False(t, partial)
+		if assert.Len(t, results, 1) {
+			assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS, results[0].GetOutcome())
+		}
+	}()
+	for range 2 {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Error("both candidate inspections must start before either finishes")
+		}
+	}
+	close(release)
+	<-done
+}
+
 func TestRecoverMinerEndpointsInspectsNonOverlappingPartialIdentity(t *testing.T) {
 	r, calls := recoveryRunCmd(t, map[string]stableidentity.Identity{
 		"10.0.0.1|80": stableidentity.New("DISCOVERED-SERIAL", ""),
@@ -403,6 +440,35 @@ func TestRecoverMinerEndpointsStopsInspectingAfterCancellation(t *testing.T) {
 	assert.Equal(t, "miner-1", results[0].GetDeviceIdentifier())
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, results[0].GetOutcome())
 	assert.EqualValues(t, 2, calls.Load())
+}
+
+func TestRecoverMinerEndpointsKeepsCompletedPrefixWhenInspectionIsStuck(t *testing.T) {
+	previousTimeout := perProbeTimeout
+	perProbeTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { perProbeTimeout = previousTimeout })
+	release, finished := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		<-finished
+	})
+	r, _ := recoveryRunCmd(t, nil, nil, func(endpoint sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		if endpoint.Host == "10.0.0.2" {
+			defer close(finished)
+			<-release
+			return sdk.DeviceInfo{}, errors.New("inspection did not complete")
+		}
+		return sdk.DeviceInfo{SerialNumber: "SERIAL-2"}, nil
+	})
+
+	results, partial, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{
+		recoveryTarget("miner-1", "", ""),
+		recoveryTarget("miner-2", "SERIAL-2", ""),
+	}, []string{"80"}, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.True(t, partial)
+	require.Len(t, results, 1, "an unfinished candidate could make the apparent match ambiguous")
+	assert.Equal(t, "miner-1", results[0].GetDeviceIdentifier())
 }
 
 func TestScanRecoveryEndpointsPrioritizesBoundedRequestPorts(t *testing.T) {

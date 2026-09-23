@@ -70,6 +70,9 @@ type Client struct {
 // can translate it into their surface's wording.
 var errInvalidCredentials = errors.New("invalid credentials")
 
+// ErrHTMLResponse identifies a web page returned in place of the Proto JSON API.
+var ErrHTMLResponse = errors.New("received HTML instead of a Proto API response")
+
 // DeviceInfo represents basic device information.
 type DeviceInfo struct {
 	SerialNumber string
@@ -723,7 +726,20 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 	}
 
 	if result != nil {
-		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		decoder := json.NewDecoder(resp.Body)
+		if err := decoder.Decode(result); err != nil {
+			var syntaxErr *json.SyntaxError
+			if errors.As(err, &syntaxErr) {
+				prefix, _ := io.ReadAll(decoder.Buffered())
+				if strings.HasPrefix(http.DetectContentType(prefix), "text/html") {
+					// A failed body read is still an incomplete probe, even if its
+					// initial bytes look like an unrelated service's web page.
+					if _, readErr := io.Copy(io.Discard, resp.Body); readErr != nil {
+						return resp.StatusCode, fmt.Errorf("failed to read response: %w", readErr)
+					}
+					return resp.StatusCode, ErrHTMLResponse
+				}
+			}
 			return resp.StatusCode, fmt.Errorf("failed to decode response: %w", err)
 		}
 	}

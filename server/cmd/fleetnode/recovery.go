@@ -87,6 +87,7 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 
 	results := make([]*pb.MinerEndpointRecoveryResult, 0, len(targets))
 	type inspection struct {
+		endpoint recoveryEndpoint
 		identity stableidentity.Identity
 		err      error
 	}
@@ -106,37 +107,60 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			continue
 		}
 
-		matches := make([]recoveryEndpoint, 0, 1)
-		authFailedEndpoint := recoveryEndpoint{}
-		identifiedEndpoints := make(map[string]struct{})
-		inspectionFailed := false
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
+		cacheKey := func(candidate recoveryEndpoint) string {
+			return recoveryEndpointKey(candidate) + "\x00" + credentialKey
+		}
+		var candidates, pending []recoveryEndpoint
 		for _, candidate := range endpoints {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
-			}
 			if candidate.driverName != target.GetDriverName() {
 				continue
 			}
 			if candidate.urlScheme == "" {
 				candidate.urlScheme = target.GetUrlScheme()
 			}
-			identifiedBeforeAuth := candidate.identity.Usable() && want.Matches(candidate.identity)
 			if want.Conflicts(candidate.identity) {
 				continue
 			}
+			candidates = append(candidates, candidate)
+			key := cacheKey(candidate)
+			if _, cached := inspectionCache[key]; !cached {
+				// Reserve the key before dispatch: deduplicate jobs and treat any
+				// supervisor-truncated inspection as incomplete, never a match.
+				inspectionCache[key] = inspection{err: errors.New("candidate inspection did not complete")}
+				pending = append(pending, candidate)
+			}
+		}
+		inspected, truncated := fanOutEndpointWork(ctx, slices.Values(pending), probeConcurrency, "recovery inspection", logger, func(probeCtx context.Context, candidate recoveryEndpoint) (inspection, bool) {
+			if err := probeCtx.Err(); err != nil {
+				return inspection{endpoint: candidate, err: err}, true
+			}
+			identity, err := r.inspectRecoveryEndpoint(probeCtx, target, candidate, bundle)
+			if probeCtx.Err() != nil {
+				err = probeCtx.Err()
+			}
+			return inspection{endpoint: candidate, identity: identity, err: err}, true
+		})
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
+		}
+		if truncated {
+			return results, true, nil
+		}
+		for _, result := range inspected {
+			inspectionCache[cacheKey(result.endpoint)] = result
+		}
+
+		matches := make([]recoveryEndpoint, 0, 1)
+		authFailedEndpoint := recoveryEndpoint{}
+		identifiedEndpoints := make(map[string]struct{})
+		inspectionFailed := false
+		for _, candidate := range candidates {
+			identifiedBeforeAuth := candidate.identity.Usable() && want.Matches(candidate.identity)
 			if identifiedBeforeAuth {
 				identifiedEndpoints[recoveryEndpointKey(candidate)] = struct{}{}
 			}
-			cacheKey := strings.Join([]string{candidate.ip, candidate.port, candidate.urlScheme, credentialKey}, "\x00")
-			cached, ok := inspectionCache[cacheKey]
-			if !ok {
-				cached.identity, cached.err = r.inspectRecoveryEndpoint(ctx, target, candidate, bundle)
-				inspectionCache[cacheKey] = cached
-			}
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return results, true, fmt.Errorf("endpoint recovery canceled: %w", ctxErr)
-			}
+			cached := inspectionCache[cacheKey(candidate)]
 			got, err := cached.identity, cached.err
 			if err != nil {
 				if identifiedBeforeAuth && isAuthenticationError(err) {
