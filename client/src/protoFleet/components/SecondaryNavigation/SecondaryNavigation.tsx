@@ -13,12 +13,12 @@ type SecondaryNavigationProps = {
 
 const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
-  const { isPhone, isTablet } = useWindowDimensions();
+  const { isPhone } = useWindowDimensions();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
 
-  // Hide on mobile and tablet since secondary nav items are shown in main menu
-  if (isPhone || isTablet) return null;
+  // Phones expose Settings sections in the drawer; larger screens use this navigation.
+  if (isPhone) return null;
 
   // Filter items by current-path parent, required permission, and feature gate.
   const visibleItems = items.filter((item) => {

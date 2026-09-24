@@ -1,6 +1,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { OnboardingVisualHelper, VisualSnapshotHelper } from "../helpers/onboardingVisuals";
+import { NavigationPage } from "../pages/navigation";
 
 test.describe("Proto Fleet - Visual coverage @visual", () => {
   // eslint-disable-next-line playwright/no-skipped-test
@@ -50,8 +51,25 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
       await visuals.captureEmptyStateScreens();
     });
 
+    await test.step("Validate tablet, phone and desktop navigation", async () => {
+      await new NavigationPage(page).validateResponsiveNavigation();
+    });
+
+    await test.step("Validate touch navigation on tablets and short landscape screens", async () => {
+      await new NavigationPage(page).validateTouchNavigation();
+    });
+
+    await test.step("Validate navigation with an enlarged browser default font", async () => {
+      await new NavigationPage(page).validateLargeFontNavigation();
+    });
+
     await test.step("Capture the navigation menu", async () => {
       await visuals.captureNavigationMenu();
+    });
+
+    await test.step("Capture collapsed and expanded tablet navigation in both themes", async (step) => {
+      step.skip(testInfo.project.name !== "desktop", "Tablet baselines are captured once in the desktop project.");
+      await visuals.captureTabletNavigation();
     });
   });
 

@@ -2,6 +2,8 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
+import NavigationRailToggle from "../NavigationMenu/NavigationRailToggle";
+import { useNavigationRail } from "../NavigationMenu/useNavigationRail";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
 import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
@@ -33,8 +35,9 @@ type Props = {
 
 const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const rail = useNavigationRail();
   const { bgClass } = usePageBackground();
-  const { isPhone, isTablet } = useWindowDimensions();
+  const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
@@ -63,7 +66,10 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
-  const showDetailMenuTrigger = hideShellHeader && (isPhone || isTablet) && !isMenuOpen;
+  // Do not reopen a stale drawer after crossing into the persistent navigation rail.
+  if (!isPhone && isMenuOpen) setIsMenuOpen(false);
+
+  const showDetailMenuTrigger = hideShellHeader && (isPhone || rail.isCollapsible);
   const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
 
   // Publish the scroll container's vertical-scrollbar width as
@@ -86,25 +92,39 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
 
   return (
     <div className={clsx("absolute top-0 right-0 bottom-0 left-0 overflow-hidden", bgClass)}>
-      <div className="fixed top-0 z-50 h-fit w-0 laptop:w-16 desktop:w-50">
-        <NavigationMenu items={primaryNavItems} isVisible={isMenuOpen} closeMenu={() => setIsMenuOpen(false)} />
+      <div className="fixed top-0 z-50 h-fit w-0 tablet:w-16 desktop:w-50">
+        <NavigationMenu
+          rail={rail}
+          items={primaryNavItems}
+          isVisible={isMenuOpen}
+          closeMenu={() => setIsMenuOpen(false)}
+        />
       </div>
 
       {showDetailMenuTrigger ? (
-        <div className="fixed top-0 left-0 z-50 flex h-12 items-center px-4">
-          <Menu
-            ariaExpanded={isMenuOpen}
-            ariaLabel="Open navigation menu"
-            className="text-text-primary"
-            onClick={() => setIsMenuOpen(true)}
-            testId="navigation-menu-button"
-          />
+        <div
+          className={clsx(
+            "fixed top-0 left-0 z-40 flex h-12 items-center px-4 laptop:h-15",
+            rail.isExpanded ? "tablet:left-50" : "tablet:left-16",
+          )}
+        >
+          <NavigationRailToggle rail={rail} />
+          {isPhone ? (
+            <Menu
+              ariaExpanded={isMenuOpen}
+              ariaLabel="Open navigation menu"
+              className="text-text-primary"
+              onClick={() => setIsMenuOpen(true)}
+              testId="navigation-menu-button"
+            />
+          ) : null}
         </div>
       ) : null}
 
       {hideShellHeader ? null : (
         <div
-          className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
+          data-testid="app-header"
+          className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 ${rail.isExpanded ? "tablet:left-50" : "tablet:left-16"} laptop:bottom-[calc(100vh-theme(spacing.1)*15)] desktop:left-50 ${bgClass}`}
         >
           <PageHeader
             activeAlertsPillData={activeAlertsPillData}
@@ -112,6 +132,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
             fleetNodeUpgradePill={fleetNodeUpgradePill}
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}
+            navigationToggle={<NavigationRailToggle rail={rail} />}
             rolloutPillData={rolloutPillData}
             schedulePillData={schedulePillData}
             updatePill={updatePill}
@@ -121,13 +142,14 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
 
       <div
         ref={scrollRef}
+        data-testid="app-content"
         className={clsx(
           hideShellHeader
-            ? "fixed top-0 right-0 bottom-0 left-0 z-20 laptop:left-16 desktop:left-50"
-            : "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
+            ? "fixed top-0 right-0 bottom-0 left-0 z-20 tablet:left-16 desktop:left-50"
+            : "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 tablet:left-16 laptop:top-[calc(theme(spacing.1)*15)] desktop:left-50",
           "overflow-y-auto phone:overflow-x-hidden phone:overscroll-x-none tablet-only:overflow-x-hidden tablet-only:overscroll-x-none",
           bgClass,
-          hideShellHeader && "phone:pt-12 tablet-only:pt-12",
+          showDetailMenuTrigger && "pt-12 laptop:pt-15",
           !hideShellHeader &&
             (showPhoneWidgets
               ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)

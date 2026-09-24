@@ -35,7 +35,7 @@ vi.mock("@/protoFleet/components/NavigationMenu", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader", () => ({
   __esModule: true,
-  default: () => <div>Page header</div>,
+  default: ({ navigationToggle }: { navigationToggle?: ReactNode }) => <div>Page header{navigationToggle}</div>,
 }));
 
 vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
@@ -176,9 +176,35 @@ describe("AppLayout", () => {
 
     expect(screen.queryByText("Page header")).not.toBeInTheDocument();
     expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:pt-12", "tablet-only:pt-12");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("pt-12");
     expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
     expect(screen.getByTestId("navigation-menu-button")).toBeInTheDocument();
+  });
+
+  it("keeps the header toggle beside the expanded sidebar and resets it on desktop", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: true });
+    const view = () => (
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>
+    );
+    const { rerender } = render(view());
+    const toggle = screen.getByRole("button", { name: "Expand navigation" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAccessibleName("Collapse navigation");
+    expect(screen.getByTestId("app-header")).toHaveClass("tablet:left-50");
+    expect(screen.getByTestId("app-content")).toHaveClass("tablet:left-16");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("app-header")).toHaveClass("tablet:left-16");
+    fireEvent.click(toggle);
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isDesktop: true });
+    rerender(view());
+    expect(screen.queryByRole("button", { name: /^(Expand|Collapse) navigation$/ })).not.toBeInTheDocument();
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: true });
+    rerender(view());
+    expect(screen.getByRole("button", { name: "Expand navigation" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens navigation from the detail route mobile menu trigger", () => {
@@ -194,7 +220,25 @@ describe("AppLayout", () => {
     fireEvent.click(screen.getByTestId("navigation-menu-button"));
 
     expect(screen.getByText("Navigation menu")).toBeInTheDocument();
+    expect(screen.getByTestId("navigation-menu-button")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it.each([
+    { isTablet: true, isLaptop: false },
+    { isTablet: false, isLaptop: true },
+  ])("offers the sidebar toggle on compact detail routes without a phone menu trigger: %o", (dimensions) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Body content").parentElement).toHaveClass("tablet:left-16");
     expect(screen.queryByTestId("navigation-menu-button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand navigation" })).toBeVisible();
+    expect(screen.getByText("Body content").parentElement).toHaveClass("pt-12", "laptop:pt-15");
   });
 
   it("keeps the shell header and top offset on non-detail routes", () => {

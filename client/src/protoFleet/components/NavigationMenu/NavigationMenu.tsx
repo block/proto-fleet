@@ -1,3 +1,4 @@
+import type { NavigationRail } from "./useNavigationRail";
 import FloatingNavigation from "@/protoFleet/components/NavigationMenu/FloatingNavigation";
 import Navigation from "@/protoFleet/components/NavigationMenu/Navigation";
 import { NavItem } from "@/protoFleet/config/navItems";
@@ -7,19 +8,19 @@ type NavigationMenuProps = {
   items: NavItem[];
   isVisible?: boolean;
   closeMenu?: () => void;
+  rail?: NavigationRail;
 };
 
-const NavigationMenu = ({ items, isVisible, closeMenu }: NavigationMenuProps) => {
-  const { isPhone, isTablet } = useWindowDimensions();
+const NavigationMenu = ({ items, isVisible, closeMenu, rail }: NavigationMenuProps) => {
+  const { isPhone } = useWindowDimensions();
 
-  if (isPhone || isTablet) {
-    if (isVisible) {
-      return <FloatingNavigation items={items} closeMenu={closeMenu} />;
-    }
-    return null;
+  if (isVisible && isPhone) {
+    return <FloatingNavigation items={items} closeMenu={closeMenu} />;
   }
 
-  return <Navigation items={items} />;
+  if (isPhone) return null;
+
+  return <Navigation items={items} rail={rail} />;
 };
 
 export default NavigationMenu;
