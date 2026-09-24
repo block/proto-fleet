@@ -367,4 +367,38 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await new SettingsFirmwarePage(page).deleteChannelIfPresent("E2E firmware rollout A");
     await expect(page.getByRole("heading", { name: "No release channels" })).toBeVisible();
   });
+
+  test("channel deletion opens the intended settings and confirms only its delete dialog", async ({ page }) => {
+    await page.setContent(`
+      ${responsiveModalActions}
+      <section data-testid="release-channel-Unrelated">
+        <button data-testid="channel-settings" onclick="document.querySelector('#unexpected').textContent = 'Wrong channel'">Channel settings</button>
+        <button data-testid="delete-channel" onclick="document.querySelector('#unexpected').textContent = 'Wrong delete action'">Delete channel</button>
+      </section>
+      <section data-testid="release-channel-${channel}">
+        <button data-testid="channel-settings" onclick="document.querySelector('[data-testid=channel-settings-modal]').hidden = false">Channel settings</button>
+      </section>
+      <section data-testid="channel-settings-modal" hidden>
+        <h2>Channel settings</h2>
+        <h3>Delete this channel</h3>
+        <button data-testid="delete-channel" onclick="document.querySelector('[data-testid=delete-channel-dialog]').hidden = false">Delete channel</button>
+      </section>
+      <section data-testid="delete-channel-dialog" hidden>
+        <h2>Delete release channel?</h2>
+        <p>Miners in ${channel} keep their current firmware, but it is no longer enforced for them and the channel's update history is removed.</p>
+        <button onclick="document.querySelector('[data-testid=channel-settings-modal]').remove(); document.querySelector('#target-row').remove(); this.closest('section').remove(); document.querySelector('#deleted').textContent = '${channel}'">Delete channel</button>
+      </section>
+      <table><tbody>
+        <tr id="target-row" data-testid="list-row"><td data-testid="channel-row-${channel}">${channel}</td></tr>
+        <tr data-testid="list-row"><td data-testid="channel-row-Unrelated">Unrelated</td></tr>
+      </tbody></table>
+      <p id="unexpected"></p>
+      <p id="deleted"></p>
+    `);
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.deleteChannel(channel);
+    await expect(page.locator("#deleted")).toHaveText(channel);
+    await expect(page.locator("#unexpected")).toBeEmpty();
+    await expect(firmware.channelRow("Unrelated")).toBeVisible();
+  });
 });

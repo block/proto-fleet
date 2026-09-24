@@ -833,31 +833,15 @@ const ReleaseChannelManageView = ({
                 testId="apply-firmware-changes"
               />
             </>
-          ) : (
-            <>
-              {onShowHistory ? (
-                <Button
-                  variant={variants.secondary}
-                  size={sizes.compact}
-                  text="History"
-                  onClick={() => onShowHistory(channel)}
-                  testId="channel-history"
-                />
-              ) : null}
-              {onDelete ? (
-                <Button
-                  variant={variants.danger}
-                  size={sizes.compact}
-                  text="Delete"
-                  disabled={isWriting}
-                  onClick={() => {
-                    if (!writeInFlightRef.current && !isWriting) onDelete(channel);
-                  }}
-                  testId="delete-channel"
-                />
-              ) : null}
-            </>
-          )}
+          ) : onShowHistory ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="History"
+              onClick={() => onShowHistory(channel)}
+              testId="channel-history"
+            />
+          ) : null}
         </div>
       </div>
 
@@ -999,6 +983,32 @@ const ReleaseChannelManageView = ({
           ]}
         >
           {settingsFields}
+          {onDelete ? (
+            <div className="mt-8 border-t border-border-10 pt-8">
+              <Section
+                title="Delete this channel"
+                subtext="Miners keep their current firmware. Deleting this channel stops firmware enforcement and removes its update history."
+              >
+                <div className="flex flex-col items-start gap-3">
+                  <Button
+                    variant={variants.danger}
+                    size={sizes.compact}
+                    text="Delete channel"
+                    disabled={hasUnsavedChanges || isWriting}
+                    onClick={() => {
+                      if (!writeInFlightRef.current && !isWriting && !hasUnsavedChanges) onDelete(channel);
+                    }}
+                    testId="delete-channel"
+                  />
+                  {hasUnsavedChanges ? (
+                    <p className="text-200 text-text-primary-70">
+                      Apply or discard your changes before deleting this channel.
+                    </p>
+                  ) : null}
+                </div>
+              </Section>
+            </div>
+          ) : null}
         </Modal>
       ) : null}
 

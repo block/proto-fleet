@@ -122,7 +122,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("pending firmware header actions", () => {
   it("replaces channel actions while staging and restores them after discarding", () => {
     const { onApply, onSave } = renderManage();
-    for (const name of ["Channel settings", "History", "Delete"]) {
+    for (const name of ["Channel settings", "History"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
@@ -130,14 +130,14 @@ describe("pending firmware header actions", () => {
 
     chooseFile("next");
     expect(screen.getByTestId("channel-settings")).toBeEnabled();
-    for (const name of ["History", "Delete"]) {
+    for (const name of ["History"]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-    for (const name of ["Channel settings", "History", "Delete"]) {
+    for (const name of ["Channel settings", "History"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
@@ -156,11 +156,11 @@ describe("pending firmware header actions", () => {
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     expect(screen.getByTestId("channel-settings")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "History" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "History" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeVisible();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Production");
     expect(onSave).not.toHaveBeenCalled();
@@ -423,7 +423,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
     expect(screen.getByText("Refreshing update status")).toBeInTheDocument();
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
-    for (const name of ["Channel settings", "History", "Delete"]) {
+    for (const name of ["Channel settings", "History"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
     update({
@@ -534,7 +534,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
     expect(screen.getByTestId("channel-settings")).toBeEnabled();
-    for (const name of ["History", "Delete"]) {
+    for (const name of ["History"]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();

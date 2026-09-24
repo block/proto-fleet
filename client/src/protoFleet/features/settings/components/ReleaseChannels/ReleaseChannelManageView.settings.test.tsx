@@ -24,6 +24,63 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("channel settings modal", () => {
+  it("offers deletion only after the settings sections and keeps settings open for confirmation", () => {
+    const onDelete = vi.fn();
+    render(<ReleaseChannelManageView {...manageViewProps()} channel={canaryChannel} onDelete={onDelete} />);
+
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    openChannelSettings();
+    const modal = screen.getByTestId("channel-settings-modal");
+    const settings = within(modal);
+    const deleteSection = settings.getByText("Delete this channel");
+    expect(
+      settings.getByText("Applies to").compareDocumentPosition(deleteSection) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const deleteButton = settings.getByRole("button", { name: "Delete channel" });
+    expect(deleteButton).toBeEnabled();
+    fireEvent.click(deleteButton);
+    expect(onDelete).toHaveBeenCalledExactlyOnceWith(canaryChannel);
+    expect(modal).toBeInTheDocument();
+  });
+
+  it.each(["settings", "firmware"])("requires %s changes to be applied or discarded before deletion", (draft) => {
+    const onDelete = vi.fn();
+    render(<ReleaseChannelManageView {...manageViewProps()} channel={canaryChannel} onDelete={onDelete} />);
+    if (draft === "settings") {
+      openChannelSettings();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved channel" } });
+      closeChannelSettings();
+    } else {
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    }
+    openChannelSettings();
+    const modal = within(screen.getByTestId("channel-settings-modal"));
+    expect(modal.getByTestId("delete-channel")).toBeDisabled();
+    expect(modal.getByText(/apply or discard/i)).toBeInTheDocument();
+    fireEvent.click(modal.getByTestId("delete-channel"));
+    expect(onDelete).not.toHaveBeenCalled();
+    closeChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    openChannelSettings();
+    expect(screen.getByTestId("delete-channel")).toBeEnabled();
+  });
+
+  it("disables deletion while another channel write is pending", () => {
+    const props = {
+      ...manageViewProps(),
+      channel: canaryChannel,
+      onDelete: vi.fn(),
+      writeLock: { isLocked: false, tryAcquire: vi.fn(), release: vi.fn() },
+    };
+    const { rerender } = render(<ReleaseChannelManageView {...props} />);
+    openChannelSettings();
+    rerender(<ReleaseChannelManageView {...props} writeLock={{ ...props.writeLock, isLocked: true }} />);
+    expect(screen.getByTestId("delete-channel")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("delete-channel"));
+    expect(props.onDelete).not.toHaveBeenCalled();
+  });
+
   it("prioritizes assigned miners and opens the three settings sections on demand", async () => {
     render(<ReleaseChannelManageView {...manageViewProps()} channel={canaryChannel} />);
 
@@ -41,6 +98,7 @@ describe("channel settings modal", () => {
     expect(settings.getByText("Update behavior")).toBeVisible();
     expect(settings.getByLabelText("Name")).toHaveValue(canaryChannel.name);
     expect(settings.getByTestId("save-channel")).toBeDisabled();
+    expect(settings.queryByText("Delete this channel")).not.toBeInTheDocument();
   });
 
   it("keeps settings editable while staging firmware and discards the entire draft", () => {
@@ -113,7 +171,7 @@ describe("channel settings modal", () => {
   });
 
   it("shows new-channel settings in the create modal and validates before saving", async () => {
-    render(<ReleaseChannelManageView {...manageViewProps()} />);
+    render(<ReleaseChannelManageView {...manageViewProps()} onDelete={vi.fn()} />);
     const modal = within(screen.getByTestId("create-release-channel-modal"));
     expect(modal.getByText("Create release channel")).toBeInTheDocument();
     expect(modal.getByTestId("release-channel-new")).toBeInTheDocument();
@@ -132,6 +190,8 @@ describe("channel settings modal", () => {
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(screen.queryByTestId("channel-settings")).not.toBeInTheDocument();
     expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
+    expect(modal.queryByText("Delete this channel")).not.toBeInTheDocument();
+    expect(modal.queryByTestId("delete-channel")).not.toBeInTheDocument();
   });
 
   it("blocks create-modal dismissal while another channel write holds the lock", () => {

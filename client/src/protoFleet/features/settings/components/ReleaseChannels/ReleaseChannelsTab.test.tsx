@@ -261,6 +261,36 @@ describe("release channel history on demand", () => {
   });
 });
 
+describe("release channel deletion navigation", () => {
+  it.each(["Cancel", "Escape"])(
+    "returns to channel settings after dismissing deletion confirmation with %s",
+    async (dismiss) => {
+      const api = apiFor();
+      render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
+      await flush();
+      expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+      openChannelSettings();
+      const settings = screen.getByTestId("channel-settings-modal");
+      fireEvent.click(within(settings).getByRole("button", { name: "Delete channel" }));
+      const confirmation = screen.getByTestId("delete-channel-dialog");
+      expect(settings).toBeInTheDocument();
+      expect(confirmation).toHaveTextContent(canaryChannel.name);
+      if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+      else fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+      expect(settings).toBeInTheDocument();
+      expect(within(settings).getByLabelText("Name")).toHaveValue(canaryChannel.name);
+      expect(within(settings).getByTestId("delete-channel")).toBeEnabled();
+      expect(api.deleteChannel).not.toHaveBeenCalled();
+      fireEvent.change(within(settings).getByLabelText("Name"), { target: { value: "Still editable" } });
+      expect(within(settings).getByTestId("save-channel")).toBeEnabled();
+      // The confirmation is dismissed even while its exit animation retains the DOM.
+      // Escape must now belong to settings rather than the old confirmation.
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
+    },
+  );
+});
+
 describe("release channel deletion coordination", () => {
   it("blocks Delete during settings Apply and its follow-up read, including actions before a rerender", async () => {
     const api = apiFor();
@@ -273,10 +303,11 @@ describe("release channel deletion coordination", () => {
     });
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
-    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("delete-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
     expect(api.updateChannel).not.toHaveBeenCalled();
     const apply = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" });
@@ -318,6 +349,7 @@ describe("release channel deletion coordination", () => {
     });
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
@@ -346,6 +378,7 @@ describe("release channel deletion coordination", () => {
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
@@ -396,6 +429,7 @@ describe("acknowledged channel writes", () => {
       <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
     );
     await flush();
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     fireEvent.click(deleteConfirm());
     const failed = { ...api, error: new Error("Refresh failed") };
@@ -408,6 +442,7 @@ describe("acknowledged channel writes", () => {
     await flush();
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("manage-channel-Production"));
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
     rerender(<ReleaseChannelsTab {...historyActions} api={{ ...failed, channels: [...api.channels] }} />);
@@ -490,6 +525,7 @@ describe("acknowledged channel writes", () => {
       <ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />,
     );
     await flush();
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("delete-channel"));
     await act(async () => fireEvent.click(deleteConfirm()));
     expect(screen.queryByTestId("channel-row-Canary")).not.toBeInTheDocument();
@@ -519,6 +555,7 @@ describe("acknowledged channel writes", () => {
         fireEvent.click(screen.getByTestId("save-channel"));
       } else {
         fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+        openChannelSettings();
         fireEvent.click(screen.getByTestId("delete-channel"));
         fireEvent.click(deleteConfirm());
       }

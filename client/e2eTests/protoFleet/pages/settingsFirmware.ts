@@ -674,15 +674,20 @@ export class SettingsFirmwarePage extends BasePage {
     } while (performance.now() - startedAt < durationMs);
   }
 
-  // Deletes the channel from its open manage view. Deleting returns to the
-  // channels table, where the row must be gone.
+  // Deletes the channel from its settings modal. Deleting returns to the
+  // channels table, where the row and settings modal must be gone.
   async deleteChannel(channelName: string) {
     await this.closeChannelSettings();
-    await this.channelView(channelName).getByTestId("delete-channel").click();
+    await this.channelView(channelName).getByTestId("channel-settings").click();
+    const settings = this.page.getByTestId("channel-settings-modal");
+    await expect(settings).toBeVisible();
+    await settings.getByTestId("delete-channel").click();
     const dialog = this.page.getByTestId("delete-channel-dialog");
     await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Miners in ${channelName} keep their current firmware`);
     await dialog.getByRole("button", { name: "Delete channel", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await expect(settings).toBeHidden();
     await expect(this.channelRow(channelName)).toBeHidden();
   }
 
