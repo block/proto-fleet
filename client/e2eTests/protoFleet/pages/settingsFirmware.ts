@@ -300,7 +300,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async closeUpdateDetail() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Close update details" }).click();
+    await this.page.getByTestId("modal").getByRole("button", { name: "Back", exact: true }).click();
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
@@ -452,18 +452,17 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(evidence.getByTestId("evidence-errors")).toBeVisible();
   }
 
-  // Opens the miners drill-down from the detail's overflow menu and checks
+  // Opens the miners drill-down beside the detail's progress and checks
   // it lists this many miners, then closes it.
   async validateDetailMinersCount(count: number) {
-    await this.detailModal().getByTestId("view-rollout-more-actions-trigger").click();
-    await this.page.getByTestId("view-rollout-view-miners-action").click();
+    await this.detailModal().getByTestId("view-rollout-view-miners-action").click();
     const miners = this.page.getByTestId("rollout-miners-modal");
     await expect(miners.getByTestId("list-row")).toHaveCount(count);
     await miners.getByRole("button", { name: "Done", exact: true }).click();
     await expect(miners).toBeHidden();
   }
 
-  // Pause from the detail header and confirm the update reports paused;
+  // Pause from the live status and confirm the update reports paused;
   // then resume and confirm it no longer does.
   async pauseAndResumeFromDetail() {
     await this.detailModal().getByRole("button", { name: "Pause", exact: true }).click();
@@ -475,7 +474,7 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("paused-banner")).toBeHidden();
   }
 
-  // Releases the review gate from the detail header; the detail stays open
+  // Releases the review gate from the live status; the detail stays open
   // showing the next step, so close it explicitly afterwards.
   async continueFromDetail() {
     await this.detailModal().getByRole("button", { name: "Continue", exact: true }).click();

@@ -34,12 +34,12 @@ import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { useTemperatureUnit } from "@/protoFleet/store";
-import { Alert, Dismiss, Info, Success } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import { Alert, ArrowRight, Info, Success } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import type { ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout, { intents } from "@/shared/components/Callout";
 import CompositionBar from "@/shared/components/CompositionBar";
-import Header from "@/shared/components/Header";
+import Dialog from "@/shared/components/Dialog";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
@@ -198,10 +198,9 @@ interface RolloutDetailModalProps extends RolloutDetailActions {
   onClose: () => void;
 }
 
-// Full-screen update detail: a sticky header carrying the lifecycle actions,
-// then (failures first) the status lockup, plan stat lockups, progress
-// against plan, and the telemetry evidence strip. Miner drill-downs open as
-// a standalone list modal.
+// Full-screen update detail: the live view fills the modal and contains its
+// own title, dismissal, status, lifecycle controls, progress and evidence.
+// Miner drill-downs open as a standalone list modal.
 const RolloutDetailModal = ({
   rollout,
   currentGeneration,
@@ -221,6 +220,7 @@ const RolloutDetailModal = ({
   const [isContinuing, setIsContinuing] = useState(false);
   const [isTogglingPause, setIsTogglingPause] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [retryTarget, setRetryTarget] = useState<Rollout | null>(null);
   const [minersFilter, setMinersFilter] = useState<RolloutMinerFilter | null>(null);
 
   const active = isActiveRollout(rollout);
@@ -238,6 +238,10 @@ const RolloutDetailModal = ({
   const canRollBack = isCurrentGeneration(rollout, currentGeneration);
   const retryAllowed = canRetryRemaining ?? active;
 
+  // A poll can invalidate this assignment while its confirmation is open.
+  // Clear that confirmation so it cannot reappear if eligibility returns.
+  if (retryTarget && (!retryAllowed || retryTarget.id !== rollout.id)) setRetryTarget(null);
+
   const handleContinue = () => {
     setIsContinuing(true);
     onContinue(rollout).finally(() => setIsContinuing(false));
@@ -247,26 +251,18 @@ const RolloutDetailModal = ({
     (paused ? onResume(rollout) : onPause(rollout)).finally(() => setIsTogglingPause(false));
   };
   const handleRetry = () => {
+    if (!retryTarget || !retryAllowed || busy) return;
+    setRetryTarget(null);
     setIsRetrying(true);
-    onRetryFailed(rollout).finally(() => setIsRetrying(false));
+    onRetryFailed(retryTarget).finally(() => setIsRetrying(false));
   };
   const busy = isContinuing || isTogglingPause || isRetrying;
 
-  // Header action bar: Manage / Continue / Resume / Pause / Retry remaining
-  // inline, the rest in an overflow menu, mirroring the design's
-  // ViewRolloutModal.
-  const headerButtons: ButtonProps[] = [];
-  if (onManage) {
-    headerButtons.push({
-      text: "Manage",
-      variant: variants.secondary,
-      onClick: () => onManage(rollout),
-      disabled: busy,
-      testId: "view-rollout-manage-action",
-    });
-  }
+  // Keep the current-state controls beside status; recovery and channel
+  // management remain available through the same card's overflow menu.
+  const lifecycleButtons: ButtonProps[] = [];
   if (canContinue) {
-    headerButtons.push({
+    lifecycleButtons.push({
       text: "Continue",
       variant: variants.primary,
       onClick: handleContinue,
@@ -276,7 +272,7 @@ const RolloutDetailModal = ({
     });
   }
   if (active) {
-    headerButtons.push({
+    lifecycleButtons.push({
       text: paused ? "Resume" : "Pause",
       variant: paused ? variants.primary : variants.secondary,
       onClick: handleTogglePause,
@@ -285,19 +281,23 @@ const RolloutDetailModal = ({
       testId: paused ? "view-rollout-resume-action" : "view-rollout-pause-action",
     });
   }
+  const overflowActions: RowAction[] = [];
+  if (onManage) {
+    overflowActions.push({
+      label: "Manage channel",
+      onClick: () => onManage(rollout),
+      disabled: busy,
+      testId: "view-rollout-manage-action",
+    });
+  }
   if (retryAllowed) {
-    headerButtons.push({
-      text: "Retry remaining",
-      variant: variants.secondary,
-      onClick: handleRetry,
-      loading: isRetrying,
-      disabled: isContinuing || isTogglingPause,
+    overflowActions.push({
+      label: "Retry remaining",
+      onClick: () => setRetryTarget(rollout),
+      disabled: busy,
       testId: "view-rollout-retry-action",
     });
   }
-  const overflowActions: RowAction[] = [
-    { label: "View miners", onClick: () => setMinersFilter("all"), testId: "view-rollout-view-miners-action" },
-  ];
   if (canRollBack) {
     overflowActions.push({
       label: rollbackLabel(rollout),
@@ -307,11 +307,13 @@ const RolloutDetailModal = ({
     });
   }
   if (active) {
+    const previousAction = overflowActions[overflowActions.length - 1];
+    if (previousAction) previousAction.showGroupDivider = true;
     overflowActions.push({
       label: "Cancel remaining",
       onClick: () => onCancel(rollout),
       disabled: busy,
-      showGroupDivider: false,
+      danger: true,
       testId: "view-rollout-cancel-action",
     });
   }
@@ -324,132 +326,64 @@ const RolloutDetailModal = ({
         size={modalSizes.fullscreen}
         showHeader={false}
         className="!p-0"
-        bodyClassName="flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6"
+        bodyClassName="flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base"
       >
-        <div className="sticky top-0 z-10 bg-surface-base px-6 pt-6 pb-4" data-testid="rollout-detail-header">
-          <Header
-            title={title}
-            titleSize="text-heading-200"
-            icon={<Dismiss />}
-            iconAriaLabel="Close update details"
-            iconOnClick={onClose}
-            inline
-            centerButton
-            stackButtonsOnPhone={false}
-            buttons={headerButtons}
+        <div className="flex w-full flex-1 p-4 tablet:p-6" data-testid={`rollout-detail-${rollout.id.toString()}`}>
+          <div
+            className="w-full rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10"
+            data-testid="rollout-live-view"
           >
-            <RowActionsMenu
-              actions={overflowActions}
-              ariaLabel={`More actions for ${title}`}
-              popoverTestId="view-rollout-more-actions-menu"
-              testIdPrefix="view-rollout-more-actions"
-              triggerClassName="!h-10 !w-10 !px-0 !py-0"
-              triggerVariant={variants.secondary}
-            />
-          </Header>
-          {refreshWarning ? <div className="mt-4">{refreshWarning}</div> : null}
-          {retryAllowed ? (
-            <p className="mt-3 text-200 text-text-primary-50">
-              Retry remaining retries failed, skipped, or canceled work for this firmware assignment, including earlier
-              updates. It does not advance review gates.
-            </p>
-          ) : null}
-        </div>
-
-        <div className="mx-auto w-full max-w-[800px] px-6 pb-6" data-testid={`rollout-detail-${rollout.id.toString()}`}>
-          <div className="pt-6">
-            {failed > 0 ? (
-              <Callout
-                intent={intents.danger}
-                prefixIcon={<Alert />}
-                testId="rollout-failed-banner"
-                title={`${minersNoun(failed)} failed to update`}
-                subtitle="Review miner details for the cause of each failed update."
-                buttonText="Review miners"
-                buttonOnClick={() => setMinersFilter("failed")}
+            <div className="mb-8 flex items-center gap-4">
+              <Button
+                ariaLabel="Back"
+                prefixIcon={<ArrowRight className="rotate-180" />}
+                variant={variants.secondary}
+                size={sizes.compact}
+                className="shrink-0"
+                onClick={onClose}
+                testId="view-rollout-back-action"
               />
-            ) : null}
-
-            <div className={clsx("grid gap-3", failed > 0 && "mt-10")}>
-              <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
-                {statusIcon(rollout)}
-              </div>
-              <div>
-                <div className="text-heading-50 text-text-primary-70">Update status</div>
-                <div className="text-heading-300 text-text-primary" data-testid="rollout-status-headline">
-                  {rolloutStageLabel(rollout)}
+              <h2
+                className="min-w-0 text-heading-200 wrap-anywhere text-text-primary"
+                data-testid="rollout-detail-title"
+              >
+                {title}
+              </h2>
+            </div>
+            {refreshWarning ? <div className="mb-6">{refreshWarning}</div> : null}
+            <div className="flex flex-wrap items-start justify-between gap-6">
+              <div className="grid min-w-0 gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
+                  {statusIcon(rollout)}
+                </div>
+                <div>
+                  <div className="text-heading-50 text-text-primary-70">Update status</div>
+                  <div className="text-heading-300 text-text-primary" data-testid="rollout-status-headline">
+                    {rolloutStageLabel(rollout)}
+                  </div>
                 </div>
               </div>
-            </div>
-
-            {canContinue ? (
-              <Callout
-                className="mt-10"
-                intent={intents.information}
-                prefixIcon={<Info />}
-                testId="review-banner"
-                title={`${counts.updated} of ${scopedTargetCount} miners in this batch updated to ${rollout.firmwareVersion}.`}
-                subtitle={
-                  evidence && rollout.behavior?.autoContinueOnHealthyTelemetry
-                    ? evidence.readyToAdvance
-                      ? "Conditions met — continuing automatically."
-                      : rollout.state === RolloutState.STABILIZING_TELEMETRY
-                        ? `Continues automatically in ${formatDurationSeconds(evidence.stabilizationRemainingSeconds)} if telemetry holds.`
-                        : `Holding for review: ${evidence.holdReason}.`
-                    : rollout.currentBatch + 1 < rollout.batchCount
-                      ? "Check the evidence below, then continue to start the next batch."
-                      : "Check the evidence below, then continue to update the remaining miners."
-                }
-              />
-            ) : null}
-
-            {paused ? (
-              <Callout
-                className="mt-10"
-                intent={intents.information}
-                prefixIcon={<Info />}
-                testId="paused-banner"
-                title="Update paused"
-                subtitle="No new update commands are sent and the update does not advance until resumed. Miners already updating finish on their own."
-              />
-            ) : null}
-
-            <div className="mt-10" data-testid="rollout-detail-stats">
-              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-                <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(rollout.deviceCount)}`} />
-                <StatBlock label="Method" value={pacingSummary(rollout.behavior)} />
-                {rollout.behavior && gatesAfterBatch(rollout.behavior) ? (
-                  <StatBlock label="Review gates" value={thresholdSummary(rollout)} />
-                ) : null}
-                <StatBlock
-                  label="Target version"
-                  value={rollout.firmwareVersion}
-                  detail={rollout.previousFirmwareVersion ? `from ${rollout.previousFirmwareVersion}` : undefined}
+              <div className="flex flex-wrap items-center gap-3" data-testid="rollout-detail-actions">
+                {lifecycleButtons.map((button) => (
+                  <Button key={button.testId} {...button} size={sizes.compact} />
+                ))}
+                <RowActionsMenu
+                  actions={overflowActions}
+                  ariaLabel={`More actions for ${title}`}
+                  popoverTestId="view-rollout-more-actions-menu"
+                  testIdPrefix="view-rollout-more-actions"
+                  triggerClassName="!h-8 !w-8 !px-0 !py-0"
+                  triggerVariant={variants.secondary}
                 />
-                {evidence ? (
-                  <>
-                    <StatBlock
-                      label="Back online"
-                      value={`${evidence.online} of ${evidence.devicesTotal}`}
-                      detail={`Evidence: ${evidenceScopeLabel(rollout).toLowerCase()}`}
-                      testId="evidence-online"
-                    />
-                    <StatBlock
-                      label="Hashing"
-                      value={`${evidence.hashing} of ${evidence.devicesTotal}`}
-                      detail={`${evidenceScopeLabel(rollout)}; was ${evidence.baselineHashing} before the update`}
-                      testId="evidence-hashing"
-                    />
-                  </>
-                ) : null}
-                <StatBlock label="Started" value={formatRolloutTimestamp(rollout.createdAt)} />
-                {rollout.finishedAt ? (
-                  <StatBlock label="Finished" value={formatRolloutTimestamp(rollout.finishedAt)} />
-                ) : null}
               </div>
             </div>
+            {isRetrying ? (
+              <p role="status" className="mt-3 text-200 text-text-primary-70">
+                Requesting retry…
+              </p>
+            ) : null}
 
-            <div className="mt-10 grid gap-3" data-testid="rollout-detail-progress">
+            <div className="mt-6 grid gap-3" data-testid="rollout-detail-progress">
               <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                 <div className="text-200 text-text-primary-50">
                   {`${scopedToBatch(rollout) ? batchLabel(rollout) : "Overall progress"}: ${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated (${counts.percent}%)`}
@@ -487,19 +421,124 @@ const RolloutDetailModal = ({
                   <span className="text-right text-text-primary-50">{`${counts.skipped.toLocaleString()} skipped`}</span>
                 ) : null}
               </div>
+              <Button
+                text="View miners"
+                variant={variants.textOnly}
+                className="justify-self-start"
+                onClick={() => setMinersFilter("all")}
+                testId="view-rollout-view-miners-action"
+              />
             </div>
 
-            {active && evidence ? (
+            {failed > 0 ? (
+              <Callout
+                className="mt-6"
+                intent={intents.danger}
+                prefixIcon={<Alert />}
+                testId="rollout-failed-banner"
+                title={`${minersNoun(failed)} failed to update`}
+                subtitle="Review miner details for the cause of each failed update."
+                buttonText="Review miners"
+                buttonOnClick={() => setMinersFilter("failed")}
+              />
+            ) : null}
+
+            {canContinue ? (
+              <Callout
+                className="mt-6"
+                intent={intents.information}
+                prefixIcon={<Info />}
+                testId="review-banner"
+                title={`${counts.updated} of ${scopedTargetCount} miners in this batch updated to ${rollout.firmwareVersion}.`}
+                subtitle={
+                  evidence && rollout.behavior?.autoContinueOnHealthyTelemetry
+                    ? evidence.readyToAdvance
+                      ? "Conditions met — continuing automatically."
+                      : rollout.state === RolloutState.STABILIZING_TELEMETRY
+                        ? `Continues automatically in ${formatDurationSeconds(evidence.stabilizationRemainingSeconds)} if telemetry holds.`
+                        : `Holding for review: ${evidence.holdReason}.`
+                    : rollout.currentBatch + 1 < rollout.batchCount
+                      ? "Check the evidence below, then continue to start the next batch."
+                      : "Check the evidence below, then continue to update the remaining miners."
+                }
+              />
+            ) : null}
+
+            {paused ? (
+              <Callout
+                className="mt-6"
+                intent={intents.information}
+                prefixIcon={<Info />}
+                testId="paused-banner"
+                title="Update paused"
+                subtitle="No new update commands are sent and the update does not advance until resumed. Miners already updating finish on their own."
+              />
+            ) : null}
+
+            <div className="mt-10" data-testid="rollout-detail-stats">
+              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
+                <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(rollout.deviceCount)}`} />
+                <StatBlock
+                  label="Target version"
+                  value={rollout.firmwareVersion}
+                  detail={rollout.previousFirmwareVersion ? `from ${rollout.previousFirmwareVersion}` : undefined}
+                />
+                <StatBlock label="Method" value={pacingSummary(rollout.behavior)} />
+                {rollout.behavior && gatesAfterBatch(rollout.behavior) ? (
+                  <StatBlock label="Review gates" value={thresholdSummary(rollout)} />
+                ) : null}
+                <StatBlock label="Started" value={formatRolloutTimestamp(rollout.createdAt)} />
+                {rollout.finishedAt ? (
+                  <StatBlock label="Finished" value={formatRolloutTimestamp(rollout.finishedAt)} />
+                ) : null}
+              </div>
+            </div>
+
+            {evidence ? (
               <div className="mt-10" data-testid="rollout-evidence">
                 <div className="mb-4 text-200 text-text-primary-50">
                   {`Telemetry evidence: ${evidenceScopeLabel(rollout).toLowerCase()} (${minersNoun(evidence.devicesTotal)})`}
                 </div>
-                <PerformanceStrip evidence={evidence} />
+                <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-5">
+                  <StatBlock
+                    label="Back online"
+                    value={`${evidence.online} of ${evidence.devicesTotal}`}
+                    detail={`Evidence: ${evidenceScopeLabel(rollout).toLowerCase()}`}
+                    testId="evidence-online"
+                  />
+                  <StatBlock
+                    label="Hashing"
+                    value={`${evidence.hashing} of ${evidence.devicesTotal}`}
+                    detail={`${evidenceScopeLabel(rollout)}; was ${evidence.baselineHashing} before the update`}
+                    testId="evidence-hashing"
+                  />
+                </div>
+                {active ? <PerformanceStrip evidence={evidence} /> : null}
               </div>
             ) : null}
           </div>
         </div>
       </Modal>
+
+      {retryTarget && retryAllowed ? (
+        <Dialog
+          open
+          testId="retry-rollout-dialog"
+          title="Retry remaining updates?"
+          subtitle={`Retry failed, skipped, or canceled work for ${pairLabel(retryTarget)} in ${retryTarget.channelName}, including earlier updates for this firmware assignment. This does not advance review gates.`}
+          onDismiss={() => setRetryTarget(null)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setRetryTarget(null) },
+            {
+              text: "Retry remaining",
+              testId: "confirm-rollout-retry",
+              variant: variants.primary,
+              onClick: handleRetry,
+              disabled: busy,
+            },
+          ]}
+        />
+      ) : null}
 
       {minersFilter !== null ? (
         <RolloutMinersModal

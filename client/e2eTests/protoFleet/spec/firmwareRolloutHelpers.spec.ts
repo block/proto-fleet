@@ -258,6 +258,30 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await firmware.waitForModelReviewNeeded(channel, 300);
   });
 
+  test("detail miners open directly from the live progress without opening other actions", async ({ page }) => {
+    await page.setContent(`
+      ${responsiveModalActions}
+      <button data-testid="view-rollout-view-miners-action">Another update's miners</button>
+      <section data-testid="modal">
+        <button data-testid="view-rollout-more-actions-trigger" onclick="document.body.dataset.openedMenu = 'true'">More actions</button>
+        <section aria-label="Update progress">
+          <button data-testid="view-rollout-view-miners-action" onclick="document.querySelector('[data-testid=rollout-miners-modal]').hidden = false">View miners</button>
+        </section>
+      </section>
+      <section data-testid="rollout-miners-modal" hidden>
+        <table><tbody>
+          <tr data-testid="list-row"><td>Miner one</td></tr>
+          <tr data-testid="list-row"><td>Miner two</td></tr>
+        </tbody></table>
+        <button onclick="this.closest('section').hidden = true">Done</button>
+      </section>
+    `);
+    await new SettingsFirmwarePage(page).validateDetailMinersCount(2);
+    await expect(page.getByTestId("rollout-miners-modal")).toBeHidden();
+    await expect(page.getByTestId("modal")).toBeVisible();
+    await expect(page.locator("body")).not.toHaveAttribute("data-opened-menu");
+  });
+
   test("completion rejects an ongoing progress bar even after miners report the target version", async ({ page }) => {
     await renderTables(page, completed, miner(1, version) + miner(2, version), rolloutProgress());
     await expect(

@@ -61,8 +61,7 @@ describe("rollout evidence scope", () => {
     expect(screen.getByTestId("evidence-online")).toHaveTextContent("Evidence: remaining miners");
     expect(screen.getByTestId("rollout-evidence")).toHaveTextContent("Telemetry evidence: remaining miners (2 miners)");
 
-    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
-    fireEvent.click(screen.getByTestId("view-rollout-view-miners-action"));
+    fireEvent.click(within(screen.getByTestId("rollout-detail-progress")).getByRole("button", { name: "View miners" }));
     expect(
       await screen.findByText("4 miners in this update; evidence scope: remaining miners (2 miners)"),
     ).toBeInTheDocument();

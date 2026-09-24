@@ -14,9 +14,8 @@ import {
 import RolloutDetailModal from "./RolloutDetailModal";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
-// The full-screen update detail: lifecycle actions in the sticky header,
-// failures first, the status lockup, plan stats, progress against plan and
-// the telemetry evidence strip.
+// The full-screen live view contains its own title and dismissal alongside
+// status, lifecycle controls, progress, plan details and telemetry evidence.
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Update Detail",
   component: RolloutDetailModal,

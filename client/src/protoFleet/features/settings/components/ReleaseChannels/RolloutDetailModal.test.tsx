@@ -66,6 +66,7 @@ describe.each(["success", "failure"] as const)("overflow actions during lifecycl
     expect(screen.getByTestId("view-rollout-rollback-action")).not.toBeDisabled();
 
     fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
+    if (action === "retry") fireEvent.click(screen.getByTestId("confirm-rollout-retry"));
     const refreshed = { ...rollout, revision: rollout.revision + 1n };
     rerender(<RolloutDetailModal {...props} rollout={refreshed} />);
     if (!screen.queryByTestId("view-rollout-more-actions-menu"))
@@ -104,8 +105,9 @@ it("keeps the miner drill-down available while a lifecycle mutation is pending",
   const props = { ...propsFor(activeRigRollout), currentGeneration: activeRigRollout.assignmentGeneration };
   props.onRetryFailed.mockReturnValue(pending.promise);
   render(<RolloutDetailModal {...props} />);
-  fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
   fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+  fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+  fireEvent.click(screen.getByTestId("confirm-rollout-retry"));
   fireEvent.click(screen.getByTestId("view-rollout-view-miners-action"));
   expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
   expect(props.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(activeRigRollout.id, expect.any(AbortSignal));
@@ -184,28 +186,122 @@ describe("rollout scope and neutral targets", () => {
 });
 
 describe("remaining rollout retry action", () => {
+  const openRetry = () => {
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    return screen.getByTestId("retry-rollout-dialog");
+  };
+
   it("requires confirmed eligibility for a terminal rollout and updates when eligibility changes", async () => {
-    const props = propsFor(completedWithFailuresRigRollout);
+    const props = { ...propsFor(completedWithFailuresRigRollout), onManage: vi.fn() };
     const { rerender } = render(<RolloutDetailModal {...props} />);
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
     expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
     expect(screen.getByTestId("rollout-failed-banner")).toBeInTheDocument();
 
     rerender(<RolloutDetailModal {...props} canRetryRemaining />);
     fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    expect(props.onRetryFailed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("confirm-rollout-retry"));
     await waitFor(() => expect(props.onRetryFailed).toHaveBeenCalledExactlyOnceWith(props.rollout));
 
     rerender(<RolloutDetailModal {...props} canRetryRemaining={false} />);
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
     expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
     expect(screen.getByTestId("rollout-failed-banner")).toBeInTheDocument();
   });
 
-  it("keeps retry available for an active rollout even when it has no failures of its own", async () => {
+  it("explains the assignment-wide retry only on request, including when this update has no failures", async () => {
     const props = propsFor(activeRigRollout);
     render(<RolloutDetailModal {...props} />);
-    expect(screen.getByText(/including earlier updates\. It does not advance review gates\./)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry remaining" }));
+    expect(screen.queryByText(/including earlier updates/)).not.toBeInTheDocument();
+    const dialog = openRetry();
+    expect(dialog).toHaveTextContent(/including earlier updates/);
+    expect(dialog).toHaveTextContent(/does not advance review gates/);
+    expect(props.onRetryFailed).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByTestId("confirm-rollout-retry"));
     await waitFor(() => expect(props.onRetryFailed).toHaveBeenCalledExactlyOnceWith(props.rollout));
+    expect(screen.queryByTestId("retry-rollout-dialog")).not.toBeInTheDocument();
   });
+
+  it("can dismiss the retry explanation without starting a mutation", () => {
+    const props = propsFor(activeRigRollout);
+    render(<RolloutDetailModal {...props} />);
+    const dialog = openRetry();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("retry-rollout-dialog")).not.toBeInTheDocument();
+    expect(props.onRetryFailed).not.toHaveBeenCalled();
+    expect(props.onCancel).not.toHaveBeenCalled();
+    expect(screen.getByTestId("view-rollout-pause-action")).not.toBeDisabled();
+  });
+
+  it("cannot confirm a retry after the assignment becomes ineligible", () => {
+    const props = propsFor(activeRigRollout);
+    const { rerender } = render(<RolloutDetailModal {...props} canRetryRemaining />);
+    openRetry();
+    rerender(<RolloutDetailModal {...props} canRetryRemaining={false} />);
+    const confirm = screen.queryByTestId("confirm-rollout-retry");
+    // Either closing the confirmation or disabling it prevents a stale action.
+    if (confirm) {
+      expect(confirm).toBeDisabled();
+      fireEvent.click(confirm);
+    }
+    expect(props.onRetryFailed).not.toHaveBeenCalled();
+  });
+});
+
+it("keeps lifecycle controls in the live view and miner navigation beside progress", async () => {
+  const props = { ...propsFor(activeRigRollout), onManage: vi.fn() };
+  render(<RolloutDetailModal {...props} />);
+  expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+  const liveView = within(screen.getByTestId("rollout-live-view"));
+  expect(liveView.getByTestId("rollout-detail-title")).toHaveTextContent("Canary, Proto Rig firmware update");
+  const back = liveView.getByRole("button", { name: "Back" });
+  expect(back).toHaveAttribute("data-testid", "view-rollout-back-action");
+  expect(
+    back.compareDocumentPosition(liveView.getByTestId("rollout-detail-title")) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const liveActions = within(screen.getByTestId("rollout-detail-actions"));
+  expect(liveActions.getByTestId("view-rollout-pause-action")).toBeInTheDocument();
+  expect(liveActions.getByTestId("view-rollout-more-actions-trigger")).toBeInTheDocument();
+  expect(liveActions.queryByRole("button", { name: "Retry remaining" })).not.toBeInTheDocument();
+  expect(liveActions.queryByRole("button", { name: "Manage channel" })).not.toBeInTheDocument();
+
+  const progress = screen.getByTestId("rollout-detail-progress");
+  const stats = screen.getByTestId("rollout-detail-stats");
+  expect(progress.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(within(progress).getByRole("button", { name: "View miners" }));
+  expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
+  expect(props.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(activeRigRollout.id, expect.any(AbortSignal));
+});
+
+it("goes back from the live view without changing the update", () => {
+  const props = { ...propsFor(activeRigRollout), onManage: vi.fn() };
+  render(<RolloutDetailModal {...props} />);
+  const liveView = within(screen.getByTestId("rollout-live-view"));
+  fireEvent.click(liveView.getByRole("button", { name: "Back" }));
+  expect(props.onClose).toHaveBeenCalledOnce();
+  expect(props.onContinue).not.toHaveBeenCalled();
+  expect(props.onPause).not.toHaveBeenCalled();
+  expect(props.onResume).not.toHaveBeenCalled();
+  expect(props.onCancel).not.toHaveBeenCalled();
+  expect(props.onRollback).not.toHaveBeenCalled();
+  expect(props.onRetryFailed).not.toHaveBeenCalled();
+  expect(props.onManage).not.toHaveBeenCalled();
+});
+
+it("opens management for the current update from the overflow menu", () => {
+  const props = { ...propsFor(activeRigRollout), onManage: vi.fn() };
+  const { rerender } = render(<RolloutDetailModal {...props} />);
+  const refreshed = { ...activeRigRollout, revision: activeRigRollout.revision + 1n };
+  rerender(<RolloutDetailModal {...props} rollout={refreshed} />);
+  fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+  const manage = screen.getByTestId("view-rollout-manage-action");
+  expect(manage).toHaveTextContent("Manage channel");
+  fireEvent.click(manage);
+  expect(props.onManage).toHaveBeenCalledExactlyOnceWith(refreshed);
+  expect(props.onRetryFailed).not.toHaveBeenCalled();
+  expect(props.onClose).not.toHaveBeenCalled();
 });
 
 describe("review gate controls", () => {
