@@ -238,19 +238,46 @@ func TestRunCycleRejectsMismatchedIdentityAndInvalidEndpoints(t *testing.T) {
 	assert.Empty(t, store.auth)
 }
 
-func TestRunCycleAcceptsOptionalRFC3986EndpointScheme(t *testing.T) {
-	for _, scheme := range []string{"", "ssh"} {
-		t.Run(scheme, func(t *testing.T) {
-			store := &fakeStore{targets: []stores.FleetNodeRecoveryTarget{testTarget(7, "miner", "serial")}, foundApplied: true}
+func TestRunCycleRequiresSupportedEndpointScheme(t *testing.T) {
+	for _, tc := range []struct {
+		scheme string
+		valid  bool
+	}{
+		{scheme: "http", valid: true},
+		{scheme: "https", valid: true},
+		{scheme: "tcp", valid: true},
+		{scheme: "virtual", valid: true},
+		{scheme: ""},
+		{scheme: "ssh"},
+	} {
+		t.Run(tc.scheme, func(t *testing.T) {
+			store := &fakeStore{
+				targets: []stores.FleetNodeRecoveryTarget{
+					testTarget(7, "found", "serial-found"),
+					testTarget(7, "auth", "serial-auth"),
+				},
+				foundApplied: true,
+				authApplied:  true,
+			}
+			invalidator := &recordingInvalidator{}
 			sender := sendFunc(func(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 				return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK,
-					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "miner", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "22", UrlScheme: scheme, SerialNumber: "serial"},
+					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "found", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "80", UrlScheme: tc.scheme, SerialNumber: "serial-found"},
+					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "auth", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, IpAddress: "10.0.0.21", Port: "80", UrlScheme: tc.scheme, SerialNumber: "serial-auth"},
 				), nil
 			})
 
-			NewService(store, sender, nil, nil, testLogger()).RunCycle(t.Context())
+			NewService(store, sender, invalidator, nil, testLogger()).RunCycle(t.Context())
 
-			assert.Equal(t, []string{"miner|10.0.0.20|22|" + scheme}, store.found)
+			if tc.valid {
+				assert.Equal(t, []string{"found|10.0.0.20|80|" + tc.scheme}, store.found)
+				assert.Equal(t, []string{"auth|10.0.0.21|80|" + tc.scheme}, store.auth)
+				assert.Equal(t, []minermodels.DeviceIdentifier{"found", "auth"}, invalidator.identifiers)
+			} else {
+				assert.Empty(t, store.found)
+				assert.Empty(t, store.auth)
+				assert.Empty(t, invalidator.identifiers)
+			}
 		})
 	}
 }

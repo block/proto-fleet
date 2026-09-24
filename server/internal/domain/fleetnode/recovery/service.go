@@ -290,7 +290,8 @@ func validPrivateEndpoint(ipAddress, port, scheme string) bool {
 	if err != nil || portNumber == 0 {
 		return false
 	}
-	return scheme == "" || networking.IsValidURLScheme(scheme)
+	_, err = networking.ProtocolFromString(scheme)
+	return err == nil
 }
 
 func (s *Service) emitResult(ctx context.Context, target stores.FleetNodeRecoveryTarget, outcome gatewaypb.MinerEndpointRecoveryOutcome, applied bool) {
