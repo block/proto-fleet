@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -25,6 +26,7 @@ import (
 
 const (
 	maxTargetsPerCommand  = 512
+	maxConcurrentNodes    = 4
 	maxEncodedRequest     = 900 * 1024
 	recoveryOutcomePrefix = "MINER_ENDPOINT_RECOVERY_OUTCOME_"
 )
@@ -82,17 +84,34 @@ func (s *Service) RunCycle(ctx context.Context) {
 		byNode[target.FleetNodeID] = append(byNode[target.FleetNodeID], target)
 	}
 	nodeIDs := slices.Sorted(maps.Keys(byNode))
-	for _, nodeID := range nodeIDs {
-		selected, payload := s.selectTargets(nodeID, byNode[nodeID])
+	completedNext := make([]string, len(nodeIDs))
+	var workers errgroup.Group
+	workers.SetLimit(maxConcurrentNodes)
+	for i, nodeID := range nodeIDs {
+		if ctx.Err() != nil {
+			break
+		}
+		selected, payload, next := s.selectTargets(nodeID, byNode[nodeID])
 		if len(selected) == 0 {
 			s.logger.Warn("Fleet Node recovery targets exceed command limits", "fleet_node_id", nodeID, "available", len(byNode[nodeID]))
 			continue
 		}
-		s.runNode(ctx, nodeID, selected, payload)
+		workers.Go(func() error {
+			if ctx.Err() == nil && s.runNode(ctx, nodeID, selected, payload) {
+				completedNext[i] = next
+			}
+			return nil
+		})
+	}
+	_ = workers.Wait()
+	for i, next := range completedNext {
+		if next != "" {
+			s.nextTarget[nodeIDs[i]] = next
+		}
 	}
 }
 
-func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
+func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte, string) {
 	start := slices.IndexFunc(targets, func(target stores.FleetNodeRecoveryTarget) bool {
 		return target.DeviceIdentifier == s.nextTarget[nodeID]
 	})
@@ -108,7 +127,19 @@ func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecovery
 	} else {
 		delete(s.nextTarget, nodeID)
 	}
-	return selectTargets(targets)
+	selected, payload := selectTargets(targets)
+	selectedIDs := make(map[string]bool, len(selected))
+	for _, target := range selected {
+		selectedIDs[target.DeviceIdentifier] = true
+	}
+	// Port limits can skip targets inside the batch. Resume at the first
+	// unselected target, not necessarily the one after the last selected target.
+	for _, target := range targets {
+		if !selectedIDs[target.DeviceIdentifier] {
+			return selected, payload, target.DeviceIdentifier
+		}
+	}
+	return selected, payload, ""
 }
 
 func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
@@ -171,40 +202,40 @@ func descriptorFromTarget(target stores.FleetNodeRecoveryTarget) *gatewaypb.Mine
 	}
 }
 
-func (s *Service) runNode(ctx context.Context, nodeID int64, targets []stores.FleetNodeRecoveryTarget, payload []byte) {
+func (s *Service) runNode(ctx context.Context, nodeID int64, targets []stores.FleetNodeRecoveryTarget, payload []byte) bool {
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
 	if err := protovalidate.Validate(cmd); err != nil {
 		s.logger.Error("Fleet Node recovery command failed validation", "fleet_node_id", nodeID, "targets", len(targets), "payload_bytes", len(payload), "error", err)
-		return
+		return false
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	ack, err := s.sender.SendCommand(commandCtx, nodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd)
 	if err != nil {
 		s.logger.Warn("Fleet Node recovery command failed", "fleet_node_id", nodeID, "targets", len(targets), "error", err)
-		return
+		return false
 	}
 	if ack == nil {
 		s.logger.Warn("Fleet Node recovery command returned no acknowledgement", "fleet_node_id", nodeID)
-		return
+		return false
 	}
 	if ack.GetCode() == gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED {
 		s.logger.Warn("Fleet Node recovery command is unsupported; upgrade the node before server activation", "fleet_node_id", nodeID)
-		return
+		return false
 	}
 	if ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK && ack.GetCode() != gatewaypb.AckCode_ACK_CODE_PARTIAL {
 		s.logger.Warn("Fleet Node recovery command was rejected", "fleet_node_id", nodeID, "ack_code", ack.GetCode().String())
-		return
+		return false
 	}
 	if ack.GetCode() == gatewaypb.AckCode_ACK_CODE_OK && !ack.GetSucceeded() {
 		s.logger.Warn("Fleet Node recovery returned an inconsistent acknowledgement", "fleet_node_id", nodeID)
-		return
+		return false
 	}
 
 	response := &gatewaypb.RecoverMinerEndpointsResult{}
 	if err := proto.Unmarshal(ack.GetPayload(), response); err != nil || protovalidate.Validate(response) != nil {
 		s.logger.Warn("Fleet Node recovery returned an invalid payload", "fleet_node_id", nodeID)
-		return
+		return false
 	}
 	requested := make(map[string]stores.FleetNodeRecoveryTarget, len(targets))
 	for _, target := range targets {
@@ -215,11 +246,11 @@ func (s *Service) runNode(ctx context.Context, nodeID int64, targets []stores.Fl
 		identifier := result.GetDeviceIdentifier()
 		if _, duplicate := seen[identifier]; duplicate {
 			s.logger.Warn("Fleet Node recovery returned duplicate device results", "fleet_node_id", nodeID)
-			return
+			return false
 		}
 		if _, known := requested[identifier]; !known {
 			s.logger.Warn("Fleet Node recovery returned an unrequested device", "fleet_node_id", nodeID)
-			return
+			return false
 		}
 		seen[identifier] = struct{}{}
 	}
@@ -236,6 +267,7 @@ func (s *Service) runNode(ctx context.Context, nodeID int64, targets []stores.Fl
 		attrs = append(attrs, recoveryOutcomeLabel(outcome), count)
 	}
 	s.logger.Info("Fleet Node recovery cycle completed", attrs...)
+	return ack.GetCode() == gatewaypb.AckCode_ACK_CODE_OK && len(seen) == len(targets)
 }
 
 func (s *Service) applyResult(ctx context.Context, target stores.FleetNodeRecoveryTarget, result *gatewaypb.MinerEndpointRecoveryResult) bool {

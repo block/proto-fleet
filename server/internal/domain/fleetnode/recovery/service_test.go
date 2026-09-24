@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,39 +83,48 @@ func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func TestRunCycleGroupsByOwnerCapsAndAdvancesBatches(t *testing.T) {
 	store := &fakeStore{}
-	for i := range 513 {
+	for i := range 1024 {
 		target := testTarget(7, "node-7-"+strconv.Itoa(i), "serial")
 		store.targets = append(store.targets, target)
 	}
 	node9 := testTarget(9, "node-9", "serial-9")
 	store.targets = append(store.targets, node9)
-	var nodeIDs []int64
-	var targetCounts []int
+	type batch struct {
+		nodeID int64
+		count  int
+	}
+	var batches []batch
 	var node7FirstTargets []string
+	var mu sync.Mutex
 	sender := sendFunc(func(_ context.Context, nodeID int64, version gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, version)
 		envelope := &gatewaypb.AgentCommand{}
 		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), envelope))
-		nodeIDs = append(nodeIDs, nodeID)
 		targets := envelope.GetRecoverMinerEndpoints().GetTargets()
-		targetCounts = append(targetCounts, len(targets))
+		batches = append(batches, batch{nodeID, len(targets)})
 		if nodeID == 7 {
 			node7FirstTargets = append(node7FirstTargets, targets[0].GetDeviceIdentifier())
 		}
-		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK), nil
+		results := make([]*gatewaypb.MinerEndpointRecoveryResult, len(targets))
+		for i, target := range targets {
+			results[i] = &gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: target.GetDeviceIdentifier(), Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND}
+		}
+		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK, results...), nil
 	})
 	service := NewService(store, sender, nil, nil, testLogger())
 
 	service.RunCycle(t.Context())
 	service.RunCycle(t.Context())
 
-	assert.Equal(t, []int64{7, 9, 7, 9}, nodeIDs)
-	assert.Equal(t, []int{512, 1, 512, 1}, targetCounts)
-	assert.Equal(t, []string{"node-7-0", "node-7-1"}, node7FirstTargets)
+	assert.ElementsMatch(t, []batch{{7, 512}, {9, 1}, {7, 512}, {9, 1}}, batches)
+	assert.Equal(t, []string{"node-7-0", "node-7-512"}, node7FirstTargets)
+	assert.Equal(t, "node-7-0", service.nextTarget[7])
 }
 
 func TestRunCycleRotatesAfterIncompleteAttempts(t *testing.T) {
-	for _, outcome := range []string{"partial prefix", "empty partial", "timeout"} {
+	for _, outcome := range []string{"partial prefix", "empty partial", "incomplete OK", "timeout"} {
 		t.Run(outcome, func(t *testing.T) {
 			store := &fakeStore{targets: []stores.FleetNodeRecoveryTarget{
 				testTarget(7, "a", "serial-a"),
@@ -132,6 +143,8 @@ func TestRunCycleRotatesAfterIncompleteAttempts(t *testing.T) {
 						&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: first, Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND}), nil
 				case "empty partial":
 					return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_PARTIAL), nil
+				case "incomplete OK":
+					return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK), nil
 				default:
 					return nil, context.DeadlineExceeded
 				}
@@ -143,6 +156,65 @@ func TestRunCycleRotatesAfterIncompleteAttempts(t *testing.T) {
 			assert.Equal(t, []string{"a", "b", "c", "a"}, firstTargets)
 		})
 	}
+}
+
+func TestRunCycleBoundsConcurrentNodesAndCancels(t *testing.T) {
+	store := &fakeStore{}
+	for i := range maxConcurrentNodes + 1 {
+		store.targets = append(store.targets, testTarget(int64(i+1), strconv.Itoa(i), "serial"))
+	}
+	started := make(chan int64, len(store.targets))
+	sender := sendFunc(func(ctx context.Context, nodeID int64, _ gatewaypb.CommandProtocolVersion, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		started <- nodeID
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		NewService(store, sender, nil, nil, testLogger()).RunCycle(ctx)
+	}()
+	for range maxConcurrentNodes {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("stalled node blocked another node's recovery")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("exceeded concurrent node limit")
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cycle did not stop after cancellation")
+	}
+}
+
+func TestCompleteBatchResumesAtPortLimitOmission(t *testing.T) {
+	store := &fakeStore{}
+	for i := range 12 {
+		target := testTarget(7, strconv.Itoa(i), "serial")
+		target.LastKnownPort = strconv.Itoa(8000 + i%11)
+		store.targets = append(store.targets, target)
+	}
+	sender := sendFunc(func(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		envelope := &gatewaypb.AgentCommand{}
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), envelope))
+		var results []*gatewaypb.MinerEndpointRecoveryResult
+		for _, target := range envelope.GetRecoverMinerEndpoints().GetTargets() {
+			results = append(results, &gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: target.GetDeviceIdentifier(), Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND})
+		}
+		return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK, results...), nil
+	})
+	service := NewService(store, sender, nil, nil, testLogger())
+	service.RunCycle(t.Context())
+	assert.Equal(t, "10", service.nextTarget[7])
 }
 
 func TestSelectTargetsHonorsEncodedSizeLimit(t *testing.T) {
