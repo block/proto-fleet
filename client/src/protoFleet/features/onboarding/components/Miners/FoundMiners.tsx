@@ -109,7 +109,9 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
     return _minersByModel;
   }, [miners]);
 
-  const modelEntries = Object.values(minersByModel);
+  const modelEntries = Object.values(minersByModel).sort(
+    (a, b) => Number(b.deviceClass === DeviceClass.CONTAINER) - Number(a.deviceClass === DeviceClass.CONTAINER),
+  );
 
   return (
     <div className={clsx("mx-auto flex flex-col gap-6", className)}>
@@ -122,9 +124,9 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
               0,
             );
             const minerCount = miners.length - containerCount;
-            if (miners.length === 0 && skeletonVisible) return "Finding miners on your network";
-            if (miners.length === 0) return "No miners found";
-            if (isScanning) return `Finding miners on your network... ${containerCount + minerCount} found so far`;
+            if (miners.length === 0 && skeletonVisible) return "Finding devices on your network";
+            if (miners.length === 0) return "No devices found";
+            if (isScanning) return `Scanning… ${foundSummary(containerCount, minerCount)}`;
             return foundSummary(containerCount, minerCount);
           })()}
           titleSize="text-heading-300"
@@ -132,10 +134,10 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
             miners.length === 0 && skeletonVisible ? undefined : (
               <>
                 {miners.length === 0
-                  ? "Try rescanning or check that your miners are powered on and connected to the network."
-                  : "Specify which miners to add to your fleet. All miners are selected by default."}
+                  ? "Try rescanning or check that your devices are powered on and connected to the network."
+                  : "Specify which devices to add to your fleet. All devices are selected by default."}
                 <br className="phone:hidden" />
-                You can always add more miners to this network later.
+                You can always add more devices to this network later.
               </>
             )
           }
@@ -145,7 +147,14 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
         <div>
           <CollapsibleSkeleton visible={skeletonVisible} showDivider={modelEntries.length > 0} />
           {modelEntries.map((model, index) => (
-            <Fragment key={index}>
+            <Fragment key={JSON.stringify([model.deviceClass, model.manufacturer, model.model])}>
+              {index === 0 ||
+              (modelEntries[index - 1].deviceClass === DeviceClass.CONTAINER) !==
+                (model.deviceClass === DeviceClass.CONTAINER) ? (
+                <h3 className="pt-3 text-emphasis-300">
+                  {model.deviceClass === DeviceClass.CONTAINER ? "Containers" : "Miners"}
+                </h3>
+              ) : null}
               <Row divider={false} className="flex items-center justify-between" testId="miner-model-row">
                 <div className="flex gap-4">
                   {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
@@ -153,7 +162,11 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                     <div className="h-6 text-emphasis-300">
                       {deviceGroupLabel(model.manufacturer, model.model, model.deviceClass)}
                     </div>
-                    {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
+                    {model.deviceClass === DeviceClass.CONTAINER &&
+                    model.supportedAuthenticationMethods.length === 0 ? null : supportsAutoAuth(
+                        model.manufacturer,
+                        model.supportedAuthenticationMethods,
+                      ) ? (
                       <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
                     ) : (
                       <div className="text-200 text-text-primary-70">You will need to log in after setup</div>

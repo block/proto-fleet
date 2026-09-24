@@ -49,8 +49,7 @@ func TestDeviceClassSurvivesDiscoveryPairingAndRediscovery(t *testing.T) {
 
 	rows, _, _, err := devices.ListMinerStateSnapshots(ctx, orgID, "", 10, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, int32(device.DeviceClass), rows[0].DeviceClass)
+	require.Empty(t, rows)
 
 	require.NoError(t, devices.InsertDevice(ctx, &device.Device, orgID, doi.DeviceIdentifier))
 	paired, err := devices.GetDeviceByDeviceIdentifier(ctx, doi.DeviceIdentifier, orgID)
@@ -58,8 +57,7 @@ func TestDeviceClassSurvivesDiscoveryPairingAndRediscovery(t *testing.T) {
 	require.Equal(t, device.DeviceClass, paired.DeviceClass)
 	rows, _, _, err = devices.ListMinerStateSnapshots(ctx, orgID, "", 10, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, int32(device.DeviceClass), rows[0].DeviceClass)
+	require.Empty(t, rows)
 
 	// A report without class information preserves the known identity.
 	device.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED

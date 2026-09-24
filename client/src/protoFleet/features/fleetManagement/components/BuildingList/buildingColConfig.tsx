@@ -26,7 +26,7 @@ const countLink = (href: string, count: string) => (
 );
 
 const issueCount = (item: BuildingListItem) =>
-  item.stats
+  item.kind === "building" && item.stats
     ? item.stats.controlBoardIssueCount +
       item.stats.fanIssueCount +
       item.stats.hashBoardIssueCount +
@@ -48,6 +48,7 @@ export const createBuildingColConfig = (
   },
   racks: {
     component: (item) => {
+      if (item.kind === "container") return <span>{item.container.tanks.length || INACTIVE_PLACEHOLDER}</span>;
       const id = item.building.building?.id;
       const count = item.stats?.rackCount.toString() ?? item.building.rackCount.toString();
       return id ? countLink(buildingTabHref("racks", id, activeSite), count) : <span>{count}</span>;
@@ -56,6 +57,7 @@ export const createBuildingColConfig = (
   },
   miners: {
     component: (item) => {
+      if (item.kind === "container") return <span>{item.moduleCount || INACTIVE_PLACEHOLDER}</span>;
       const id = item.building.building?.id;
       const count = item.stats?.deviceCount.toString() ?? item.building.deviceCount.toString();
       return id ? countLink(buildingTabHref("miners", id, activeSite), count) : <span>{count}</span>;
@@ -64,6 +66,8 @@ export const createBuildingColConfig = (
   },
   issues: {
     component: (item) => {
+      // The container API reports module states, not an issue count.
+      if (item.kind === "container") return <span>{INACTIVE_PLACEHOLDER}</span>;
       const count = issueCount(item);
       if (count === undefined) return <span>{INACTIVE_PLACEHOLDER}</span>;
       if (count === 0) return <span>0</span>;
@@ -74,13 +78,22 @@ export const createBuildingColConfig = (
   hashrate: {
     component: (item) => (
       <span>
-        {formatHashrateOrDash(item.stats && item.stats.hashrateReportingCount > 0 ? item.stats.totalHashrateThs : null)}
+        {formatHashrateOrDash(
+          item.kind === "container"
+            ? !item.container.stale && item.container.hashrateHs !== undefined
+              ? item.container.hashrateHs / 1e12
+              : null
+            : item.stats && item.stats.hashrateReportingCount > 0
+              ? item.stats.totalHashrateThs
+              : null,
+        )}
       </span>
     ),
     width: "min-w-28",
   },
   efficiency: {
     component: (item) => {
+      if (item.kind === "container") return <span>{INACTIVE_PLACEHOLDER}</span>;
       if (!item.stats || item.stats.efficiencyReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return (
         <StatCell metricReportingCount={item.stats.efficiencyReportingCount} deviceCount={item.stats.deviceCount}>
@@ -93,13 +106,31 @@ export const createBuildingColConfig = (
   power: {
     component: (item) => (
       <span>
-        {formatPowerMwOrDash(item.stats && item.stats.powerReportingCount > 0 ? item.stats.totalPowerKw : null)}
+        {formatPowerMwOrDash(
+          item.kind === "container"
+            ? !item.container.stale && item.container.powerW !== undefined
+              ? item.container.powerW / 1000
+              : null
+            : item.stats && item.stats.powerReportingCount > 0
+              ? item.stats.totalPowerKw
+              : null,
+        )}
       </span>
     ),
     width: "min-w-24",
   },
   temperature: {
     component: (item) => {
+      if (item.kind === "container") {
+        const value = item.container.temperatureC;
+        return (
+          <span>
+            {!item.container.stale && value !== undefined
+              ? formatTempRange(value, value, temperatureUnit)
+              : INACTIVE_PLACEHOLDER}
+          </span>
+        );
+      }
       if (!item.stats || item.stats.temperatureReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return <span>{formatTempRange(item.stats.minTemperatureC, item.stats.maxTemperatureC, temperatureUnit)}</span>;
     },
@@ -107,6 +138,20 @@ export const createBuildingColConfig = (
   },
   health: {
     component: (item) => {
+      if (item.kind === "container") {
+        if (item.incomplete) {
+          return (
+            <span className="text-200 text-text-primary-70">
+              {item.container.stale ? "Readings unavailable or stale" : "Incomplete module readings"}
+            </span>
+          );
+        }
+        return (
+          <div className="w-34">
+            <HealthBar {...item.health} />
+          </div>
+        );
+      }
       if (!item.stats || item.stats.deviceCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return (
         <div className="w-34">

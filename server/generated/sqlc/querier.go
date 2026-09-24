@@ -659,6 +659,7 @@ type Querier interface {
 	GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error)
 	GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg GetDiscoveredDeviceByDeviceIdentifierParams) (DiscoveredDevice, error)
 	GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error)
+	// Endpoint reconciliation is server-local; private addresses on nodes are separate namespaces.
 	GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDiscoveredDeviceByIPAndPortParams) (DiscoveredDevice, error)
 	GetDistinctActivityUsers(ctx context.Context, orgID sql.NullInt64) ([]GetDistinctActivityUsersRow, error)
 	// Returns the DISTINCT site_id values (NULL included) across the given
@@ -861,6 +862,10 @@ type Querier interface {
 	// include_unassigned adds site_id IS NULL rows, and the empty + false case
 	// applies no site restriction (count all paired devices in the org).
 	GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedDevicesParams) (int64, error)
+	// The site filter is additive: site_ids is an OR across sites,
+	// include_unassigned adds site_id IS NULL rows, and the empty + false case
+	// applies no site restriction (count all paired devices in the org).
+	GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error)
 	GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 	GetUserByExternalId(ctx context.Context, userID string) (User, error)
 	GetUserById(ctx context.Context, id int64) (User, error)
@@ -890,6 +895,7 @@ type Querier interface {
 	InsertAlertMaintenanceWindow(ctx context.Context, arg InsertAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
 	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
 	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
+	InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -1040,6 +1046,7 @@ type Querier interface {
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
 	ListCompletedTicketAssignees(ctx context.Context, arg ListCompletedTicketAssigneesParams) ([]ListCompletedTicketAssigneesRow, error)
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
+	ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
@@ -2085,6 +2092,7 @@ type Querier interface {
 	// The retained batch UUID identifies the latest serialized completion without
 	// relying on clocks from different workers to order command results.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
+	UpsertContainerSnapshot(ctx context.Context, arg UpsertContainerSnapshotParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error

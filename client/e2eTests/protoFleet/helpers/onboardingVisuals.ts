@@ -254,6 +254,7 @@ export class OnboardingVisualHelper {
     const { addMinersPage } = this.deps;
     await addMinersPage.clickFindMinersInNetwork();
     await addMinersPage.waitForExpectedNetworkMinerCount(expectedMinerCount);
+    await addMinersPage.selectOnlyMiners(expectedMinerCount);
     await addMinersPage.clickContinueWithXMiners(expectedMinerCount);
     await this.waitForPairingToFinish(expectedMinerCount);
     await this.waitForCompleteSetupModuleReady();

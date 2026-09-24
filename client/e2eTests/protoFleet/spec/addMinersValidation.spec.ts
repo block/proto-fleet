@@ -45,7 +45,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
   test(
     "Continue anyway button proceeds with valid entries only",
     { tag: "@smoke" },
-    async ({ minersPage, addMinersPage, page }) => {
+    async ({ minersPage, addMinersPage }) => {
       await test.step("Navigate to add miners flow", async () => {
         await minersPage.navigateToMinersPage();
         await minersPage.clickAddMinersButton();
@@ -66,13 +66,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
 
       await test.step("Validate dialog is closed and discovery proceeds", async () => {
         await addMinersPage.validateValidationErrorDialogIsClosed();
-        // The pairing step should now be active (either loading or showing results)
-        const findingMinersTitle = page.getByText("Finding miners on your network");
-        const foundMinersSection = page.getByText(/\d+ miners found/);
-        const noMinersFound = page.getByText(/No miners found/);
-
-        // Wait for either the loading state, results, or no miners found
-        await expect(findingMinersTitle.or(foundMinersSection).or(noMinersFound)).toBeVisible({ timeout: 10000 });
+        await addMinersPage.waitForFoundMinersList();
       });
     },
   );

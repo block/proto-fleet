@@ -6,6 +6,7 @@ import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
+import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
@@ -72,6 +73,11 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
     return miners.filter((miner) => filterFoundMinerByModel(miner, activeFilters));
   }, [miners, activeFilters]);
 
+  const deviceGroups = [
+    { label: "Containers", items: filteredMiners.filter((device) => device.deviceClass === DeviceClass.CONTAINER) },
+    { label: "Miners", items: filteredMiners.filter((device) => device.deviceClass !== DeviceClass.CONTAINER) },
+  ];
+
   // Split the discovered total by entity so the modal header matches the inline
   // FoundMiners summary ("N containers and M miners found on your network").
   const summaryTitle = useMemo(() => {
@@ -89,7 +95,7 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
       size="large"
       divider={false}
       title={summaryTitle}
-      description="Selected miners will be added to your fleet."
+      description="Selected devices will be added to your fleet."
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden phone:!h-[calc(100dvh-theme(spacing.10))] phone:max-h-[calc(100dvh-theme(spacing.10))]"
       bodyClassName="flex min-h-0 flex-1 flex-col"
       buttons={[
@@ -100,28 +106,37 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
       ]}
     >
       <div className="flex h-full min-h-0 flex-col">
+        <Filters filterItems={[modelFilter]} items={miners} onFilter={setActiveFilters} filterSize={sizes.compact} />
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
-            filters={[modelFilter]}
-            filterItem={filterFoundMinerByModel}
-            onFilterChange={setActiveFilters}
-            filterSize={sizes.compact}
-            activeCols={activeCols}
-            colTitles={minerColTitles}
-            colConfig={colConfig}
-            items={miners}
-            itemKey="deviceIdentifier"
-            itemSelectable
-            customSelectedItems={selectedMiners}
-            customSetSelectedItems={setSelectedMiners}
-            containerClassName="min-h-0"
-            tableClassName="mb-0"
-            overflowContainer={true}
-            stickyBgColor="bg-surface-elevated-base"
-          />
+          {deviceGroups.map(({ label, items: group }) => {
+            if (!group.length) return null;
+            const groupIds = new Set(group.map((device) => device.deviceIdentifier));
+            return (
+              <section key={label} aria-label={label}>
+                <h3 className="px-3 py-2 text-emphasis-300">{label}</h3>
+                <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
+                  activeCols={activeCols}
+                  colTitles={minerColTitles}
+                  colConfig={colConfig}
+                  items={group}
+                  itemKey="deviceIdentifier"
+                  itemSelectable
+                  preserveOffPageSelection
+                  customSelectedItems={selectedMiners.filter((id) => groupIds.has(id))}
+                  customSetSelectedItems={(selected) =>
+                    setSelectedMiners([...selectedMiners.filter((id) => !groupIds.has(id)), ...selected])
+                  }
+                  containerClassName="min-h-0"
+                  tableClassName="mb-0"
+                  overflowContainer={true}
+                  stickyBgColor="bg-surface-elevated-base"
+                />
+              </section>
+            );
+          })}
         </div>
         <ModalSelectAllFooter
-          label={selectedMiners.length + " miners selected"}
+          label={`${selectedMiners.length} ${selectedMiners.length === 1 ? "device" : "devices"} selected`}
           onSelectAll={() => setSelectedMiners(filteredMiners.map((miner) => miner.deviceIdentifier))}
           onSelectNone={() => setSelectedMiners([])}
         />

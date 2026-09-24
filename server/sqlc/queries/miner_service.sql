@@ -2,6 +2,7 @@
 SELECT
     d.id,
     d.device_identifier,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -75,6 +76,7 @@ SELECT
     d.id,
     d.device_identifier,
     d.site_id,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,

@@ -690,6 +690,7 @@ FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
     FROM device
+    JOIN discovered_device dd ON dd.id = device.discovered_device_id AND dd.device_class <> 2
     WHERE device.org_id = $1
       AND device.deleted_at IS NULL
       AND device.site_id IS NOT NULL

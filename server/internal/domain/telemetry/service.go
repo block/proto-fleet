@@ -1752,6 +1752,7 @@ func (s *TelemetryService) fetchCombinedMetrics(ctx context.Context, query model
 	hadExplicitDevices := len(query.DeviceIDs) > 0
 	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
 		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
+			IncludeContainers: true,
 			SiteIDs:           query.SiteIDs,
 			IncludeUnassigned: query.IncludeUnassigned,
 			// Resolve the same paired-like set the dashboard counts (PAIRED +

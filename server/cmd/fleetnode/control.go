@@ -832,6 +832,13 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 // server-side reconciliation). The fleet node id is in the hash so two nodes on
 // overlapping RFC1918 space don't mint the same auto: key for distinct miners.
 func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) string {
+	if dev.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// A container has one shared IP. Controller MAC/serial and API port can
+		// change across failover; neither identifies the physical container.
+		node := strconv.FormatInt(fleetNodeID, 10)
+		sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, dev.GetDriverName(), dev.GetModel()}, "\x00")))
+		return "container:" + hex.EncodeToString(sum[:8])
+	}
 	if mac := dev.GetMacAddress(); mac != "" {
 		return "mac:" + mac
 	}

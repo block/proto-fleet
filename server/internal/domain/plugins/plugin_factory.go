@@ -25,6 +25,7 @@ type PluginDriverGetter interface {
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
 	// Device information
+	DeviceClass      sdk.DeviceClass
 	DeviceIdentifier string
 	DriverName       string // Plugin routing key (from discovered_device.driver_name)
 	// Effective current driver/model caps for auth, log formatting, and command gates;
@@ -75,6 +76,7 @@ func NewPluginMinerWithCredentials(
 
 	// Build SDK DeviceInfo from database fields
 	sdkDeviceInfo := sdk.DeviceInfo{
+		DeviceClass:  config.DeviceClass,
 		Host:         config.DeviceIPAddress,
 		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,

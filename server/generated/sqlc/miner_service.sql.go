@@ -14,6 +14,7 @@ const getDeviceWithCredentialsAndIPByDeviceIdentifier = `-- name: GetDeviceWithC
 SELECT
     d.id,
     d.device_identifier,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -45,6 +46,7 @@ LIMIT 1
 type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	ID               int64
 	DeviceIdentifier string
+	DeviceClass      int32
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	DriverName       string
@@ -65,6 +67,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	err := row.Scan(
 		&i.ID,
 		&i.DeviceIdentifier,
+		&i.DeviceClass,
 		&i.Model,
 		&i.Manufacturer,
 		&i.DriverName,
@@ -164,6 +167,7 @@ SELECT
     d.id,
     d.device_identifier,
     d.site_id,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -194,6 +198,7 @@ type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
 	ID               int64
 	DeviceIdentifier string
 	SiteID           sql.NullInt64
+	DeviceClass      int32
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	DriverName       string
@@ -220,6 +225,7 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.ID,
 		&i.DeviceIdentifier,
 		&i.SiteID,
+		&i.DeviceClass,
 		&i.Model,
 		&i.Manufacturer,
 		&i.DriverName,

@@ -106,7 +106,8 @@ LEFT JOIN building ON building.id = device.building_id
 const minerWhereClause = `
 WHERE discovered_device.org_id = $1
     AND discovered_device.is_active = TRUE
-    AND discovered_device.deleted_at IS NULL`
+    AND discovered_device.deleted_at IS NULL
+    AND discovered_device.device_class <> 2`
 
 // minerBaseQuery is the base SELECT/FROM/JOIN/WHERE for miner state queries.
 // Uses discovered_device as the base table since it contains all devices (paired and unpaired).

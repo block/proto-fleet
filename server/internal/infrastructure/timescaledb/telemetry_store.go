@@ -3,6 +3,7 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -391,6 +392,25 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	}
 
 	for _, metrics := range data {
+		if metrics.Container != nil {
+			if plant := metrics.Container.Plant; plant != nil {
+				encoded, err := json.Marshal(plant)
+				if err != nil {
+					return fmt.Errorf("encode container plant: %w", err)
+				}
+				if err := qtx.InsertContainerPlantMetrics(ctx, sqlc.InsertContainerPlantMetricsParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: plant.ObservedAt, Metrics: encoded}); err != nil {
+					return fmt.Errorf("store container plant: %w", err)
+				}
+			}
+			snapshot, err := json.Marshal(metrics.Container)
+			if err != nil {
+				return fmt.Errorf("encode container snapshot: %w", err)
+			}
+			if err = qtx.UpsertContainerSnapshot(ctx, sqlc.UpsertContainerSnapshotParams{DeviceIdentifier: metrics.DeviceIdentifier, ObservedAt: metrics.Container.ObservedAt, Snapshot: snapshot}); err != nil {
+				return fmt.Errorf("store container snapshot: %w", err)
+			}
+		}
+
 		params := sqlc.InsertDeviceMetricsParams{
 			Time:             metrics.Timestamp,
 			DeviceIdentifier: metrics.DeviceIdentifier,

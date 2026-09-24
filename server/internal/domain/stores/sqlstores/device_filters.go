@@ -14,6 +14,7 @@ import (
 
 // minerFilterParams holds the parsed filter parameters for miner queries.
 type minerFilterParams struct {
+	includeContainers         bool
 	searchQueryFilter         sql.NullString
 	statusFilter              sql.NullString
 	statusValues              []string
@@ -83,6 +84,7 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		return fp
 	}
 
+	fp.includeContainers = filter.IncludeContainers
 	fp.searchQueryFilter = likeSearchPattern(filter.SearchQuery)
 
 	// Status filter

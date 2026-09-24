@@ -409,6 +409,27 @@ func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64,
 	})
 }
 
+func (s *SQLDeviceStore) GetTotalPairedMiners(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
+	fp := buildFilterParams(filter)
+
+	// site_ids may be nil (all-sites); the query COALESCEs NULL to an empty
+	// array so the cardinality()=0 "no filter" branch fires.
+	var siteIDs []int64
+	includeUnassigned := false
+	if filter != nil {
+		siteIDs = filter.SiteIDs
+		includeUnassigned = filter.IncludeUnassigned
+	}
+
+	return s.GetQueries(ctx).GetTotalPairedMiners(ctx, sqlc.GetTotalPairedMinersParams{
+		OrgID:             orgID,
+		StatusFilter:      fp.statusFilter,
+		ModelFilter:       fp.modelFilter,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: includeUnassigned,
+	})
+}
+
 func (s *SQLDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	return s.GetQueries(ctx).GetTotalDevicesPendingAuth(ctx, orgID)
 }
@@ -1422,6 +1443,9 @@ WHERE device.deleted_at IS NULL
     AND device.org_id = $1
     AND discovered_device.is_active = TRUE
     AND discovered_device.deleted_at IS NULL`)
+	if !fp.includeContainers {
+		sb.WriteString(" AND discovered_device.device_class <> 2")
+	}
 
 	args, argNum = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	// Limit bounds the result at the SQL level so callers using this for

@@ -132,6 +132,21 @@ func (mr *MockDiscoveredDeviceStoreMockRecorder) Save(ctx, doi, device any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).Save), ctx, doi, device)
 }
 
+// SaveDirect mocks base method.
+func (m *MockDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi models.DeviceOrgIdentifier, device *models.DiscoveredDevice) (*models.DiscoveredDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveDirect", ctx, doi, device)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveDirect indicates an expected call of SaveDirect.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) SaveDirect(ctx, doi, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveDirect", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).SaveDirect), ctx, doi, device)
+}
+
 // SoftDelete mocks base method.
 func (m *MockDiscoveredDeviceStore) SoftDelete(ctx context.Context, doi models.DeviceOrgIdentifier) error {
 	m.ctrl.T.Helper()

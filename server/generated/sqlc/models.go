@@ -472,6 +472,18 @@ type ConnectedPostgresIdentity struct {
 	Timeline      int64
 }
 
+type ContainerPlantMetric struct {
+	DeviceID int64
+	Time     time.Time
+	Metrics  json.RawMessage
+}
+
+type ContainerSnapshot struct {
+	DeviceID   int64
+	ObservedAt time.Time
+	Snapshot   json.RawMessage
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64

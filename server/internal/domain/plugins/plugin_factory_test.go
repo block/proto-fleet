@@ -1,8 +1,11 @@
 package plugins
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,4 +69,28 @@ func TestNewPluginMinerWithCredentials_BasicAuthRequiresStoredCredentials(t *tes
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAuthenticationError(err), "got: %v", err)
+}
+
+type capturingContainerDriver struct {
+	sdk.Driver
+	info sdk.DeviceInfo
+}
+
+func (d *capturingContainerDriver) NewDevice(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+	d.info = info
+	return sdk.NewDeviceResult{}, errors.New("stop after capturing reconstruction")
+}
+
+type containerDriverGetter struct{ driver sdk.Driver }
+
+func (g containerDriverGetter) GetDriverByDriverName(string) (sdk.Driver, error) {
+	return g.driver, nil
+}
+func TestContainerClassSurvivesPluginReconstruction(t *testing.T) {
+	driver := &capturingContainerDriver{}
+	_, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
+		DeviceIdentifier: "ct1", DeviceClass: sdk.DeviceClassContainer, DriverName: "proto", DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", FilesService: &files.Service{}, DriverGetter: containerDriverGetter{driver},
+	})
+	require.ErrorContains(t, err, "stop after capturing reconstruction")
+	require.Equal(t, sdk.DeviceClassContainer, driver.info.DeviceClass)
 }

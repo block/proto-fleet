@@ -112,6 +112,18 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		return res
 	}
 
+	// A container may expose public MDK reads. Let its plugin decide; never
+	// borrow a rig factory password and report it as a verified credential.
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, sdk.SecretBundle{Version: "v1"})
+		if pairErr != nil {
+			classifyNodePairError(pairErr, res)
+			return res
+		}
+		setPaired(res, updated)
+		return res
+	}
+
 	if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
 		defaults := provider.GetDefaultCredentials(ctx, target.GetManufacturer(), target.GetFirmwareVersion())
 		for _, c := range defaults {

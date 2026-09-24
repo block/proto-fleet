@@ -2350,3 +2350,105 @@ func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {
 		assert.Contains(t, err.Error(), "include_devices selector requires at least one device identifier")
 	})
 }
+
+func TestContainerDiscoveryRetainsIdentityAcrossControllerFailover(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"80", "443"})
+	discoverer := &MockDiscoverer{}
+	service, ctx := setupTestService(t, testContext, adminUser, nil, discoverer)
+	var originalIdentifier string
+	for _, endpoint := range []struct{ ip, port, serial string }{
+		{"172.16.71.10", "80", "controller-a"},
+		{"172.16.71.10", "80", "controller-b"},
+		{"172.16.71.10", "443", "controller-b"},
+		{"172.16.71.11", "80", "another-container"},
+	} {
+		device := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+			DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER,
+			IpAddress:   endpoint.ip, Port: endpoint.port, DriverName: "proto",
+			Model: "CT1", Manufacturer: "Proto", SerialNumber: endpoint.serial,
+		}}
+		discoverer.On("Discover", mock.Anything, endpoint.ip, endpoint.port).Return(device, nil).Once()
+		results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+			IpAddresses: []string{endpoint.ip}, Ports: []string{endpoint.port},
+		})
+		require.NoError(t, err)
+		var devices []*pb.Device
+		for result := range results {
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+		if originalIdentifier == "" {
+			originalIdentifier = devices[0].DeviceIdentifier
+		} else if endpoint.ip == "172.16.71.10" {
+			assert.Equal(t, originalIdentifier, devices[0].DeviceIdentifier, "controller and port changes must retain the container")
+		} else {
+			assert.NotEqual(t, originalIdentifier, devices[0].DeviceIdentifier)
+		}
+	}
+}
+
+func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
+	for _, assigned := range []bool{false, true} {
+		for _, port := range []string{"80", "443"} {
+			t.Run(fmt.Sprintf("assigned=%t/port=%s", assigned, port), func(t *testing.T) {
+				infra := testutil.InitializeDBServiceInfrastructure(t)
+				admin := infra.DatabaseService.CreateSuperAdminUser()
+				db := infra.ServiceProvider.DB
+				registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443"})
+				var nodeID int64
+				require.NoError(t, db.QueryRow(`INSERT INTO fleet_node (org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES ($1,'node',$2,$3,'CONFIRMED') RETURNING id`, admin.OrganizationID, []byte("node-key"), make([]byte, 32)).Scan(&nodeID))
+				store := sqlstores.NewSQLDiscoveredDeviceStore(db)
+				remote := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "remote-ct1", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: "192.168.1.20", Port: "80", UrlScheme: "http"}, OrgID: admin.OrganizationID, IsActive: true}
+				ctx := testutil.MockAuthContextForTesting(t.Context(), admin.DatabaseID, admin.OrganizationID)
+				doi := remote.GetDeviceOrgIdentifier()
+				_, err := store.Save(ctx, doi, remote)
+				require.NoError(t, err)
+				if assigned {
+					devices := sqlstores.NewSQLDeviceStore(db)
+					require.NoError(t, devices.InsertDevice(ctx, &remote.Device, admin.OrganizationID, remote.DeviceIdentifier))
+					require.NoError(t, devices.UpsertDevicePairing(ctx, &remote.Device, admin.OrganizationID, "PAIRED"))
+					_, err = db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) SELECT $1,id,org_id FROM device WHERE device_identifier=$2`, nodeID, remote.DeviceIdentifier)
+				} else {
+					_, err = db.Exec(`UPDATE discovered_device SET discovered_by_fleet_node_id=$1 WHERE device_identifier=$2`, nodeID, remote.DeviceIdentifier)
+				}
+				require.NoError(t, err)
+				discoverer := &MockDiscoverer{}
+				local := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: remote.IpAddress, Port: port, UrlScheme: "http", SerialNumber: "local-controller"}}
+				discoverer.On("Discover", mock.Anything, local.IpAddress, port).Return(local, nil).Once()
+				pairer := pairingMocks.NewMockPairer(gomock.NewController(t))
+				pairer.EXPECT().PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(&local.Device, nil).AnyTimes()
+				service, ctx := setupTestService(t, infra, admin, pairer, discoverer)
+				results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{IpAddresses: []string{local.IpAddress}, Ports: []string{port}})
+				require.NoError(t, err)
+				var found []*pb.Device
+				for result := range results {
+					found = append(found, result.Devices...)
+				}
+				require.Len(t, found, 1)
+				require.NotEqual(t, remote.DeviceIdentifier, found[0].DeviceIdentifier)
+				saved, err := store.GetDevice(ctx, doi)
+				require.NoError(t, err)
+				require.Equal(t, "80", saved.Port)
+				// Even a caller supplying the remote identifier cannot overwrite it via direct discovery.
+				attempted := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", IpAddress: "192.168.1.99", Port: "8080", UrlScheme: "http"}, IsActive: true}
+				_, err = store.SaveDirect(ctx, doi, attempted)
+				require.Error(t, err)
+				unchanged, err := store.GetDevice(ctx, doi)
+				require.NoError(t, err)
+				require.Equal(t, remote.IpAddress, unchanged.IpAddress)
+				require.Equal(t, "80", unchanged.Port)
+
+				localSaved, err := store.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: found[0].DeviceIdentifier})
+				require.NoError(t, err)
+				require.Nil(t, localSaved.DiscoveredByFleetNodeID)
+				response, err := service.PairDevices(ctx, createPairRequest([]string{localSaved.DeviceIdentifier}))
+				require.NoError(t, err)
+				require.Empty(t, response.FailedDeviceIds)
+
+			})
+		}
+	}
+}

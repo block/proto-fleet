@@ -581,3 +581,14 @@ func (p *ctxIgnoringPairer) Pair(_ context.Context, target *pairingpb.FleetNodeP
 	}
 	return &pb.FleetNodePairResult{DeviceIdentifier: id, Outcome: pb.PairOutcome_PAIR_OUTCOME_ERROR}
 }
+
+func TestPluginPairer_AnonymousContainerDoesNotReportRigDefaults(t *testing.T) {
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "ct1", DeviceClass: sdk.DeviceClassContainer}, defaults: []sdk.UsernamePassword{{Username: "admin", Password: "proto"}}}
+	pairer := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityBasicAuth: true}, driver)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	result := pairer.Pair(t.Context(), target, nil)
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, result.Outcome)
+	require.Nil(t, result.EncryptedCredentials)
+	require.Equal(t, []sdk.SecretBundle{{Version: "v1"}}, driver.gotBundles)
+}

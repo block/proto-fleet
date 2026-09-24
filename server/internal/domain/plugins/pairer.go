@@ -95,6 +95,11 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		return err
 	}
 
+	// Container plugins decide whether anonymous pairing is supported. Do not
+	// offer or persist the shared driver's rig defaults for a public controller.
+	if credentials == nil && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return p.executePairing(ctx, plugin, discoveredDevice, nil)
+	}
 	// If no credentials provided, try default credentials if plugin provides them
 	if credentials == nil {
 		if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
@@ -162,7 +167,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
-	secretBundle, err := p.createSecretBundle(credentials)
+	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
 	if err != nil {
 		return fmt.Errorf("failed to create secret bundle: %w", err)
 	}
@@ -284,6 +289,9 @@ func (p *Pairer) resolveFleetWorkerName(
 	discoveredDevice *discoverymodels.DiscoveredDevice,
 	credentials *pb.Credentials,
 ) (string, bool) {
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return "", false
+	}
 	fallback := defaultFleetWorkerName(discoveredDevice.MacAddress)
 	if !plugin.Caps[sdk.CapabilityPoolConfig] {
 		return fallback, true
@@ -372,6 +380,11 @@ func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
 // This handles re-pairing after subnet migration for both Proto (MAC available) and
 // Antminer (only serial available after callPluginPairDevice) devices.
 func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// Discovery reconciles the shared IP. A controller serial/MAC is not
+		// the container identity and must not merge different endpoints.
+		return nil, nil
+	}
 	// Try MAC-based reconciliation first
 	result, err := p.reconcileDeviceByMAC(ctx, discoveredDevice)
 	if err != nil {
@@ -499,7 +512,7 @@ func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discover
 	if plugin == nil {
 		return fleeterror.NewInternalErrorf("failed to save credentials: plugin is nil")
 	}
-	bundle, err := p.createSecretBundle(credentials)
+	bundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -569,6 +582,9 @@ func (p *Pairer) createSecretBundle(credentials *pb.Credentials) (sdk.SecretBund
 
 // getSecretBundleForDeviceInfo builds the SecretBundle used when describing a device via plugins.
 func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (sdk.SecretBundle, error) {
+	if credentials == nil && device.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return sdk.SecretBundle{Version: "v1"}, nil
+	}
 	return p.createSecretBundle(credentials)
 }
 

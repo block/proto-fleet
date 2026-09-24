@@ -161,6 +161,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid port %q: %v", req.GetPort(), err)
 	}
 	deviceInfo := sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClass(req.GetDeviceClass()),
 		Host:            req.GetIpAddress(),
 		Port:            port,
 		URLScheme:       req.GetUrlScheme(),

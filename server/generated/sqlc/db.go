@@ -984,6 +984,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getTotalPairedDevicesStmt, err = db.PrepareContext(ctx, getTotalPairedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPairedDevices: %w", err)
 	}
+	if q.getTotalPairedMinersStmt, err = db.PrepareContext(ctx, getTotalPairedMiners); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTotalPairedMiners: %w", err)
+	}
 	if q.getTotalPoolsStmt, err = db.PrepareContext(ctx, getTotalPools); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPools: %w", err)
 	}
@@ -1028,6 +1031,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertAlertRouteChannelsStmt, err = db.PrepareContext(ctx, insertAlertRouteChannels); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertAlertRouteChannels: %w", err)
+	}
+	if q.insertContainerPlantMetricsStmt, err = db.PrepareContext(ctx, insertContainerPlantMetrics); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerPlantMetrics: %w", err)
 	}
 	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
@@ -1145,6 +1151,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listCompletedTicketsStmt, err = db.PrepareContext(ctx, listCompletedTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCompletedTickets: %w", err)
+	}
+	if q.listContainersStmt, err = db.PrepareContext(ctx, listContainers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListContainers: %w", err)
 	}
 	if q.listCurtailmentAutomationRulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationRulesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationRulesByOrg: %w", err)
@@ -2012,6 +2021,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
+	}
+	if q.upsertContainerSnapshotStmt, err = db.PrepareContext(ctx, upsertContainerSnapshot); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertContainerSnapshot: %w", err)
 	}
 	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
@@ -3663,6 +3675,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getTotalPairedDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getTotalPairedMinersStmt != nil {
+		if cerr := q.getTotalPairedMinersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTotalPairedMinersStmt: %w", cerr)
+		}
+	}
 	if q.getTotalPoolsStmt != nil {
 		if cerr := q.getTotalPoolsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalPoolsStmt: %w", cerr)
@@ -3736,6 +3753,11 @@ func (q *Queries) Close() error {
 	if q.insertAlertRouteChannelsStmt != nil {
 		if cerr := q.insertAlertRouteChannelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertAlertRouteChannelsStmt: %w", cerr)
+		}
+	}
+	if q.insertContainerPlantMetricsStmt != nil {
+		if cerr := q.insertContainerPlantMetricsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerPlantMetricsStmt: %w", cerr)
 		}
 	}
 	if q.insertCurtailmentAutomationRuleStmt != nil {
@@ -3931,6 +3953,11 @@ func (q *Queries) Close() error {
 	if q.listCompletedTicketsStmt != nil {
 		if cerr := q.listCompletedTicketsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCompletedTicketsStmt: %w", cerr)
+		}
+	}
+	if q.listContainersStmt != nil {
+		if cerr := q.listContainersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listContainersStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentAutomationRulesByOrgStmt != nil {
@@ -5378,6 +5405,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
 		}
 	}
+	if q.upsertContainerSnapshotStmt != nil {
+		if cerr := q.upsertContainerSnapshotStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertContainerSnapshotStmt: %w", cerr)
+		}
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
@@ -5812,6 +5844,7 @@ type Queries struct {
 	getTotalDevicesPendingAuthStmt                               *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                              *sql.Stmt
 	getTotalPairedDevicesStmt                                    *sql.Stmt
+	getTotalPairedMinersStmt                                     *sql.Stmt
 	getTotalPoolsStmt                                            *sql.Stmt
 	getUserByExternalIdStmt                                      *sql.Stmt
 	getUserByIdStmt                                              *sql.Stmt
@@ -5827,6 +5860,7 @@ type Queries struct {
 	insertAlertChannelStmt                                       *sql.Stmt
 	insertAlertMaintenanceWindowStmt                             *sql.Stmt
 	insertAlertRouteChannelsStmt                                 *sql.Stmt
+	insertContainerPlantMetricsStmt                              *sql.Stmt
 	insertCurtailmentAutomationRuleStmt                          *sql.Stmt
 	insertCurtailmentEventStmt                                   *sql.Stmt
 	insertCurtailmentResponseProfileStmt                         *sql.Stmt
@@ -5866,6 +5900,7 @@ type Queries struct {
 	listBuiltinRolesForOrgStmt                                   *sql.Stmt
 	listCompletedTicketAssigneesStmt                             *sql.Stmt
 	listCompletedTicketsStmt                                     *sql.Stmt
+	listContainersStmt                                           *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
 	listCurtailmentBuildingScopeCoverageStmt                     *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                           *sql.Stmt
@@ -6155,6 +6190,7 @@ type Queries struct {
 	upsertAlertRuleConfigStmt                                    *sql.Stmt
 	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
 	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
+	upsertContainerSnapshotStmt                                  *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
 	upsertCustomRoleForOrgStmt                                   *sql.Stmt
@@ -6496,6 +6532,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalDevicesPendingAuthStmt:                               q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                              q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                    q.getTotalPairedDevicesStmt,
+		getTotalPairedMinersStmt:                                     q.getTotalPairedMinersStmt,
 		getTotalPoolsStmt:                                            q.getTotalPoolsStmt,
 		getUserByExternalIdStmt:                                      q.getUserByExternalIdStmt,
 		getUserByIdStmt:                                              q.getUserByIdStmt,
@@ -6511,6 +6548,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
 		insertAlertMaintenanceWindowStmt:                             q.insertAlertMaintenanceWindowStmt,
 		insertAlertRouteChannelsStmt:                                 q.insertAlertRouteChannelsStmt,
+		insertContainerPlantMetricsStmt:                              q.insertContainerPlantMetricsStmt,
 		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
 		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
 		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
@@ -6550,6 +6588,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
 		listCompletedTicketAssigneesStmt:                             q.listCompletedTicketAssigneesStmt,
 		listCompletedTicketsStmt:                                     q.listCompletedTicketsStmt,
+		listContainersStmt:                                           q.listContainersStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
 		listCurtailmentBuildingScopeCoverageStmt:                     q.listCurtailmentBuildingScopeCoverageStmt,
 		listCurtailmentCandidatesByOrgStmt:                           q.listCurtailmentCandidatesByOrgStmt,
@@ -6839,6 +6878,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertAlertRuleConfigStmt:                                    q.upsertAlertRuleConfigStmt,
 		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
+		upsertContainerSnapshotStmt:                                  q.upsertContainerSnapshotStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,

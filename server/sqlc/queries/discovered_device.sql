@@ -15,12 +15,18 @@ WHERE device_identifier = $1
 LIMIT 1;
 
 -- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT *
-FROM discovered_device
-WHERE org_id = $1
-    AND ip_address = $2
-    AND port = $3
-    AND deleted_at IS NULL
+-- Endpoint reconciliation is server-local; private addresses on nodes are separate namespaces.
+SELECT dd.*
+FROM discovered_device dd
+WHERE dd.org_id = $1
+    AND dd.ip_address = $2
+    AND dd.port = $3
+    AND dd.deleted_at IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
+    )
 LIMIT 1;
 
 -- name: UpsertDiscoveredDevice :one
@@ -62,6 +68,13 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
+WHERE NOT sqlc.arg('direct_discovery')::boolean OR (
+    discovered_device.discovered_by_fleet_node_id IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
+    )
+)
 RETURNING id;
 
 -- name: GetActiveUnpairedDiscoveredDevices :many

@@ -206,12 +206,17 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class
-FROM discovered_device
-WHERE org_id = $1
-    AND ip_address = $2
-    AND port = $3
-    AND deleted_at IS NULL
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class
+FROM discovered_device dd
+WHERE dd.org_id = $1
+    AND dd.ip_address = $2
+    AND dd.port = $3
+    AND dd.deleted_at IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
+    )
 LIMIT 1
 `
 
@@ -221,6 +226,7 @@ type GetDiscoveredDeviceByIPAndPortParams struct {
 	Port      string
 }
 
+// Endpoint reconciliation is server-local; private addresses on nodes are separate namespaces.
 func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDiscoveredDeviceByIPAndPortParams) (DiscoveredDevice, error) {
 	row := q.queryRow(ctx, q.getDiscoveredDeviceByIPAndPortStmt, getDiscoveredDeviceByIPAndPort, arg.OrgID, arg.IpAddress, arg.Port)
 	var i DiscoveredDevice
@@ -332,6 +338,13 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
+WHERE NOT $12::boolean OR (
+    discovered_device.discovered_by_fleet_node_id IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
+    )
+)
 RETURNING id
 `
 
@@ -347,6 +360,7 @@ type UpsertDiscoveredDeviceParams struct {
 	IsActive         bool
 	DriverName       string
 	DeviceClass      int32
+	DirectDiscovery  bool
 }
 
 // PostgreSQL version returns the id directly using RETURNING
@@ -363,6 +377,7 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.IsActive,
 		arg.DriverName,
 		arg.DeviceClass,
+		arg.DirectDiscovery,
 	)
 	var id int64
 	err := row.Scan(&id)

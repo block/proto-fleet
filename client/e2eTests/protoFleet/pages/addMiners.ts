@@ -4,6 +4,7 @@ import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
 const SHORT_CLOSE_TIMEOUT = Math.floor(DEFAULT_TIMEOUT / 6);
+const NETWORK_SCAN_SUMMARY = /(?:\d+ (?:miners?|containers?) found on your network|^No devices found)$/;
 
 export class AddMinersPage extends BasePage {
   getScanNetworkSection(): Locator {
@@ -98,6 +99,29 @@ export class AddMinersPage extends BasePage {
     await this.clickButton("Done");
   }
 
+  async selectOnlyMiners(expectedMinerCount: number) {
+    const summary = await this.page.getByText(NETWORK_SCAN_SUMMARY).innerText();
+    if (!/\d+ containers?/.test(summary)) {
+      // A miner-only scan already selects exactly the desired device type.
+      await expect(this.continueWithMinersButton(expectedMinerCount)).toBeVisible();
+      return;
+    }
+    await this.clickChooseMiners();
+    const modal = this.page.getByTestId("modal");
+    const miners = modal.getByRole("region", { name: "Miners", exact: true });
+    await expect(miners.getByTestId("list-body").locator("tr")).toHaveCount(expectedMinerCount);
+    await this.clickSelectNone();
+    await miners.getByTestId("select-all-checkbox").click();
+    await expect(miners.getByTestId("list-body").locator('input[type="checkbox"]:checked')).toHaveCount(
+      expectedMinerCount,
+    );
+    await expect(
+      modal.getByRole("region", { name: "Containers", exact: true }).locator('input[type="checkbox"]:checked'),
+    ).toHaveCount(0);
+    await this.clickDone();
+    await expect(this.continueWithMinersButton(expectedMinerCount)).toBeVisible();
+  }
+
   async clickContinueWithXMiners(minerCount: number) {
     await this.continueWithMinersButton(minerCount).click();
   }
@@ -117,12 +141,13 @@ export class AddMinersPage extends BasePage {
     await expect(async () => {
       const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
       const rescanNetworkButton = this.page.getByRole("button", { name: "Rescan network", exact: true });
-      const foundMinersHeading = this.page.getByText(/\d+ miners found on your network/);
+      const foundMinersHeading = this.page.getByText(NETWORK_SCAN_SUMMARY);
       const continueButton = this.continueWithMinersButton();
 
       expect(await scanningButton.isVisible().catch(() => false)).toBe(false);
       expect(await foundMinersHeading.isVisible().catch(() => false)).toBe(true);
-      expect(await continueButton.isVisible().catch(() => false)).toBe(true);
+      const noDevices = await this.page.getByText("No devices found", { exact: true }).isVisible();
+      expect(await continueButton.isVisible().catch(() => false)).toBe(!noDevices);
 
       if (!this.isMobile) {
         expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
@@ -132,7 +157,9 @@ export class AddMinersPage extends BasePage {
 
   async waitForNetworkScanToStart() {
     if (this.isMobile) {
-      await expect(this.page.getByText(/^Finding miners on your network/)).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+      await expect(this.page.getByText(/^(Finding devices on your network|Scanning…)/)).toBeVisible({
+        timeout: DEFAULT_TIMEOUT,
+      });
       return;
     }
 
@@ -142,23 +169,6 @@ export class AddMinersPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async getSelectedMinersCount(): Promise<number> {
-    const continueButton = this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).first();
-
-    if (!(await continueButton.isVisible().catch(() => false))) {
-      return 0;
-    }
-
-    const buttonText = ((await continueButton.getAttribute("aria-label")) ?? (await continueButton.innerText())).trim();
-    const match = buttonText.match(/Continue with (\d+) miner(?:s)?/);
-
-    if (!match) {
-      throw new Error(`Could not parse selected miner count from button text: "${buttonText}"`);
-    }
-
-    return Number.parseInt(match[1], 10);
-  }
-
   async waitForExpectedNetworkMinerCount(expectedMinerCount: number, maxAttempts: number = 2) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (attempt > 1) {
@@ -166,15 +176,17 @@ export class AddMinersPage extends BasePage {
       }
 
       await this.waitForNetworkScanToFinish();
-      const selectedMinerCount = await this.getSelectedMinersCount();
+      // The continue button counts all selected devices, including containers.
+      // Read the miner bucket in the scan summary instead.
+      const minerCount = await this.getFoundMinersCount();
 
-      if (selectedMinerCount === expectedMinerCount) {
+      if (minerCount === expectedMinerCount) {
         return;
       }
 
       if (attempt === maxAttempts) {
         throw new Error(
-          `Expected ${expectedMinerCount} selected miners after network scan, but got ${selectedMinerCount} after ${maxAttempts} attempt(s).`,
+          `Expected ${expectedMinerCount} discovered miners after network scan, but got ${minerCount} after ${maxAttempts} attempt(s).`,
         );
       }
 
@@ -183,8 +195,9 @@ export class AddMinersPage extends BasePage {
   }
 
   async getFoundMinersCount(): Promise<number> {
-    const minerRows = this.page.getByTestId("miner-model-row");
-    return await minerRows.count();
+    const summary = await this.page.getByText(NETWORK_SCAN_SUMMARY).innerText();
+    const match = summary.match(/(\d+) miners? found on your network/);
+    return match ? Number.parseInt(match[1], 10) : 0;
   }
 
   async clickHeaderIconButton() {
@@ -203,7 +216,7 @@ export class AddMinersPage extends BasePage {
   }
 
   async validateOneMinerWasFoundByIp() {
-    const foundMessage = this.page.getByText("1 miners found on your network");
+    const foundMessage = this.page.getByText("1 miner found on your network");
     await expect(foundMessage).toBeVisible();
 
     const minerRows = this.page.getByTestId("miner-model-row");
@@ -211,7 +224,7 @@ export class AddMinersPage extends BasePage {
 
     const firstMinerRow = minerRows.first();
     await expect(firstMinerRow).toContainText(PROTO_RIG_DISPLAY_NAME);
-    await expect(firstMinerRow).toContainText("1 miners");
+    await expect(firstMinerRow).toContainText("1 miner");
 
     const continueButton = this.page.getByRole("button", { name: "Continue with 1 miners" });
     await expect(continueButton).toBeVisible();

@@ -544,6 +544,7 @@ LEFT JOIN (
 WHERE d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
 `
 

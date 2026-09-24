@@ -414,7 +414,7 @@ class SensorMetrics(_message.Message):
     def __init__(self, component_info: _Optional[_Union[ComponentInfo, _Mapping]] = ..., type: _Optional[str] = ..., unit: _Optional[str] = ..., value: _Optional[_Union[MetricValue, _Mapping]] = ...) -> None: ...
 
 class DeviceMetrics(_message.Message):
-    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "default_password_active")
+    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "default_password_active", "container")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     HEALTH_FIELD_NUMBER: _ClassVar[int]
@@ -431,6 +431,7 @@ class DeviceMetrics(_message.Message):
     SENSOR_METRICS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    CONTAINER_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     timestamp: _timestamp_pb2.Timestamp
     health: HealthStatus
@@ -447,7 +448,8 @@ class DeviceMetrics(_message.Message):
     sensor_metrics: _containers.RepeatedCompositeFieldContainer[SensorMetrics]
     firmware_version: str
     default_password_active: bool
-    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
+    container: ContainerSnapshot
+    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., container: _Optional[_Union[ContainerSnapshot, _Mapping]] = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
     __slots__ = ("device_id",)
@@ -879,3 +881,53 @@ class DeviceErrors(_message.Message):
     device_id: str
     errors: _containers.RepeatedCompositeFieldContainer[DeviceError]
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
+
+class ContainerSnapshot(_message.Message):
+    __slots__ = ("observed_at", "tanks", "plant")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    TANKS_FIELD_NUMBER: _ClassVar[int]
+    PLANT_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
+    plant: ContainerPlant
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ...) -> None: ...
+
+class ContainerTank(_message.Message):
+    __slots__ = ("position", "modules")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    position: int
+    modules: _containers.RepeatedCompositeFieldContainer[ContainerModule]
+    def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
+
+class ContainerModule(_message.Message):
+    __slots__ = ("position", "reported_id", "state", "observed_at")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    position: int
+    reported_id: str
+    state: str
+    observed_at: _timestamp_pb2.Timestamp
+    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class ContainerPlant(_message.Message):
+    __slots__ = ("observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_POWER_W_FIELD_NUMBER: _ClassVar[int]
+    FACILITY_POWER_W_FIELD_NUMBER: _ClassVar[int]
+    PUE_FIELD_NUMBER: _ClassVar[int]
+    INLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    OUTLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    CRITICAL_ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    total_power_w: float
+    facility_power_w: float
+    pue: float
+    inlet_temperature_c: float
+    outlet_temperature_c: float
+    alarm_active: bool
+    critical_alarm_active: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., total_power_w: _Optional[float] = ..., facility_power_w: _Optional[float] = ..., pue: _Optional[float] = ..., inlet_temperature_c: _Optional[float] = ..., outlet_temperature_c: _Optional[float] = ..., alarm_active: bool = ..., critical_alarm_active: bool = ...) -> None: ...

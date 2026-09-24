@@ -127,7 +127,7 @@ plugin/proto/                  # Plugin root
 
 ### Device Discovery
 
-The plugin discovers Proto miners on its configured port, which defaults to `443` and can be overridden with `PROTO_MINER_PORT`. Discovery tries HTTPS first, then HTTP:
+The plugin discovers Proto rigs and Frigate CT1 controllers on ports `443`, `80`, and `8080`. `PROTO_MINER_PORT` restricts discovery to a single configured port. Discovery tries HTTPS first, then HTTP:
 
 ```go
 // Automatic discovery on the configured Proto port

@@ -565,7 +565,7 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerState
 	// Both the total and the per-state breakdown must share the same scope,
 	// otherwise the dashboard FleetHealth bar mixes a scoped breakdown with
 	// an org-wide total.
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
+	total, err := s.deviceStore.GetTotalPairedMiners(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}

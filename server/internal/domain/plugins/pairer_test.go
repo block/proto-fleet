@@ -1728,3 +1728,22 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials are required", "Should require credentials when driver doesn't implement DefaultCredentialsProvider")
 }
+
+func TestContainerAnonymousPairingDoesNotStoreRigCredentials(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityBasicAuth: true, sdk.CapabilityPoolConfig: true}}
+	transactor := mocks.NewMockTransactor(ctrl)
+	store := mocks.NewMockDeviceStore(ctrl)
+	pairer := NewPairer(manager, transactor, mocks.NewMockDiscoveredDeviceStore(ctrl), store, nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1"}).Return(sdk.DeviceInfo{DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1"}, nil)
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) })
+	store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "ct1", int64(1)).Return(nil, fleeterror.NewNotFoundError("missing"))
+	store.EXPECT().InsertDevice(gomock.Any(), gomock.Any(), int64(1), "ct1").Return(nil)
+	store.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").Return(nil)
+	store.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("ct1"), models.MinerStatusActive, "").Return(nil)
+	// No controller-identity reconciliation, credential, worker-name, or pool lookups are allowed.
+	require.NoError(t, pairer.PairDevice(t.Context(), device, nil))
+}

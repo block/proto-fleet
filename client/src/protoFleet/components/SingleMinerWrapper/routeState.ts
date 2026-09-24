@@ -1,3 +1,4 @@
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   getMinerBuildingLabel,
@@ -6,7 +7,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import type { MinerMetadata } from "@/shared/types/minerMetadata";
 
-export type SingleMinerMetadata = MinerMetadata;
+export type SingleMinerMetadata = MinerMetadata & { returnToBuildings?: boolean };
 
 export type SingleMinerRouteState = {
   singleMinerMetadata?: SingleMinerMetadata;
@@ -47,3 +48,11 @@ export const recallSingleMinerMetadata = (deviceIdentifier: string): SingleMiner
   metadataByDevice.get(deviceIdentifier);
 
 export const canOpenEmbeddedMinerView = (miner: MinerStateSnapshot): boolean => miner.embeddedWebViewAvailable;
+
+export const rememberContainerMetadata = (container: Container): void => {
+  metadataByDevice.set(container.deviceIdentifier, {
+    minerName: container.name,
+    site: container.site?.label,
+    returnToBuildings: true,
+  });
+};

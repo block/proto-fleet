@@ -166,6 +166,9 @@ type SensorMetrics struct {
 
 // DeviceMetrics represents the complete telemetry snapshot for a mining device
 type DeviceMetrics struct {
+	// Container is present only for a controller observation, never for a miner.
+	Container *ContainerSnapshot
+
 	// Identity
 	DeviceID        string
 	Timestamp       time.Time

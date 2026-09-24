@@ -173,14 +173,14 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.Len(t, resp.Miners, 4, "Should return both paired and unpaired devices")
-	assert.Equal(t, int32(4), resp.TotalMiners)
+	assert.Len(t, resp.Miners, 3, "Should return paired and unpaired miners, excluding containers")
+	assert.Equal(t, int32(3), resp.TotalMiners)
 	classes := map[string]commonpb.DeviceClass{}
 	for _, miner := range resp.Miners {
 		classes[miner.DeviceIdentifier] = miner.DeviceClass
 	}
 	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_RIG, classes["unpaired-device-1"])
-	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, classes["unpaired-device-2"])
+	assert.NotContains(t, classes, "unpaired-device-2")
 	assert.Empty(t, resp.Cursor) // No more pages
 }
 

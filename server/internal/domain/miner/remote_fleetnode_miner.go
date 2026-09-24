@@ -44,6 +44,7 @@ var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
+	deviceClass        commonpb.DeviceClass
 	fleetNodeID        int64
 	orgID              int64
 	siteID             int64
@@ -80,6 +81,7 @@ type RemoteFleetNodeMiner struct {
 
 func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
 	return remoteTelemetryRoute{
+		deviceClass:        commonpb.DeviceClass(row.DeviceClass),
 		fleetNodeID:        row.FleetNodeID,
 		orgID:              row.OrgID,
 		siteID:             row.SiteID.Int64,
@@ -262,6 +264,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 
 func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetrypb.FleetNodeTelemetryRequest {
 	req := &telemetrypb.FleetNodeTelemetryRequest{
+		DeviceClass:        m.route.deviceClass,
 		DeviceIdentifier:   m.route.deviceIdentifier,
 		IpAddress:          m.route.ipAddress,
 		Port:               m.route.port,

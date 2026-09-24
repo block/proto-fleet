@@ -3690,6 +3690,18 @@ func (q *retryingQuerier) GetTotalPairedDevices(ctx context.Context, arg GetTota
 	return result, err
 }
 
+func (q *retryingQuerier) GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetTotalPairedMiners", func() error {
+		callResult, callErr := q.next.GetTotalPairedMiners(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetTotalPools(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "GetTotalPools", func() error {
@@ -3849,6 +3861,12 @@ func (q *retryingQuerier) InsertAlertMaintenanceWindow(ctx context.Context, arg 
 func (q *retryingQuerier) InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertAlertRouteChannels", func() error {
 		return q.next.InsertAlertRouteChannels(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertContainerPlantMetrics", func() error {
+		return q.next.InsertContainerPlantMetrics(ctx, arg)
 	})
 }
 
@@ -4270,6 +4288,18 @@ func (q *retryingQuerier) ListCompletedTickets(ctx context.Context, arg ListComp
 	var result []ListCompletedTicketsRow
 	err := q.retrier.RetryQuery(ctx, "ListCompletedTickets", func() error {
 		callResult, callErr := q.next.ListCompletedTickets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error) {
+	var result []ListContainersRow
+	err := q.retrier.RetryQuery(ctx, "ListContainers", func() error {
+		callResult, callErr := q.next.ListContainers(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7275,6 +7305,12 @@ func (q *retryingQuerier) UpsertBuiltinRoleForOrg(ctx context.Context, arg Upser
 func (q *retryingQuerier) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCommandOnDeviceLog", func() error {
 		return q.next.UpsertCommandOnDeviceLog(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertContainerSnapshot(ctx context.Context, arg UpsertContainerSnapshotParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertContainerSnapshot", func() error {
+		return q.next.UpsertContainerSnapshot(ctx, arg)
 	})
 }
 

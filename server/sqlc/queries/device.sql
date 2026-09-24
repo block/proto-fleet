@@ -56,6 +56,28 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
       OR (sqlc.arg('include_unassigned')::boolean AND d.site_id IS NULL)
     );
 
+-- name: GetTotalPairedMiners :one
+-- The site filter is additive: site_ids is an OR across sites,
+-- include_unassigned adds site_id IS NULL rows, and the empty + false case
+-- applies no site restriction (count all paired devices in the org).
+SELECT COUNT(*)
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+    AND d.deleted_at IS NULL
+    AND d.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.device_class <> 2
+    AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+    AND (
+         (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+      OR d.site_id = ANY(COALESCE(sqlc.arg('site_ids')::bigint[], '{}'))
+      OR (sqlc.arg('include_unassigned')::boolean AND d.site_id IS NULL)
+    );
+
 -- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
 FROM device d
@@ -389,6 +411,7 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   -- Status filter mirrors GetTotalMinerStateSnapshots so
   -- sum(bucket counts) == filtered list total for every filter value.
@@ -533,6 +556,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   -- remediation path.
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND d.org_id = @org_id
   AND dd.model IS NOT NULL
   AND dd.model != ''
@@ -557,6 +581,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
+  AND dd.device_class <> 2
   AND dd.model IS NOT NULL
   AND dd.model != ''
 ORDER BY dd.model
@@ -572,6 +597,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.firmware_version IS NOT NULL
   AND dd.firmware_version != ''
 ORDER BY dd.firmware_version
@@ -752,6 +778,7 @@ LEFT JOIN LATERAL (
 WHERE dd.org_id = sqlc.arg('org_id')
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
     -- Pairing status filter
     AND (
         sqlc.narg('pairing_status_filter')::text IS NULL
@@ -1111,6 +1138,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
 

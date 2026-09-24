@@ -89,6 +89,8 @@ test.describe("Proto Fleet - Onboarding", () => {
       await test.step("Find and add miners", async () => {
         await addMinersPage.clickFindMinersInNetwork();
         await addMinersPage.waitForExpectedNetworkMinerCount(EXPECTED_FAKE_NETWORK_MINER_COUNT);
+        await addMinersPage.validateTextIsVisible("1 container and 14 miners found on your network");
+        await addMinersPage.selectOnlyMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
         await addMinersPage.clickContinueWithXMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
       });
 

@@ -2230,3 +2230,17 @@ type errorAcker struct {
 func (a errorAcker) Send(*pb.ControlStreamRequest) error {
 	return a.err
 }
+
+func TestContainerIdentifierFollowsEndpointAcrossControllerFailover(t *testing.T) {
+	controller := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+		DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		DriverName:  "proto", Model: "CT1", SerialNumber: "controller-a",
+	}}
+	first := reportFromDiscovered(controller, "10.0.0.7", "80", 1)
+	controller.SerialNumber = "controller-b"
+	controller.MacAddress = "bb:bb:bb:bb:bb:bb"
+	second := reportFromDiscovered(controller, "10.0.0.7", "443", 1)
+	require.Equal(t, first.DeviceIdentifier, second.DeviceIdentifier)
+	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.8", "80", 1).DeviceIdentifier)
+	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.7", "80", 2).DeviceIdentifier)
+}

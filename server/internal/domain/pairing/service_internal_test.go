@@ -440,3 +440,31 @@ func TestCanonicalCIDR_IPv6Extended(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSameContainerUsesEndpointIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ip    string
+		class commonv1.DeviceClass
+		want  bool
+	}{
+		{"replacement controller at shared IP", "192.0.2.1", commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, true},
+		{"another container", "192.0.2.2", commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, false},
+		{"a miner at the old IP", "192.0.2.1", commonv1.DeviceClass_DEVICE_CLASS_RIG, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockDeviceStore(ctrl)
+			store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "container", int64(1)).Return(&pb.Device{
+				DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER,
+				DriverName:  "proto", Model: "CT1", IpAddress: "192.0.2.1", Port: "80", SerialNumber: "controller-a",
+			}, nil)
+			service := &Service{deviceStore: store}
+			device := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+				DeviceClass: tc.class, DriverName: "proto", Model: "CT1",
+				IpAddress: tc.ip, Port: "443", SerialNumber: "controller-b",
+			}}
+			require.Equal(t, tc.want, service.IsSameDevice(t.Context(), device, "container", 1))
+		})
+	}
+}

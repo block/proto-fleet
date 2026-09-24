@@ -101,6 +101,7 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   -- Status filter mirrors GetTotalMinerStateSnapshots so
   -- sum(bucket counts) == filtered list total for every filter value.
@@ -403,6 +404,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.firmware_version IS NOT NULL
   AND dd.firmware_version != ''
 ORDER BY dd.firmware_version
@@ -439,6 +441,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
+  AND dd.device_class <> 2
   AND dd.model IS NOT NULL
   AND dd.model != ''
 ORDER BY dd.model
@@ -1279,6 +1282,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   -- remediation path.
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND d.org_id = $1
   AND dd.model IS NOT NULL
   AND dd.model != ''
@@ -1406,6 +1410,7 @@ WHERE d.org_id = $1
   AND d.device_identifier = ANY($2::text[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
 `
@@ -1764,6 +1769,7 @@ LEFT JOIN LATERAL (
 WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
     -- Pairing status filter
     AND (
         $2::text IS NULL
@@ -1929,6 +1935,50 @@ type GetTotalPairedDevicesParams struct {
 // applies no site restriction (count all paired devices in the org).
 func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedDevicesParams) (int64, error) {
 	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices,
+		arg.OrgID,
+		arg.StatusFilter,
+		arg.ModelFilter,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const getTotalPairedMiners = `-- name: GetTotalPairedMiners :one
+SELECT COUNT(*)
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+    AND d.deleted_at IS NULL
+    AND d.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.device_class <> 2
+    AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
+    AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
+    AND (
+         (cardinality(COALESCE($4::bigint[], '{}')) = 0 AND $5::boolean = false)
+      OR d.site_id = ANY(COALESCE($4::bigint[], '{}'))
+      OR ($5::boolean AND d.site_id IS NULL)
+    )
+`
+
+type GetTotalPairedMinersParams struct {
+	OrgID             int64
+	StatusFilter      sql.NullString
+	ModelFilter       sql.NullString
+	SiteIds           []int64
+	IncludeUnassigned bool
+}
+
+// The site filter is additive: site_ids is an OR across sites,
+// include_unassigned adds site_id IS NULL rows, and the empty + false case
+// applies no site restriction (count all paired devices in the org).
+func (q *Queries) GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error) {
+	row := q.queryRow(ctx, q.getTotalPairedMinersStmt, getTotalPairedMiners,
 		arg.OrgID,
 		arg.StatusFilter,
 		arg.ModelFilter,

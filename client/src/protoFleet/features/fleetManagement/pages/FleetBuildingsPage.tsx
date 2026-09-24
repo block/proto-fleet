@@ -9,6 +9,7 @@ import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { useContainers } from "@/protoFleet/api/useContainers";
 import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
@@ -24,6 +25,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCard";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import ContainerCard from "@/protoFleet/features/containers/ContainerCard";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import {
   FILTER_URL_PARAM_KEYS,
@@ -169,6 +171,11 @@ const FleetBuildingsPage = () => {
     });
   }, [urlSiteFilter.includeUnassigned, urlSiteIds, activeSite]);
   const requestSiteFilterMatchesNoRows = isMatchNoneSiteFilter(requestSiteFilter);
+  const {
+    containers,
+    error: containersError,
+    loading: containersLoading,
+  } = useContainers(requestSiteFilter.siteIds, requestSiteFilter.includeUnassigned, !requestSiteFilterMatchesNoRows);
 
   // usePoll keeps fetchData in a ref and doesn't re-run on its identity
   // change, so a site/filter switch wouldn't refetch until the next poll
@@ -494,7 +501,7 @@ const FleetBuildingsPage = () => {
     );
   }, [setSearchParams]);
 
-  if (buildings === undefined || sites === undefined) {
+  if (buildings === undefined || sites === undefined || (buildings.length === 0 && containersLoading)) {
     return (
       <FilterRow>
         <div className="text-300 text-text-primary-70">Loading…</div>
@@ -502,7 +509,7 @@ const FleetBuildingsPage = () => {
     );
   }
 
-  if (buildingsError && buildings.length === 0) {
+  if (buildingsError && buildings.length === 0 && containers.length === 0) {
     return (
       <FilterRow testId="fleet-buildings-error">
         <Header title="Couldn't load buildings" titleSize="text-heading-200" />
@@ -635,7 +642,7 @@ const FleetBuildingsPage = () => {
     requestSiteFilter.siteIds.length > 0 || requestSiteFilter.includeUnassigned || requestSiteFilterMatchesNoRows;
 
   let pageContent: ReactNode;
-  if (buildings.length === 0) {
+  if (buildings.length === 0 && containers.length === 0) {
     pageContent = hasActiveFilters ? (
       <FilterRow testId="fleet-buildings-page">
         {inlineErrors}
@@ -677,7 +684,7 @@ const FleetBuildingsPage = () => {
         />
       </>
     );
-  } else if (visibleBuildings.length === 0) {
+  } else if (visibleBuildings.length === 0 && containers.length === 0) {
     pageContent = (
       <FilterRow testId="fleet-buildings-page">
         {filterControls}
@@ -701,6 +708,11 @@ const FleetBuildingsPage = () => {
         <FilterRow testId="fleet-buildings-page">
           {inlineErrors}
           {filterControls}
+          {containers.length > 0 && (selectedIssues.length > 0 || telemetryRanges.length > 0) ? (
+            <p className="text-200 text-text-primary-70">
+              Miner issue and telemetry filters apply to buildings. Containers are filtered by site.
+            </p>
+          ) : null}
         </FilterRow>
         {buildingsViewMode === "grid" ? (
           <>
@@ -710,6 +722,9 @@ const FleetBuildingsPage = () => {
               className="px-6 pt-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10"
               data-testid="fleet-buildings-count-label"
             >
+              {containers.length > 0
+                ? `${containers.length} ${containers.length === 1 ? "container" : "containers"} · `
+                : ""}
               {formatListCountLabel(visibleBuildings.length, {
                 unfilteredTotal: totalUnfilteredBuildings,
                 hasActiveFilters,
@@ -719,6 +734,9 @@ const FleetBuildingsPage = () => {
             </div>
             <div className="px-6 pb-6 laptop:px-10" ref={measureRef}>
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
+                {containers.map((container) => (
+                  <ContainerCard key={container.deviceIdentifier} container={container} />
+                ))}
                 {visibleBuildings.map((building, index) => (
                   <BuildingCard
                     key={building.building?.id ? building.building.id.toString() : `building-${index}`}
@@ -732,6 +750,7 @@ const FleetBuildingsPage = () => {
           <div className={LIST_WRAPPER}>
             <BuildingList
               buildings={visibleBuildings}
+              containers={containers}
               sites={sites}
               totalUnfiltered={totalUnfilteredBuildings}
               hasActiveFilters={hasActiveFilters}
@@ -749,6 +768,11 @@ const FleetBuildingsPage = () => {
 
   return (
     <>
+      {containersError ? (
+        <div role="alert" className="px-6 py-3">
+          Could not load containers: {containersError}
+        </div>
+      ) : null}
       {pageContent}
       {bulkActionBar}
       <BuildingModals modals={buildingModals} sites={sites} />

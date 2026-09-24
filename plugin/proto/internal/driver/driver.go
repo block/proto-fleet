@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/block/proto-fleet/plugin/proto/internal/ct1"
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -31,8 +32,6 @@ const (
 	apiVersion         = "v2"
 	maxValidPortNumber = math.MaxUint16
 )
-
-var canonicalDiscoveryPorts = []int{443}
 
 // defaultCredentials are the factory defaults for Proto rigs, tried during
 // auto-authentication when the operator does not supply credentials.
@@ -148,28 +147,12 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 }
 
 // GetDiscoveryPorts returns discovery ports in the order they should be tried.
-// When an explicit driver port override is configured, advertise that port first
-// so default omitted-port discovery follows the configured environment.
+// An explicit driver port override restricts discovery to that port.
 func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
-	if d.requiredPort > 0 && !isCanonicalDiscoveryPort(d.requiredPort) {
+	if d.requiredPort > 0 {
 		return []string{fmt.Sprintf("%d", d.requiredPort)}
 	}
-
-	ports := make([]string, 0, len(canonicalDiscoveryPorts))
-	seen := make(map[int]struct{}, len(canonicalDiscoveryPorts)+1)
-
-	if d.requiredPort > 0 {
-		ports = append(ports, fmt.Sprintf("%d", d.requiredPort))
-		seen[d.requiredPort] = struct{}{}
-	}
-
-	for _, port := range canonicalDiscoveryPorts {
-		if _, ok := seen[port]; ok {
-			continue
-		}
-		ports = append(ports, fmt.Sprintf("%d", port))
-	}
-	return ports
+	return []string{"443", "80", "8080"}
 }
 
 // DiscoverDevice implements the SDK Driver interface.
@@ -231,30 +214,9 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {
-	if d.requiredPort == 0 {
-		return true
-	}
-	if isCanonicalDiscoveryPort(d.requiredPort) {
-		return isCanonicalDiscoveryPort(port)
-	}
-	return port == d.requiredPort
+	return d.requiredPort == 0 || port == d.requiredPort
 }
-
-func (d *Driver) expectedDiscoveryPorts() string {
-	if !isCanonicalDiscoveryPort(d.requiredPort) {
-		return fmt.Sprintf("port %d", d.requiredPort)
-	}
-	return "port 443"
-}
-
-func isCanonicalDiscoveryPort(port int) bool {
-	for _, canonicalPort := range canonicalDiscoveryPorts {
-		if port == canonicalPort {
-			return true
-		}
-	}
-	return false
-}
+func (d *Driver) expectedDiscoveryPorts() string { return fmt.Sprintf("port %d", d.requiredPort) }
 
 func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto.DeviceInfo, error) {
 	info, err := client.GetDeviceInfo(ctx)
@@ -282,7 +244,16 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 
 	info, err := getAndValidateDeviceInfo(ctx, client)
 	if err != nil {
-		return sdk.DeviceInfo{}, err
+		endpoint := sdk.DeviceInfo{Host: ipAddress, Port: port, URLScheme: scheme}
+		containerClient, clientErr := ct1.NewClient(endpoint, sdk.UsernamePassword{})
+		if clientErr != nil {
+			return sdk.DeviceInfo{}, clientErr
+		}
+		discovered, discoverErr := containerClient.Discover(ctx, endpoint)
+		if discoverErr != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		return discovered, nil
 	}
 
 	// Get firmware version during discovery
@@ -315,6 +286,18 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 //   - Secure communication setup
 //   - Pairing verification
 func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		credentials, err := containerCredentials(access)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		c, err := ct1.NewClient(deviceInfo, credentials)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		return c.Discover(ctx, deviceInfo)
+	}
+
 	slog.Debug("Plugin PairDevice called",
 		"serial", deviceInfo.SerialNumber,
 		"host", deviceInfo.Host,
@@ -387,6 +370,13 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 }
 
 func newDeviceFromSecret(deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		credentials, err := containerCredentials(secret)
+		if err != nil {
+			return nil, err
+		}
+		return ct1.NewDevice(deviceID, deviceInfo, credentials)
+	}
 	credentials, err := credentialsFromSecret(secret)
 	if err != nil {
 		return nil, err
@@ -415,4 +405,29 @@ func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error
 	default:
 		return sdk.UsernamePassword{}, fmt.Errorf("expected UsernamePassword in secret bundle, got %T", secret.Kind)
 	}
+}
+
+// GetCapabilitiesForModel prevents the shared Proto driver from advertising rig
+// commands on a CT1 controller. Container commands are a separate workstream.
+func (d *Driver) GetCapabilitiesForModel(ctx context.Context, manufacturer, model string) sdk.Capabilities {
+	if model != "CT1" {
+		return nil
+	}
+	_, base, _ := d.DescribeDriver(ctx)
+	for key := range base {
+		base[key] = false
+	}
+	for key, value := range ct1.Capabilities() {
+		base[key] = value
+	}
+	return base
+}
+
+// Current Frigate endpoints allow unauthenticated reads; optional credentials
+// support controllers configured to require authentication.
+func containerCredentials(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
+	if secret.Kind == nil {
+		return sdk.UsernamePassword{}, nil
+	}
+	return credentialsFromSecret(secret)
 }

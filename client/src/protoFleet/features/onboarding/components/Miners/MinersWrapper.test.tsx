@@ -224,7 +224,7 @@ describe("MinersWrapper", () => {
       fireEvent.click(findMinersButton);
 
       await waitFor(() => {
-        expect(screen.getByText("Finding miners on your network")).toBeInTheDocument();
+        expect(screen.getByText("Finding devices on your network")).toBeInTheDocument();
       });
       expect(mockDiscover).toHaveBeenCalled();
       expect(mockDiscover).toHaveBeenCalledWith(
@@ -280,7 +280,7 @@ describe("MinersWrapper", () => {
 
       expect(mockDiscover).not.toHaveBeenCalled();
       // Should stay on findMiners step, not switch to pairing
-      expect(screen.queryByText("Finding miners on your network")).not.toBeInTheDocument();
+      expect(screen.queryByText("Finding devices on your network")).not.toBeInTheDocument();
     });
 
     it("disables Find miners button when networkInfo fetch failed (pending: false, data: undefined)", () => {
@@ -331,7 +331,7 @@ describe("MinersWrapper", () => {
 
       // Assert: miners appear in the list while scan is still running
       await waitFor(() => {
-        expect(screen.getByText("Finding miners on your network... 2 found so far")).toBeInTheDocument();
+        expect(screen.getByText("Scanning… 2 miners found on your network")).toBeInTheDocument();
       });
       expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
 
@@ -727,13 +727,13 @@ describe("MinersWrapper", () => {
       // Act: start scanning before the coverage refresh finishes.
       fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
       fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
-      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      expect(screen.getByText("Scanning… 1 miner found on your network")).toBeInTheDocument();
       expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
       await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
 
       // Assert: delayed warnings are visible without leaving scanning or results.
       const warning = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
-      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      expect(screen.getByText("Scanning… 1 miner found on your network")).toBeInTheDocument();
       await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
       await act(async () => finishScan());
       expect(screen.getByText("1 miner found on your network")).toBeInTheDocument();

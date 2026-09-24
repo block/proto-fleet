@@ -1,0 +1,79 @@
+import { Link } from "react-router-dom";
+import clsx from "clsx";
+import { containerHealth } from "./containerHealth";
+import { containerViewTarget } from "./useOpenContainerView";
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { rememberContainerMetadata } from "@/protoFleet/components/SingleMinerWrapper/routeState";
+import { HEAT_CLASS } from "@/protoFleet/features/buildings/components/cardHealth";
+
+export default function ContainerCard({ container }: { container: Container }) {
+  const { tanks: states, total, affected, incomplete } = containerHealth(container);
+  const target = containerViewTarget(container);
+  const className = "flex h-full flex-col rounded-2xl bg-surface-overlay p-5";
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-emphasis-300">{container.name}</span>
+        <span className="text-200 text-text-primary-70">Container</span>
+      </div>
+      <div className="text-200 text-text-primary-70">{container.site?.label ?? "Unassigned"}</div>
+      <div className="my-6 flex flex-wrap justify-center gap-1" aria-label="Tank health">
+        {container.tanks.map((tank, index) => {
+          const state = states[index];
+          const summary = container.stale
+            ? "Readings unavailable or stale"
+            : `${state.affected} of ${state.total} modules affected${state.incomplete ? "; incomplete readings" : ""}`;
+          return (
+            <span
+              key={tank.position}
+              role="img"
+              aria-label={`Tank ${tank.position}: ${summary}`}
+              title={`Tank ${tank.position}: ${summary}`}
+              data-heat-band={state.incomplete ? "unknown" : state.band}
+              className={clsx(
+                "h-8 w-4 rounded-sm",
+                state.incomplete ? "border border-dashed border-border-5 bg-core-primary-5" : HEAT_CLASS[state.band],
+              )}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-auto text-200 text-text-primary-70">
+        {container.stale
+          ? "Readings unavailable or stale"
+          : incomplete
+            ? "Incomplete module readings"
+            : affected
+              ? `${affected} of ${total} modules affected`
+              : "All modules hashing"}
+      </div>
+      <div className="mt-3 flex justify-between gap-2 border-t border-border-5 pt-3 text-200">
+        <span>
+          {!container.stale && container.hashrateHs !== undefined
+            ? `${(container.hashrateHs / 1e12).toLocaleString(undefined, { maximumFractionDigits: 1 })} TH/s`
+            : "—"}
+        </span>
+        <span>
+          {!container.stale && container.powerW !== undefined
+            ? `${(container.powerW / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`
+            : "—"}
+        </span>
+      </div>
+      {!target ? <p className="mt-3 text-200 text-text-primary-70">Web view unavailable</p> : null}
+    </>
+  );
+  const props = {
+    className: clsx(className, target && "transition-opacity hover:opacity-80"),
+    "data-testid": `container-card-${container.deviceIdentifier}`,
+  };
+  if (!target) return <div {...props}>{content}</div>;
+  return target.embedded ? (
+    <Link {...props} to={target.url} onClick={() => rememberContainerMetadata(container)}>
+      {content}
+    </Link>
+  ) : (
+    <a {...props} href={target.url} target="_blank" rel="noopener noreferrer">
+      {content}
+    </a>
+  );
+}

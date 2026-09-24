@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "buf/validate/validate.proto";
 import "common/v1/measurement.proto";
+import "common/v1/common.proto";
 
 // Service for retrieving telemetry data from mining devices
 service TelemetryService {
@@ -256,6 +257,7 @@ message FleetNodeTelemetryRequest {
   bytes credential_username = 13 [(buf.validate.field).bytes.max_len = 4096];
   bytes credential_password = 14 [(buf.validate.field).bytes.max_len = 4096];
   google.protobuf.Duration timeout = 15;
+  common.v1.DeviceClass device_class = 16 [(buf.validate.field).enum.defined_only = true];
 }
 
 message FleetNodeTelemetryResult {

@@ -4,7 +4,10 @@ import { useNavigate } from "react-router-dom";
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { containerHealth } from "@/protoFleet/features/containers/containerHealth";
+import { containerViewTarget, useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -14,12 +17,27 @@ import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColTitles } from "@/shared/components/List/types";
 import { type RowAction } from "@/shared/components/RowActionsMenu";
 
-export type BuildingListItem = {
+type BuildingRow = {
+  kind: "building";
   id: string;
+  name: string;
   building: BuildingWithCounts;
   siteName: string;
   stats?: FleetListStats;
 };
+
+type ContainerRow = {
+  kind: "container";
+  id: string;
+  name: string;
+  container: Container;
+  siteName: string;
+  moduleCount: number;
+  incomplete: boolean;
+  health: { healthy: number; needsAttention: number; offline: number; sleeping: number };
+};
+
+export type BuildingListItem = BuildingRow | ContainerRow;
 
 export type BuildingColumn =
   "name" | "site" | "racks" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
@@ -54,6 +72,7 @@ const ACTIVE_COLS: BuildingColumn[] = [
 
 interface BuildingListProps {
   buildings: BuildingWithCounts[];
+  containers?: Container[];
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
   onEditBuilding?: (building: BuildingWithCounts) => void;
@@ -67,8 +86,11 @@ interface BuildingListProps {
   hasActiveFilters?: boolean;
 }
 
+const EMPTY_CONTAINERS: Container[] = [];
+
 const BuildingList = ({
   buildings,
+  containers = EMPTY_CONTAINERS,
   sites,
   emptyStateRow,
   onEditBuilding,
@@ -80,6 +102,7 @@ const BuildingList = ({
   hasActiveFilters,
 }: BuildingListProps) => {
   const navigate = useNavigate();
+  const openContainerView = useOpenContainerView();
   const temperatureUnit = useTemperatureUnit();
 
   const siteNameById = useMemo(() => {
@@ -91,24 +114,45 @@ const BuildingList = ({
     return map;
   }, [sites]);
 
-  const items: BuildingListItem[] = useMemo(
-    () =>
-      [...buildings]
-        .sort((a, b) => (a.building?.name ?? "").localeCompare(b.building?.name ?? ""))
-        .map((building) => {
-          const buildingId = building.building?.id ?? 0n;
-          const id = buildingId.toString();
-          const siteId = building.building?.siteId;
-          const siteName = siteId
-            ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER)
-            : INACTIVE_PLACEHOLDER;
-          return { id, building, siteName, stats: building.listStats };
-        }),
-    [buildings, siteNameById],
-  );
+  const items: BuildingListItem[] = useMemo(() => {
+    const rows: BuildingListItem[] = buildings.map((building) => {
+      const id = (building.building?.id ?? 0n).toString();
+      const siteId = building.building?.siteId;
+      return {
+        kind: "building",
+        id,
+        name: building.building?.name ?? "(unnamed)",
+        building,
+        siteName: siteId ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
+        stats: building.listStats,
+      };
+    });
+    for (const container of containers) {
+      const { total, incomplete } = containerHealth(container);
+      rows.push({
+        kind: "container",
+        id: `container:${container.deviceIdentifier}`,
+        name: container.name,
+        container,
+        siteName: container.site?.label ?? INACTIVE_PLACEHOLDER,
+        moduleCount: total,
+        incomplete,
+        health: container.tanks.reduce(
+          (sum, tank) => ({
+            healthy: sum.healthy + tank.hashingCount,
+            needsAttention: sum.needsAttention + tank.attentionCount + tank.isolatedCount,
+            offline: sum.offline + tank.offlineCount,
+            sleeping: sum.sleeping + tank.sleepingCount,
+          }),
+          { healthy: 0, needsAttention: 0, offline: 0, sleeping: 0 },
+        ),
+      });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [buildings, containers, siteNameById]);
 
   const buildExtraActions = useCallback(
-    (item: BuildingListItem): RowAction[] => {
+    (item: BuildingRow): RowAction[] => {
       return [
         { label: "View building", icon: <ArrowRight />, onClick: () => navigate(`/buildings/${item.id}`) },
         {
@@ -141,12 +185,17 @@ const BuildingList = ({
 
   const renderName = useCallback(
     (item: BuildingListItem) => {
-      const buildingId = item.building.building?.id;
-      const buildingName = item.building.building?.name ?? "(unnamed)";
+      const buildingId = item.kind === "building" ? item.building.building?.id : undefined;
+      const buildingName = item.name;
       return (
         <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
-          <span className="truncate text-emphasis-300">{buildingName}</span>
-          {buildingId !== undefined && buildingId !== 0n ? (
+          <div className="min-w-0">
+            <span className="block truncate text-emphasis-300">{buildingName}</span>
+            {item.kind === "container" && !containerViewTarget(item.container) ? (
+              <span className="text-200 text-text-primary-70">Web view unavailable</span>
+            ) : null}
+          </div>
+          {item.kind === "building" && buildingId !== undefined && buildingId !== 0n ? (
             <FleetGroupActionsMenu
               scopes={[{ kind: "building", id: buildingId, name: buildingName }]}
               ariaLabel={`Actions for ${buildingName}`}
@@ -165,20 +214,30 @@ const BuildingList = ({
     [activeSite, renderName, temperatureUnit],
   );
 
-  const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);
+  const handleRowClick = useCallback(
+    (item: BuildingListItem) => {
+      if (item.kind === "container") {
+        openContainerView(item.container);
+      } else {
+        navigate(`/buildings/${item.id}`);
+      }
+    },
+    [navigate, openContainerView],
+  );
   const isSelectableBuilding = useCallback((item: BuildingListItem) => {
-    const buildingId = item.building.building?.id;
+    const buildingId = item.kind === "building" ? item.building.building?.id : undefined;
     return buildingId !== undefined && buildingId !== 0n;
   }, []);
   const handleSelectionModeChange = useCallback(() => undefined, []);
   const commonProps = {
     activeCols: ACTIVE_COLS,
-    colTitles: COL_TITLES,
+    colTitles: containers.length ? { ...COL_TITLES, racks: "Racks / tanks", miners: "Miners / modules" } : COL_TITLES,
     colConfig,
     items,
     itemKey: "id" as const,
     total: items.length,
-    totalUnfiltered,
+    // The building-only denominator cannot describe a mixed filtered list.
+    totalUnfiltered: containers.length ? undefined : totalUnfiltered,
     hasActiveFilters,
     itemName: { singular: "building", plural: "buildings" },
     onRowClick: handleRowClick,

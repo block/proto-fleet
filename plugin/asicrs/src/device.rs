@@ -484,6 +484,7 @@ impl AsicRsDevice {
             sensor_metrics: vec![],
             firmware_version,
             default_password_active: None,
+            container: None,
         }
     }
 

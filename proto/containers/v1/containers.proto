@@ -1,0 +1,50 @@
+syntax = "proto3";
+package containers.v1;
+
+import "buf/validate/validate.proto";
+import "common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Containers are paired controllers with observed internal topology. Their
+// modules are not Fleet miners, and tanks are not user-managed racks.
+service ContainerService {
+  rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+}
+message ListContainersRequest {
+  repeated int64 site_ids = 1 [(buf.validate.field).repeated = {
+    max_items: 1024
+    items: { int64: {gt: 0} }
+  }];
+  bool include_unassigned = 2;
+}
+message ListContainersResponse {
+  repeated Container containers = 1;
+}
+message Container {
+  string device_identifier = 1;
+  string name = 2;
+  common.v1.ResourceRef site = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  repeated TankHealth tanks = 5;
+  google.protobuf.Timestamp metrics_at = 6;
+  optional double hashrate_hs = 7;
+  optional double power_w = 8;
+  optional double temperature_c = 9;
+  // False means a recent observation exists. Stale retained observations must
+  // not be presented as current health, even if their counts were all healthy.
+  bool stale = 10;
+  // Matches direct Proto proxy eligibility; FleetNode-owned devices are false.
+  bool embedded_web_view_available = 11;
+  // Browser-direct HTTP(S) URL, including the controller API port. Empty when
+  // unavailable. The browser must have its own network route to this endpoint.
+  string url = 12;
+}
+message TankHealth {
+  int32 position = 1;
+  int32 hashing_count = 2;
+  int32 attention_count = 3;
+  int32 offline_count = 4;
+  int32 sleeping_count = 5;
+  int32 isolated_count = 6;
+  int32 unknown_count = 7;
+}

@@ -13,6 +13,9 @@ type DiscoveredDeviceStore interface {
 	// Save stores or updates a discovered device and returns the saved device
 	Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error)
 
+	// SaveDirect rejects updates to FleetNode-owned records during local discovery.
+	SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error)
+
 	// GetDevice retrieves a discovered device by its organization and device identifier
 	GetDevice(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (*discoverymodels.DiscoveredDevice, error)
 

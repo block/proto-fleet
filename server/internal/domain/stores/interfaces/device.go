@@ -55,6 +55,9 @@ type ZoneKey struct {
 }
 
 type MinerFilter struct {
+	// IncludeContainers opts generic identifier resolution into controller devices.
+	// Miner list and state-count APIs always exclude containers.
+	IncludeContainers bool
 	// SearchQuery is a case-insensitive substring matched against miner
 	// identifying fields (name, device identifier, serial, MAC, IP, worker).
 	// Name reuses the display-name sort expression, so an unnamed miner matches
@@ -196,6 +199,7 @@ type DeviceStore interface {
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
+	GetTotalPairedMiners(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error)

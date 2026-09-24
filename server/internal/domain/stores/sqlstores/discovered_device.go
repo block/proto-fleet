@@ -63,7 +63,16 @@ func (s *SQLDiscoveredDeviceStore) decodeCursor(encoded string) (int64, error) {
 
 // Save stores or updates a discovered device and returns the saved device
 func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+	return s.save(ctx, doi, device, false)
+}
+
+func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+	return s.save(ctx, doi, device, true)
+}
+
+func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice, direct bool) (*discoverymodels.DiscoveredDevice, error) {
 	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
+		DirectDiscovery:  direct,
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},

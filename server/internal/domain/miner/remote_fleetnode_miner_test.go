@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -799,4 +802,12 @@ func telemetryResult(deviceID string) *telemetrypb.FleetNodeTelemetryResult {
 
 func ptrFloat64(v float64) *float64 {
 	return &v
+}
+
+func TestContainerClassSurvivesFleetNodeRouting(t *testing.T) {
+	s := &Service{}
+	route, err := s.remoteRouteFromRow(sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow{DeviceClass: 2})
+	require.NoError(t, err)
+	m := &RemoteFleetNodeMiner{route: route}
+	require.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, m.telemetryRequest(t.Context()).DeviceClass)
 }

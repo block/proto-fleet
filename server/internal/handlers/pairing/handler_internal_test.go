@@ -309,7 +309,7 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 					}
 				}).AnyTimes()
 			store := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-			store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 					return device, nil
 				})

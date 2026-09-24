@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	requiredPort = 443
+	requiredPort = 0 // No override: scan the driver's HTTPS and MDK v2 HTTP ports.
 )
 
 func main() {

@@ -245,6 +245,7 @@ message DeviceMetrics {
   // determine it (e.g. status probe failed or an older plugin), and consumers
   // must not change remediation state.
   optional bool default_password_active = 17;
+  ContainerSnapshot container = 18;
 }
 
 
@@ -757,4 +758,33 @@ service Driver {
 
   // CoreV1 - Error System - Required method
   rpc GetErrors(DeviceRef) returns (DeviceErrors);
+}
+
+// Container topology and health are observations, not independently paired miners.
+message ContainerSnapshot {
+  google.protobuf.Timestamp observed_at = 1;
+  repeated ContainerTank tanks = 2;
+  ContainerPlant plant = 3;
+}
+message ContainerTank {
+  int32 position = 1;
+  repeated ContainerModule modules = 2;
+}
+message ContainerModule {
+  int32 position = 1;
+  string reported_id = 2;
+  // unknown, hashing, attention, offline, sleeping, isolated.
+  string state = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+message ContainerPlant {
+ google.protobuf.Timestamp observed_at = 1;
+ optional double total_power_w = 2;
+ optional double facility_power_w = 3;
+ optional double pue = 4;
+ optional double inlet_temperature_c = 5;
+ optional double outlet_temperature_c = 6;
+ bool alarm_active = 7;
+ bool critical_alarm_active = 8;
 }

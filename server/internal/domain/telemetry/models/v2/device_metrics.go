@@ -3,6 +3,8 @@ package models
 import (
 	"time"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
@@ -10,6 +12,7 @@ import (
 // It includes device-level health and aggregated metrics, as well as detailed
 // component-level metrics for hashboards, PSUs, fans, control boards, and sensors.
 type DeviceMetrics struct {
+	Container *sdk.ContainerSnapshot `json:"container,omitempty"`
 	// Identity
 	// DeviceIdentifier is the unique device identifier string (e.g., "proto-miner-001"),
 	// not the database primary key (device.id BIGINT).

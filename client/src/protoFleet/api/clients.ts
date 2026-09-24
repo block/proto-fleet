@@ -1,4 +1,5 @@
 import { createClient } from "@connectrpc/connect";
+import { ContainerService } from "./generated/containers/v1/containers_pb";
 import { transport } from "./transport";
 import { ActivityService } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import {
@@ -96,3 +97,5 @@ export {
   rolloutClient,
   foremanImportClient,
 };
+
+export const containersClient = createClient(ContainerService, transport);

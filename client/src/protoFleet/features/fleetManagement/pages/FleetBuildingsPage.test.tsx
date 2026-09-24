@@ -1,12 +1,17 @@
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import FleetBuildingsPage from "./FleetBuildingsPage";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+
+const containersMock = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/api/useContainers", () => ({ useContainers: containersMock }));
 
 const listBuildingsMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
@@ -114,6 +119,7 @@ const renderPage = (initialEntry = "/fleet/buildings", outletContext: FleetOutle
 
 describe("FleetBuildingsPage view toggle", () => {
   beforeEach(() => {
+    containersMock.mockReturnValue({ containers: [], loading: false });
     listBuildingsMock.mockReset();
     // Resolve the list synchronously so the page leaves its loading state.
     listBuildingsMock.mockImplementation(({ onSuccess }: { onSuccess?: (rows: BuildingWithCounts[]) => void }) => {
@@ -128,6 +134,26 @@ describe("FleetBuildingsPage view toggle", () => {
     hasPermissionMock.mockImplementation(() => true);
     // Reset the persisted preference to the default before each case.
     useFleetStore.getState().ui.setBuildingsViewMode("list");
+  });
+
+  test("renders containers alongside buildings in grid mode", () => {
+    containersMock.mockReturnValue({
+      containers: [create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1", stale: true })],
+      loading: false,
+    });
+    renderPage("/fleet/buildings?display=grid");
+    expect(screen.getByTestId("container-card-ct1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("1 container · 2 buildings");
+  });
+
+  test("passes containers into the same list instead of rendering a separate table", () => {
+    const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+    containersMock.mockReturnValue({ containers: [container], loading: false });
+    renderPage();
+    expect(buildingListSpy).toHaveBeenLastCalledWith(expect.objectContaining({ buildings, containers: [container] }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText("Containers (1)")).not.toBeInTheDocument();
   });
 
   test("defaults to the list view, rendering the BuildingList table", () => {

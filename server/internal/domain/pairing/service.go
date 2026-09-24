@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -613,7 +614,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		return false, err
 	}
 
-	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	result, err := s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
 		return false, err
 	}
@@ -658,6 +659,9 @@ func (s *Service) hydrateMissingFirmwareVersion(
 // If a match is found, it returns the existing discovered_device_identifier so the
 // upsert updates the old record's IP instead of creating a duplicate.
 func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return "", nil // Controller identity must not move a container off its shared IP.
+	}
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
 	pairedDevice, err := s.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, orgID)
@@ -700,7 +704,8 @@ func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discove
 	if scannedIP == "" || scannedPort == "" || discoveredDevice.DriverName == "" {
 		return "", nil
 	}
-	if discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "" {
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER &&
+		(discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "") {
 		return "", nil
 	}
 
@@ -717,7 +722,7 @@ func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discove
 			return "", fleeterror.NewInternalErrorf("failed to query discovered device during same-IP reconciliation: %v", err)
 		}
 
-		if existingDevice.DriverName != discoveredDevice.DriverName {
+		if existingDevice.DeviceClass != discoveredDevice.DeviceClass || existingDevice.DriverName != discoveredDevice.DriverName {
 			continue
 		}
 		if !strings.EqualFold(existingDevice.Model, discoveredDevice.Model) {
@@ -744,6 +749,14 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 	if err != nil {
 		slog.Error("failed to get paired device", "error", err)
 		return false
+	}
+	if pairedDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// One stable IP represents the container; system IDs identify replaceable
+		// controllers. Do not use those IDs for subnet relocation matching.
+		return newDiscoveredDevice.DeviceClass == pairedDevice.DeviceClass &&
+			newDiscoveredDevice.IpAddress != "" && newDiscoveredDevice.IpAddress == pairedDevice.IpAddress &&
+			newDiscoveredDevice.DriverName == pairedDevice.DriverName &&
+			strings.EqualFold(newDiscoveredDevice.Model, pairedDevice.Model)
 	}
 
 	pairer := s.pairer
@@ -796,7 +809,7 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 }
 
 func minerFilterFromPairDeviceFilter(filter *commandpb.DeviceFilter) *interfaces.MinerFilter {
-	minerFilter := &interfaces.MinerFilter{}
+	minerFilter := &interfaces.MinerFilter{IncludeContainers: true}
 	if filter == nil {
 		return minerFilter
 	}
@@ -1175,7 +1188,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	pairer := s.pairer
 
 	discoveredDevice.IsActive = true
-	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	_, err = s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}

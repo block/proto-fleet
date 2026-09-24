@@ -1427,6 +1427,7 @@ func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-ch
 // deviceMetricsToProto converts SDK DeviceMetrics to protobuf DeviceMetrics
 func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 	pbMetrics := &pb.DeviceMetrics{
+		Container:             containerSnapshotToProto(dm.Container),
 		DeviceId:              dm.DeviceID,
 		Timestamp:             timestamppb.New(dm.Timestamp),
 		Health:                pb.HealthStatus(safeIntToInt32(int(dm.Health))),
@@ -1458,6 +1459,7 @@ func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 // deviceMetricsFromProto converts protobuf DeviceMetrics to SDK DeviceMetrics
 func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
 	dm := DeviceMetrics{
+		Container:             containerSnapshotFromProto(pb.Container),
 		DeviceID:              pb.DeviceId,
 		Timestamp:             pb.Timestamp.AsTime(),
 		Health:                HealthStatus(pb.Health),

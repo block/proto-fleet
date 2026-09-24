@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -9,6 +9,11 @@ import {
   type BuildingWithCounts,
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Container,
+  ContainerSchema,
+  TankHealthSchema,
+} from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
@@ -100,6 +105,7 @@ type EditBuildingCallback = (building: BuildingWithCounts) => void;
 
 const renderList = ({
   onEditBuilding,
+  containers,
   selectedIds,
   onSelectedIdsChange,
   activeSite,
@@ -107,6 +113,7 @@ const renderList = ({
   routePath = "/fleet/buildings",
 }: {
   onEditBuilding?: EditBuildingCallback;
+  containers?: Container[];
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
   activeSite?: ActiveSite;
@@ -122,6 +129,7 @@ const renderList = ({
             <>
               <BuildingList
                 buildings={[makeBuilding(42, "Alpha", 7)]}
+                containers={containers}
                 sites={[makeSite(7, "North")]}
                 onEditBuilding={onEditBuilding}
                 selectedIds={selectedIds}
@@ -132,6 +140,7 @@ const renderList = ({
             </>
           }
         />
+        <Route path="/miners/:id" element={<PathProbe />} />
         <Route path="/buildings/:id" element={<PathProbe />} />
         <Route path="/fleet/racks" element={<PathProbe />} />
         <Route path="/fleet/miners" element={<PathProbe />} />
@@ -220,4 +229,67 @@ describe("BuildingList row actions menu", () => {
 
     expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
   });
+});
+
+const container = create(ContainerSchema, {
+  deviceIdentifier: "42",
+  embeddedWebViewAvailable: true,
+  name: "A container",
+  site: { id: 7n, label: "North" },
+  hashrateHs: 100e12,
+  powerW: 1000000,
+  tanks: [create(TankHealthSchema, { position: 1, hashingCount: 14, attentionCount: 2 })],
+});
+
+describe("combined building and container rows", () => {
+  it("sorts both types together and shares columns and a count", () => {
+    renderList({ containers: [container] });
+    const rows = screen.getAllByTestId("list-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("A container");
+    expect(rows[1]).toHaveTextContent("Alpha");
+    expect(screen.getByText("2 buildings")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("North")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("16")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("1")).toBeInTheDocument();
+    expect(within(rows[0]).getByRole("img", { name: /14 healthy, 2 need attention/ })).toBeInTheDocument();
+    fireEvent.click(within(rows[0]).getByText("A container"));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners/42");
+  });
+
+  it("keeps containers out of building bulk actions even when IDs overlap", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ containers: [container], selectedIds: [], onSelectedIdsChange });
+    const rows = screen.getAllByTestId("list-row");
+    const containerCheckbox = rows[0].querySelector("input[type=checkbox]");
+    if (containerCheckbox) expect(containerCheckbox).toBeDisabled();
+    fireEvent.click(rows[1].querySelector("input[type=checkbox]")!);
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
+  });
+
+  it("does not display stale container readings as current health or metrics", () => {
+    renderList({ containers: [{ ...container, stale: true }] });
+    const row = screen.getAllByTestId("list-row")[0];
+    expect(within(row).getByText("Readings unavailable or stale")).toBeInTheDocument();
+    expect(within(row).queryByRole("img", { name: /healthy/ })).not.toBeInTheDocument();
+    expect(within(row).queryByText(/TH\/S|MW/)).not.toBeInTheDocument();
+  });
+});
+
+it("uses the external URL for a FleetNode container", () => {
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  renderList({ containers: [{ ...container, embeddedWebViewAvailable: false, url: "http://192.168.1.20:8080" }] });
+  fireEvent.click(screen.getByText("A container"));
+  expect(open).toHaveBeenCalledWith("http://192.168.1.20:8080", "_blank", "noopener,noreferrer");
+  expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
+  open.mockRestore();
+});
+
+it("does not navigate a container with no available view", () => {
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  renderList({ containers: [{ ...container, embeddedWebViewAvailable: false, url: "" }] });
+  fireEvent.click(screen.getByText("A container"));
+  expect(open).not.toHaveBeenCalled();
+  expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
+  open.mockRestore();
 });
