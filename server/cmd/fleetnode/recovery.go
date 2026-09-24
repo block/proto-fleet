@@ -106,6 +106,10 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_UNRECOVERABLE_IDENTITY, recoveryEndpoint{}, ""))
 			continue
 		}
+		if _, err := r.driverGetter.GetDriverByDriverName(target.GetDriverName()); err != nil {
+			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, recoveryEndpoint{}, "target driver unavailable"))
+			continue
+		}
 		bundle, err := r.minerSecrets.SecretBundle(target)
 		if err != nil {
 			results = append(results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, recoveryEndpoint{}, "invalid encrypted credentials"))

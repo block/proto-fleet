@@ -166,6 +166,33 @@ func TestRecoverMinerEndpointsMatchesStableIdentityAndDeduplicatesCredentialProb
 	assert.EqualValues(t, 2, calls.Load(), "the shared credential should be tried once per endpoint")
 }
 
+func TestRecoverMinerEndpointsUnavailableTargetDriver(t *testing.T) {
+	for _, emptyScan := range []bool{true, false} {
+		t.Run(fmt.Sprintf("emptyScan=%t", emptyScan), func(t *testing.T) {
+			r, calls := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+				t.Fatal("unavailable target driver must not inspect candidates")
+				return sdk.DeviceInfo{}, nil
+			})
+			r.driverGetter = fakeDriverGetter{err: errors.New("driver not loaded")}
+			if emptyScan {
+				r.scanner = scanFunc(func(context.Context, iter.Seq[netip.Addr], []uint16, func(netscan.HostResult) error) error {
+					return nil
+				})
+			}
+			target := recoveryTarget("miner-1", "SERIAL-1", "")
+			target.DriverName = "missing-driver"
+
+			results, partial, err := r.recoverMinerEndpoints(t.Context(), []*pb.MinerConnectionDescriptor{target}, []string{"80"}, discardLogger(t))
+
+			require.NoError(t, err)
+			assert.False(t, partial)
+			require.Len(t, results, 1)
+			assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, results[0].GetOutcome())
+			assert.Zero(t, calls.Load())
+		})
+	}
+}
+
 func TestRecoverMinerEndpointsInspectsCandidatesConcurrentlyBeforeDeciding(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

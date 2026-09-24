@@ -5,10 +5,11 @@ use std::time::Duration;
 use asic_rs::MinerFactory;
 use asic_rs_core::config::pools::{PoolConfig, PoolGroupConfig};
 use asic_rs_core::config::tuning::TuningConfig;
+use asic_rs_core::data::command::MinerCommand;
 use asic_rs_core::data::message::{MessageSeverity, MinerComponent, MinerMessage};
 use asic_rs_core::data::miner::{MinerData, MiningMode, TuningTarget};
 use asic_rs_core::data::pool::PoolURL;
-use asic_rs_core::traits::miner::{Miner, MinerAuth, SetFaultLight};
+use asic_rs_core::traits::miner::{APIClient, Miner, MinerAuth, SetFaultLight};
 use futures::FutureExt;
 use proto_fleet_plugin::capabilities::*;
 use tokio::sync::Mutex;
@@ -314,14 +315,20 @@ impl AsicRsDevice {
         }
     }
 
-    /// Read live recovery identity and verify that the supplied credentials
-    /// authorize the firmware's control path before the endpoint is accepted.
+    /// Read live recovery identity and check the firmware's control-access
+    /// authentication before the endpoint is accepted (a session for LuxOS).
     pub async fn inspect_recovery(&self) -> anyhow::Result<MinerData> {
         let data = self.get_data().await?;
         let guard = self.connected_miner().await?;
         let miner = guard
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
+        if crate::capabilities::detect_variant(&data.device_info.make, &data.device_info.firmware)
+            == crate::capabilities::VARIANT_LUXOS
+        {
+            probe_recovery_luxos_session(miner.as_ref()).await?;
+            return Ok(data);
+        }
         match WriteAccessProbeStrategy::for_miner(
             &data.device_info.make,
             &data.device_info.firmware,
@@ -924,8 +931,46 @@ pub async fn validate_write_access(
     }
 }
 
-/// Recovery must not toggle an operator's identification light. Setting the
-/// observed state still exercises the authenticated command without changing it.
+/// Match LuxOS's control-session acquisition without writing its LED mode.
+/// asic-rs 0.5.4 uses session/logon for control access; LuxOS does not consume
+/// MinerAuth credentials. Its boolean light state loses the exact LED mode.
+async fn probe_recovery_luxos_session(miner: &(impl APIClient + ?Sized)) -> anyhow::Result<()> {
+    let result = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, async {
+        for command in ["session", "logon"] {
+            if let Ok(data) = miner
+                .get_api_result(&MinerCommand::RPC {
+                    command,
+                    parameters: None,
+                })
+                .await
+            {
+                if data
+                    .pointer("/SESSION/0/SessionID")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|session| !session.is_empty())
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(anyhow::anyhow!(
+            "[unauthenticated] LuxOS control session unavailable"
+        ))
+    }))
+    .await;
+    match result {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(anyhow::anyhow!(
+            "[unavailable] LuxOS session probe timed out"
+        )),
+        Err(_) => Err(anyhow::anyhow!(
+            "[unavailable] LuxOS session probe panicked"
+        )),
+    }
+}
+
+/// Recovery replays the observed state only for firmware with a boolean LED
+/// mode. LuxOS must use the separate session probe above.
 async fn probe_recovery_led(
     miner: &(impl SetFaultLight + Sync + ?Sized),
     light_flashing: Option<bool>,
@@ -1245,6 +1290,85 @@ fn classify_error(msg: MinerMessage) -> (pb::MinerError, pb::Severity, pb::Compo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ProbeLuxosSession {
+        calls: std::sync::Mutex<Vec<&'static str>>,
+        session: Result<serde_json::Value, &'static str>,
+        logon: Result<serde_json::Value, &'static str>,
+    }
+
+    #[tonic::async_trait]
+    impl APIClient for ProbeLuxosSession {
+        async fn get_api_result(
+            &self,
+            command: &MinerCommand,
+        ) -> anyhow::Result<serde_json::Value> {
+            let MinerCommand::RPC {
+                command,
+                parameters: None,
+            } = command
+            else {
+                panic!("unexpected recovery command: {command:?}");
+            };
+            self.calls.lock().unwrap().push(command);
+            match *command {
+                "session" => self.session.clone(),
+                "logon" => self.logon.clone(),
+                _ => panic!("recovery must not issue LED or other control commands"),
+            }
+            .map_err(|err| anyhow::anyhow!(err))
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_reuses_existing_session_without_led_write() {
+        let miner = ProbeLuxosSession {
+            calls: Default::default(),
+            session: Ok(serde_json::json!({"SESSION": [{"SessionID": "existing"}]})),
+            logon: Err("must not log on when a session exists"),
+        };
+        probe_recovery_luxos_session(&miner).await.unwrap();
+        assert_eq!(*miner.calls.lock().unwrap(), vec!["session"]);
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_logs_on_when_session_is_unavailable() {
+        for session in [
+            Err("denied"),
+            Ok(serde_json::json!({})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": ""}]})),
+        ] {
+            let miner = ProbeLuxosSession {
+                calls: Default::default(),
+                session,
+                logon: Ok(serde_json::json!({"SESSION": [{"SessionID": "new"}]})),
+            };
+            probe_recovery_luxos_session(&miner).await.unwrap();
+            assert_eq!(*miner.calls.lock().unwrap(), vec!["session", "logon"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_rejects_failed_or_malformed_logon_without_exposing_response() {
+        for logon in [
+            Err("secret-session-token"),
+            Ok(serde_json::json!({})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": ""}]})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": 42}]})),
+        ] {
+            let miner = ProbeLuxosSession {
+                calls: Default::default(),
+                session: Err("secret-session-token"),
+                logon,
+            };
+            let err = probe_recovery_luxos_session(&miner).await.unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "[unauthenticated] LuxOS control session unavailable"
+            );
+            assert_eq!(*miner.calls.lock().unwrap(), vec!["session", "logon"]);
+        }
+    }
 
     struct ProbeLight {
         calls: std::sync::Mutex<Vec<bool>>,
