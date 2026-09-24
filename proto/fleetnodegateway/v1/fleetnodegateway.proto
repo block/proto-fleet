@@ -364,7 +364,7 @@ enum MinerEndpointRecoveryOutcome {
 // for a state change; response validation is structural only.
 message MinerEndpointRecoveryResult {
     string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    MinerEndpointRecoveryOutcome outcome = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    MinerEndpointRecoveryOutcome outcome = 2 [(buf.validate.field).enum = {defined_only: true}];
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
     string port = 4 [(buf.validate.field).string.max_len = 5];
     string url_scheme = 5 [(buf.validate.field).string.max_len = 32];
