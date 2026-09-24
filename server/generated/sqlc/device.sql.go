@@ -1467,6 +1467,12 @@ WHERE dp.pairing_status = 'PAIRED'
   AND ds.status = 'OFFLINE'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
+  AND NOT EXISTS (
+    SELECT 1
+    FROM fleet_node_device fnd
+    WHERE fnd.device_id = d.id
+      AND fnd.org_id = d.org_id
+  )
 ORDER BY ds.status_timestamp DESC
 LIMIT $1
 `
@@ -2136,6 +2142,46 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
+const lockCloudRecoveryDevice = `-- name: LockCloudRecoveryDevice :many
+SELECT id
+FROM device
+WHERE device_identifier = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockCloudRecoveryDeviceParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+// Cloud recovery takes this device-row lock before checking ownership in a
+// subsequent statement. Fleet Node assignment takes the same row lock, so the
+// later transaction observes the earlier ownership decision at READ COMMITTED.
+func (q *Queries) LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockCloudRecoveryDeviceStmt, lockCloudRecoveryDevice, arg.DeviceIdentifier, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reconcileAuthenticationNeededPairingStatusByIdentifier = `-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
 WITH candidate AS (
   SELECT device_pairing.device_id
@@ -2169,6 +2215,56 @@ type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
 func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
 	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier, deviceIdentifier)
 	var i ReconcileAuthenticationNeededPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
+}
+
+const reconcileCloudAuthNeededByIdentifier = `-- name: ReconcileCloudAuthNeededByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM fleet_node_device fnd
+      WHERE fnd.device_id = d.id
+        AND fnd.org_id = d.org_id
+    )
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileCloudAuthNeededByIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type ReconcileCloudAuthNeededByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// A credential rejection from cloud IP recovery applies only while the cloud
+// still owns the device. The caller must first lock the device row above in the
+// same transaction so Fleet Node assignment and this ownership check serialize.
+func (q *Queries) ReconcileCloudAuthNeededByIdentifier(ctx context.Context, arg ReconcileCloudAuthNeededByIdentifierParams) (ReconcileCloudAuthNeededByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileCloudAuthNeededByIdentifierStmt, reconcileCloudAuthNeededByIdentifier, arg.DeviceIdentifier, arg.OrgID)
+	var i ReconcileCloudAuthNeededByIdentifierRow
 	err := row.Scan(&i.Eligible, &i.Updated)
 	return i, err
 }

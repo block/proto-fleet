@@ -193,6 +193,49 @@ SELECT
   EXISTS(SELECT 1 FROM candidate) AS eligible,
   EXISTS(SELECT 1 FROM updated) AS updated;
 
+-- name: LockCloudRecoveryDevice :many
+-- Cloud recovery takes this device-row lock before checking ownership in a
+-- subsequent statement. Fleet Node assignment takes the same row lock, so the
+-- later transaction observes the earlier ownership decision at READ COMMITTED.
+SELECT id
+FROM device
+WHERE device_identifier = sqlc.arg('device_identifier')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: ReconcileCloudAuthNeededByIdentifier :one
+-- A credential rejection from cloud IP recovery applies only while the cloud
+-- still owns the device. The caller must first lock the device row above in the
+-- same transaction so Fleet Node assignment and this ownership check serialize.
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.org_id = sqlc.arg('org_id')
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM fleet_node_device fnd
+      WHERE fnd.device_id = d.id
+        AND fnd.org_id = d.org_id
+    )
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated;
+
 -- name: GetDeviceByID :one
 SELECT *
 FROM device
@@ -612,6 +655,12 @@ WHERE dp.pairing_status = 'PAIRED'
   AND ds.status = 'OFFLINE'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
+  AND NOT EXISTS (
+    SELECT 1
+    FROM fleet_node_device fnd
+    WHERE fnd.device_id = d.id
+      AND fnd.org_id = d.org_id
+  )
 ORDER BY ds.status_timestamp DESC
 LIMIT $1;
 

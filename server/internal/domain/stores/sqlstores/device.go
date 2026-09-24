@@ -304,6 +304,28 @@ func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(
 	return row.Eligible, row.Updated, nil
 }
 
+func (s *SQLDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, error) {
+	rows, err := s.getQueries(ctx).LockCloudRecoveryDevice(ctx, sqlc.LockCloudRecoveryDeviceParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to lock device %s for cloud recovery: %w", deviceIdentifier, err)
+	}
+	return len(rows) != 0, nil
+}
+
+func (s *SQLDeviceStore) ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error) {
+	row, err := s.getQueries(ctx).ReconcileCloudAuthNeededByIdentifier(ctx, sqlc.ReconcileCloudAuthNeededByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile cloud auth-needed pairing status for device %s: %w", deviceIdentifier, err)
+	}
+	return row.Eligible, row.Updated, nil
+}
+
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
 	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,

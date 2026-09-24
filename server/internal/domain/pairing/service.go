@@ -21,6 +21,7 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -746,6 +747,9 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		slog.Error("failed to get paired device", "error", err)
 		return false
 	}
+	identityConfirmed := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress()).Matches(
+		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
+	)
 
 	pairer := s.pairer
 
@@ -757,13 +761,20 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
 	if err != nil {
-		// Check if this is an authentication error and update pairing status
-		if fleeterror.IsAuthenticationError(err) {
-			slog.Info("authentication failed for paired device, updating pairing status",
-				"device_identifier", pairedDevice.DeviceIdentifier)
-			if updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
-				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-					"device_identifier", pairedDevice.DeviceIdentifier, "error", updateErr)
+		// A recovery scan probes multiple same-driver candidates. Authentication
+		// failure identifies the paired miner only when credential-free discovery
+		// already supplied matching stable identity evidence.
+		if fleeterror.IsAuthenticationError(err) && identityConfirmed {
+			eligible, updated, reconcileErr := s.reconcileCloudAuthenticationNeeded(ctx, pairedDevice.DeviceIdentifier, orgID)
+			if reconcileErr != nil {
+				slog.Error("failed to reconcile pairing status to AUTHENTICATION_NEEDED",
+					"device_identifier", pairedDevice.DeviceIdentifier, "error", reconcileErr)
+			} else if updated {
+				slog.Info("authentication failed for identity-confirmed paired device, updated pairing status",
+					"device_identifier", pairedDevice.DeviceIdentifier)
+			} else if !eligible {
+				slog.Debug("authentication remediation skipped for ineligible pairing state",
+					"device_identifier", pairedDevice.DeviceIdentifier)
 			}
 		}
 		slog.Debug("failed to get new discovered device info", "error", err)
@@ -772,6 +783,25 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
 		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+}
+
+func (s *Service) reconcileCloudAuthenticationNeeded(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error) {
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// RunInTx may retry this closure after a serialization failure. Do not
+		// carry a result from an aborted attempt into a later ineligible one.
+		eligible, updated = false, false
+		locked, lockErr := s.deviceStore.LockDeviceForCloudRecoveryByIdentifier(txCtx, deviceIdentifier, orgID)
+		if lockErr != nil {
+			return lockErr
+		}
+		if !locked {
+			return nil
+		}
+
+		eligible, updated, err = s.deviceStore.ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(txCtx, deviceIdentifier, orgID)
+		return err
+	})
+	return eligible, updated, err
 }
 
 // resolveDeviceIdentifiers resolves a DeviceSelector to a list of device identifiers.

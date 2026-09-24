@@ -44,6 +44,18 @@ func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {
 	// Seed test data
 	setupOfflineDeviceTestData(t, conn)
 
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'offline-device-query-node', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("offline-device-query-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err := conn.Exec(`
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, 4, 1)
+	`, fleetNodeID)
+	require.NoError(t, err)
+
 	// Execute the ACTUAL query - this would have caught the JOIN bug
 	devices, err := store.GetOfflineDevices(ctx, 10)
 	require.NoError(t, err, "GetOfflineDevices query should succeed")
@@ -217,7 +229,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 'test-device-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
 			(2, 1, 'test-device-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc'),
-			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc')
+			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc'),
+			(4, 1, 'test-device-node-owned', 'proto', 'test-manufacturer', 'proto', '192.168.1.103', '50051', 'grpc')
 	`)
 	require.NoError(t, err)
 
@@ -229,7 +242,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 1, 'test-device-001', 'AA:BB:CC:DD:EE:01'),
 			(2, 1, 2, 'test-device-002', 'AA:BB:CC:DD:EE:02'),
-			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03')
+			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03'),
+			(4, 1, 4, 'test-device-node-owned', 'AA:BB:CC:DD:EE:04')
 	`)
 	require.NoError(t, err)
 
@@ -239,7 +253,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'PAIRED', NOW()),
 			(2, 'PAIRED', NOW()),
-			(3, 'PAIRED', NOW())
+			(3, 'PAIRED', NOW()),
+			(4, 'PAIRED', NOW())
 	`)
 	require.NoError(t, err)
 
@@ -249,7 +264,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'OFFLINE', NOW()),
 			(2, 'OFFLINE', NOW()),
-			(3, 'ACTIVE', NOW())
+			(3, 'ACTIVE', NOW()),
+			(4, 'OFFLINE', NOW())
 	`)
 	require.NoError(t, err)
 }
@@ -2774,6 +2790,88 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransi
 	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
 		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier)
 	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
+}
+
+func TestCloudAuthReconciliationWaitsForFleetNodeOwnership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7500
+	const deviceIdentifier = "cloud-auth-reconcile-node-race"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:88", sqlc.PairingStatusEnumPAIRED)
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRowContext(ctx, `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'cloud-auth-reconcile-node-race', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("cloud-auth-reconcile-node-race"), make([]byte, 32)).Scan(&fleetNodeID))
+
+	assignmentTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = assignmentTx.Rollback() }()
+	assignmentQueries := sqlc.New(assignmentTx)
+	lockedRows, err := assignmentQueries.LockFleetNodePairingDevice(ctx, sqlc.LockFleetNodePairingDeviceParams{
+		DeviceID: deviceID,
+		OrgID:    1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{deviceID}, lockedRows)
+	_, err = assignmentTx.ExecContext(ctx, `
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, $2, 1)
+	`, fleetNodeID, deviceID)
+	require.NoError(t, err)
+
+	type result struct {
+		eligible bool
+		updated  bool
+		err      error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		store := sqlstores.NewSQLDeviceStore(conn)
+		transactor := sqlstores.NewSQLTransactor(conn)
+		var eligible, updated bool
+		reconcileErr := transactor.RunInTx(reconcileCtx, func(txCtx context.Context) error {
+			locked, lockErr := store.LockDeviceForCloudRecoveryByIdentifier(txCtx, deviceIdentifier, 1)
+			if lockErr != nil || !locked {
+				return lockErr
+			}
+			eligible, updated, lockErr = store.ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(txCtx, deviceIdentifier, 1)
+			return lockErr
+		})
+		resultCh <- result{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.Fail(t, "expected cloud reconciliation to wait for Fleet Node assignment")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, assignmentTx.Commit())
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.False(t, got.eligible)
+		require.False(t, got.updated)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for cloud reconciliation")
+	}
+
+	status, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumPAIRED, status)
 }
 
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {

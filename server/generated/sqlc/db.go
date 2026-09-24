@@ -1413,6 +1413,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCloudRecoveryDeviceStmt, err = db.PrepareContext(ctx, lockCloudRecoveryDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCloudRecoveryDevice: %w", err)
+	}
 	if q.lockCommandBatchStmt, err = db.PrepareContext(ctx, lockCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCommandBatch: %w", err)
 	}
@@ -1466,6 +1469,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
+	}
+	if q.lockFleetNodePairingDeviceStmt, err = db.PrepareContext(ctx, lockFleetNodePairingDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodePairingDevice: %w", err)
 	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
@@ -1586,6 +1592,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileAuthenticationNeededPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileAuthenticationNeededPairingStatusByIdentifier: %w", err)
+	}
+	if q.reconcileCloudAuthNeededByIdentifierStmt, err = db.PrepareContext(ctx, reconcileCloudAuthNeededByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileCloudAuthNeededByIdentifier: %w", err)
 	}
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
@@ -4387,6 +4396,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCloudRecoveryDeviceStmt != nil {
+		if cerr := q.lockCloudRecoveryDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCloudRecoveryDeviceStmt: %w", cerr)
+		}
+	}
 	if q.lockCommandBatchStmt != nil {
 		if cerr := q.lockCommandBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCommandBatchStmt: %w", cerr)
@@ -4475,6 +4489,11 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodeByIDStmt != nil {
 		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
+		}
+	}
+	if q.lockFleetNodePairingDeviceStmt != nil {
+		if cerr := q.lockFleetNodePairingDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodePairingDeviceStmt: %w", cerr)
 		}
 	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
@@ -4675,6 +4694,11 @@ func (q *Queries) Close() error {
 	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt != nil {
 		if cerr := q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reconcileAuthenticationNeededPairingStatusByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.reconcileCloudAuthNeededByIdentifierStmt != nil {
+		if cerr := q.reconcileCloudAuthNeededByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileCloudAuthNeededByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt != nil {
@@ -5979,6 +6003,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
+	lockCloudRecoveryDeviceStmt                                  *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
 	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
 	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
@@ -5997,6 +6022,7 @@ type Queries struct {
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
+	lockFleetNodePairingDeviceStmt                               *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
@@ -6037,6 +6063,7 @@ type Queries struct {
 	reassignRacksUnderBuildingStmt                               *sql.Stmt
 	reassignRacksUnderBuildingsBulkStmt                          *sql.Stmt
 	reconcileAuthenticationNeededPairingStatusByIdentifierStmt   *sql.Stmt
+	reconcileCloudAuthNeededByIdentifierStmt                     *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
@@ -6666,6 +6693,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
+		lockCloudRecoveryDeviceStmt:                                  q.lockCloudRecoveryDeviceStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
 		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
 		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
@@ -6684,6 +6712,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
+		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
@@ -6724,6 +6753,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignRacksUnderBuildingStmt:                               q.reassignRacksUnderBuildingStmt,
 		reassignRacksUnderBuildingsBulkStmt:                          q.reassignRacksUnderBuildingsBulkStmt,
 		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:   q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
+		reconcileCloudAuthNeededByIdentifierStmt:                     q.reconcileCloudAuthNeededByIdentifierStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,

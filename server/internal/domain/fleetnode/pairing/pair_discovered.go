@@ -190,7 +190,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			if fleeterror.IsNotFoundError(err) {
 				return fleeterror.NewNotFoundError("discovered device not found")
 			}
-			return fleeterror.LogInternal(component, "load discovered device", clientErrPair, err)
+			return logInternal("load discovered device", clientErrPair, err)
 		}
 		// Only the owning node may report results for this device.
 		if dd.DiscoveredByFleetNodeID == nil || *dd.DiscoveredByFleetNodeID != fleetNodeID {
@@ -199,7 +199,23 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 		existing, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, identifier, orgID)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
-			return fleeterror.LogInternal(component, "lookup device", clientErrLookupDeviceForPairing, err)
+			return logInternal("lookup device", clientErrLookupDeviceForPairing, err)
+		}
+
+		// Every persisted outcome uses Fleet Node -> device -> discovered_device,
+		// matching direct pairing even when an authentication failure is reported.
+		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
+		}
+		var deviceID int64
+		if existing != nil {
+			deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
+			if err != nil {
+				return logInternal("resolve device id", clientErrPair, err)
+			}
+			if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+				return err
+			}
 		}
 
 		// default_password_active is tri-state: absent means the node/plugin could
@@ -210,7 +226,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
 			if err != nil {
 				if !fleeterror.IsNotFoundError(err) {
-					return fleeterror.LogInternal(component, "load existing pairing status", clientErrPair, err)
+					return logInternal("load existing pairing status", clientErrPair, err)
 				}
 			} else if status == StatusDefaultPassword {
 				persisted = StatusDefaultPassword
@@ -222,18 +238,14 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		// Check before any write and return its real status untouched. A freshly
 		// inserted device (existing == nil) can't be paired yet.
 		if outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && existing != nil {
-			deviceID, err := s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
-			if err != nil {
-				return fleeterror.LogInternal(component, "resolve device id", clientErrPair, err)
-			}
 			paired, err := s.store.DeviceHasActivePairing(ctx, deviceID, orgID)
 			if err != nil {
-				return fleeterror.LogInternal(component, "check active pairing", clientErrPair, err)
+				return logInternal("check active pairing", clientErrPair, err)
 			}
 			if paired {
 				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
 				if err != nil {
-					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+					return logInternal("load active pairing status", clientErrPair, err)
 				}
 				persisted = status
 				return nil
@@ -242,7 +254,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 		applyReportedIdentity(dd, result)
 		if _, err := s.discoveredDeviceStore.Save(ctx, doi, dd); err != nil {
-			return fleeterror.LogInternal(component, "save discovered device", clientErrPair, err)
+			return logInternal("save discovered device", clientErrPair, err)
 		}
 		if existing == nil {
 			if err := s.deviceStore.InsertDevice(ctx, &dd.Device, orgID, identifier); err != nil {
@@ -250,7 +262,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 					conflict = true
 					return err
 				}
-				return fleeterror.LogInternal(component, "insert device", clientErrPair, err)
+				return logInternal("insert device", clientErrPair, err)
 			}
 		} else {
 			if err := s.deviceStore.UpdateDeviceInfo(ctx, &dd.Device, orgID); err != nil {
@@ -258,7 +270,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 					conflict = true
 					return err
 				}
-				return fleeterror.LogInternal(component, "update device", clientErrPair, err)
+				return logInternal("update device", clientErrPair, err)
 			}
 		}
 
@@ -268,12 +280,12 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			// and we report the real paired-like status instead of downgrading it.
 			applied, err := s.deviceStore.SetDevicePairingAuthNeededIfNotPaired(ctx, &dd.Device, orgID)
 			if err != nil {
-				return fleeterror.LogInternal(component, "set auth-needed", clientErrPair, err)
+				return logInternal("set auth-needed", clientErrPair, err)
 			}
 			if !applied {
 				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
 				if err != nil {
-					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+					return logInternal("load active pairing status", clientErrPair, err)
 				}
 				persisted = status
 			}
@@ -282,11 +294,16 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 		// PAIRED: bind to the node BEFORE marking PAIRED, so the cloud-paired guard
 		// (PAIRED AND NOT node-bound) never sees a PAIRED-but-unbound row.
-		deviceID, err := s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
-		if err != nil {
-			return fleeterror.LogInternal(component, "resolve device id", clientErrPair, err)
+		if existing == nil {
+			deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
+			if err != nil {
+				return logInternal("resolve device id", clientErrPair, err)
+			}
+			if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+				return err
+			}
 		}
-		if err := s.pairDeviceLocked(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
+		if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
 			return err
 		}
 		boundDeviceID = deviceID
@@ -296,11 +313,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			}
 		}
 		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, persisted); err != nil {
-			return fleeterror.LogInternal(component, "set pairing status", clientErrPair, err)
+			return logInternal("set pairing status", clientErrPair, err)
 		}
 		// Reachable during pairing, so seed an ACTIVE status.
 		if err := s.deviceStore.UpsertDeviceStatus(ctx, minermodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""); err != nil {
-			return fleeterror.LogInternal(component, "set device status", clientErrPair, err)
+			return logInternal("set device status", clientErrPair, err)
 		}
 		return nil
 	})
@@ -341,7 +358,7 @@ func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device 
 
 func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pairingpb.Device, orgID int64, username, password, operation string) error {
 	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, username, secrets.NewText(password)); err != nil {
-		return fleeterror.LogInternal(component, operation, clientErrPair, err)
+		return logInternal(operation, clientErrPair, err)
 	}
 	return nil
 }

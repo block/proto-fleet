@@ -33,6 +33,10 @@ func (s *pairServiceStore) DeviceHasActiveCloudPairing(context.Context, int64, i
 	return false, nil
 }
 
+func (s *pairServiceStore) LockDeviceForFleetNodePairing(context.Context, int64, int64) (bool, error) {
+	return true, nil
+}
+
 func (s *pairServiceStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
 	return 1, nil
 }

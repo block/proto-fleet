@@ -90,6 +90,17 @@ INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
+-- name: LockFleetNodePairingDevice :many
+-- Serialize ownership assignment with cloud IP-recovery authentication
+-- reconciliation. Call after locking the Fleet Node and before checking the
+-- device's current cloud-pairing state.
+SELECT id
+FROM device
+WHERE id = sqlc.arg('device_id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: DeviceHasActiveCloudPairing :one
 -- True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 -- A device paired to a fleet node is also paired-like (so it reads as paired in
