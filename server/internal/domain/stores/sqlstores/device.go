@@ -310,7 +310,7 @@ func (s *SQLDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Cont
 		OrgID:            orgID,
 	})
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("failed to lock device %s for cloud recovery: %v", deviceIdentifier, err)
+		return false, fleeterror.NewInternalErrorf("failed to lock device %s for cloud recovery: %w", deviceIdentifier, err)
 	}
 	return len(rows) != 0, nil
 }
@@ -321,7 +321,7 @@ func (s *SQLDeviceStore) ReconcileCloudAuthenticationNeededPairingStatusByIdenti
 		OrgID:            orgID,
 	})
 	if err != nil {
-		return false, false, fleeterror.NewInternalErrorf("failed to reconcile cloud auth-needed pairing status for device %s: %v", deviceIdentifier, err)
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile cloud auth-needed pairing status for device %s: %w", deviceIdentifier, err)
 	}
 	return row.Eligible, row.Updated, nil
 }
