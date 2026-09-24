@@ -10,16 +10,12 @@ import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
-import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useFleetStore, useIsAuthenticated, useSessionGeneration, useUsername } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-
-const RELEASE_CHANNELS_DESCRIPTION =
-  "Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically, paced by the channel's update behavior.";
 
 const FIRMWARE_REFRESH_INTERVAL_MS = 30_000;
 const FIRMWARE_REQUEST_TIMEOUT_MS = 30_000;
@@ -271,9 +267,8 @@ const ReleaseChannelsTab = ({
     // Modal content is portaled outside this element. Keep the retained list
     // out of keyboard navigation while a new channel is being edited.
     <div className="flex flex-col gap-6" inert={view.kind === "create"}>
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
-        {showCreate ? (
+      {showCreate ? (
+        <div className="flex">
           <Button
             variant={variants.primary}
             size={sizes.compact}
@@ -283,8 +278,8 @@ const ReleaseChannelsTab = ({
             className="shrink-0 phone:w-full"
             testId="create-release-channel"
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {historyChannelIds.map((id) => {
         const state = history.states.get(id);

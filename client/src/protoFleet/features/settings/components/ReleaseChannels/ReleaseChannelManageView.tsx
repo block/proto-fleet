@@ -757,6 +757,7 @@ const ReleaseChannelManageView = ({
       <Modal
         open
         title="Create release channel"
+        description="Group miners into a release channel, then assign firmware per model. Miners update automatically to their assigned version using the channel's update behavior."
         testId="create-release-channel-modal"
         onDismiss={() => {
           if (!writeInFlightRef.current && !isWriting) onCancelCreate?.();

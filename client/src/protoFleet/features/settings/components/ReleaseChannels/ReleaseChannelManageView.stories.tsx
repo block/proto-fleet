@@ -20,7 +20,6 @@ import {
   productionChannel,
 } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
-import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Button, { sizes, variants } from "@/shared/components/Button";
 
 // Manage prioritizes assigned miners; channel settings and creation use modals.
@@ -155,11 +154,7 @@ export const Create: Story = {
     return (
       <Frame>
         <div className="flex flex-col gap-6" inert={isCreating}>
-          <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-            <SettingsPageHeader
-              title="Release channels"
-              description="Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically, paced by the channel's update behavior."
-            />
+          <div className="flex">
             <Button
               variant={variants.primary}
               size={sizes.compact}

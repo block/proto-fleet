@@ -115,12 +115,7 @@ function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
           <TabStripItem id="files" label="Files" />
           <TabStripItem id="releaseChannels" label="Release channels" />
         </TabStrip>
-        <div className="flex items-center justify-between gap-4">
-          {activeTab === "releaseChannels" ? (
-            <p className="text-300 text-text-primary-70">
-              Group miners into release channels and assign firmware per model.
-            </p>
-          ) : null}
+        <div className="flex">
           <Button
             text={activeTab === "files" ? "Upload firmware" : "Create release channel"}
             variant={variants.primary}
