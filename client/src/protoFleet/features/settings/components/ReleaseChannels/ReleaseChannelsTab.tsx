@@ -219,6 +219,7 @@ const ReleaseChannelsTab = ({
   const awaitingCreatedChannel =
     view.kind === "manage" && !managedChannel && (pendingCreate?.id === view.channelId || error !== null);
   const showBack = managedChannel !== undefined || awaitingCreatedChannel;
+  const showCreate = hasLoaded && !showBack && (!pendingCreate || visibleChannels.length > 0);
   // Handle new navigation without remounting the tab or the same channel's editor.
   // A pending write must settle before its editor can be replaced.
   if (manageRequest !== lastManageRequest && !isWriting) {
@@ -270,7 +271,20 @@ const ReleaseChannelsTab = ({
     // Modal content is portaled outside this element. Keep the retained list
     // out of keyboard navigation while a new channel is being edited.
     <div className="flex flex-col gap-6" inert={view.kind === "create"}>
-      <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
+      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+        <SettingsPageHeader title="Release channels" description={RELEASE_CHANNELS_DESCRIPTION} />
+        {showCreate ? (
+          <Button
+            variant={variants.primary}
+            size={sizes.compact}
+            text="Create release channel"
+            disabled={isWriting}
+            onClick={openCreate}
+            className="shrink-0 phone:w-full"
+            testId="create-release-channel"
+          />
+        ) : null}
+      </div>
 
       {historyChannelIds.map((id) => {
         const state = history.states.get(id);
@@ -372,30 +386,16 @@ const ReleaseChannelsTab = ({
       ) : pendingCreate && visibleChannels.length === 0 ? (
         <p className="text-text-primary-70">Channel details will appear after a successful refresh.</p>
       ) : visibleChannels.length === 0 ? (
-        <div className="flex flex-col gap-6">
-          <div>
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Create release channel"
-              disabled={isWriting}
-              onClick={openCreate}
-              className="phone:w-full"
-              testId="create-release-channel"
-            />
-          </div>
-          <SettingsEmptyState
-            title="No release channels"
-            description="Create a release channel, choose which miners it applies to, and assign firmware per model to roll out updates."
-          />
-        </div>
+        <SettingsEmptyState
+          title="No release channels"
+          description="Create a release channel, choose which miners it applies to, and assign firmware per model to roll out updates."
+        />
       ) : (
         <ReleaseChannelsTable
           channels={visibleChannels}
           rollouts={history.rollouts}
           historyStates={history.states}
           onExpandedChannelIdsChange={setExpandedChannelIds}
-          onCreate={openCreate}
           onManage={(channel) => {
             if (!writeInFlightRef.current) setView({ kind: "manage", channelId: channel.id });
           }}

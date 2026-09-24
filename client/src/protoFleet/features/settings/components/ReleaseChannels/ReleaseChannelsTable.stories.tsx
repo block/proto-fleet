@@ -44,7 +44,6 @@ export const WithActiveUpdate: Story = {
       <ReleaseChannelsTable
         channels={[canaryChannel, productionChannel, emptyChannel]}
         rollouts={[activeRigRollout, completedRigRollout]}
-        onCreate={noop}
         onManage={noop}
       />
     </Frame>
@@ -58,7 +57,6 @@ export const ReviewNeeded: Story = {
       <ReleaseChannelsTable
         channels={[channelWithActiveRollout(canaryChannel, gatedRigRollout), productionChannel]}
         rollouts={[gatedRigRollout, completedRigRollout]}
-        onCreate={noop}
         onManage={noop}
       />
     </Frame>
@@ -72,7 +70,6 @@ export const WithFailures: Story = {
       <ReleaseChannelsTable
         channels={[channelWithActiveRollout(canaryChannel, batchedRigRollout), productionChannel]}
         rollouts={[batchedRigRollout, completedWithFailuresRigRollout]}
-        onCreate={noop}
         onManage={noop}
       />
     </Frame>
@@ -86,7 +83,6 @@ export const AllSettled: Story = {
       <ReleaseChannelsTable
         channels={[productionChannel, emptyChannel]}
         rollouts={[completedRigRollout]}
-        onCreate={noop}
         onManage={noop}
       />
     </Frame>

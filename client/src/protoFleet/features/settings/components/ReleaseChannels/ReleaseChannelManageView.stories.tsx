@@ -20,6 +20,8 @@ import {
   productionChannel,
 } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 // Manage prioritizes assigned miners; channel settings and creation use modals.
 const meta = {
@@ -152,11 +154,24 @@ export const Create: Story = {
     const [isCreating, setIsCreating] = useState(true);
     return (
       <Frame>
-        <div inert={isCreating}>
+        <div className="flex flex-col gap-6" inert={isCreating}>
+          <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+            <SettingsPageHeader
+              title="Release channels"
+              description="Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically, paced by the channel's update behavior."
+            />
+            <Button
+              variant={variants.primary}
+              size={sizes.compact}
+              text="Create release channel"
+              onClick={() => setIsCreating(true)}
+              className="shrink-0 phone:w-full"
+              testId="create-release-channel"
+            />
+          </div>
           <ReleaseChannelsTable
             channels={[canaryChannel, productionChannel]}
             rollouts={[activeRigRollout]}
-            onCreate={() => setIsCreating(true)}
             onManage={() => {}}
           />
         </div>
