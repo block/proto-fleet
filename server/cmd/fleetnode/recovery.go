@@ -170,6 +170,8 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 				}
 				continue
 			}
+			// Any shared identifier may establish a match, but conflicts reject
+			// the candidate. With no shared identifier, leave it unmatched.
 			if want.Matches(got) {
 				candidate.identity = got
 				identifiedEndpoints[recoveryEndpointKey(candidate)] = struct{}{}
@@ -303,6 +305,9 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		scheme = target.GetUrlScheme()
 	}
 	deviceID := "endpoint-recovery-" + uuid.NewString()
+	// Automatic recovery deliberately assumes a trusted LAN for this rollout.
+	// Discovery MAC/serial values do not authenticate endpoints: a spoofed LAN
+	// service can receive these saved credentials before identity is checked.
 	result, err := driver.NewDevice(ctx, deviceID, sdk.DeviceInfo{
 		Host: endpoint.ip, Port: port, URLScheme: scheme,
 	}, bundle)
