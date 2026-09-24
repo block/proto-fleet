@@ -59,6 +59,11 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_INTERNAL, "endpoint recovery produced an invalid result", logger)
 		return
 	}
+	// Keep a bounded prefix instead of letting the transport discard all results.
+	for proto.Size(response) > maxAckPayloadBytes {
+		response.Results = response.Results[:len(response.Results)-1]
+		partial = true
+	}
 	payload, marshalErr := proto.Marshal(response)
 	if marshalErr != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_INTERNAL, "marshal endpoint recovery result", logger)

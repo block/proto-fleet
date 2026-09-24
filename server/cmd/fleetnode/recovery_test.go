@@ -391,6 +391,45 @@ func TestRecoverMinerEndpointsRedactsMalformedCiphertext(t *testing.T) {
 	assert.NotContains(t, results[0].GetErrorMessage(), "secret-value")
 }
 
+func TestHandleRecoverMinerEndpointsBoundsPayloadWithOrderedPrefix(t *testing.T) {
+	identity := stableidentity.New(strings.Repeat("😀", 255), "aa:bb:cc:dd:ee:01")
+	r, _ := recoveryRunCmd(t, map[string]stableidentity.Identity{
+		"10.0.0.1|80": stableidentity.New("", identity.MACAddress),
+		"10.0.0.2|80": stableidentity.New("", "aa:bb:cc:dd:ee:02"),
+	}, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		return sdk.DeviceInfo{SerialNumber: identity.SerialNumber, MacAddress: identity.MACAddress}, nil
+	})
+	req := &pb.RecoverMinerEndpointsRequest{ScanPorts: []string{"80"}}
+	full := &pb.RecoverMinerEndpointsResult{}
+	for i := range 512 {
+		target := recoveryTarget(fmt.Sprintf("%s%03d", strings.Repeat("😀", 252), i), "", identity.MACAddress)
+		req.Targets = append(req.Targets, target)
+		full.Results = append(full.Results, recoveryResult(target, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, recoveryEndpoint{
+			ip: "10.0.0.1", port: "80", urlScheme: "http", identity: identity,
+		}, ""))
+	}
+	require.NoError(t, protovalidate.Validate(req))
+	require.LessOrEqual(t, proto.Size(req), 900*1024, "request must fit the server's dispatch limit")
+	require.NoError(t, protovalidate.Validate(full))
+	require.Greater(t, proto.Size(full), maxAckPayloadBytes)
+	ack := &capturingAcker{}
+
+	r.handleRecoverMinerEndpoints(t.Context(), ack, "recover-large", req, discardLogger(t))
+
+	require.Len(t, ack.sent, 1)
+	got := ack.sent[0].GetAck()
+	require.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
+	require.NotEmpty(t, got.GetPayload())
+	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+	result := &pb.RecoverMinerEndpointsResult{}
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), result))
+	require.NotEmpty(t, result.GetResults())
+	require.Less(t, len(result.GetResults()), len(full.GetResults()))
+	assert.True(t, proto.Equal(result, &pb.RecoverMinerEndpointsResult{Results: full.Results[:len(result.Results)]}))
+	result.Results = append(result.Results, full.Results[len(result.Results)])
+	assert.Greater(t, proto.Size(result), maxAckPayloadBytes, "retain the largest prefix that fits")
+}
+
 func TestHandleRecoverMinerEndpointsReturnsEmptyPartialOnTimeout(t *testing.T) {
 	r, _ := recoveryRunCmd(t, nil, nil, func(sdk.DeviceInfo, sdk.SecretBundle) (sdk.DeviceInfo, error) {
 		return sdk.DeviceInfo{}, nil
