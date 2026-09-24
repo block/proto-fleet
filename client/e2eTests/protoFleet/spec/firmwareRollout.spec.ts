@@ -186,7 +186,6 @@ test.describe("Firmware release channels", () => {
       await settingsFirmwarePage.openScopeMiners();
       await settingsFirmwarePage.toggleScopeMinerByName(sharedMiner);
       await settingsFirmwarePage.confirmScopeMinerSelection();
-      await settingsFirmwarePage.validateScopeCovers(1);
       await settingsFirmwarePage.saveChannelChanges();
       await settingsFirmwarePage.validateChannelViewMinerCount(channelA, 1);
       await settingsFirmwarePage.backToChannels();

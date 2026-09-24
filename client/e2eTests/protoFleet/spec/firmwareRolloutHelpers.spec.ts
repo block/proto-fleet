@@ -134,7 +134,6 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
       <section data-testid="channel-settings-modal" hidden style="position: fixed; inset: 0; background: white">
         <button aria-label="Close dialog" onclick="this.closest('section').hidden = true">Close</button>
         <input id="pilot-size" type="number" value="1" />
-        <p data-testid="scope-preview">This channel covers 2 miners</p>
         ${modalSaveButtons("Review changes", "document.querySelector('[data-testid=channel-settings-modal]').hidden = true; document.querySelector('[data-testid=apply-firmware-dialog]').hidden = false")}
       </section>
       <section data-testid="apply-firmware-dialog" hidden>
@@ -155,9 +154,9 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
 
     await firmware.validateHistoryOutcome(channel, version, "Completed");
     await expect(page.getByTestId("channel-settings-modal")).toBeHidden();
-    await firmware.validateScopeCovers(2);
+    await firmware.setPilotSize(3);
     await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
-    await expect(page.locator("#pilot-size")).toHaveValue("2");
+    await expect(page.locator("#pilot-size")).toHaveValue("3");
   });
 
   test("reviewing settings with staged firmware leaves both changes pending until confirmation", async ({ page }) => {

@@ -984,7 +984,7 @@ const ReleaseChannelManageView = ({
         >
           {settingsFields}
           {onDelete ? (
-            <div className="mt-8 border-t border-border-10 pt-8">
+            <div className="mt-8">
               <Section
                 title="Delete this channel"
                 subtext="Miners keep their current firmware. Deleting this channel stops firmware enforcement and removes its update history."

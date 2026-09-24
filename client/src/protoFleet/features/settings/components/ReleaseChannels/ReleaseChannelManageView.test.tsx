@@ -336,7 +336,7 @@ describe("release channel pacing guidance", () => {
     expect(screen.getByTestId("rollout-controls")).not.toHaveTextContent(aggregatePlan);
   });
 
-  test("keeps scope counts visible without treating one model or a draft preview as rollout targets", async () => {
+  test("does not treat one model or a draft scope preview as rollout targets", async () => {
     const channel = assignedChannel();
     channel.minerCount = 10;
     channel.behavior = create(RolloutBehaviorSchema, { method: RolloutMethod.BATCHED, batchSize: 5 });
@@ -365,7 +365,14 @@ describe("release channel pacing guidance", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
-    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 60 miners"));
+    await waitFor(() =>
+      expect(previewScope).toHaveBeenLastCalledWith(
+        create(ReleaseChannelScopeSchema, { siteIds: [2n] }),
+        channel.id,
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
     expect(controls).not.toHaveTextContent("~12 batches of 5 across 60 miners");
     expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
     expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("5");
@@ -504,7 +511,7 @@ describe("release channel write ordering", () => {
     openChannelSettings();
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
-    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 3 miners"));
+    await waitFor(() => expect(screen.getByTestId("channel-firmware-select-Other")).toBeInTheDocument());
     closeChannelSettings();
     const row = screen.getByTestId("channel-firmware-select-Other").closest("tr")!;
     expect(row).not.toHaveTextContent("Pending scope change");
@@ -1391,7 +1398,7 @@ describe("release channel scope synchronization", () => {
     await waitFor(() => expect(previewScope).toHaveBeenCalledOnce());
     updateChannel({ ...channel, scope: create(ReleaseChannelScopeSchema, { siteIds: [2n, 1n] }) }, false);
     await act(async () => finishPreview(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 42 })));
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 42 miners");
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
     expect(previewScope).toHaveBeenCalledOnce();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });

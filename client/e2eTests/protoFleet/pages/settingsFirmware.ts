@@ -168,10 +168,10 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
-  // The Applies to preview resolved to this many miners.
+  // Only new channels show the aggregate Applies to preview.
   async validateScopeCovers(count: number) {
-    await this.openChannelSettings();
-    await expect(this.page.getByTestId("scope-preview")).toContainText(
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("scope-preview")).toContainText(
       `covers ${count} ${count === 1 ? "miner" : "miners"}`,
     );
   }

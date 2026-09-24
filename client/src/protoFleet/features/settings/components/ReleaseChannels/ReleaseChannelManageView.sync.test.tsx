@@ -116,8 +116,9 @@ describe("release channel settings refresh", () => {
       await act(async () => vi.advanceTimersByTime(5000));
     }
     expect(previewScope).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
     await act(async () => finish(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 17, modelCount: 1 })));
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("17 miners");
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
   });
 
   it("updates clean settings without losing staged firmware when the channel and assignment change", async () => {
