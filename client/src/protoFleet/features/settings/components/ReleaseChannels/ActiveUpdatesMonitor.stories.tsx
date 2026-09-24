@@ -1,4 +1,4 @@
-import { type ComponentProps, useState } from "react";
+import { type ComponentProps, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -68,6 +68,13 @@ const s21Devices = [RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.QUEUED].m
 // locally; these stories show fixed server snapshots, without issuing RPCs.
 function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
   const [activeTab, setActiveTab] = useState("files");
+  const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
+  const tabNavigationRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeTab === "releaseChannels" && manageRequest) {
+      tabNavigationRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  }, [activeTab, manageRequest]);
   const channels = [
     {
       ...canaryChannel,
@@ -110,11 +117,26 @@ function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
     <div className="min-h-screen bg-surface-base p-6 tablet:p-10" data-testid="firmware-monitor-story">
       <div className="flex flex-col gap-6">
         <SettingsPageHeader title="Firmware" />
-        <ActiveUpdatesMonitor api={api} onManageChannel={() => setActiveTab("releaseChannels")} />
-        <TabStrip activeId={activeTab} onSelect={setActiveTab} ariaLabel="Firmware sections">
-          <TabStripItem id="files" label="Files" />
-          <TabStripItem id="releaseChannels" label="Release channels" />
-        </TabStrip>
+        <ActiveUpdatesMonitor
+          api={api}
+          onManageChannel={(channelId) => {
+            setManageRequest({ channelId });
+            setActiveTab("releaseChannels");
+          }}
+        />
+        <div ref={tabNavigationRef} className="scroll-mt-6" data-testid="firmware-tab-navigation">
+          <TabStrip
+            activeId={activeTab}
+            onSelect={(tab) => {
+              setActiveTab(tab);
+              if (tab === "files") setManageRequest(null);
+            }}
+            ariaLabel="Firmware sections"
+          >
+            <TabStripItem id="files" label="Files" />
+            <TabStripItem id="releaseChannels" label="Release channels" />
+          </TabStrip>
+        </div>
         <div className="flex">
           <Button
             text={activeTab === "files" ? "Upload firmware" : "Create release channel"}

@@ -54,16 +54,31 @@ const page = (tab = "release-channels") => (
 );
 
 const initialAuth = useFleetStore.getState().auth;
+const scrollIntoView = vi.fn<HTMLElement["scrollIntoView"]>();
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  scrollIntoView.mockReset();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    writable: true,
+    value: scrollIntoView,
+  });
   mockListFirmwareFiles.mockResolvedValue([]);
   useFleetStore.setState({
     auth: { ...initialAuth, isAuthenticated: true, username: "operator", sessionGeneration: 1 },
   });
 });
 
-afterEach(() => useFleetStore.setState({ auth: initialAuth }));
+afterEach(() => {
+  useFleetStore.setState({ auth: initialAuth });
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
+});
 
 describe("update detail Manage navigation", () => {
   const productionRollout = {
@@ -123,6 +138,52 @@ describe("update detail Manage navigation", () => {
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it.each(
+    ["inline", "banner"].flatMap((surface) =>
+      ["files", "release-channels"].map((initialTab) => ({ surface, initialTab })),
+    ),
+  )(
+    "scrolls to channel management only for $surface Manage requests starting on $initialTab",
+    async ({ surface, initialTab }) => {
+      const api = navigationApi(surface === "inline" ? productionRollout : undefined);
+      const selectedTabAtScroll: (string | null)[] = [];
+      scrollIntoView.mockImplementation(() => {
+        selectedTabAtScroll.push(screen.getByRole("button", { name: "Release channels" }).getAttribute("aria-current"));
+      });
+      const { rerender } = render(page(initialTab));
+      const anchor = screen.getByTestId("firmware-tab-navigation");
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      manageFromMonitor();
+      expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start", behavior: "instant" });
+      expect(scrollIntoView.mock.contexts[0]).toBe(anchor);
+      expect(selectedTabAtScroll).toEqual(["page"]);
+
+      // A fresh Manage request must scroll even if the tab and channel are
+      // already selected and the operator has scrolled back to the live card.
+      manageFromMonitor();
+      expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "start", behavior: "instant" });
+      expect(scrollIntoView.mock.contexts[1]).toBe(anchor);
+      expect(selectedTabAtScroll).toEqual(["page", "page"]);
+
+      mockUseReleaseChannels.mockReturnValue({
+        ...api,
+        rollouts: api.rollouts.map((rollout) => ({ ...rollout, revision: rollout.revision + 1n })),
+      });
+      rerender(page(initialTab));
+      expect(scrollIntoView).toHaveBeenCalledTimes(2);
+
+      fireEvent.click(screen.getByRole("button", { name: "Files" }));
+      expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute("aria-current", "page");
+      fireEvent.click(screen.getByRole("button", { name: "Release channels" }));
+      expect(await screen.findByTestId("channel-row-Production")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Release channels" }));
+      expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it.each(["inline", "banner"])(
     "preserves settings and firmware drafts when returning from %s Manage",

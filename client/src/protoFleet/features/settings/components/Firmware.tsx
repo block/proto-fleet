@@ -385,6 +385,12 @@ const Firmware = () => {
 
   // Let the existing tab handle navigation so an open editor can keep its draft.
   const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
+  const tabNavigationRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeTab === TAB_RELEASE_CHANNELS && manageRequest) {
+      tabNavigationRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  }, [activeTab, manageRequest]);
   // Update detail / rollback the history modal asked the monitor to open.
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
 
@@ -423,22 +429,24 @@ const Firmware = () => {
           showChannels();
         }}
       />
-      <TabStrip
-        activeId={activeTab}
-        ariaLabel="Firmware sections"
-        onSelect={(key) => {
-          if (key === TAB_RELEASE_CHANNELS) {
-            showChannels();
-          } else {
-            setManageRequest(null);
-            setSearchParams({}, { replace: true });
-          }
-        }}
-      >
-        {firmwareTabs.map((tab) => (
-          <TabStripItem key={tab.key} id={tab.key} label={tab.title} />
-        ))}
-      </TabStrip>
+      <div ref={tabNavigationRef} className="scroll-mt-6" data-testid="firmware-tab-navigation">
+        <TabStrip
+          activeId={activeTab}
+          ariaLabel="Firmware sections"
+          onSelect={(key) => {
+            if (key === TAB_RELEASE_CHANNELS) {
+              showChannels();
+            } else {
+              setManageRequest(null);
+              setSearchParams({}, { replace: true });
+            }
+          }}
+        >
+          {firmwareTabs.map((tab) => (
+            <TabStripItem key={tab.key} id={tab.key} label={tab.title} />
+          ))}
+        </TabStrip>
+      </div>
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
           api={channelsApi}
