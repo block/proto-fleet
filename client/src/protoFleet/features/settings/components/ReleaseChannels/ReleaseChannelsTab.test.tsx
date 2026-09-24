@@ -2,7 +2,13 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { closeChannelSettings, deferred, openChannelSettings, releaseChannelsApi } from "./__tests__/helpers";
+import {
+  applyChannelSettings,
+  closeChannelSettings,
+  deferred,
+  openChannelSettings,
+  releaseChannelsApi,
+} from "./__tests__/helpers";
 import { canaryChannel, firmwareFiles, productionChannel } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTab from "./ReleaseChannelsTab";
 import {
@@ -244,8 +250,9 @@ describe("release channel history on demand", () => {
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Updated channel" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(api.updateChannel).toHaveBeenCalledOnce();
+    closeChannelSettings();
     fireEvent.click(screen.getByRole("button", { name: "Retry update history" }));
     await flush();
     expect(api.listChannelRollouts).toHaveBeenCalledTimes(2);
@@ -255,7 +262,7 @@ describe("release channel history on demand", () => {
 });
 
 describe("release channel deletion coordination", () => {
-  it("blocks Delete during Save and its follow-up read, including actions before a rerender", async () => {
+  it("blocks Delete during settings Apply and its follow-up read, including actions before a rerender", async () => {
     const api = apiFor();
     const committed = deferredWrite();
     const refreshed = deferredWrite();
@@ -266,28 +273,37 @@ describe("release channel deletion coordination", () => {
     });
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
-    openChannelSettings();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
     fireEvent.click(screen.getByTestId("delete-channel"));
     openChannelSettings();
-    const save = screen.getByTestId("save-channel");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved channel" } });
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("save-channel"));
+    expect(api.updateChannel).not.toHaveBeenCalled();
+    const apply = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" });
     const confirm = deleteConfirm();
     const back = screen.getByTestId("back-to-channels");
     act(() => {
-      save.click();
+      apply.click();
       confirm.click();
       back.click();
     });
     expect(api.updateChannel).toHaveBeenCalledOnce();
     expect(api.deleteChannel).not.toHaveBeenCalled();
-    expect(screen.getByTestId("delete-channel")).toBeDisabled();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     expect(confirm).toBeDisabled();
     expect(back).toBeDisabled();
     await act(async () => committed.resolve());
     expect(confirm).toBeDisabled();
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
+    expect(api.updateChannel).toHaveBeenCalledWith(
+      canaryChannel.id,
+      expect.objectContaining({ name: "Saved channel" }),
+    );
+    await act(async () => refreshed.resolve());
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Saved channel");
-    await act(async () => refreshed.resolve());
+    closeChannelSettings();
     expect(deleteConfirm()).toBeEnabled();
     await act(async () => fireEvent.click(deleteConfirm()));
     expect(api.deleteChannel).toHaveBeenCalledExactlyOnceWith(canaryChannel.id);
@@ -324,7 +340,7 @@ describe("release channel deletion coordination", () => {
     expect(api.deleteChannel).toHaveBeenCalledOnce();
   });
 
-  it("serializes Delete against Save, Apply and duplicate confirmation, retaining drafts and retry after failure", async () => {
+  it("serializes Delete against combined Apply and duplicate confirmation, retaining drafts and retry after failure", async () => {
     const api = apiFor();
     const deleted = deferredWrite();
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
@@ -333,19 +349,19 @@ describe("release channel deletion coordination", () => {
     fireEvent.click(screen.getByTestId("delete-channel"));
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
-    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    const save = screen.getByTestId("save-channel");
     const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
-      name: "Clear assignments",
+      name: "Apply changes",
     });
+    openChannelSettings();
+    const review = screen.getByTestId("save-channel");
     const confirm = deleteConfirm();
     const cancel = within(screen.getByTestId("delete-channel-dialog")).getByRole("button", { name: "Cancel" });
     act(() => {
       confirm.click();
       confirm.click();
-      save.click();
       start.click();
       cancel.click();
       screen.getByTestId("back-to-channels").click();
@@ -353,7 +369,7 @@ describe("release channel deletion coordination", () => {
     expect(api.deleteChannel).toHaveBeenCalledOnce();
     expect(api.updateChannel).not.toHaveBeenCalled();
     expect(api.applyFirmware).not.toHaveBeenCalled();
-    expect(save).toBeDisabled();
+    expect(review).toBeDisabled();
     expect(start).toBeDisabled();
     expect(screen.getByTestId("delete-channel-dialog")).toBeInTheDocument();
     await act(async () => deleted.reject(new Error("Channel deletion failed")));
@@ -361,7 +377,7 @@ describe("release channel deletion coordination", () => {
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
-    expect(save).toBeEnabled();
+    expect(review).toBeEnabled();
     expect(start).toBeEnabled();
     expect(deleteConfirm()).toBeEnabled();
     await act(async () => fireEvent.click(deleteConfirm()));
@@ -582,9 +598,12 @@ describe("release channel firmware catalog", () => {
     expect(screen.queryByRole("option", { name: /1\.4\.4/ })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: /1\.4\.5/ })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
-    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
+    closeChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue(canaryChannel.name);
   });
 
   it("retains the last complete catalog on a refresh failure and recovers on the next poll", async () => {
@@ -645,9 +664,15 @@ describe("release channel firmware catalog", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
       fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-      fireEvent.click(screen.getByRole("button", { name: "Start update" }));
+      fireEvent.click(
+        within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }),
+      );
       await flush();
 
+      expect(api.updateChannel).toHaveBeenCalledExactlyOnceWith(
+        canaryChannel.id,
+        expect.objectContaining({ name: "Keep this draft" }),
+      );
       expect(api.applyFirmware).toHaveBeenCalledExactlyOnceWith(canaryChannel.id, [
         { manufacturer: "Proto", model: "Rig", firmwareFileId: replacement.id },
       ]);

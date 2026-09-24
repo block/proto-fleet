@@ -43,7 +43,7 @@ describe("channel settings modal", () => {
     expect(settings.getByTestId("save-channel")).toBeDisabled();
   });
 
-  it("retains unsaved settings and invalid numeric text after staging and discarding firmware", () => {
+  it("keeps settings editable while staging firmware and discards the entire draft", () => {
     const props = manageViewProps();
     render(<ReleaseChannelManageView {...props} channel={canaryChannel} />);
     openChannelSettings();
@@ -51,21 +51,26 @@ describe("channel settings modal", () => {
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Draft description" } });
     fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "unfinished" } });
     closeChannelSettings();
-    expect(screen.getByText("Unsaved settings")).toBeVisible();
+    expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("3");
 
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
-    expect(screen.getByText("1 firmware change pending")).toBeVisible();
-    expect(screen.queryByTestId("channel-settings")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-    expect(screen.getByText("Unsaved settings")).toBeVisible();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("4");
+    expect(screen.getByTestId("channel-settings")).toBeEnabled();
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Canary draft");
-    expect(screen.getByLabelText("Description")).toHaveValue("Draft description");
     expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("unfinished");
-    expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveAttribute("aria-invalid", "true");
+    closeChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue(canaryChannel.name);
+    expect(screen.getByLabelText("Description")).toHaveValue(canaryChannel.description);
+    expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue(String(canaryChannel.behavior!.pilotSize));
+    expect(screen.getByLabelText("Pilot batch size (miners)")).not.toHaveAttribute("aria-invalid");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
@@ -73,36 +78,38 @@ describe("channel settings modal", () => {
     expect(props.onApply).not.toHaveBeenCalled();
   });
 
-  it.each(["success", "failure"])("keeps the modal open and draft accurate after save %s", async (outcome) => {
+  it.each(["success", "failure"])("reviews settings before writing and retains the draft after %s", async (outcome) => {
     const props = manageViewProps();
     const save = deferred<void>();
     props.onSave.mockReturnValueOnce(save.promise);
     render(<ReleaseChannelManageView {...props} channel={canaryChannel} />);
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved canary" } });
+    expect(screen.getByTestId("save-channel")).toHaveTextContent("Review changes");
     fireEvent.click(screen.getByTestId("save-channel"));
-    closeChannelSettings();
+    expect(props.onSave).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(dialog).toHaveTextContent("Channel settings");
+    expect(dialog).toHaveTextContent("Saved canary");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" }));
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.getByTestId("channel-settings-modal")).toBeVisible());
-    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     await act(async () => {
       if (outcome === "success") save.resolve();
       else save.reject(new Error("Save rejected"));
     });
-
-    await waitFor(() => expect(screen.getByTestId("channel-settings-modal")).toBeVisible());
-    expect(screen.getByLabelText("Name")).toHaveValue("Saved canary");
     expect(props.onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Saved canary" }));
-    if (outcome === "success") {
-      expect(screen.getByTestId("save-channel")).toBeDisabled();
-      expect(screen.queryByText("Unsaved settings")).not.toBeInTheDocument();
-    } else {
-      expect(screen.getByTestId("save-channel")).toBeEnabled();
+    expect(props.onApply).not.toHaveBeenCalled();
+    if (outcome === "failure") {
       expect(pushToast).toHaveBeenCalledWith({ message: "Save rejected", status: "error" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     }
-    closeChannelSettings();
-    expect(screen.queryByTestId("channel-settings-modal")).not.toBeInTheDocument();
-    if (outcome === "failure") expect(screen.getByText("Unsaved settings")).toBeVisible();
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Saved canary");
+    if (outcome === "success") expect(screen.getByTestId("save-channel")).toBeDisabled();
+    else expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 
   it("shows new-channel settings in the create modal and validates before saving", async () => {

@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
+import { applyChannelSettings, closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { canaryChannel } from "./ReleaseChannels.fixtures";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
@@ -55,7 +55,7 @@ describe("release channel name and description validation", () => {
     fireEvent.change(input, { target: { value: ` \u0085${valid}\u0085 ` } });
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(screen.getByTestId("save-channel")).toBeEnabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
 
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ [field]: valid }));
   });
@@ -71,9 +71,9 @@ describe("release channel name and description validation", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(input, { target: { value } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ [field]: value }));
-    expect(input).toHaveValue(value);
+    expect(screen.getByLabelText(label)).toHaveValue(value);
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
@@ -82,26 +82,26 @@ describe("release channel name and description validation", () => {
     const { onSave, updateChannel } = renderManage(channel);
     const name = screen.getByLabelText("Name");
     const description = screen.getByLabelText("Description");
-    const save = screen.getByTestId("save-channel");
-    expect(save).toBeDisabled();
+
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(name, { target: { value: `\u0085${channel.name}\u0085` } });
     fireEvent.change(description, { target: { value: `\u0085${channel.description}\u0085` } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     updateChannel({ ...channel, name: "Remote", description: "Remote description" });
-    expect(name).toHaveValue("Remote");
-    expect(description).toHaveValue("Remote description");
-    expect(save).toBeDisabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Remote");
+    expect(screen.getByLabelText("Description")).toHaveValue("Remote description");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(name, { target: { value: "\u0085Local\u0085" } });
     fireEvent.change(description, { target: { value: "\u0085\u0085" } });
-    await act(async () => fireEvent.click(save));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Local", description: "" }));
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     updateChannel({ ...channel, name: "Local", description: "" });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     updateChannel({ ...channel, name: "Next", description: "Next description" });
-    expect(name).toHaveValue("Next");
-    expect(description).toHaveValue("Next description");
-    expect(save).toBeDisabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Next");
+    expect(screen.getByLabelText("Description")).toHaveValue("Next description");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   it.each(["Name", "Description"])("rejects null characters in %s without discarding the text", async (label) => {
@@ -121,7 +121,7 @@ describe("release channel name and description validation", () => {
     { label: "Name", value: "\u0085" },
     { label: "Name", value: "n".repeat(101) },
     { label: "Description", value: "d".repeat(1001) },
-  ])("blocks invalid $label but lets firmware Apply use saved settings", async ({ label, value }) => {
+  ])("blocks both settings and firmware when $label is invalid", async ({ label, value }) => {
     const { onSave, onApply } = renderManage();
     const input = screen.getByLabelText(label);
     fireEvent.change(input, { target: { value } });
@@ -131,11 +131,10 @@ describe("release channel name and description validation", () => {
     closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
-    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear assignments" })));
-
-    expect(onApply).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
     openChannelSettings();
     expect(screen.getByLabelText(label)).toHaveValue(value);

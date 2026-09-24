@@ -104,18 +104,26 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.channelView(channelName)).toBeVisible();
   }
 
-  async saveChannelChanges() {
+  async reviewChannelChanges() {
     const modal = await this.openChannelSettings();
-    const save = modal.getByRole("button", { name: "Save changes", exact: true });
-    await expect(save).toBeEnabled();
-    await save.click();
-    await this.validateTextInToast("Release channel saved");
+    const review = modal.getByRole("button", { name: "Review changes", exact: true });
+    await expect(review).toBeEnabled();
+    await review.click();
+    await expect(modal).toBeHidden();
+    await expect(this.applyDialog()).toBeVisible();
+  }
+
+  async saveChannelChanges() {
+    await this.reviewChannelChanges();
+    await this.applyDialog().getByRole("button", { name: "Apply changes", exact: true }).click();
+    await expect(this.applyDialog()).toBeHidden();
+    await this.validateTextInToast("Channel changes applied");
   }
 
   // The save action is blocked because the scope overlaps another channel.
   async validateScopeConflict(otherChannelName: string) {
     const modal = await this.openChannelSettings();
-    const action = (await this.createChannelModal.isVisible()) ? "Create channel" : "Save changes";
+    const action = (await this.createChannelModal.isVisible()) ? "Create channel" : "Review changes";
     await expect(modal.getByTestId("scope-conflicts")).toContainText(otherChannelName);
     await expect(modal.getByRole("button", { name: action, exact: true })).toBeDisabled();
   }

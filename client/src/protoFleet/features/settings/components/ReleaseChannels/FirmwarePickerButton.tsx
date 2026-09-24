@@ -24,12 +24,21 @@ interface FirmwarePickerButtonProps {
   assignment?: { value: string | null; label: string };
   onChange: (value: string) => void;
   testId: string;
+  disabled?: boolean;
 }
 
 // Button-styled firmware selector for the model group header: the trigger
 // shows the currently selected version and opens a listbox of the available
 // versions. The form-field Select is too heavy for this spot.
-const FirmwarePickerContent = ({ label, options, value, assignment, onChange, testId }: FirmwarePickerButtonProps) => {
+const FirmwarePickerContent = ({
+  label,
+  options,
+  value,
+  assignment,
+  onChange,
+  testId,
+  disabled,
+}: FirmwarePickerButtonProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -55,10 +64,11 @@ const FirmwarePickerContent = ({ label, options, value, assignment, onChange, te
           ariaHasPopup="listbox"
           ariaExpanded={open}
           testId={testId}
+          disabled={disabled}
           onClick={() => setOpen((current) => !current)}
         />
       </div>
-      {open ? (
+      {open && !disabled ? (
         <Popover
           position={positions["bottom right"]}
           className="!w-auto !space-y-0 !rounded-xl border border-border-5 !bg-surface-elevated-base !p-0 !shadow-300 !backdrop-blur-none"

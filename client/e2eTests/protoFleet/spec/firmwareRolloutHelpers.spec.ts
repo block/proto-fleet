@@ -126,10 +126,7 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     });
   }
 
-  test("existing-channel settings helpers open the modal and dismiss it before viewing history", async ({
-    page,
-    isMobile,
-  }) => {
+  test("existing-channel settings helpers review and apply before viewing history", async ({ page, isMobile }) => {
     await renderTables(page, completed);
     await page.locator("body").evaluate(
       (body, content) => body.insertAdjacentHTML("beforeend", content),
@@ -138,8 +135,14 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
         <button aria-label="Close dialog" onclick="this.closest('section').hidden = true">Close</button>
         <input id="pilot-size" type="number" value="1" />
         <p data-testid="scope-preview">This channel covers 2 miners</p>
-        ${modalSaveButtons("Save changes", "document.querySelector('[data-testid=toaster-container]').textContent = 'Release channel saved'")}
+        ${modalSaveButtons("Review changes", "document.querySelector('[data-testid=channel-settings-modal]').hidden = true; document.querySelector('[data-testid=apply-firmware-dialog]').hidden = false")}
       </section>
+      <section data-testid="apply-firmware-dialog" hidden>
+        <h2>Apply channel changes?</h2>
+        <p>Channel settings: Pilot size 1 → 2</p>
+        <button onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Channel changes applied'; this.closest('section').hidden = true">Apply changes</button>
+      </section>
+      <button onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Wrong Apply action'">Apply changes</button>
       <div data-testid="toaster-container"></div>`,
     );
     const firmware = new SettingsFirmwarePage(page);
@@ -147,7 +150,8 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.getByTestId(isMobile ? "save-channel" : "save-channel-mobile")).toBeHidden();
     await expect(page.getByTestId(isMobile ? "save-channel-mobile" : "save-channel")).toBeVisible();
     await firmware.saveChannelChanges();
-    await expect(page.getByTestId("channel-settings-modal")).toBeVisible();
+    await expect(page.getByTestId("channel-settings-modal")).toBeHidden();
+    await expect(page.getByTestId("apply-firmware-dialog")).toBeHidden();
 
     await firmware.validateHistoryOutcome(channel, version, "Completed");
     await expect(page.getByTestId("channel-settings-modal")).toBeHidden();
@@ -156,9 +160,47 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.locator("#pilot-size")).toHaveValue("2");
   });
 
+  test("reviewing settings with staged firmware leaves both changes pending until confirmation", async ({ page }) => {
+    await page.setContent(`
+      ${responsiveModalActions}
+      <button data-testid="channel-settings" onclick="document.querySelector('[data-testid=channel-settings-modal]').hidden = false">Channel settings</button>
+      <button data-testid="apply-firmware-changes" aria-label="Apply changes (1)" onclick="document.querySelector('[data-testid=apply-firmware-dialog]').hidden = false">
+        Apply changes <span data-testid="pending-change-count" aria-hidden="true">1</span>
+      </button>
+      <section data-testid="channel-settings-modal" hidden>
+        <input id="pilot-size" type="number" value="1" oninput="document.querySelector('[data-testid=pending-change-count]').textContent = '2'; document.querySelector('[data-testid=apply-firmware-changes]').setAttribute('aria-label', 'Apply changes (2)')" />
+        ${modalSaveButtons("Review changes", "document.querySelector('[data-testid=channel-settings-modal]').hidden = true; document.querySelector('[data-testid=apply-firmware-dialog]').hidden = false")}
+      </section>
+      <section data-testid="apply-firmware-dialog" hidden>
+        <h2>Apply channel changes?</h2>
+        <p role="status">2 changes pending</p>
+        <p>Channel settings: Pilot size 1 → 2</p>
+        <table aria-label="Firmware changes">
+          <thead><tr><th>Model</th><th>Original</th><th>Target</th></tr></thead>
+          <tbody><tr><th scope="row">Proto Rig</th><td>3.1.123</td><td>${version}</td></tr></tbody>
+        </table>
+        <button onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Channel changes applied'; this.closest('section').hidden = true">Apply changes</button>
+      </section>
+      <div data-testid="toaster-container"></div>
+    `);
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.setPilotSize(2);
+    const apply = page.getByRole("button", { name: "Apply changes (2)", exact: true });
+    await expect(apply.getByTestId("pending-change-count")).toHaveText("2");
+    await expect(page.getByText("2 changes pending")).toBeHidden();
+    await firmware.reviewChannelChanges();
+    const preview = page.getByTestId("apply-firmware-dialog");
+    await expect(preview.getByText("2 changes pending")).toBeVisible();
+    await expect(preview).toContainText("Channel settings: Pilot size 1 → 2");
+    const row = preview.getByRole("table", { name: "Firmware changes" }).getByRole("row", { name: /Proto Rig/ });
+    await expect(row.getByRole("cell")).toHaveText(["3.1.123", version]);
+    await expect(apply.getByTestId("pending-change-count")).toBeVisible();
+    await expect(page.getByTestId("toaster-container")).toBeEmpty();
+  });
+
   for (const creating of [true, false]) {
     const modalTestId = creating ? "create-release-channel-modal" : "channel-settings-modal";
-    const action = creating ? "Create channel" : "Save changes";
+    const action = creating ? "Create channel" : "Review changes";
 
     test(`scope conflicts check the visible ${creating ? "creation" : "settings"} action`, async ({ page }) => {
       await page.setContent(`
