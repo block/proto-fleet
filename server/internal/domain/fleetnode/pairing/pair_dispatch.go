@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -19,15 +20,50 @@ import (
 // plus slack so a slow batch's ack isn't rejected as stale. Var for tests.
 var PairCommandTimeout = 12 * time.Minute
 
+// PairAllOnNode walks the node's eligible discoveries in bounded, sequential
+// commands. The row-ID cursor advances even when a miner fails and remains
+// eligible, so it is attempted only once per walk. Cancellation stops new batches;
+// PairOnNode still finishes any dispatched command while the gateway persists
+// its results.
+func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, credentials *pairingpb.Credentials, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	var cursor *int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair-all stopped before next batch: %w", err)
+		}
+		targets, nextCursor, err := s.resolvePairTargetsPage(ctx, fleetNodeID, orgID, nil, true, credentials, cursor)
+		if err != nil {
+			return err
+		}
+		if len(targets) == 0 {
+			if cursor == nil {
+				return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
+			}
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair-all stopped before dispatch: %w", err)
+		}
+		if err := s.PairOnNode(ctx, fleetNodeID, targets, credentials, orgID, assignedBy, onResults); err != nil {
+			return err
+		}
+		if nextCursor == nil {
+			return nil
+		}
+		cursor = nextCursor
+	}
+}
+
 // PairOnNode dispatches a batch pair command over the node's ControlStream and
 // invokes onResults per result batch for live operator display. Persistence is
 // authoritative in the gateway ReportPairedDevices handler, not here, so onResults
 // is best-effort display only.
 //
-// The command runs on a context detached from the operator's request: pairing
-// mutates miners, so once dispatched it must finish server-side (the gateway keeps
-// persisting even if the operator disconnects), bounded by PairCommandTimeout. We
-// don't abort the node on cancel -- half-paired miners with no cloud record is worse.
+// Dispatch remains cancelable until the command is enqueued. Pairing mutates
+// miners, so an accepted command must finish server-side (the gateway keeps
+// persisting even if the operator disconnects), bounded by PairCommandTimeout.
+// We don't abort an accepted command on cancel -- half-paired miners with no cloud
+// record is worse.
 func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*pairingpb.FleetNodePairTarget, credentials *pairingpb.Credentials, orgID int64, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
 	if len(targets) == 0 {
 		return fleeterror.NewInvalidArgumentError("pair command requires at least one target")
@@ -60,7 +96,7 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 
 	pair := &control.PairMeta{OrgID: orgID, AssignedBy: assignedBy, Targets: scopeTargets}
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
-	err = control.RunCommand(context.WithoutCancel(ctx), s.dispatcher, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, nil, control.ReportKindPair, pair, PairCommandTimeout, "pair",
+	err = control.RunCommandToCompletion(ctx, s.dispatcher, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, nil, control.ReportKindPair, pair, PairCommandTimeout, "pair",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if len(ev.PairResults) == 0 {
 				return false, nil
