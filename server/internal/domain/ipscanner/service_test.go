@@ -61,6 +61,37 @@ func TestIPScannerServiceRunsFleetNodeRecoveryWhenCloudScannerIsDisabled(t *test
 	require.NoError(t, service.Stop(t.Context()))
 }
 
+func TestIPScannerService_Start_RejectsNonpositiveScanInterval(t *testing.T) {
+	for _, mode := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "cloud", enabled: true},
+		{name: "Fleet Node only", enabled: false},
+	} {
+		for _, interval := range []time.Duration{0, -time.Second} {
+			t.Run(mode.name+"/"+interval.String(), func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				service := NewIPScannerService(
+					Config{Enabled: mode.enabled, ScanInterval: interval, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
+					storemocks.NewMockDeviceStore(ctrl),
+					storemocks.NewMockDiscoveredDeviceStore(ctrl),
+					&noopDiscoverer{},
+					mocks.NewMockDeviceIdentityCheckService(ctrl),
+					slog.Default(),
+				)
+				ran := make(chan struct{}, 1)
+				service.WithFleetNodeRecovery(recordingFleetNodeRecovery{ran: ran})
+
+				require.ErrorContains(t, service.Start(t.Context()), "scan interval must be positive")
+				require.Nil(t, service.run, "invalid configuration must not allocate a run")
+				require.NoError(t, service.Stop(t.Context()))
+				require.Empty(t, ran, "invalid configuration must not dispatch recovery")
+			})
+		}
+	}
+}
+
 func TestFleetNodeRecoveryWaitsAFullIntervalAfterSlowCycle(t *testing.T) {
 	interval := 30 * time.Millisecond
 	recovery := &blockingFleetNodeRecovery{
@@ -329,7 +360,7 @@ func TestIPScannerService_Stop_CancelsWorkerBlockedOnFullResults(t *testing.T) {
 func TestIPScannerService_Stop_ReturnsAtDeadline(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	service := NewIPScannerService(
-		Config{Enabled: true, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
+		Config{Enabled: true, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
 		storemocks.NewMockDeviceStore(ctrl),
 		storemocks.NewMockDiscoveredDeviceStore(ctrl),
 		&noopDiscoverer{},

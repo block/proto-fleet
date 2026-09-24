@@ -102,6 +102,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start ip scanner service: %w", err)
 	}
+	if s.config.ScanInterval <= 0 {
+		return fmt.Errorf("start ip scanner service: scan interval must be positive, got %s", s.config.ScanInterval)
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	run := &serviceRun{

@@ -310,19 +310,28 @@ func TestRunCycleRejectsMismatchedIdentityAndInvalidEndpoints(t *testing.T) {
 	assert.Empty(t, store.auth)
 }
 
-func TestRunCycleRequiresSupportedEndpointScheme(t *testing.T) {
+func TestRunCycleRequiresValidEndpoint(t *testing.T) {
 	for _, tc := range []struct {
 		scheme string
+		port   string
 		valid  bool
 	}{
-		{scheme: "http", valid: true},
-		{scheme: "https", valid: true},
-		{scheme: "tcp", valid: true},
-		{scheme: "virtual", valid: true},
-		{scheme: ""},
-		{scheme: "ssh"},
+		{scheme: "http", port: "80", valid: true},
+		{scheme: "https", port: "80", valid: true},
+		{scheme: "tcp", port: "80", valid: true},
+		{scheme: "virtual", port: "80", valid: true},
+		{scheme: "", port: "80"},
+		{scheme: "ssh", port: "80"},
+		{scheme: "http", port: "1", valid: true},
+		{scheme: "http", port: "65535", valid: true},
+		{scheme: "http", port: "+80"},
+		{scheme: "http", port: "080"},
+		{scheme: "http", port: "0"},
+		{scheme: "http", port: "65536"},
+		{scheme: "http", port: "-1"},
+		{scheme: "http", port: ""},
 	} {
-		t.Run(tc.scheme, func(t *testing.T) {
+		t.Run(tc.scheme+"/"+tc.port, func(t *testing.T) {
 			store := &fakeStore{
 				targets: []stores.FleetNodeRecoveryTarget{
 					testTarget(7, "found", "serial-found"),
@@ -334,16 +343,16 @@ func TestRunCycleRequiresSupportedEndpointScheme(t *testing.T) {
 			invalidator := &recordingInvalidator{}
 			sender := sendFunc(func(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 				return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_OK,
-					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "found", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: "80", UrlScheme: tc.scheme, SerialNumber: "serial-found"},
-					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "auth", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, IpAddress: "10.0.0.21", Port: "80", UrlScheme: tc.scheme, SerialNumber: "serial-auth"},
+					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "found", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, IpAddress: "10.0.0.20", Port: tc.port, UrlScheme: tc.scheme, SerialNumber: "serial-found"},
+					&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: "auth", Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED, IpAddress: "10.0.0.21", Port: tc.port, UrlScheme: tc.scheme, SerialNumber: "serial-auth"},
 				), nil
 			})
 
 			NewService(store, sender, invalidator, nil, testLogger()).RunCycle(t.Context())
 
 			if tc.valid {
-				assert.Equal(t, []string{"found|10.0.0.20|80|" + tc.scheme}, store.found)
-				assert.Equal(t, []string{"auth|10.0.0.21|80|" + tc.scheme}, store.auth)
+				assert.Equal(t, []string{"found|10.0.0.20|" + tc.port + "|" + tc.scheme}, store.found)
+				assert.Equal(t, []string{"auth|10.0.0.21|" + tc.port + "|" + tc.scheme}, store.auth)
 				assert.Equal(t, []minermodels.DeviceIdentifier{"found", "auth"}, invalidator.identifiers)
 			} else {
 				assert.Empty(t, store.found)

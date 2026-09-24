@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -319,7 +320,7 @@ func validPrivateEndpoint(ipAddress, port, scheme string) bool {
 		return false
 	}
 	portNumber, err := sdk.ParsePort(port)
-	if err != nil || portNumber == 0 {
+	if err != nil || portNumber == 0 || strconv.FormatInt(int64(portNumber), 10) != port {
 		return false
 	}
 	_, err = networking.ProtocolFromString(scheme)
