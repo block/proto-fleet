@@ -59,10 +59,12 @@ type RuntimeController interface {
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
-// RigCurtailmentConfigApplier replaces the desired fallback config on all
-// paired Proto rigs selected by the command layer.
+// RigCurtailmentConfigApplier replaces fallback config on paired Proto rigs.
+// Settings changes cover the organization; pairing and delivery retries cover
+// only the explicitly requested devices.
 type RigCurtailmentConfigApplier interface {
 	ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error
+	ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error
 }
 
 // SettingsService validates, persists, redacts, and reloads MQTT sources.
@@ -335,9 +337,13 @@ func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConn
 	return s.connectionTester.TestConnection(ctx, req)
 }
 
-// ReapplyRigConfigBestEffort durably requests convergence after pairing. The
-// worker and command queue handle retries; callers never launch a fan-out.
-func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
+// ReapplyRigConfigBestEffort durably requests convergence for the devices that
+// just paired. The store excludes ineligible devices, and the worker coalesces
+// requests without resending unchanged config to the rest of the organization.
+func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64, identifiers []string) {
+	if len(identifiers) == 0 {
+		return
+	}
 	if orgID <= 0 || userID <= 0 {
 		slog.Warn("skip Proto rig curtailment config reapply without audit identity", "org_id", orgID, "user_id", userID)
 		return
@@ -348,7 +354,7 @@ func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID,
 	}
 	requestCtx, cancel := context.WithTimeout(detachedContext(ctx), rigConfigRequestTimeout)
 	defer cancel()
-	if err := s.rigConfigStore.RequestRigConfigReconciliation(requestCtx, orgID, userID); err != nil {
+	if err := s.rigConfigStore.RequestRigConfigReconciliationForDevices(requestCtx, orgID, userID, identifiers); err != nil {
 		slog.Error("request Proto rig curtailment config reconciliation", "org_id", orgID, "error", err)
 		return
 	}

@@ -885,6 +885,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
+	if q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, err = db.PrepareContext(ctx, getPairedProtoDeviceIdentifiersByIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedProtoDeviceIdentifiersByIdentifiers: %w", err)
+	}
 	if q.getPendingEnrollmentByCodeHashStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByCodeHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByCodeHash: %w", err)
 	}
@@ -1073,6 +1076,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
+	}
+	if q.isRigConfigReconciliationTargetedStmt, err = db.PrepareContext(ctx, isRigConfigReconciliationTargeted); err != nil {
+		return nil, fmt.Errorf("error preparing query IsRigConfigReconciliationTargeted: %w", err)
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
@@ -1359,6 +1365,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
 	}
+	if q.listRigConfigReconciliationTargetsStmt, err = db.PrepareContext(ctx, listRigConfigReconciliationTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRigConfigReconciliationTargets: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -1619,6 +1628,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.requestRigConfigReconciliationStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliation: %w", err)
+	}
+	if q.requestRigConfigReconciliationForDevicesStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliationForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliationForDevices: %w", err)
 	}
 	if q.requeueFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, requeueFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query RequeueFirmwareRolloutDevices: %w", err)
@@ -3498,6 +3510,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
 		}
 	}
+	if q.getPairedProtoDeviceIdentifiersByIdentifiersStmt != nil {
+		if cerr := q.getPairedProtoDeviceIdentifiersByIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedProtoDeviceIdentifiersByIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.getPendingEnrollmentByCodeHashStmt != nil {
 		if cerr := q.getPendingEnrollmentByCodeHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPendingEnrollmentByCodeHashStmt: %w", cerr)
@@ -3811,6 +3828,11 @@ func (q *Queries) Close() error {
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
+		}
+	}
+	if q.isRigConfigReconciliationTargetedStmt != nil {
+		if cerr := q.isRigConfigReconciliationTargetedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isRigConfigReconciliationTargetedStmt: %w", cerr)
 		}
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt != nil {
@@ -4288,6 +4310,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listResponseProfileInfrastructureDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRigConfigReconciliationTargetsStmt != nil {
+		if cerr := q.listRigConfigReconciliationTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRigConfigReconciliationTargetsStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -4721,6 +4748,11 @@ func (q *Queries) Close() error {
 	if q.requestRigConfigReconciliationStmt != nil {
 		if cerr := q.requestRigConfigReconciliationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing requestRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
+	if q.requestRigConfigReconciliationForDevicesStmt != nil {
+		if cerr := q.requestRigConfigReconciliationForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requestRigConfigReconciliationForDevicesStmt: %w", cerr)
 		}
 	}
 	if q.requeueFirmwareRolloutDevicesStmt != nil {
@@ -5779,6 +5811,7 @@ type Queries struct {
 	getPairedDeviceBySerialNumberStmt                            *sql.Stmt
 	getPairedDevicesByMACAddressesStmt                           *sql.Stmt
 	getPairedDevicesIdsStmt                                      *sql.Stmt
+	getPairedProtoDeviceIdentifiersByIdentifiersStmt             *sql.Stmt
 	getPendingEnrollmentByCodeHashStmt                           *sql.Stmt
 	getPendingEnrollmentByFleetNodeStmt                          *sql.Stmt
 	getPermissionByKeyStmt                                       *sql.Stmt
@@ -5842,6 +5875,7 @@ type Queries struct {
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
+	isRigConfigReconciliationTargetedStmt                        *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
@@ -5937,6 +5971,7 @@ type Queries struct {
 	listRepairTicketPartsStmt                                    *sql.Stmt
 	listRepairTicketsStmt                                        *sql.Stmt
 	listResponseProfileInfrastructureDevicesByOrgStmt            *sql.Stmt
+	listRigConfigReconciliationTargetsStmt                       *sql.Stmt
 	listRolePermissionKeysStmt                                   *sql.Stmt
 	listRolesStmt                                                *sql.Stmt
 	listRolesWithDetailsForOrgStmt                               *sql.Stmt
@@ -6024,6 +6059,7 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	requestRigConfigReconciliationStmt                           *sql.Stmt
+	requestRigConfigReconciliationForDevicesStmt                 *sql.Stmt
 	requeueFirmwareRolloutDevicesStmt                            *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
 	reserveInventoryPartStmt                                     *sql.Stmt
@@ -6463,6 +6499,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPairedDeviceBySerialNumberStmt:                            q.getPairedDeviceBySerialNumberStmt,
 		getPairedDevicesByMACAddressesStmt:                           q.getPairedDevicesByMACAddressesStmt,
 		getPairedDevicesIdsStmt:                                      q.getPairedDevicesIdsStmt,
+		getPairedProtoDeviceIdentifiersByIdentifiersStmt:             q.getPairedProtoDeviceIdentifiersByIdentifiersStmt,
 		getPendingEnrollmentByCodeHashStmt:                           q.getPendingEnrollmentByCodeHashStmt,
 		getPendingEnrollmentByFleetNodeStmt:                          q.getPendingEnrollmentByFleetNodeStmt,
 		getPermissionByKeyStmt:                                       q.getPermissionByKeyStmt,
@@ -6526,6 +6563,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
+		isRigConfigReconciliationTargetedStmt:                        q.isRigConfigReconciliationTargetedStmt,
 		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,
 		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
@@ -6621,6 +6659,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRepairTicketPartsStmt:                                    q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                        q.listRepairTicketsStmt,
 		listResponseProfileInfrastructureDevicesByOrgStmt:            q.listResponseProfileInfrastructureDevicesByOrgStmt,
+		listRigConfigReconciliationTargetsStmt:                       q.listRigConfigReconciliationTargetsStmt,
 		listRolePermissionKeysStmt:                                   q.listRolePermissionKeysStmt,
 		listRolesStmt:                                                q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                               q.listRolesWithDetailsForOrgStmt,
@@ -6708,6 +6747,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
 		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
 		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
+		requestRigConfigReconciliationForDevicesStmt:                 q.requestRigConfigReconciliationForDevicesStmt,
 		requeueFirmwareRolloutDevicesStmt:                            q.requeueFirmwareRolloutDevicesStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:       q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
 		reserveInventoryPartStmt:                                     q.reserveInventoryPartStmt,

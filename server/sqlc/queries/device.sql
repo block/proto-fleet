@@ -35,6 +35,20 @@ WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
 ORDER BY dp.id, d.id;
 
+-- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
+-- Recheck eligibility for a targeted fallback-config delivery without expanding
+-- the request to other paired rigs in the organization.
+SELECT d.device_identifier
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status = 'PAIRED'
+  AND dd.manufacturer = 'Proto'
+ORDER BY d.id;
+
 -- name: GetTotalPairedDevices :one
 -- The site filter is additive: site_ids is an OR across sites,
 -- include_unassigned adds site_id IS NULL rows, and the empty + false case

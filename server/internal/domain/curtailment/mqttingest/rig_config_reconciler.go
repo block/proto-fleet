@@ -111,10 +111,7 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 		Actor:          session.ActorCurtailment,
 	})
 
-	config, err := s.buildRigCurtailmentConfig(applyCtx, request.OrganizationID)
-	if err == nil {
-		err = s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config)
-	}
+	err := s.applyRigConfigReconciliation(applyCtx, request)
 	if err != nil {
 		slog.Error("enqueue Proto rig curtailment config reconciliation",
 			"org_id", request.OrganizationID,
@@ -131,6 +128,37 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 			"error", err,
 		)
 	}
+}
+
+func (s *SettingsService) applyRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation) error {
+	// Read scope and targets after the claim in fresh statement snapshots. A
+	// concurrent requester may have advanced the locked organization row beyond
+	// the claim statement's snapshot. Every claimed generation must be explicitly
+	// targeted; settings changes and requests from older servers require full delivery.
+	targeted, err := s.rigConfigStore.IsRigConfigReconciliationTargeted(ctx, request.OrganizationID, request.EnqueuedGeneration, request.DesiredGeneration)
+	if err != nil {
+		return err
+	}
+	var identifiers []string
+	if targeted {
+		identifiers, err = s.rigConfigStore.ListRigConfigReconciliationTargets(ctx, request.OrganizationID, request.EnqueuedGeneration, request.DesiredGeneration)
+		if err != nil {
+			return err
+		}
+		if len(identifiers) == 0 {
+			// Devices may have been unpaired, deleted, or superseded by a newer
+			// request. Completing this generation must never broaden its scope.
+			return nil
+		}
+	}
+	config, err := s.buildRigCurtailmentConfig(ctx, request.OrganizationID)
+	if err != nil {
+		return err
+	}
+	if !targeted {
+		return s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(ctx, config)
+	}
+	return s.rigConfigApplier.ApplyCurtailmentConfigToDevices(ctx, config, identifiers)
 }
 
 func (s *SettingsService) retryRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation, deliveryErr error) {

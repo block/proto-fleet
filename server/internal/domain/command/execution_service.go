@@ -396,7 +396,8 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 
 		reapedCmds = make([]reapedCommand, 0, len(reaped))
 		firmwareDeviceIDs := make([]int64, 0)
-		requeueOrganizations := make(map[int64]struct{})
+		type configTarget struct{ orgID, deviceID int64 }
+		requeueTargets := make(map[configTarget]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -409,7 +410,7 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 			}
 			kind, kindErr := commandtype.FromString(msg.CommandType)
 			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
-				requeueOrganizations[msg.OrgID] = struct{}{}
+				requeueTargets[configTarget{orgID: msg.OrgID, deviceID: msg.DeviceID}] = struct{}{}
 			}
 			if kindErr == nil && kind == commandtype.FirmwareUpdate {
 				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
@@ -424,8 +425,22 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				commandType: msg.CommandType,
 			})
 		}
-		for orgID := range requeueOrganizations {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, orgID); err != nil {
+		// Match organization-then-device lock order across concurrent reapers.
+		targets := make([]configTarget, 0, len(requeueTargets))
+		for target := range requeueTargets {
+			targets = append(targets, target)
+		}
+		sort.Slice(targets, func(i, j int) bool {
+			if targets[i].orgID != targets[j].orgID {
+				return targets[i].orgID < targets[j].orgID
+			}
+			return targets[i].deviceID < targets[j].deviceID
+		})
+		for _, target := range targets {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+				OrganizationID: target.orgID,
+				DeviceID:       target.deviceID,
+			}); err != nil {
 				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
 			}
 		}
@@ -629,7 +644,10 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 			return err
 		}
 		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, orgID); err != nil {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+				OrganizationID: orgID,
+				DeviceID:       message.DeviceID,
+			}); err != nil {
 				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
 			}
 		}

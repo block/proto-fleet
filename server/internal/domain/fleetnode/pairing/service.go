@@ -24,6 +24,7 @@ const (
 	clientErrUpsertDiscoveredDevice    = "discovery upsert failed"
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
+	rigConfigLookupTimeout             = 5 * time.Second
 )
 
 var telemetryScheduleTimeout = 5 * time.Second
@@ -73,7 +74,7 @@ type Service struct {
 	dispatcher            control.Sender
 
 	invalidateMiner    func(context.Context, int64)
-	rigConfigReapplier func(context.Context, int64, int64)
+	rigConfigReapplier func(context.Context, int64, int64, []string)
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -101,9 +102,9 @@ func (s *Service) WithTelemetryScheduler(telemetry TelemetryScheduler) *Service 
 	return s
 }
 
-// WithRigConfigReapplier wires desired-state convergence after pairing and
-// whenever a FleetNode carrying paired devices reconnects.
-func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) *Service {
+// WithRigConfigReapplier wires desired-state convergence for the devices that
+// successfully pair.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64, []string)) *Service {
 	s.rigConfigReapplier = reapply
 	return s
 }
@@ -126,7 +127,18 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 		s.invalidateMiner(ctx, deviceID)
 	}
 	s.scheduleTelemetryBestEffort(ctx, deviceID, orgID)
-	s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy)
+	if s.rigConfigReapplier != nil && assignedBy != nil && *assignedBy > 0 {
+		// Binding has committed, so request cancellation must not prevent the
+		// newly paired device from receiving its desired configuration.
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rigConfigLookupTimeout)
+		identifier, err := s.store.GetFleetNodePairedDeviceIdentifier(lookupCtx, deviceID, orgID)
+		cancel()
+		if err != nil {
+			slog.Warn("failed to resolve paired device for rig config reapply", "device_id", deviceID, "org_id", orgID, "err", err)
+		} else if identifier != "" {
+			s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy, []string{identifier})
+		}
+	}
 	return nil
 }
 
@@ -243,11 +255,11 @@ func (s *Service) scheduleTelemetryBestEffortWith(ctx context.Context, deviceID,
 	}()
 }
 
-func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, assignedBy *int64) {
-	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 {
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, assignedBy *int64, deviceIdentifiers []string) {
+	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 || len(deviceIdentifiers) == 0 {
 		return
 	}
-	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, *assignedBy)
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, *assignedBy, deviceIdentifiers)
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {

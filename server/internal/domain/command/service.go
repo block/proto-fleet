@@ -1859,6 +1859,33 @@ func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config 
 	if err != nil {
 		return err
 	}
+	return s.applyCurtailmentConfigToIdentifiers(ctx, config, identifiers)
+}
+
+// ApplyCurtailmentConfigToDevices replaces fallback config only on the requested
+// live, fully paired Proto rigs in the caller's organization. An empty or stale
+// target list is a no-op, so pairing and delivery retries cannot widen coverage.
+func (s *Service) ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error {
+	if len(identifiers) == 0 {
+		return nil
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
+	}
+	eligible, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]string, error) {
+		return q.GetPairedProtoDeviceIdentifiersByIdentifiers(ctx, sqlc.GetPairedProtoDeviceIdentifiersByIdentifiersParams{
+			OrgID:             info.OrganizationID,
+			DeviceIdentifiers: identifiers,
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return s.applyCurtailmentConfigToIdentifiers(ctx, config, eligible)
+}
+
+func (s *Service) applyCurtailmentConfigToIdentifiers(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error {
 	if len(identifiers) == 0 {
 		return nil
 	}

@@ -2105,9 +2105,16 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		mockListener,
 		mockPairer,
 	)
+	var configRequests [][]string
+	pairingService.WithRigConfigReapplier(func(_ context.Context, orgID, userID int64, identifiers []string) {
+		require.Equal(t, adminUser.OrganizationID, orgID)
+		require.Equal(t, adminUser.DatabaseID, userID)
+		configRequests = append(configRequests, identifiers)
+	})
 
 	_, err = pairingService.PairDevices(ctx, createPairRequest([]string{orphanIdentifier}))
 	require.NoError(t, err)
+	require.Equal(t, [][]string{{originalIdentifier}}, configRequests, "configuration must use the persisted identity after reconciliation")
 
 	_, err = discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: orphanIdentifier,

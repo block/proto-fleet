@@ -138,7 +138,7 @@ type Service struct {
 	resolver              netscan.Resolver
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
-	rigConfigReapplier    func(context.Context, int64, int64)
+	rigConfigReapplier    func(context.Context, int64, int64, []string)
 }
 
 func NewService(
@@ -179,8 +179,9 @@ func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
 }
 
-// WithRigConfigReapplier wires the post-pair desired-state convergence hook.
-func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) {
+// WithRigConfigReapplier wires the post-pair desired-state convergence hook for
+// the successfully persisted device identifiers.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64, []string)) {
 	s.rigConfigReapplier = reapply
 }
 
@@ -996,7 +997,11 @@ func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFa
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
-	s.reapplyRigConfigBestEffort(ctx, info.OrganizationID, info.UserID)
+	configDeviceIDs := make([]string, 0, len(successfulIDs))
+	for _, deviceID := range successfulIDs {
+		configDeviceIDs = append(configDeviceIDs, string(deviceID))
+	}
+	s.reapplyRigConfigBestEffort(ctx, info.OrganizationID, info.UserID, configDeviceIDs)
 	if len(telemetryDeviceIDs) > 0 {
 		if err := s.listener.AddDevices(ctx, telemetryDeviceIDs...); err != nil {
 			slog.Error("failed to add devices to telemetry scheduler", "error", err)
@@ -1009,11 +1014,11 @@ func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFa
 	}, nil
 }
 
-func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
-	if s.rigConfigReapplier == nil {
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64, deviceIdentifiers []string) {
+	if s.rigConfigReapplier == nil || len(deviceIdentifiers) == 0 {
 		return
 	}
-	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, userID)
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, userID, deviceIdentifiers)
 }
 
 func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {

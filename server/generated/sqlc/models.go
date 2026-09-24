@@ -680,6 +680,17 @@ type CurtailmentRigConfigReconciliation struct {
 	UpdatedAt          time.Time
 }
 
+type CurtailmentRigConfigTarget struct {
+	OrganizationID      int64
+	DeviceID            int64
+	RequestedGeneration int64
+}
+
+type CurtailmentRigConfigTargetGeneration struct {
+	OrganizationID int64
+	Generation     int64
+}
+
 type CurtailmentTarget struct {
 	CurtailmentEventID     int64
 	DeviceIdentifier       string
