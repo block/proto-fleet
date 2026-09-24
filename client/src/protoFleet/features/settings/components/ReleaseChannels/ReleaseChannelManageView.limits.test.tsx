@@ -71,6 +71,7 @@ describe("firmware assignment request limit", () => {
     const props = manageViewProps();
     const { onApply, onSave } = props;
     render(<ReleaseChannelManageView {...props} channel={channel} firmwareFiles={firmwareFiles} />);
+    openChannelSettings();
     for (let index = 0; index < 100; index += 1) {
       fireEvent.change(screen.getByTestId(`channel-firmware-select-Model-${index}`), {
         target: { value: `new-${index}` },
@@ -97,7 +98,6 @@ describe("firmware assignment request limit", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
     fireEvent.click(start);
     expect(onApply).not.toHaveBeenCalled();
-    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByTestId("save-channel")));

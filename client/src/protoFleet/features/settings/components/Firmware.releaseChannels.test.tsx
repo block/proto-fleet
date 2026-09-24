@@ -115,7 +115,7 @@ describe("update detail Manage navigation", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it.each(["banner", "history"])("preserves every draft when returning to the same channel from %s", async (entry) => {
+  it.each(["banner", "history"])("preserves drafts when returning to the same channel from %s", async (entry) => {
     const api = navigationApi();
     render(page());
     fireEvent.click(screen.getByTestId("manage-channel-Canary"));
@@ -125,24 +125,30 @@ describe("update detail Manage navigation", () => {
     fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: /^Sites/ }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
-    await stageFirmwareClear();
+    closeChannelSettings();
 
     if (entry === "history") {
       fireEvent.click(screen.getByTestId("channel-history"));
       fireEvent.click(await screen.findByTestId(`history-view-${gatedRigRollout.id}`));
       fireEvent.click(screen.getByTestId("view-rollout-manage-action"));
     } else {
+      await stageFirmwareClear();
       manageFromBanner(gatedRigRollout);
     }
 
     expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    if (entry === "banner") {
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
+      expect(screen.getByText("1 firmware change pending")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-settings")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("channel-history")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    }
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Canary draft");
     expect(screen.getByLabelText("Description")).toHaveValue("Keep this description");
     expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
-    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
-    expect(screen.getByText("1 firmware change pending")).toBeInTheDocument();
     expect(api.updateChannel).not.toHaveBeenCalled();
     expect(api.applyFirmware).not.toHaveBeenCalled();
 
@@ -157,7 +163,7 @@ describe("update detail Manage navigation", () => {
         behavior: expect.objectContaining({ pilotSize: 3 }),
       }),
     ]);
-    expect(screen.getByText("1 firmware change pending")).toBeInTheDocument();
+    expect(screen.queryByText("1 firmware change pending")).not.toBeInTheDocument();
   });
 
   it.each(["settings", "firmware"])(

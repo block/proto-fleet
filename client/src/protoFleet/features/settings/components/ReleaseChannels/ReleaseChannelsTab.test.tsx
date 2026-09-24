@@ -302,10 +302,10 @@ describe("release channel deletion coordination", () => {
     });
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
+    fireEvent.click(screen.getByTestId("delete-channel"));
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    fireEvent.click(screen.getByTestId("delete-channel"));
     const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
       name: "Clear assignments",
     });
@@ -316,7 +316,7 @@ describe("release channel deletion coordination", () => {
     });
     expect(api.applyFirmware).toHaveBeenCalledOnce();
     expect(api.deleteChannel).not.toHaveBeenCalled();
-    expect(screen.getByTestId("delete-channel")).toBeDisabled();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
     expect(confirm).toBeDisabled();
     await act(async () => applied.resolve());
     expect(deleteConfirm()).toBeEnabled();
@@ -330,13 +330,12 @@ describe("release channel deletion coordination", () => {
     api.deleteChannel = vi.fn().mockReturnValueOnce(deleted.promise).mockResolvedValue(undefined);
     render(<ReleaseChannelsTab {...historyActions} api={api} initialManagedChannelId={canaryChannel.id} />);
     await flush();
-    openChannelSettings();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
-    openPicker();
-    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
-    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     fireEvent.click(screen.getByTestId("delete-channel"));
     openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     const save = screen.getByTestId("save-channel");
     const start = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", {
       name: "Clear assignments",
@@ -578,12 +577,14 @@ describe("release channel firmware catalog", () => {
     await poll();
 
     expect(listFirmwareFiles).toHaveBeenCalledTimes(2);
-    openChannelSettings();
-    expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
     expect(screen.getByRole("option", { name: "No firmware" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("option", { name: /1\.4\.3/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /1\.4\.4/ })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: /1\.4\.5/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
   });
 
   it("retains the last complete catalog on a refresh failure and recovers on the next poll", async () => {
@@ -631,8 +632,6 @@ describe("release channel firmware catalog", () => {
       ]);
       await poll();
 
-      openChannelSettings();
-      expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
       expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
       expect(screen.getByRole("alert")).toHaveTextContent(
         "Selected firmware is unavailable for this model. Choose another version or discard the pending changes.",
@@ -652,7 +651,8 @@ describe("release channel firmware catalog", () => {
       expect(api.applyFirmware).toHaveBeenCalledExactlyOnceWith(canaryChannel.id, [
         { manufacturer: "Proto", model: "Rig", firmwareFileId: replacement.id },
       ]);
-      expect(nameInput).toHaveValue("Keep this draft");
+      openChannelSettings();
+      expect(screen.getByLabelText("Name")).toHaveValue("Keep this draft");
     },
   );
 

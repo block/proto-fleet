@@ -662,42 +662,71 @@ const ReleaseChannelManageView = ({
               <span>{modelGroups.length === 1 ? "1 model" : `${modelGroups.length} models`}</span>
             </div>
           ) : null}
+          {dirtyAssignments.length > 0 ? (
+            <span role="status" className="text-200 text-text-primary-70">
+              {dirtyAssignments.length === 1
+                ? "1 firmware change pending"
+                : `${dirtyAssignments.length} firmware changes pending`}
+            </span>
+          ) : null}
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
-          {channel ? (
-            <div className="flex items-center gap-2">
-              {dirty ? <span className="text-200 text-text-primary-70">Unsaved settings</span> : null}
+          {dirtyAssignments.length > 0 ? (
+            <>
               <Button
                 variant={variants.secondary}
                 size={sizes.compact}
-                text="Channel settings"
-                disabled={isWriting}
-                onClick={() => setShowSettings(true)}
-                testId="channel-settings"
+                text="Discard"
+                disabled={isApplying}
+                onClick={() => setStaged({})}
               />
-            </div>
-          ) : null}
-          {channel && onShowHistory ? (
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="History"
-              onClick={() => onShowHistory(channel)}
-              testId="channel-history"
-            />
-          ) : null}
-          {channel && onDelete ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Delete"
-              disabled={isWriting}
-              onClick={() => {
-                if (!writeInFlightRef.current && !isWriting) onDelete(channel);
-              }}
-              testId="delete-channel"
-            />
-          ) : null}
+              <Button
+                variant={variants.primary}
+                size={sizes.compact}
+                text="Apply changes"
+                disabled={!canApply}
+                onClick={() => {
+                  if (!writeInFlightRef.current && canApply) setShowApplyDialog(true);
+                }}
+                testId="apply-firmware-changes"
+              />
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                {dirty ? <span className="text-200 text-text-primary-70">Unsaved settings</span> : null}
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  text="Channel settings"
+                  disabled={isWriting}
+                  onClick={() => setShowSettings(true)}
+                  testId="channel-settings"
+                />
+              </div>
+              {onShowHistory ? (
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  text="History"
+                  onClick={() => onShowHistory(channel)}
+                  testId="channel-history"
+                />
+              ) : null}
+              {onDelete ? (
+                <Button
+                  variant={variants.danger}
+                  size={sizes.compact}
+                  text="Delete"
+                  disabled={isWriting}
+                  onClick={() => {
+                    if (!writeInFlightRef.current && !isWriting) onDelete(channel);
+                  }}
+                  testId="delete-channel"
+                />
+              ) : null}
+            </>
+          )}
         </div>
       </div>
 
@@ -706,6 +735,11 @@ const ReleaseChannelManageView = ({
           title="Assigned miners"
           subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
         >
+          {exceedsAssignmentLimit ? (
+            <p role="alert" className="text-200 text-intent-critical-fill">
+              {assignmentLimitMessage}
+            </p>
+          ) : null}
           {delegatedApplyBlocked ? (
             <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
               {delegatedApplyMessage}
@@ -806,38 +840,6 @@ const ReleaseChannelManageView = ({
               </tbody>
             </table>
           )}
-
-          {dirtyAssignments.length > 0 ? (
-            <div className="flex items-center justify-between gap-4 rounded-lg bg-intent-warning-10 px-4 py-3">
-              <div className="grid gap-1 text-300 text-text-primary">
-                <span>
-                  {dirtyAssignments.length === 1
-                    ? "1 firmware change pending"
-                    : `${dirtyAssignments.length} firmware changes pending`}
-                </span>
-                {exceedsAssignmentLimit ? <p role="alert">{assignmentLimitMessage}</p> : null}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  variant={variants.secondary}
-                  size={sizes.compact}
-                  text="Discard"
-                  disabled={isApplying}
-                  onClick={() => setStaged({})}
-                />
-                <Button
-                  variant={variants.primary}
-                  size={sizes.compact}
-                  text="Apply changes"
-                  disabled={!canApply}
-                  onClick={() => {
-                    if (!writeInFlightRef.current && canApply) setShowApplyDialog(true);
-                  }}
-                  testId="apply-firmware-changes"
-                />
-              </div>
-            </div>
-          ) : null}
         </Section>
       ) : null}
 

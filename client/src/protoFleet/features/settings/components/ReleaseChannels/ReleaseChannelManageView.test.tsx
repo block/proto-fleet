@@ -318,11 +318,9 @@ describe("release channel pacing guidance", () => {
       expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
 
     // Staging only a clear must not turn the whole scope into a predicted update.
-    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
-    openChannelSettings();
     expect(screen.getByTestId("rollout-controls")).not.toHaveTextContent(aggregatePlan);
   });
 
@@ -436,9 +434,9 @@ describe("release channel write ordering", () => {
       .mockResolvedValue(undefined)
       .mockReturnValueOnce(write.promise);
     const { onApply } = renderManage(channel, onSave, true, [replacementFile]);
+    chooseBatches("7");
     stageReplacement();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    chooseBatches("7");
     const save = screen.getByTestId("save-channel");
     const start = screen.getByRole("button", { name: "Start update" });
     fireEvent.click(save);
@@ -466,9 +464,9 @@ describe("release channel write ordering", () => {
     const { onApply, onSave } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
     const write = deferredWrite();
     onApply.mockReturnValueOnce(write.promise);
-    stageReplacement();
     openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    stageReplacement();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     const save = screen.getByTestId("save-channel");
     const start = screen.getByRole("button", { name: "Start update" });
@@ -685,6 +683,7 @@ describe("release channel firmware assignments", () => {
         replacementFile,
         otherFile,
       ]);
+      openChannelSettings();
       for (const model of ["Rig", "Other"]) {
         fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
         fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
@@ -708,7 +707,6 @@ describe("release channel firmware assignments", () => {
       expect(start).toBeDisabled();
       fireEvent.click(start);
       expect(onApply).not.toHaveBeenCalled();
-      openChannelSettings();
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Independent settings change" } });
       await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
       expect(onSave).toHaveBeenCalledOnce();

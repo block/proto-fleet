@@ -82,6 +82,8 @@ function renderManage(channel = channelFor(), hasRefreshError = false) {
     firmwareFiles,
     onSave,
     onApply,
+    onDelete: vi.fn(),
+    onShowHistory: vi.fn(),
   };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
   return {
@@ -114,6 +116,34 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 120, 40));
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("pending firmware header actions", () => {
+  it("replaces channel actions while staging and restores them after discarding", () => {
+    const { onApply, onSave } = renderManage();
+    for (const name of ["Channel settings", "History", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+
+    chooseFile("next");
+    for (const name of ["Channel settings", "History", "Delete"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    for (const name of ["Channel settings", "History", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("old-saved");
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
 
 describe("firmware assignment confirmation", () => {
   it.each([RolloutMethod.ALL_AT_ONCE, RolloutMethod.DELEGATED])(
@@ -196,7 +226,9 @@ describe("firmware Apply with saved delegated behavior", () => {
     expect(screen.getByTestId("delegated-apply-unavailable")).toHaveTextContent(
       "Choose and save another update method",
     );
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     chooseMethod("Single batch");
+    chooseFile("next");
     expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     expect(onApply).not.toHaveBeenCalled();
@@ -230,6 +262,7 @@ describe("firmware Apply with saved delegated behavior", () => {
   it("disables an open confirmation if the saved method becomes delegated", async () => {
     const channel = channelFor();
     const { update, onApply } = renderManage(channel);
+    openChannelSettings();
     chooseFile("next");
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     update({ channel: { ...channel, behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }) } });
@@ -273,6 +306,10 @@ describe("acknowledged firmware assignments before read recovery", () => {
     expect(picker).toHaveTextContent("next-server");
     expect(screen.getByText("Refreshing update status")).toBeInTheDocument();
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    for (const name of ["Channel settings", "History", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
     update({
       channel: { ...channel },
       firmwareFiles: firmwareFiles.map((f) => ({ ...f, firmware_version: `${f.id}-edited` })),
@@ -377,6 +414,11 @@ describe("acknowledged firmware assignments before read recovery", () => {
     await startApply();
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("next-catalog");
     expect(screen.queryByText("Refreshing update status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+    for (const name of ["Channel settings", "History", "Delete"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
     expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
     expect(onApply).toHaveBeenCalledTimes(2);

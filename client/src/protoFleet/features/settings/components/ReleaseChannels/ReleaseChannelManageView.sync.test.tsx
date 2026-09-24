@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
+import { manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { canaryChannel } from "./ReleaseChannels.fixtures";
 import {
@@ -83,11 +83,9 @@ describe("release channel settings refresh", () => {
     channel.scope = { ...channel.scope!, siteIds: Array.from({ length: 101 }, (_, index) => BigInt(index + 1)) };
     const { onSave } = renderManage(channel);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local name" } });
-    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
 
-    openChannelSettings();
     expect(screen.getByRole("alert")).toHaveTextContent("Select no more than 100 sites (101 selected).");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
@@ -124,7 +122,6 @@ describe("release channel settings refresh", () => {
 
   it("updates clean settings without losing staged firmware when the channel and assignment change", async () => {
     const { channel, update, onSave } = renderManage();
-    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     const next = {
@@ -145,7 +142,6 @@ describe("release channel settings refresh", () => {
     };
     update(next);
 
-    openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue(next.name);
     expect(screen.getByLabelText("Description")).toHaveValue(next.description);
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Pilot batch, then remaining");
