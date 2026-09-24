@@ -135,6 +135,34 @@ func TestRigConfigReconcilerSettingsChangeDuringTargetedDeliveryReachesAllRigs(t
 	require.Len(t, applier.deliveries[1].config.Providers, 1)
 }
 
+func TestRigConfigReconcilerUsesClaimedScopeWhenSettingsChangeBeforeDelivery(t *testing.T) {
+	fixture := newRigConfigStoreFixture(t)
+	rig := fixture.createRig(t, "Proto", "PAIRED")
+	applier := &recordingRigConfigDelivery{}
+	svc := newRigConfigTestService(t, fixture, applier)
+	svc.ReapplyRigConfigBestEffort(t.Context(), fixture.orgID, fixture.userID, []string{rig.identifier})
+	claim, err := svc.rigConfigStore.ClaimRigConfigReconciliation(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(0), claim.FullReconcileGeneration)
+
+	source := validSettingsSource()
+	source.OrganizationID = fixture.orgID
+	source.ServiceUserID = fixture.userID
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	_, err = svc.store.CreateSourceConfig(t.Context(), source)
+	require.NoError(t, err)
+
+	svc.processRigConfigReconciliation(t.Context(), claim)
+	require.Len(t, applier.deliveries, 1)
+	require.False(t, applier.deliveries[0].allDevices)
+	require.Equal(t, []string{rig.identifier}, applier.deliveries[0].identifiers)
+
+	svc.processDueRigConfigReconciliations(t.Context())
+	require.Len(t, applier.deliveries, 2)
+	require.True(t, applier.deliveries[1].allDevices)
+}
+
 func TestRigConfigReconcilerRetriesOnlyRequestedTargets(t *testing.T) {
 	fixture := newRigConfigStoreFixture(t)
 	fixture.createRig(t, "Proto", "PAIRED")

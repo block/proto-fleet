@@ -1077,9 +1077,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
-	if q.isRigConfigReconciliationTargetedStmt, err = db.PrepareContext(ctx, isRigConfigReconciliationTargeted); err != nil {
-		return nil, fmt.Errorf("error preparing query IsRigConfigReconciliationTargeted: %w", err)
-	}
 	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
 	}
@@ -3830,11 +3827,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
 		}
 	}
-	if q.isRigConfigReconciliationTargetedStmt != nil {
-		if cerr := q.isRigConfigReconciliationTargetedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing isRigConfigReconciliationTargetedStmt: %w", cerr)
-		}
-	}
 	if q.listActiveAlertMaintenanceWindowsStmt != nil {
 		if cerr := q.listActiveAlertMaintenanceWindowsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveAlertMaintenanceWindowsStmt: %w", cerr)
@@ -5875,7 +5867,6 @@ type Queries struct {
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
-	isRigConfigReconciliationTargetedStmt                        *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
@@ -6563,7 +6554,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
-		isRigConfigReconciliationTargetedStmt:                        q.isRigConfigReconciliationTargetedStmt,
 		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,
 		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,

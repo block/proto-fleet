@@ -120,16 +120,14 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 				require.Len(t, reaped, 1)
 			}
 
-			var desired, enqueued, targetID int64
-			require.NoError(t, conn.QueryRowContext(ctx, `SELECT desired_generation, enqueued_generation
-				FROM curtailment_rig_config_reconciliation WHERE organization_id = 1`).Scan(&desired, &enqueued))
+			var desired, enqueued, fullReconcileGeneration, targetID int64
+			require.NoError(t, conn.QueryRowContext(ctx, `
+				SELECT desired_generation, enqueued_generation, full_reconcile_generation
+				FROM curtailment_rig_config_reconciliation WHERE organization_id = 1
+			`).Scan(&desired, &enqueued, &fullReconcileGeneration))
 			assert.Equal(t, int64(2), desired)
 			assert.Equal(t, int64(1), enqueued)
-			targeted, err := sqlc.New(conn).IsRigConfigReconciliationTargeted(ctx, sqlc.IsRigConfigReconciliationTargetedParams{
-				OrganizationID: 1, EnqueuedGeneration: enqueued, DesiredGeneration: desired,
-			})
-			require.NoError(t, err)
-			assert.True(t, targeted, "terminal retry must not request another full reconciliation")
+			assert.LessOrEqual(t, fullReconcileGeneration, enqueued, "terminal retry must not request another full reconciliation")
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT device_id FROM curtailment_rig_config_target`).Scan(&targetID))
 			assert.Equal(t, failedID, targetID)
 			var targetCount int

@@ -301,10 +301,6 @@ func (*handlerMqttSettingsStore) ListRigConfigReconciliationTargets(context.Cont
 	return nil, nil
 }
 
-func (*handlerMqttSettingsStore) IsRigConfigReconciliationTargeted(context.Context, int64, int64, int64) (bool, error) {
-	return false, nil
-}
-
 func (*handlerMqttSettingsStore) ClaimRigConfigReconciliation(context.Context) (mqttingest.RigConfigReconciliation, error) {
 	return mqttingest.RigConfigReconciliation{}, mqttingest.ErrRigConfigReconciliationNotFound
 }

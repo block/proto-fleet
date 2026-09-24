@@ -117,7 +117,6 @@ type SettingsStore interface {
 type RigConfigReconciliationStore interface {
 	RequestRigConfigReconciliationForDevices(ctx context.Context, orgID, requestedBy int64, identifiers []string) error
 	ClaimRigConfigReconciliation(ctx context.Context) (RigConfigReconciliation, error)
-	IsRigConfigReconciliationTargeted(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) (bool, error)
 	ListRigConfigReconciliationTargets(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) ([]string, error)
 	CompleteRigConfigReconciliation(ctx context.Context, orgID, generation int64) error
 	RetryRigConfigReconciliation(ctx context.Context, orgID, generation int64, lastError string) error
@@ -126,10 +125,11 @@ type RigConfigReconciliationStore interface {
 // RigConfigReconciliation is one leased snapshot-enqueue request. Source
 // mutations increment DesiredGeneration atomically with their settings write.
 type RigConfigReconciliation struct {
-	OrganizationID     int64
-	RequestedBy        int64
-	DesiredGeneration  int64
-	EnqueuedGeneration int64
+	OrganizationID          int64
+	RequestedBy             int64
+	DesiredGeneration       int64
+	EnqueuedGeneration      int64
+	FullReconcileGeneration int64
 }
 
 // ErrSourceStateNotFound means cold start.
@@ -311,23 +311,12 @@ func (s *sqlcStore) ClaimRigConfigReconciliation(ctx context.Context) (RigConfig
 		return RigConfigReconciliation{}, fmt.Errorf("claim rig config reconciliation: %w", err)
 	}
 	return RigConfigReconciliation{
-		OrganizationID:     row.OrganizationID,
-		RequestedBy:        row.RequestedBy,
-		DesiredGeneration:  row.DesiredGeneration,
-		EnqueuedGeneration: row.EnqueuedGeneration,
+		OrganizationID:          row.OrganizationID,
+		RequestedBy:             row.RequestedBy,
+		DesiredGeneration:       row.DesiredGeneration,
+		EnqueuedGeneration:      row.EnqueuedGeneration,
+		FullReconcileGeneration: row.FullReconcileGeneration,
 	}, nil
-}
-
-func (s *sqlcStore) IsRigConfigReconciliationTargeted(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) (bool, error) {
-	targeted, err := s.queries.IsRigConfigReconciliationTargeted(ctx, sqlc.IsRigConfigReconciliationTargetedParams{
-		OrganizationID:     orgID,
-		EnqueuedGeneration: enqueuedGeneration,
-		DesiredGeneration:  desiredGeneration,
-	})
-	if err != nil {
-		return false, fmt.Errorf("read rig config reconciliation scope: %w", err)
-	}
-	return targeted, nil
 }
 
 func (s *sqlcStore) ListRigConfigReconciliationTargets(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) ([]string, error) {

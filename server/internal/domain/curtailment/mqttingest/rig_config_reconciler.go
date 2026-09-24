@@ -131,15 +131,11 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 }
 
 func (s *SettingsService) applyRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation) error {
-	// Read scope and targets after the claim in fresh statement snapshots. A
-	// concurrent requester may have advanced the locked organization row beyond
-	// the claim statement's snapshot. Every claimed generation must be explicitly
-	// targeted; settings changes and requests from older servers require full delivery.
-	targeted, err := s.rigConfigStore.IsRigConfigReconciliationTargeted(ctx, request.OrganizationID, request.EnqueuedGeneration, request.DesiredGeneration)
-	if err != nil {
-		return err
-	}
+	// The full-delivery watermark belongs to the claimed snapshot. A later
+	// settings write must not change the scope of this already claimed range.
+	targeted := request.FullReconcileGeneration <= request.EnqueuedGeneration
 	var identifiers []string
+	var err error
 	if targeted {
 		identifiers, err = s.rigConfigStore.ListRigConfigReconciliationTargets(ctx, request.OrganizationID, request.EnqueuedGeneration, request.DesiredGeneration)
 		if err != nil {

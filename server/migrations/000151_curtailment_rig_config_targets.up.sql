@@ -1,13 +1,15 @@
--- Keep the original outbox's row shape and writes compatible with older fleetd
--- instances during HA upgrades. A generation without a marker requires a full
--- reconciliation, including requests written by an older instance.
-CREATE TABLE curtailment_rig_config_target_generation (
-    organization_id BIGINT NOT NULL,
-    generation      BIGINT NOT NULL CHECK (generation > 0),
-    PRIMARY KEY (organization_id, generation),
-    FOREIGN KEY (organization_id)
-        REFERENCES curtailment_rig_config_reconciliation (organization_id) ON DELETE CASCADE
-);
+-- Pre-existing requests were created for organization-wide delivery. Preserve
+-- their scope when adding device-targeted requests to the outbox.
+ALTER TABLE curtailment_rig_config_reconciliation
+    ADD COLUMN full_reconcile_generation BIGINT NOT NULL DEFAULT 0;
+
+UPDATE curtailment_rig_config_reconciliation
+SET full_reconcile_generation = desired_generation;
+
+ALTER TABLE curtailment_rig_config_reconciliation
+    ADD CONSTRAINT ck_curtailment_rig_config_reconciliation_full_generation
+        CHECK (full_reconcile_generation >= 0
+            AND full_reconcile_generation <= desired_generation);
 
 CREATE TABLE curtailment_rig_config_target (
     organization_id      BIGINT NOT NULL,

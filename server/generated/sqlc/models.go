@@ -669,26 +669,22 @@ type CurtailmentResponseProfileWithRevision struct {
 }
 
 type CurtailmentRigConfigReconciliation struct {
-	OrganizationID     int64
-	RequestedBy        int64
-	DesiredGeneration  int64
-	EnqueuedGeneration int64
-	RetryAt            time.Time
-	LeaseExpiresAt     sql.NullTime
-	LastError          sql.NullString
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	OrganizationID          int64
+	RequestedBy             int64
+	DesiredGeneration       int64
+	EnqueuedGeneration      int64
+	RetryAt                 time.Time
+	LeaseExpiresAt          sql.NullTime
+	LastError               sql.NullString
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	FullReconcileGeneration int64
 }
 
 type CurtailmentRigConfigTarget struct {
 	OrganizationID      int64
 	DeviceID            int64
 	RequestedGeneration int64
-}
-
-type CurtailmentRigConfigTargetGeneration struct {
-	OrganizationID int64
-	Generation     int64
 }
 
 type CurtailmentTarget struct {

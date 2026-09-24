@@ -94,11 +94,13 @@ func (f *rigConfigStoreFixture) complete(t *testing.T, generation int64) {
 
 func (f *rigConfigStoreFixture) isTargeted(t *testing.T, enqueued, desired int64) bool {
 	t.Helper()
-	targeted, err := f.queries.IsRigConfigReconciliationTargeted(t.Context(), sqlc.IsRigConfigReconciliationTargetedParams{
-		OrganizationID: f.orgID, EnqueuedGeneration: enqueued, DesiredGeneration: desired,
-	})
-	require.NoError(t, err)
-	return targeted
+	var currentDesired, fullReconcileGeneration int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `
+		SELECT desired_generation, full_reconcile_generation
+		FROM curtailment_rig_config_reconciliation WHERE organization_id = $1
+	`, f.orgID).Scan(&currentDesired, &fullReconcileGeneration))
+	require.Equal(t, desired, currentDesired)
+	return fullReconcileGeneration <= enqueued
 }
 
 func TestRigConfigStore_TargetedRequestsCoalesceAndFilterEligibility(t *testing.T) {
@@ -261,57 +263,31 @@ func TestRigConfigStore_MigrationPreservesPendingWorkAcrossUpgradeAndDowngrade(t
 	require.Equal(t, []string{rig.identifier}, f.targets(t, targeted.DesiredGeneration))
 }
 
-func TestRigConfigStore_LegacyWritersAndClaimsRemainCompatibleDuringHAUpgrade(t *testing.T) {
+func TestRigConfigStore_ClaimScopeIsStableAcrossNewerSettingsRequests(t *testing.T) {
 	f := newRigConfigStoreFixture(t)
 	first := f.createRig(t, "Proto", "PAIRED")
 	second := f.createRig(t, "Proto", "PAIRED")
 	f.request(t, first.identifier)
-	f.complete(t, 1)
-
-	// The old settings writer only increments the original organization row.
-	// A later device request must not disguise this unmarked full generation.
-	_, err := f.db.ExecContext(t.Context(), `
-		UPDATE curtailment_rig_config_reconciliation
-		SET desired_generation = desired_generation + 1, retry_at = CURRENT_TIMESTAMP
-		WHERE organization_id = $1
-	`, f.orgID)
+	claim, err := f.queries.ClaimRigConfigReconciliation(t.Context())
 	require.NoError(t, err)
-	f.request(t, first.identifier)
+	require.Equal(t, int64(1), claim.DesiredGeneration)
+	require.Equal(t, int64(0), claim.FullReconcileGeneration)
 
-	// Older sqlc bindings use RETURNING * with exactly these nine scan fields.
-	// Execute their original shape against the upgraded schema to detect any
-	// incompatible addition/reordering of the organization outbox's columns.
-	var legacy sqlc.CurtailmentRigConfigReconciliation
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `
-		WITH candidate AS (
-			SELECT organization_id
-			FROM curtailment_rig_config_reconciliation
-			WHERE desired_generation > enqueued_generation
-			  AND retry_at <= CURRENT_TIMESTAMP
-			  AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
-			ORDER BY retry_at, organization_id
-			FOR UPDATE SKIP LOCKED
-			LIMIT 1
-		)
-		UPDATE curtailment_rig_config_reconciliation reconciliation
-		SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
-		FROM candidate
-		WHERE reconciliation.organization_id = candidate.organization_id
-		RETURNING reconciliation.*
-	`).Scan(&legacy.OrganizationID, &legacy.RequestedBy, &legacy.DesiredGeneration,
-		&legacy.EnqueuedGeneration, &legacy.RetryAt, &legacy.LeaseExpiresAt,
-		&legacy.LastError, &legacy.CreatedAt, &legacy.UpdatedAt))
-	require.Equal(t, int64(3), legacy.DesiredGeneration)
-	require.False(t, f.isTargeted(t, legacy.EnqueuedGeneration, legacy.DesiredGeneration))
-
-	// An older worker acknowledges the full pass without knowing either new
-	// table. Its leftover targets and markers must not contaminate the next pass.
-	_, err = f.db.ExecContext(t.Context(), `
-		UPDATE curtailment_rig_config_reconciliation
-		SET enqueued_generation = desired_generation, lease_expires_at = NULL
-		WHERE organization_id = $1
-	`, f.orgID)
+	// A later settings request must not broaden this claimed device-scoped
+	// generation. Its full-delivery watermark belongs to the next claim.
+	require.NoError(t, f.queries.RequestRigConfigReconciliation(t.Context(), sqlc.RequestRigConfigReconciliationParams{
+		OrganizationID: f.orgID, RequestedBy: f.userID,
+	}))
+	require.Equal(t, int64(0), claim.FullReconcileGeneration)
+	require.Equal(t, []string{first.identifier}, f.targets(t, claim.DesiredGeneration))
+	f.complete(t, claim.DesiredGeneration)
+	full, err := f.queries.ClaimRigConfigReconciliation(t.Context())
 	require.NoError(t, err)
+	require.Equal(t, int64(2), full.DesiredGeneration)
+	require.Equal(t, int64(2), full.FullReconcileGeneration)
+	require.Greater(t, full.FullReconcileGeneration, full.EnqueuedGeneration)
+	f.complete(t, full.DesiredGeneration)
+
 	f.request(t, second.identifier)
 	current, err := f.queries.ClaimRigConfigReconciliation(t.Context())
 	require.NoError(t, err)
@@ -323,11 +299,6 @@ func TestRigConfigStore_LegacyWritersAndClaimsRemainCompatibleDuringHAUpgrade(t 
 	require.Equal(t, []string{second.identifier}, targets)
 	f.complete(t, current.DesiredGeneration)
 	require.Empty(t, f.targets(t, current.DesiredGeneration))
-	var markerCount int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `
-		SELECT count(*) FROM curtailment_rig_config_target_generation WHERE organization_id = $1
-	`, f.orgID).Scan(&markerCount))
-	require.Zero(t, markerCount, "current workers also clean up markers acknowledged by older workers")
 }
 
 func TestRigConfigStore_SettingsChangesPreserveFullScopeAcrossTargetRequests(t *testing.T) {

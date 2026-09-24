@@ -28,7 +28,7 @@ UPDATE curtailment_rig_config_reconciliation reconciliation
 SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
 FROM candidate
 WHERE reconciliation.organization_id = candidate.organization_id
-RETURNING reconciliation.organization_id, reconciliation.requested_by, reconciliation.desired_generation, reconciliation.enqueued_generation, reconciliation.retry_at, reconciliation.lease_expires_at, reconciliation.last_error, reconciliation.created_at, reconciliation.updated_at
+RETURNING reconciliation.organization_id, reconciliation.requested_by, reconciliation.desired_generation, reconciliation.enqueued_generation, reconciliation.retry_at, reconciliation.lease_expires_at, reconciliation.last_error, reconciliation.created_at, reconciliation.updated_at, reconciliation.full_reconcile_generation
 `
 
 func (q *Queries) ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error) {
@@ -44,6 +44,7 @@ func (q *Queries) ClaimRigConfigReconciliation(ctx context.Context) (Curtailment
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FullReconcileGeneration,
 	)
 	return i, err
 }
@@ -61,16 +62,11 @@ SET enqueued_generation = GREATEST(reconciliation.enqueued_generation, $1),
 WHERE reconciliation.organization_id = $2
   AND reconciliation.enqueued_generation < $1
 RETURNING reconciliation.organization_id
-), cleared_targets AS (
+)
 DELETE FROM curtailment_rig_config_target target
 USING completed
 WHERE target.organization_id = completed.organization_id
   AND target.requested_generation <= $1
-)
-DELETE FROM curtailment_rig_config_target_generation generation
-USING completed
-WHERE generation.organization_id = completed.organization_id
-  AND generation.generation <= $1
 `
 
 type CompleteRigConfigReconciliationParams struct {
@@ -93,13 +89,15 @@ RETURNING config.organization_id, config.service_user_id
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -219,13 +217,15 @@ RETURNING id, organization_id, service_user_id, source_name, topic, broker_prima
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -303,35 +303,6 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const isRigConfigReconciliationTargeted = `-- name: IsRigConfigReconciliationTargeted :one
-SELECT EXISTS (
-    SELECT 1
-    FROM curtailment_rig_config_target_generation
-    WHERE organization_id = $1
-      AND generation > $2::bigint
-      AND generation <= $3::bigint
-    HAVING $3::bigint > $2::bigint
-       AND COUNT(*) = $3::bigint - $2::bigint
-) AS is_targeted
-`
-
-type IsRigConfigReconciliationTargetedParams struct {
-	OrganizationID     int64
-	EnqueuedGeneration int64
-	DesiredGeneration  int64
-}
-
-// Settings and older fleetd instances create unmarked generations. Only a
-// complete marker sequence proves the claimed pending range is device-scoped.
-// Read after claiming in a separate statement so markers from a requester that
-// committed while the claim acquired its row lock are visible in this snapshot.
-func (q *Queries) IsRigConfigReconciliationTargeted(ctx context.Context, arg IsRigConfigReconciliationTargetedParams) (bool, error) {
-	row := q.queryRow(ctx, q.isRigConfigReconciliationTargetedStmt, isRigConfigReconciliationTargeted, arg.OrganizationID, arg.EnqueuedGeneration, arg.DesiredGeneration)
-	var is_targeted bool
-	err := row.Scan(&is_targeted)
-	return is_targeted, err
 }
 
 const listEnabledMQTTSources = `-- name: ListEnabledMQTTSources :many
@@ -528,14 +499,17 @@ func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg Li
 const requestRigConfigReconciliation = `-- name: RequestRigConfigReconciliation :exec
 INSERT INTO curtailment_rig_config_reconciliation (
     organization_id,
-    requested_by
+    requested_by,
+    full_reconcile_generation
 ) VALUES (
     $1,
-    $2
+    $2,
+    1
 )
 ON CONFLICT (organization_id) DO UPDATE
 SET requested_by = EXCLUDED.requested_by,
     desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
     retry_at = CURRENT_TIMESTAMP,
     last_error = NULL
 `
@@ -574,19 +548,15 @@ WITH eligible AS MATERIALIZED (
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
     RETURNING organization_id, desired_generation
-), marked AS (
-    INSERT INTO curtailment_rig_config_target_generation (organization_id, generation)
-    SELECT organization_id, desired_generation FROM requested
-    RETURNING organization_id, generation
 )
 INSERT INTO curtailment_rig_config_target (
     organization_id,
     device_id,
     requested_generation
 )
-SELECT marked.organization_id, eligible.id, marked.generation
-FROM marked
-JOIN eligible ON eligible.org_id = marked.organization_id
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
 ORDER BY eligible.id
 ON CONFLICT (organization_id, device_id) DO UPDATE
 SET requested_generation = EXCLUDED.requested_generation
@@ -624,19 +594,15 @@ SET desired_generation = reconciliation.desired_generation + 1,
 FROM eligible
 WHERE reconciliation.organization_id = eligible.org_id
 RETURNING reconciliation.organization_id, reconciliation.desired_generation
-), marked AS (
-    INSERT INTO curtailment_rig_config_target_generation (organization_id, generation)
-    SELECT organization_id, desired_generation FROM requested
-    RETURNING organization_id, generation
 )
 INSERT INTO curtailment_rig_config_target (
     organization_id,
     device_id,
     requested_generation
 )
-SELECT marked.organization_id, eligible.id, marked.generation
-FROM marked
-JOIN eligible ON eligible.org_id = marked.organization_id
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
 ON CONFLICT (organization_id, device_id) DO UPDATE
 SET requested_generation = EXCLUDED.requested_generation
 `
@@ -683,13 +649,15 @@ RETURNING id, organization_id, service_user_id, source_name, topic, broker_prima
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -766,13 +734,15 @@ RETURNING id, organization_id, service_user_id, source_name, topic, broker_prima
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )

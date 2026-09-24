@@ -29,7 +29,6 @@ type fakeSettingsStore struct {
 	automationRuleCount int64
 	rigConfigRequests   map[int64]RigConfigReconciliation
 	rigConfigTargets    map[int64][]string
-	rigConfigFull       map[int64]bool
 	rigConfigRequestErr error
 	rigConfigComplete   []RigConfigReconciliation
 	rigConfigRetry      []RigConfigReconciliation
@@ -42,7 +41,6 @@ func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
 		states:            make(map[int64]SourceState),
 		rigConfigRequests: make(map[int64]RigConfigReconciliation),
 		rigConfigTargets:  make(map[int64][]string),
-		rigConfigFull:     make(map[int64]bool),
 	}
 	for _, cfg := range configs {
 		if cfg.ID == 0 {
@@ -165,7 +163,7 @@ func (f *fakeSettingsStore) requestRigConfigLocked(orgID, requestedBy int64) {
 	request.OrganizationID = orgID
 	request.RequestedBy = requestedBy
 	request.DesiredGeneration++
-	f.rigConfigFull[orgID] = true
+	request.FullReconcileGeneration = request.DesiredGeneration
 	f.rigConfigRequests[orgID] = request
 }
 
@@ -190,12 +188,6 @@ func (f *fakeSettingsStore) ListRigConfigReconciliationTargets(_ context.Context
 	return append([]string(nil), f.rigConfigTargets[orgID]...), nil
 }
 
-func (f *fakeSettingsStore) IsRigConfigReconciliationTargeted(_ context.Context, orgID, _, _ int64) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return !f.rigConfigFull[orgID], nil
-}
-
 func (f *fakeSettingsStore) ClaimRigConfigReconciliation(context.Context) (RigConfigReconciliation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -212,7 +204,6 @@ func (f *fakeSettingsStore) CompleteRigConfigReconciliation(_ context.Context, o
 	f.rigConfigComplete = append(f.rigConfigComplete, RigConfigReconciliation{
 		OrganizationID: orgID, DesiredGeneration: generation,
 	})
-	delete(f.rigConfigFull, orgID)
 	delete(f.rigConfigTargets, orgID)
 	return nil
 }
