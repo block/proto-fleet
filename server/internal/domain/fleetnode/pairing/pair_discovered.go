@@ -21,7 +21,7 @@ import (
 
 // MaxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
 // max_items so a pair_all on a huge fleet can't balloon one ControlCommand; the
-// operator re-issues for the remainder (paired devices drop from the listing).
+// pair-all dispatches successive batches rather than enlarging ControlCommand.
 const MaxPairBatch = 1024
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
@@ -30,6 +30,11 @@ const MaxPairBatch = 1024
 // that is not pairable is silently dropped. Explicit selections are filtered in
 // SQL by identifier (no whole-org scan); pair_all is capped at one batch.
 func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int64, identifiers []string, pairAllUnpaired bool, credentials *pairingpb.Credentials) ([]*pairingpb.FleetNodePairTarget, error) {
+	targets, _, err := s.resolvePairTargetsPage(ctx, fleetNodeID, orgID, identifiers, pairAllUnpaired, credentials, nil)
+	return targets, err
+}
+
+func (s *Service) resolvePairTargetsPage(ctx context.Context, fleetNodeID, orgID int64, identifiers []string, pairAllUnpaired bool, credentials *pairingpb.Credentials, cursorID *int64) ([]*pairingpb.FleetNodePairTarget, *int64, error) {
 	var (
 		ids   []string
 		limit *int64
@@ -52,13 +57,19 @@ func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int
 	excludeAuthNeeded := pairAllUnpaired && !usableCredentials
 	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, FleetNodeDiscoveredDeviceFilter{
 		Identifiers:       ids,
+		CursorID:          cursorID,
 		Limit:             limit,
 		ExcludeAuthNeeded: excludeAuthNeeded,
 	})
 	if err != nil {
-		return nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
+		return nil, nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
 	}
-	return pairTargetsFromDiscoveredDevices(candidates), nil
+	var nextCursor *int64
+	if pairAllUnpaired && len(candidates) == MaxPairBatch {
+		last := candidates[len(candidates)-1].ID
+		nextCursor = &last
+	}
+	return pairTargetsFromDiscoveredDevices(candidates), nextCursor, nil
 }
 
 // ResolvePairTargetsByFilterPage returns pairable node-discovered targets that

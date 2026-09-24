@@ -54,11 +54,13 @@ type pagingPairTargetStore struct {
 }
 
 type pagingPairTargetCall struct {
-	filter FleetNodeDiscoveredDeviceFilter
+	filter      FleetNodeDiscoveredDeviceFilter
+	orgID       int64
+	fleetNodeID *int64
 }
 
-func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, _ int64, _ *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error) {
-	s.calls = append(s.calls, pagingPairTargetCall{filter: copyFleetNodeDiscoveredDeviceFilter(filter)})
+func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error) {
+	s.calls = append(s.calls, pagingPairTargetCall{filter: copyFleetNodeDiscoveredDeviceFilter(filter), orgID: orgID, fleetNodeID: copyInt64(fleetNodeID)})
 	filtered := make([]FleetNodeDiscoveredDevice, 0, len(s.devices))
 	for _, device := range s.devices {
 		if filter.ExcludeAuthNeeded && device.PairingStatus == StatusAuthenticationNeeded {
@@ -89,6 +91,35 @@ func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context
 		end = start + int(*filter.Limit)
 	}
 	return filtered[start:end], nil
+}
+
+func TestResolvePairAllPagesPreserveScopeAndCredentials(t *testing.T) {
+	password := ""
+	for _, credentials := range []*pairingpb.Credentials{nil, {Username: "root"}, {Password: &password}} {
+		store := pairAllTestStore(MaxPairBatch + 2)
+		store.devices[MaxPairBatch].PairingStatus = StatusAuthenticationNeeded
+		service := NewService(store, nil, nil)
+		_, cursor, err := service.resolvePairTargetsPage(t.Context(), 7, 20, nil, true, credentials, nil)
+		require.NoError(t, err)
+		require.NotNil(t, cursor)
+		targets, next, err := service.resolvePairTargetsPage(t.Context(), 7, 20, nil, true, credentials, cursor)
+		require.NoError(t, err)
+		assert.Nil(t, next)
+		usable := credentials != nil && credentials.Password != nil
+		if usable {
+			assert.Len(t, targets, 2)
+		} else {
+			assert.Len(t, targets, 1)
+		}
+		require.Len(t, store.calls, 2)
+		for _, call := range store.calls {
+			assert.Equal(t, int64(20), call.orgID)
+			require.NotNil(t, call.fleetNodeID)
+			assert.Equal(t, int64(7), *call.fleetNodeID)
+			assert.Equal(t, !usable, call.filter.ExcludeAuthNeeded)
+			assert.Equal(t, int64(MaxPairBatch), *call.filter.Limit)
+		}
+	}
 }
 
 func copyFleetNodeDiscoveredDeviceFilter(filter FleetNodeDiscoveredDeviceFilter) FleetNodeDiscoveredDeviceFilter {

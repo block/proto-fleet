@@ -88,35 +88,37 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
 
-	targets, err := h.pairing.ResolvePairTargets(ctx, fleetNodeID, info.OrganizationID, req.Msg.GetDeviceIdentifiers(), req.Msg.GetPairAllUnpaired(), req.Msg.GetCredentials())
+	credentials := req.Msg.GetCredentials()
+	assignedBy := info.UserID
+
+	// The gateway persists results authoritatively; this callback only forwards them
+	// for live display, so a send failure (operator gone) must not abort the command.
+	onResults := func(results []*gatewaypb.FleetNodePairResult) error {
+		// Forward only while the operator is connected; once gone, skip the send so
+		// it can't block the command (which keeps persisting server-side).
+		if ctx.Err() == nil {
+			out := &pb.PairDiscoveredDevicesOnFleetNodeResponse{Results: make([]*pb.DevicePairingResult, 0, len(results))}
+			for _, r := range results {
+				out.Results = append(out.Results, devicePairingResultFromGatewayResult(r))
+			}
+			if sendErr := stream.Send(out); sendErr != nil {
+				slog.Warn("operator pair stream send failed; pairing continues server-side",
+					"fleet_node_id", fleetNodeID, "err", sendErr)
+			}
+		}
+		return nil
+	}
+	if req.Msg.GetPairAllUnpaired() {
+		return h.pairing.PairAllOnNode(ctx, fleetNodeID, info.OrganizationID, credentials, &assignedBy, onResults)
+	}
+	targets, err := h.pairing.ResolvePairTargets(ctx, fleetNodeID, info.OrganizationID, req.Msg.GetDeviceIdentifiers(), false, credentials)
 	if err != nil {
 		return err
 	}
 	if len(targets) == 0 {
 		return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
 	}
-
-	credentials := req.Msg.GetCredentials()
-	assignedBy := info.UserID
-
-	// The gateway persists results authoritatively; this callback only forwards them
-	// for live display, so a send failure (operator gone) must not abort the command.
-	return h.pairing.PairOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy,
-		func(results []*gatewaypb.FleetNodePairResult) error {
-			// Forward only while the operator is connected; once gone, skip the send so
-			// it can't block the command (which keeps persisting server-side).
-			if ctx.Err() == nil {
-				out := &pb.PairDiscoveredDevicesOnFleetNodeResponse{Results: make([]*pb.DevicePairingResult, 0, len(results))}
-				for _, r := range results {
-					out.Results = append(out.Results, devicePairingResultFromGatewayResult(r))
-				}
-				if sendErr := stream.Send(out); sendErr != nil {
-					slog.Warn("operator pair stream send failed; pairing continues server-side",
-						"fleet_node_id", fleetNodeID, "err", sendErr)
-				}
-			}
-			return nil
-		})
+	return h.pairing.PairOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy, onResults)
 }
 
 func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {

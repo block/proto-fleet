@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -18,6 +19,40 @@ import (
 // ack, mirroring DiscoverCommandTimeout: it must exceed the agent's pairing budget
 // plus slack so a slow batch's ack isn't rejected as stale. Var for tests.
 var PairCommandTimeout = 12 * time.Minute
+
+// PairAllOnNode walks the node's eligible discoveries in bounded, sequential
+// commands. The row-ID cursor advances even when a miner fails and remains
+// eligible, so it is attempted only once per walk. Cancellation stops new batches;
+// PairOnNode still finishes any dispatched command while the gateway persists
+// its results.
+func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, credentials *pairingpb.Credentials, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	var cursor *int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair-all stopped before next batch: %w", err)
+		}
+		targets, nextCursor, err := s.resolvePairTargetsPage(ctx, fleetNodeID, orgID, nil, true, credentials, cursor)
+		if err != nil {
+			return err
+		}
+		if len(targets) == 0 {
+			if cursor == nil {
+				return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
+			}
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair-all stopped before dispatch: %w", err)
+		}
+		if err := s.PairOnNode(ctx, fleetNodeID, targets, credentials, orgID, assignedBy, onResults); err != nil {
+			return err
+		}
+		if nextCursor == nil {
+			return nil
+		}
+		cursor = nextCursor
+	}
+}
 
 // PairOnNode dispatches a batch pair command over the node's ControlStream and
 // invokes onResults per result batch for live operator display. Persistence is
