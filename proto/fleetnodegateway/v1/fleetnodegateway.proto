@@ -321,6 +321,64 @@ message MinerConnectionDescriptor {
     bytes credential_password = 9 [(buf.validate.field).bytes.max_len = 4096];
 }
 
+// RecoverMinerEndpointsRequest asks a fleet node to find the current endpoints
+// of miners that remain paired to it but are offline at their stored addresses.
+// Credentials stay encrypted for the node and are opened only in node memory.
+message RecoverMinerEndpointsRequest {
+    repeated MinerConnectionDescriptor targets = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 512}];
+    // Prioritized scan-port seeds selected by the server. Every target's
+    // last-known port must be present; the node may append plugin default ports
+    // while staying within the 10-port discovery budget.
+    repeated string scan_ports = 2 [
+        (buf.validate.field).repeated = {
+            min_items: 1,
+            max_items: 10,
+            unique: true,
+            items: {string: {min_len: 1, max_len: 5}}
+        },
+        (buf.validate.field).cel = {
+            id: "scan_ports.range",
+            message: "scan ports must be decimal numbers in 1..65535",
+            expression: "this.all(p, p.matches('^[1-9][0-9]*$') && int(p) <= 65535)"
+        }
+    ];
+    option (buf.validate.message).cel = {
+        id: "targets.scan_ports",
+        message: "every target port must be included in scan_ports",
+        expression: "this.targets.all(t, t.port in this.scan_ports)"
+    };
+}
+
+enum MinerEndpointRecoveryOutcome {
+    MINER_ENDPOINT_RECOVERY_OUTCOME_UNSPECIFIED            = 0;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND                  = 1;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_AUTHENTICATION_FAILED  = 2;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND              = 3;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_UNRECOVERABLE_IDENTITY = 4;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_AMBIGUOUS              = 5;
+    MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR                  = 6;
+}
+
+// MinerEndpointRecoveryResult contains one target's observed outcome. The
+// server derives whether identity evidence and endpoint fields are sufficient
+// for a state change; response validation is structural only.
+message MinerEndpointRecoveryResult {
+    string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    MinerEndpointRecoveryOutcome outcome = 2 [(buf.validate.field).enum = {defined_only: true}];
+    string ip_address = 3 [(buf.validate.field).string.max_len = 45];
+    string port = 4 [(buf.validate.field).string.max_len = 5];
+    string url_scheme = 5 [(buf.validate.field).string.max_len = 32];
+    string serial_number = 6 [(buf.validate.field).string.max_len = 255];
+    string mac_address = 7 [(buf.validate.field).string.max_len = 64];
+    string error_message = 8 [(buf.validate.field).string.max_len = 4096];
+}
+
+// RecoverMinerEndpointsResult is marshaled into ControlAck.payload. PARTIAL
+// acknowledgements may contain a subset; omitted targets remain untouched.
+message RecoverMinerEndpointsResult {
+    repeated MinerEndpointRecoveryResult results = 1 [(buf.validate.field).repeated.max_items = 512];
+}
+
 // MinerCommand is one operator command targeting a single fleet-node-paired miner.
 // The node reconstructs a local device from `target` and executes the selected
 // action, then acks the outcome.
@@ -477,6 +535,7 @@ message GetErrorsResult {
 //   2 = FleetNodePairRequest pair    (fleet-node pairing path)
 //   3 = MinerCommand miner_command   (per-miner command path)
 //   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
+//   5 = RecoverMinerEndpointsRequest recover_miner_endpoints (offline endpoint recovery)
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -485,6 +544,7 @@ message AgentCommand {
         pairing.v1.FleetNodePairRequest pair = 2;
         MinerCommand miner_command = 3;
         telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
+        RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
     }
 }
 
@@ -504,7 +564,7 @@ message ControlAck {
 enum AckCode {
     ACK_CODE_UNSPECIFIED     = 0;
     ACK_CODE_OK              = 1;
-    // PARTIAL: scan completed partially after commandTimeout; reports already uploaded.
+    // PARTIAL: command completed partially; any returned payload is safe to process.
     ACK_CODE_PARTIAL         = 2;
     // BAD_REQUEST: malformed payload, missing/invalid mode, invalid targets/ports, limits exceeded.
     ACK_CODE_BAD_REQUEST     = 3;
