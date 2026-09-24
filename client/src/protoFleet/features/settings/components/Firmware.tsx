@@ -19,7 +19,7 @@ import Callout, { intents } from "@/shared/components/Callout";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -125,7 +125,6 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
 };
 
 const activeCols: FirmwareColumns[] = ["filename", "target", "firmwareVersion", "uploadedAt", "size"];
-const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
@@ -278,26 +277,23 @@ const FirmwareFilesSection = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
-        <div className="flex shrink-0 gap-3 phone:w-full phone:flex-col">
+        <Button
+          variant={variants.primary}
+          size={sizes.compact}
+          text="Upload firmware"
+          onClick={() => setShowUploadDialog(true)}
+          className="phone:w-full"
+        />
+        {files.length > 0 ? (
           <Button
-            variant={variants.primary}
+            variant={variants.danger}
             size={sizes.compact}
-            text="Upload firmware"
-            onClick={() => setShowUploadDialog(true)}
+            text="Delete all"
+            onClick={() => setShowDeleteAllDialog(true)}
+            disabled={isDeletingAll}
             className="phone:w-full"
           />
-          {files.length > 0 ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Delete all"
-              onClick={() => setShowDeleteAllDialog(true)}
-              disabled={isDeletingAll}
-              className="phone:w-full"
-            />
-          ) : null}
-        </div>
+        ) : null}
       </div>
 
       {isLoading ? (
@@ -415,22 +411,7 @@ const Firmware = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <SegmentedControl
-        // SegmentedControl is uncontrolled; remount it when navigation
-        // (rather than a click) changes the URL-derived tab.
-        key={activeTab}
-        className="self-start"
-        segments={firmwareTabs}
-        initialSegmentKey={activeTab}
-        onSelect={(key) => {
-          if (key === TAB_RELEASE_CHANNELS) {
-            showChannels();
-          } else {
-            setManageRequest(null);
-            setSearchParams({}, { replace: true });
-          }
-        }}
-      />
+      <SettingsPageHeader title="Firmware" />
       {refreshWarning}
       <ActiveUpdatesMonitor
         api={channelsApi}
@@ -442,6 +423,22 @@ const Firmware = () => {
           showChannels();
         }}
       />
+      <TabStrip
+        activeId={activeTab}
+        ariaLabel="Firmware sections"
+        onSelect={(key) => {
+          if (key === TAB_RELEASE_CHANNELS) {
+            showChannels();
+          } else {
+            setManageRequest(null);
+            setSearchParams({}, { replace: true });
+          }
+        }}
+      >
+        {firmwareTabs.map((tab) => (
+          <TabStripItem key={tab.key} id={tab.key} label={tab.title} />
+        ))}
+      </TabStrip>
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
           api={channelsApi}

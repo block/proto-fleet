@@ -73,14 +73,14 @@ describe("update detail Manage navigation", () => {
     channelName: productionChannel.name,
   };
 
-  const navigationApi = () => {
+  const navigationApi = (singleRollout?: typeof gatedRigRollout) => {
     const api = {
       ...apiFor(),
       channels: [
         channelWithActiveRollout(canaryChannel, gatedRigRollout),
         channelWithActiveRollout(productionChannel, productionRollout),
       ],
-      rollouts: [gatedRigRollout, productionRollout],
+      rollouts: singleRollout ? [singleRollout] : [gatedRigRollout, productionRollout],
     };
     api.listChannelRollouts.mockImplementation(async (channelId) =>
       api.rollouts.filter((rollout) => rollout.channelId === channelId),
@@ -89,13 +89,21 @@ describe("update detail Manage navigation", () => {
     return api;
   };
 
-  const manageFromBanner = (rollout = productionRollout) => {
+  const manageFromMonitor = (rollout = productionRollout) => {
     closeChannelSettings();
-    fireEvent.click(
-      within(screen.getByTestId(`active-update-${rollout.id}`)).getByRole("button", { name: "Review update" }),
-    );
-    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
-    fireEvent.click(screen.getByTestId("view-rollout-manage-action"));
+    const inline = screen.queryByTestId("inline-rollout-live-view") !== null;
+    if (inline) {
+      expect(
+        within(screen.getByTestId(`active-update-${rollout.id}`)).getByTestId("inline-rollout-live-view"),
+      ).toBeInTheDocument();
+    } else {
+      fireEvent.click(
+        within(screen.getByTestId(`active-update-${rollout.id}`)).getByRole("button", { name: "Review update" }),
+      );
+    }
+    const prefix = inline ? "inline-" : "";
+    if (!inline) fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId(`${prefix}view-rollout-manage-action`));
   };
 
   const stageFirmwareClear = async (pendingCount = 1) => {
@@ -116,52 +124,55 @@ describe("update detail Manage navigation", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("preserves settings and firmware drafts when returning to the same channel from its banner", async () => {
-    const api = navigationApi();
-    render(page());
-    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
-    openChannelSettings();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Canary draft" } });
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Keep this description" } });
-    fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "3" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Sites/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
-    closeChannelSettings();
-    expect(screen.queryByTestId("channel-history")).not.toBeInTheDocument();
-    await stageFirmwareClear(5);
-    manageFromBanner(gatedRigRollout);
+  it.each(["inline", "banner"])(
+    "preserves settings and firmware drafts when returning from %s Manage",
+    async (surface) => {
+      const api = navigationApi(surface === "inline" ? gatedRigRollout : undefined);
+      render(page());
+      fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+      openChannelSettings();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Canary draft" } });
+      fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Keep this description" } });
+      fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "3" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Sites/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
+      closeChannelSettings();
+      expect(screen.queryByTestId("channel-history")).not.toBeInTheDocument();
+      await stageFirmwareClear(5);
+      manageFromMonitor(gatedRigRollout);
 
-    expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
-    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
-    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("5");
-    expect(screen.getByTestId("channel-settings")).toBeInTheDocument();
-    expect(screen.queryByTestId("channel-history")).not.toBeInTheDocument();
-    openChannelSettings();
-    expect(screen.getByLabelText("Name")).toHaveValue("Canary draft");
-    expect(screen.getByLabelText("Description")).toHaveValue("Keep this description");
-    expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
-    expect(api.updateChannel).not.toHaveBeenCalled();
-    expect(api.applyFirmware).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("5");
+      expect(screen.getByTestId("channel-settings")).toBeInTheDocument();
+      expect(screen.queryByTestId("channel-history")).not.toBeInTheDocument();
+      openChannelSettings();
+      expect(screen.getByLabelText("Name")).toHaveValue("Canary draft");
+      expect(screen.getByLabelText("Description")).toHaveValue("Keep this description");
+      expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
+      expect(api.updateChannel).not.toHaveBeenCalled();
+      expect(api.applyFirmware).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId("save-channel"));
-    const preview = within(screen.getByTestId("apply-firmware-dialog"));
-    expect(preview.getByText("5 changes pending")).toBeInTheDocument();
-    expect(api.updateChannel).not.toHaveBeenCalled();
-    expect(api.applyFirmware).not.toHaveBeenCalled();
-    fireEvent.click(preview.getByRole("button", { name: "Apply changes" }));
-    await waitFor(() => expect(api.applyFirmware).toHaveBeenCalledOnce());
-    expect(api.updateChannel).toHaveBeenCalledExactlyOnceWith(
-      canaryChannel.id,
-      expect.objectContaining({
-        name: "Canary draft",
-        description: "Keep this description",
-        scope: expect.objectContaining({ siteIds: [2n] }),
-        behavior: expect.objectContaining({ pilotSize: 3 }),
-      }),
-    );
-    expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
-  });
+      fireEvent.click(screen.getByTestId("save-channel"));
+      const preview = within(screen.getByTestId("apply-firmware-dialog"));
+      expect(preview.getByText("5 changes pending")).toBeInTheDocument();
+      expect(api.updateChannel).not.toHaveBeenCalled();
+      expect(api.applyFirmware).not.toHaveBeenCalled();
+      fireEvent.click(preview.getByRole("button", { name: "Apply changes" }));
+      await waitFor(() => expect(api.applyFirmware).toHaveBeenCalledOnce());
+      expect(api.updateChannel).toHaveBeenCalledExactlyOnceWith(
+        canaryChannel.id,
+        expect.objectContaining({
+          name: "Canary draft",
+          description: "Keep this description",
+          scope: expect.objectContaining({ siteIds: [2n] }),
+          behavior: expect.objectContaining({ pilotSize: 3 }),
+        }),
+      );
+      expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
+    },
+  );
 
   it("returns from history detail to the same channel without a navigation prompt", async () => {
     const api = navigationApi();
@@ -179,121 +190,140 @@ describe("update detail Manage navigation", () => {
     expect(api.applyFirmware).not.toHaveBeenCalled();
   });
 
-  it.each(["settings", "firmware", "combined changes"])(
-    "asks before discarding unsaved %s to manage a different channel",
-    async (draft) => {
-      const api = navigationApi();
-      render(page());
+  it.each(
+    ["inline", "banner"].flatMap((surface) =>
+      ["settings", "firmware", "combined changes"].map((draft) => ({ surface, draft })),
+    ),
+  )("asks before discarding unsaved $draft from $surface Manage", async ({ surface, draft }) => {
+    const api = navigationApi(surface === "inline" ? productionRollout : undefined);
+    render(page());
+    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+    if (draft !== "firmware") {
+      openChannelSettings();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    }
+    if (draft !== "settings") await stageFirmwareClear(draft === "firmware" ? 1 : 2);
+
+    manageFromMonitor();
+    const confirmation = within(screen.getByTestId("discard-channel-changes-dialog"));
+    expect(confirmation.getByText("Discard unsaved channel changes?")).toBeInTheDocument();
+    expect(screen.getByTestId("release-channel-Canary")).toBeInTheDocument();
+    fireEvent.click(confirmation.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument());
+    if (draft !== "firmware") {
+      openChannelSettings();
+      expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
+      closeChannelSettings();
+    }
+    if (draft !== "settings") {
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent(draft === "firmware" ? "1" : "2");
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
+    }
+
+    manageFromMonitor();
+    fireEvent.click(
+      within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Discard changes" }),
+    );
+    expect(screen.getByTestId("release-channel-Production")).toBeInTheDocument();
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Production");
+    expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument());
+    expect(api.updateChannel).not.toHaveBeenCalled();
+    expect(api.applyFirmware).not.toHaveBeenCalled();
+    if (surface === "inline") {
+      closeChannelSettings();
+      fireEvent.click(screen.getByTestId("back-to-channels"));
       fireEvent.click(screen.getByTestId("manage-channel-Canary"));
-      if (draft !== "firmware") {
-        openChannelSettings();
-        fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
-      }
-      if (draft !== "settings") await stageFirmwareClear(draft === "firmware" ? 1 : 2);
+    } else {
+      manageFromMonitor(gatedRigRollout);
+    }
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Canary");
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("1.4.4");
+    expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
+  });
 
-      manageFromBanner();
-      const confirmation = within(screen.getByTestId("discard-channel-changes-dialog"));
-      expect(confirmation.getByText("Discard unsaved channel changes?")).toBeInTheDocument();
-      expect(screen.getByTestId("release-channel-Canary")).toBeInTheDocument();
-      fireEvent.click(confirmation.getByRole("button", { name: "Keep editing" }));
-      await waitFor(() => expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument());
-      if (draft !== "firmware") {
-        openChannelSettings();
-        expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
-        closeChannelSettings();
-      }
-      if (draft !== "settings") {
-        expect(screen.getByTestId("pending-change-count")).toHaveTextContent(draft === "firmware" ? "1" : "2");
-        expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
-      }
-
-      manageFromBanner();
-      fireEvent.click(
-        within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Discard changes" }),
-      );
-      expect(screen.getByTestId("release-channel-Production")).toBeInTheDocument();
-      openChannelSettings();
-      expect(screen.getByLabelText("Name")).toHaveValue("Production");
-      expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
-      await waitFor(() => expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument());
-      expect(api.updateChannel).not.toHaveBeenCalled();
-      expect(api.applyFirmware).not.toHaveBeenCalled();
-      manageFromBanner(gatedRigRollout);
-      openChannelSettings();
-      expect(screen.getByLabelText("Name")).toHaveValue("Canary");
-      expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("1.4.4");
-      expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
-    },
-  );
-
-  it.each(["list", "pristine editor", "files"])("opens the requested channel directly from %s", async (origin) => {
-    navigationApi();
+  it.each(
+    ["inline", "banner"].flatMap((surface) =>
+      ["list", "pristine editor", "files"].map((origin) => ({ surface, origin })),
+    ),
+  )("opens the requested channel directly from $origin with $surface Manage", async ({ surface, origin }) => {
+    navigationApi(surface === "inline" ? productionRollout : undefined);
     render(page(origin === "files" ? "files" : "release-channels"));
     if (origin === "pristine editor") fireEvent.click(screen.getByTestId("manage-channel-Canary"));
-    manageFromBanner();
+    manageFromMonitor();
     expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
     expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
     openChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Production");
   });
 
-  it("keeps a new-channel draft until the operator confirms navigation", async () => {
-    const api = navigationApi();
-    render(page());
-    fireEvent.click(screen.getByTestId("create-release-channel"));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel draft" } });
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Unfinished setup" } });
-    manageFromBanner();
-    fireEvent.click(
-      within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Keep editing" }),
-    );
-    expect(screen.getByLabelText("Name")).toHaveValue("New channel draft");
-    expect(screen.getByLabelText("Description")).toHaveValue("Unfinished setup");
-    manageFromBanner();
-    fireEvent.click(
-      within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Discard changes" }),
-    );
-    expect(screen.getByTestId("release-channel-Production")).toBeInTheDocument();
-    expect(api.createChannel).not.toHaveBeenCalled();
-    expect(api.updateChannel).not.toHaveBeenCalled();
-  });
-
-  it.each(["success", "failure"])("waits for a settings write before handling navigation after %s", async (result) => {
-    const api = navigationApi();
-    const saved = deferred<undefined>();
-    api.updateChannel.mockReturnValueOnce(saved.promise);
-    render(page());
-    fireEvent.click(screen.getByTestId("manage-channel-Canary"));
-    openChannelSettings();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
-    fireEvent.click(screen.getByTestId("save-channel"));
-    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }));
-    manageFromBanner();
-
-    expect(screen.getByTestId("release-channel-Canary")).toBeInTheDocument();
-    expect(screen.queryByTestId("release-channel-Production")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
-    expect(api.updateChannel).toHaveBeenCalledOnce();
-    if (result === "success") {
-      await act(async () => saved.resolve(undefined));
-      expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
-      expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
-    } else {
-      await act(async () => saved.reject(new Error("Save failed")));
+  it.each(["inline", "banner"])(
+    "keeps a new-channel draft until %s Manage navigation is confirmed",
+    async (surface) => {
+      const api = navigationApi(surface === "inline" ? productionRollout : undefined);
+      render(page());
+      fireEvent.click(screen.getByTestId("create-release-channel"));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel draft" } });
+      fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Unfinished setup" } });
+      manageFromMonitor();
       fireEvent.click(
-        within(await screen.findByTestId("discard-channel-changes-dialog")).getByRole("button", {
-          name: "Keep editing",
-        }),
+        within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Keep editing" }),
       );
-      openChannelSettings();
-      expect(screen.getByLabelText("Name")).toHaveValue("Saved name");
-      expect(screen.getByTestId("save-channel")).toBeEnabled();
-    }
-    expect(api.updateChannel).toHaveBeenCalledOnce();
-  });
+      expect(screen.getByLabelText("Name")).toHaveValue("New channel draft");
+      expect(screen.getByLabelText("Description")).toHaveValue("Unfinished setup");
+      manageFromMonitor();
+      fireEvent.click(
+        within(screen.getByTestId("discard-channel-changes-dialog")).getByRole("button", { name: "Discard changes" }),
+      );
+      expect(screen.getByTestId("release-channel-Production")).toBeInTheDocument();
+      expect(api.createChannel).not.toHaveBeenCalled();
+      expect(api.updateChannel).not.toHaveBeenCalled();
+    },
+  );
 
-  it("waits for firmware application before navigating without a discard prompt", async () => {
-    const api = navigationApi();
+  it.each(["inline", "banner"].flatMap((surface) => ["success", "failure"].map((result) => ({ surface, result }))))(
+    "waits for a settings write before $surface Manage navigation after $result",
+    async ({ surface, result }) => {
+      const api = navigationApi(surface === "inline" ? productionRollout : undefined);
+      const saved = deferred<undefined>();
+      api.updateChannel.mockReturnValueOnce(saved.promise);
+      render(page());
+      fireEvent.click(screen.getByTestId("manage-channel-Canary"));
+      openChannelSettings();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
+      fireEvent.click(screen.getByTestId("save-channel"));
+      fireEvent.click(
+        within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }),
+      );
+      manageFromMonitor();
+
+      expect(screen.getByTestId("release-channel-Canary")).toBeInTheDocument();
+      expect(screen.queryByTestId("release-channel-Production")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
+      expect(api.updateChannel).toHaveBeenCalledOnce();
+      if (result === "success") {
+        await act(async () => saved.resolve(undefined));
+        expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
+        expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
+      } else {
+        await act(async () => saved.reject(new Error("Save failed")));
+        fireEvent.click(
+          within(await screen.findByTestId("discard-channel-changes-dialog")).getByRole("button", {
+            name: "Keep editing",
+          }),
+        );
+        openChannelSettings();
+        expect(screen.getByLabelText("Name")).toHaveValue("Saved name");
+        expect(screen.getByTestId("save-channel")).toBeEnabled();
+      }
+      expect(api.updateChannel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["inline", "banner"])("waits for firmware application before %s Manage navigation", async (surface) => {
+    const api = navigationApi(surface === "inline" ? productionRollout : undefined);
     const applied = deferred<[]>();
     api.applyFirmware.mockReturnValueOnce(applied.promise);
     render(page());
@@ -303,47 +333,55 @@ describe("update detail Manage navigation", () => {
     fireEvent.click(
       within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Clear assignments" }),
     );
-    manageFromBanner();
+    manageFromMonitor();
     expect(screen.getByTestId("release-channel-Canary")).toBeInTheDocument();
     expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
     expect(api.applyFirmware).toHaveBeenCalledOnce();
     await act(async () => applied.resolve([]));
     expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
-    expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("discard-channel-changes-dialog")).not.toBeInTheDocument());
     expect(api.applyFirmware).toHaveBeenCalledOnce();
   });
 });
 
 describe("release-channel load errors", () => {
-  it.each(["files", "release-channels"])(
-    "shows polling failures and retry recovery beside the open update controls on the %s tab",
-    async (tab) => {
+  it.each(
+    ["inline", "fullscreen"].flatMap((surface) => ["files", "release-channels"].map((tab) => ({ surface, tab }))),
+  )(
+    "shows polling failures and retry recovery with $surface update controls on the $tab tab",
+    async ({ surface, tab }) => {
       const api = { ...apiFor(), channels: [canaryChannel], rollouts: [gatedRigRollout] };
       mockUseReleaseChannels.mockReturnValue(api);
       const { rerender } = render(page(tab));
-      fireEvent.click(screen.getByRole("button", { name: "Review update" }));
-      const detail = within(screen.getByTestId(`rollout-detail-${gatedRigRollout.id}`));
+      if (surface === "fullscreen") {
+        fireEvent.click(screen.getByTestId("inline-view-rollout-more-actions-trigger"));
+        fireEvent.click(screen.getByTestId("inline-view-rollout-open-action"));
+      }
+      const prefix = surface === "inline" ? "inline-" : "";
+      const detail = within(screen.getByTestId(`${prefix}rollout-live-view`));
+      const warningSurface = surface === "inline" ? screen : detail;
+      if (surface === "inline") fireEvent.click(detail.getByRole("button", { name: "View details" }));
       expect(detail.getByRole("button", { name: "Continue" })).toBeInTheDocument();
       expect(detail.queryByRole("alert")).not.toBeInTheDocument();
 
       const staleApi = { ...api, error: new Error("Polling failed") };
       mockUseReleaseChannels.mockReturnValue(staleApi);
       rerender(page(tab));
-      expect(detail.getByRole("alert")).toHaveTextContent("update status may be out of date");
-      expect(detail.getByRole("alert")).toHaveTextContent("Showing the last loaded data");
-      expect(screen.getByTestId("rollout-performance")).toBeInTheDocument();
+      expect(warningSurface.getByRole("alert")).toHaveTextContent("update status may be out of date");
+      expect(warningSurface.getByRole("alert")).toHaveTextContent("Showing the last loaded data");
+      expect(detail.getByTestId(`${prefix}rollout-performance`)).toBeInTheDocument();
 
       const retry = deferred();
       api.refresh.mockReturnValueOnce(retry.promise);
-      fireEvent.click(detail.getByRole("button", { name: "Retry" }));
-      expect(detail.getByRole("alert")).toHaveAttribute("aria-busy", "true");
-      fireEvent.click(detail.getByRole("button", { name: "Retrying..." }));
+      fireEvent.click(warningSurface.getByRole("button", { name: "Retry" }));
+      expect(warningSurface.getByRole("alert")).toHaveAttribute("aria-busy", "true");
+      fireEvent.click(warningSurface.getByRole("button", { name: "Retrying..." }));
       expect(api.refresh).toHaveBeenCalledOnce();
       await act(async () => retry.reject(new Error("Still unavailable")));
-      expect(detail.getByRole("alert")).toHaveAttribute("aria-busy", "false");
-      expect(detail.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(warningSurface.getByRole("alert")).toHaveAttribute("aria-busy", "false");
+      expect(warningSurface.getByRole("button", { name: "Retry" })).toBeInTheDocument();
 
-      fireEvent.click(detail.getByRole("button", { name: "Retry" }));
+      fireEvent.click(warningSurface.getByRole("button", { name: "Retry" }));
       await waitFor(() => expect(api.refresh).toHaveBeenCalledTimes(2));
       mockUseReleaseChannels.mockReturnValue(api);
       rerender(page(tab));
@@ -391,11 +429,11 @@ describe("release-channel load errors", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load release channels and update status");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(api.refresh).toHaveBeenCalledOnce());
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
+    fireEvent.click(screen.getByRole("button", { name: "Release channels" }));
     await waitFor(() => expect(screen.queryByText("No firmware files uploaded")).not.toBeInTheDocument());
     expect(mounted).toHaveBeenCalledOnce();
     expect(stopped).not.toHaveBeenCalled();
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
     await screen.findByText("No firmware files uploaded");
     expect(mounted).toHaveBeenCalledOnce();
     expect(stopped).not.toHaveBeenCalled();

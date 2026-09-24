@@ -1,8 +1,9 @@
-import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
+import RolloutLiveView from "./RolloutLiveView";
 import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
@@ -44,7 +45,7 @@ interface ActiveUpdatesMonitorProps {
 }
 
 // Everything about ongoing firmware updates that lives above the firmware
-// page tabs: the banner stack, the full-screen update detail it opens, and
+// page tabs: a single live card or concurrent banners, full-screen detail, and
 // the lifecycle actions (continue, pause, resume, retry failed, cancel
 // remaining and roll back, the last two with confirmation).
 const ActiveUpdatesMonitor = ({
@@ -73,9 +74,29 @@ const ActiveUpdatesMonitor = ({
   );
   // Retain the opened or returned snapshot if a subsequent poll fails.
   const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
+  // A change in the number of active updates must not dismiss a miner list or
+  // retry confirmation that the operator opened from the inline card.
+  const [inlineDialogSnapshot, setInlineDialogSnapshot] = useState<Rollout | null>(null);
+  const handleInlineDialogChange = useCallback((rollout: Rollout, isOpen: boolean) => {
+    setInlineDialogSnapshot((current) => (isOpen ? rollout : current?.id === rollout.id ? null : current));
+  }, []);
   const [localCancelTarget, setLocalCancelTarget] = useState<Rollout | null>(null);
   const [localRollbackTarget, setLocalRollbackTarget] = useState<Rollout | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const mutationInFlight = useRef(false);
+  // The card can become banners (or vice versa) while a request is pending.
+  // Keep the mutation lock here so remounting a view cannot dispatch it twice.
+  const mutate = async (operation: () => Promise<void>) => {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setIsBusy(true);
+    try {
+      await operation();
+    } finally {
+      mutationInFlight.current = false;
+      setIsBusy(false);
+    }
+  };
 
   // Most recently started first.
   const activeRollouts = useMemo(
@@ -157,130 +178,175 @@ const ActiveUpdatesMonitor = ({
   };
 
   const handleContinue = (rollout: Rollout) =>
-    continueRollout(rollout.id, rollout.revision)
-      .then(() => {
-        pushToast({
-          message: `Continuing ${pairLabel(rollout)} update in ${rollout.channelName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't continue the update", status: STATUSES.error });
-      });
+    mutate(() =>
+      continueRollout(rollout.id, rollout.revision)
+        .then(() => {
+          pushToast({
+            message: `Continuing ${pairLabel(rollout)} update in ${rollout.channelName}`,
+            status: STATUSES.success,
+          });
+        })
+        .catch((error) => {
+          pushToast({ message: error?.message || "Couldn't continue the update", status: STATUSES.error });
+        }),
+    );
 
   const togglePause = (rollout: Rollout, pause: boolean) =>
-    (pause ? pauseRollout(rollout.id, rollout.revision) : resumeRollout(rollout.id, rollout.revision))
-      .then(() => {
-        pushToast({
-          message: `${pause ? "Paused" : "Resumed"} ${pairLabel(rollout)} update in ${rollout.channelName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({
-          message: error?.message || `Couldn't ${pause ? "pause" : "resume"} the update`,
-          status: STATUSES.error,
-        });
-      });
+    mutate(() =>
+      (pause ? pauseRollout(rollout.id, rollout.revision) : resumeRollout(rollout.id, rollout.revision))
+        .then(() => {
+          pushToast({
+            message: `${pause ? "Paused" : "Resumed"} ${pairLabel(rollout)} update in ${rollout.channelName}`,
+            status: STATUSES.success,
+          });
+        })
+        .catch((error) => {
+          pushToast({
+            message: error?.message || `Couldn't ${pause ? "pause" : "resume"} the update`,
+            status: STATUSES.error,
+          });
+        }),
+    );
 
   const handleRetry = (rollout: Rollout) => {
     const startedAtSelection = selectionEpoch.current;
-    return retryFailedDevices(rollout.id, rollout.revision)
-      .then((next) => {
-        if (next && next.id !== rollout.id && selectionEpoch.current === startedAtSelection) {
-          selectionChanged();
-          if (request?.kind === "view") onRequestHandled?.();
-          setViewUpdate(next);
-        }
-        pushToast({
-          message: `Retry requested for remaining ${pairLabel(rollout)} miners in ${rollout.channelName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
-      });
+    return mutate(() =>
+      retryFailedDevices(rollout.id, rollout.revision)
+        .then((next) => {
+          if (next && next.id !== rollout.id && selectionEpoch.current === startedAtSelection) {
+            selectionChanged();
+            if (request?.kind === "view") onRequestHandled?.();
+            setViewUpdate(next);
+          }
+          pushToast({
+            message: `Retry requested for remaining ${pairLabel(rollout)} miners in ${rollout.channelName}`,
+            status: STATUSES.success,
+          });
+        })
+        .catch((error) => {
+          pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
+        }),
+    );
   };
 
   const handleCancel = () => {
     if (!cancelTarget) return;
     const rollout = cancelTarget;
     const startedAtSelection = selectionEpoch.current;
-    setIsBusy(true);
-    cancelRollout(rollout.id, rollout.revision)
-      .then(() => {
-        if (selectionEpoch.current === startedAtSelection) setCancelTarget(null);
-        pushToast({
-          message: `Canceled the remaining ${pairLabel(rollout)} updates in ${rollout.channelName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't cancel the update", status: STATUSES.error });
-      })
-      .finally(() => setIsBusy(false));
+    return mutate(() =>
+      cancelRollout(rollout.id, rollout.revision)
+        .then(() => {
+          if (selectionEpoch.current === startedAtSelection) setCancelTarget(null);
+          pushToast({
+            message: `Canceled the remaining ${pairLabel(rollout)} updates in ${rollout.channelName}`,
+            status: STATUSES.success,
+          });
+        })
+        .catch((error) => {
+          pushToast({ message: error?.message || "Couldn't cancel the update", status: STATUSES.error });
+        }),
+    );
   };
 
   const handleRollback = () => {
     if (!rollbackTarget) return;
     const rollout = rollbackTarget;
     const startedAtSelection = selectionEpoch.current;
-    setIsBusy(true);
-    rollbackFirmware(rollout)
-      .then((started) => {
-        if (selectionEpoch.current === startedAtSelection) {
-          setRollbackTarget(null);
-          closeDetail();
-          if (started[0]) setViewUpdate(started[0]);
-        }
-        pushToast({
-          message: rollout.previousFirmwareVersion
-            ? `Rolling ${pairLabel(rollout)} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
-            : `Cleared the firmware assignment for ${pairLabel(rollout)} in ${rollout.channelName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't roll back the firmware", status: STATUSES.error });
-      })
-      .finally(() => setIsBusy(false));
+    return mutate(() =>
+      rollbackFirmware(rollout)
+        .then((started) => {
+          if (selectionEpoch.current === startedAtSelection) {
+            setRollbackTarget(null);
+            closeDetail();
+            if (started[0]) setViewUpdate(started[0]);
+          }
+          pushToast({
+            message: rollout.previousFirmwareVersion
+              ? `Rolling ${pairLabel(rollout)} in ${rollout.channelName} back to ${rollout.previousFirmwareVersion}`
+              : `Cleared the firmware assignment for ${pairLabel(rollout)} in ${rollout.channelName}`,
+            status: STATUSES.success,
+          });
+        })
+        .catch((error) => {
+          pushToast({ message: error?.message || "Couldn't roll back the firmware", status: STATUSES.error });
+        }),
+    );
   };
+
+  const openDetail = (rollout: Rollout) => {
+    selectionChanged();
+    if (request) onRequestHandled?.();
+    setViewUpdate(rollout);
+  };
+  const liveViewProps = (rollout: Rollout) => ({
+    rollout,
+    currentGeneration: assignmentInvalidated(rollout) ? undefined : pairGeneration(api.channels, rollout),
+    canRetryRemaining: !assignmentInvalidated(rollout) && canRetryRemaining(rollout, api.channels, rollouts),
+    actionsDisabled: isBusy,
+    minerNames,
+    listRolloutDevices,
+    onContinue: handleContinue,
+    onPause: (target: Rollout) => togglePause(target, true),
+    onResume: (target: Rollout) => togglePause(target, false),
+    onCancel: setCancelTarget,
+    onRollback: setRollbackTarget,
+    onRetryFailed: handleRetry,
+    onManage: (target: Rollout) => {
+      closeDetail();
+      onManageChannel(target.channelId);
+    },
+  });
+  const singleActiveRollout = activeRollouts.length === 1 && !viewedRollout ? activeRollouts[0] : null;
+  const retainedInlineSnapshot = availableSnapshot(inlineDialogSnapshot);
+  const currentInlineRollout = byId(retainedInlineSnapshot?.id);
+  const retainedInlineRollout = retainedInlineSnapshot
+    ? acknowledgeRollout(
+        currentInlineRollout && currentInlineRollout.revision >= retainedInlineSnapshot.revision
+          ? currentInlineRollout
+          : retainedInlineSnapshot,
+        acknowledgedRollbacks,
+        api.channels,
+        polledRollouts,
+      )
+    : null;
+  const inlineRollouts = singleActiveRollout ? [singleActiveRollout] : [];
+  if (retainedInlineRollout && retainedInlineRollout.id !== singleActiveRollout?.id) {
+    inlineRollouts.push(retainedInlineRollout);
+  }
 
   return (
     <>
-      <ActiveUpdateBanners
-        rollouts={activeRollouts}
-        onViewUpdate={(rollout) => {
-          selectionChanged();
-          if (request) onRequestHandled?.();
-          setViewUpdate(rollout);
-        }}
-      />
+      {inlineRollouts.map((rollout) => {
+        const showCard = rollout.id === singleActiveRollout?.id;
+        return (
+          <div
+            key={rollout.id.toString()}
+            data-testid={showCard ? "active-updates-section" : undefined}
+            className={showCard ? undefined : "contents"}
+          >
+            <div
+              data-testid={showCard ? `active-update-${rollout.id.toString()}` : undefined}
+              className={showCard ? undefined : "contents"}
+            >
+              <RolloutLiveView
+                {...liveViewProps(rollout)}
+                presentation="inline"
+                hideCard={!showCard}
+                onDialogChange={handleInlineDialogChange}
+                onViewUpdate={openDetail}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {!singleActiveRollout ? <ActiveUpdateBanners rollouts={activeRollouts} onViewUpdate={openDetail} /> : null}
 
       {viewedRollout ? (
         <RolloutDetailModal
           key={viewedRollout.id.toString()}
-          rollout={viewedRollout}
+          {...liveViewProps(viewedRollout)}
           refreshWarning={refreshWarning}
-          currentGeneration={
-            assignmentInvalidated(viewedRollout) ? undefined : pairGeneration(api.channels, viewedRollout)
-          }
-          canRetryRemaining={
-            assignmentInvalidated(viewedRollout) ? false : canRetryRemaining(viewedRollout, api.channels, rollouts)
-          }
-          minerNames={minerNames}
-          listRolloutDevices={listRolloutDevices}
           onClose={closeDetail}
-          onContinue={handleContinue}
-          onPause={(rollout) => togglePause(rollout, true)}
-          onResume={(rollout) => togglePause(rollout, false)}
-          onCancel={setCancelTarget}
-          onRollback={setRollbackTarget}
-          onRetryFailed={handleRetry}
-          onManage={(rollout) => {
-            closeDetail();
-            onManageChannel(rollout.channelId);
-          }}
         />
       ) : null}
 

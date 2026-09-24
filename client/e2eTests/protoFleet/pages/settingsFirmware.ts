@@ -288,13 +288,21 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.activeUpdateRow(channelName, target)).toBeVisible();
   }
 
-  // Opens the detail of an active update, whichever action label the banner
-  // currently carries ("View update" or "Review update").
+  // A single update opens from its inline card's menu; concurrent updates
+  // open from their exact channel/model banner.
   async openActiveUpdate(channelName: string, target: FirmwareTarget) {
     await this.closeChannelSettings();
-    await this.activeUpdateRow(channelName, target)
-      .getByRole("button", { name: /^(View|Review) update$/ })
-      .click();
+    const update = this.activeUpdateRow(channelName, target);
+    await expect(update).toBeVisible();
+    if (await update.getByTestId("inline-rollout-live-view").isVisible()) {
+      await update.getByTestId("inline-view-rollout-more-actions-trigger").click();
+      await this.page
+        .getByTestId("inline-view-rollout-more-actions-menu")
+        .getByTestId("inline-view-rollout-open-action")
+        .click();
+    } else {
+      await update.getByRole("button", { name: /^(View|Review) update$/ }).click();
+    }
     await this.validateTitleInModal(`${channelName}, ${targetLabel(target)} firmware update`);
     await expect(this.page.getByTestId("modal").getByText("Update status", { exact: true })).toBeVisible();
   }
@@ -440,14 +448,13 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("rollout-status-headline")).toHaveText(text);
   }
 
-  // The review evidence is on screen: verification lockups in the stats
-  // grid and the telemetry strip with its error count.
+  // Verification lockups and telemetry belong to the scoped evidence
+  // section, separate from the update's static plan metadata.
   async validateEvidenceVisible() {
-    const stats = this.detailModal().getByTestId("rollout-detail-stats");
-    await expect(stats.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
-    await expect(stats.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
     const evidence = this.detailModal().getByTestId("rollout-evidence");
     await expect(evidence).toBeVisible();
+    await expect(evidence.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
+    await expect(evidence.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
     await expect(evidence.getByTestId("evidence-hashrate")).toBeVisible();
     await expect(evidence.getByTestId("evidence-errors")).toBeVisible();
   }

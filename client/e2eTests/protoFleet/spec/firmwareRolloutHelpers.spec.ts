@@ -257,6 +257,65 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await firmware.waitForModelReviewNeeded(channel, 300);
   });
 
+  for (const presentation of ["inline", "View update", "Review update"]) {
+    test(`active update helper opens the exact channel and model through ${presentation}`, async ({ page }) => {
+      const title = `${channel}, Proto Rig firmware update`;
+      const wrongAction = "document.querySelector('#unexpected').textContent = 'Wrong update'";
+      const openDetail = "document.querySelector('[data-testid=modal]').hidden = false";
+      const distractors = [
+        `${channel} archive, Proto Rig firmware update`,
+        `${channel}, Other Rig firmware update`,
+        `${channel}, Proto Rig Pro firmware update`,
+        `Other channel, Proto Rig firmware update`,
+      ];
+      await page.setContent(`
+        ${responsiveModalActions}
+        ${distractors.map((name, index) => `<section data-testid="active-update-${index}"><p>${name}</p><button onclick="${wrongAction}">View update</button></section>`).join("")}
+        <section data-testid="active-update-42">
+          <span>${title}</span>
+          ${
+            presentation === "inline"
+              ? `<section data-testid="inline-rollout-live-view">
+                <button data-testid="inline-view-rollout-more-actions-trigger" onclick="document.querySelector('[data-testid=inline-view-rollout-more-actions-menu]').hidden = false">More actions</button>
+              </section>`
+              : `<button onclick="${openDetail}">${presentation}</button>`
+          }
+        </section>
+        <button data-testid="inline-view-rollout-more-actions-trigger" onclick="${wrongAction}">Unrelated actions</button>
+        <button data-testid="inline-view-rollout-open-action" onclick="${wrongAction}">View update</button>
+        <section data-testid="inline-view-rollout-more-actions-menu" hidden>
+          <button data-testid="inline-view-rollout-open-action" onclick="${openDetail}; this.closest('section').hidden = true">View update</button>
+        </section>
+        <section data-testid="modal" hidden>
+          <h2 class="heading">${title}</h2>
+          <p>Update status</p>
+        </section>
+        <p id="unexpected"></p>
+      `);
+      await new SettingsFirmwarePage(page).openActiveUpdate(channel, target);
+      await expect(page.getByTestId("modal")).toBeVisible();
+      await expect(page.locator("#unexpected")).toBeEmpty();
+    });
+  }
+
+  test("detail evidence helper reads verification and telemetry together, apart from plan metadata", async ({
+    page,
+  }) => {
+    await page.setContent(`
+      <section data-testid="rollout-evidence"><p>Another update's evidence</p></section>
+      <section data-testid="modal">
+        <section data-testid="rollout-detail-stats"><p>Scope</p><p>Method</p></section>
+        <section data-testid="rollout-evidence">
+          <div data-testid="evidence-online">Back online: 2 of 2</div>
+          <div data-testid="evidence-hashing">Hashing: 2 of 2</div>
+          <div data-testid="evidence-hashrate">Hashrate: 230 TH/s</div>
+          <div data-testid="evidence-errors">New errors: 0</div>
+        </section>
+      </section>
+    `);
+    await new SettingsFirmwarePage(page).validateEvidenceVisible();
+  });
+
   test("detail miners open directly from the live progress without opening other actions", async ({ page }) => {
     await page.setContent(`
       ${responsiveModalActions}
