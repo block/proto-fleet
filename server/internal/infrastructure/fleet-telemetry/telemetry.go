@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -13,6 +14,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
+
+const defaultTracesPath = "/v1/traces"
 
 type Config struct {
 	Enabled             bool    `help:"Enable OpenTelemetry traces" default:"false" env:"ENABLED"`
@@ -29,7 +32,7 @@ func Setup(ctx context.Context, version string, cfg Config) (func(context.Contex
 		return func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(cfg.Endpoint))
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(withDefaultTracesPath(cfg.Endpoint)))
 	if err != nil {
 		return nil, fmt.Errorf("create OTLP HTTP exporter: %w", err)
 	}
@@ -69,4 +72,15 @@ func Setup(ctx context.Context, version string, cfg Config) (func(context.Contex
 	))
 
 	return tp.Shutdown, nil
+}
+
+func withDefaultTracesPath(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = defaultTracesPath
+	}
+	return parsed.String()
 }
