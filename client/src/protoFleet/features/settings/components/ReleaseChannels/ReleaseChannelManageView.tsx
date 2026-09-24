@@ -6,19 +6,15 @@ import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
 import RolloutControls, { type RolloutNumberDraft } from "./RolloutControls";
+import RolloutProgressIndicator from "./RolloutProgressIndicator";
 import {
   activeRolloutForGroup,
   channelAssignmentKey,
   hasUnavailableAssignedFirmware,
-  isPaused,
   lastFinishedByChannelAssignment,
   pacingSummary,
   pairKey,
   pairLabel,
-  rolloutDeviceCounts,
-  rolloutProgressColorMap,
-  rolloutProgressSegments,
-  rolloutProgressSummary,
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
 import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
@@ -47,7 +43,6 @@ import {
   trimMinerTarget,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -767,8 +762,7 @@ const ReleaseChannelManageView = ({
                   const acknowledged = acknowledgedAssignments[pairKey(group)];
                   const activeRollout = acknowledged ? undefined : activeForGroup(group);
                   const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                  const counts = activeRollout ? rolloutDeviceCounts(activeRollout) : undefined;
-                  return [
+                  return (
                     <tr
                       key={observedPairKey(group)}
                       className="border-t border-border-5"
@@ -789,6 +783,12 @@ const ReleaseChannelManageView = ({
                       <td className="py-3 pr-4">
                         {acknowledged ? (
                           <span className="text-text-primary-50">Refreshing update status</span>
+                        ) : activeRollout ? (
+                          <RolloutProgressIndicator
+                            group={group}
+                            rollout={activeRollout}
+                            testId={`model-group-rollout-progress-${group.model}`}
+                          />
                         ) : (
                           <ModelStatusCell
                             historyState={historyState}
@@ -810,32 +810,8 @@ const ReleaseChannelManageView = ({
                           />
                         ) : null}
                       </td>
-                    </tr>,
-                    activeRollout && counts ? (
-                      <tr
-                        key={`${observedPairKey(group)}-progress`}
-                        data-testid={`model-group-rollout-progress-${group.model}`}
-                      >
-                        <td className="pb-3" colSpan={5}>
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-200 text-text-primary-70">
-                              <span>
-                                {isPaused(activeRollout)
-                                  ? `Updating to ${activeRollout.firmwareVersion} (paused)`
-                                  : `Updating to ${activeRollout.firmwareVersion}`}
-                              </span>
-                              <span>{rolloutProgressSummary(counts)}</span>
-                            </div>
-                            <CompositionBar
-                              segments={rolloutProgressSegments(counts)}
-                              height={6}
-                              colorMap={rolloutProgressColorMap}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null,
-                  ];
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>

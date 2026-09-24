@@ -24,13 +24,14 @@ const modalSaveButtons = (label: string, onClick = "") =>
 // the UI, including misleading text in other cells. No backend state is used.
 test.use({ storageState: { cookies: [], origins: [] } });
 
-async function renderTables(page: Page, historyRows: string, minerRows = "") {
+async function renderTables(page: Page, historyRows: string, minerRows = "", modelStatus = "") {
   await page.setContent(`
     ${responsiveModalActions}
     <section data-testid="release-channel-${channel}">
       <button data-testid="channel-history" onclick="document.querySelector('#modals').innerHTML = document.querySelector('#history').innerHTML">History</button>
       <table><tbody><tr data-testid="model-group-Rig">
         <td>Proto Rig</td>
+        <td>${modelStatus}</td>
         <td><button onclick="document.querySelector('#modals').innerHTML = document.querySelector('#miners').innerHTML">View miners</button></td>
       </tr></tbody></table>
     </section>
@@ -54,6 +55,8 @@ async function renderTables(page: Page, historyRows: string, minerRows = "") {
 const completed = `<tr data-testid="history-row-2"><td>Completed</td><td>Proto Rig</td><td>${version}</td><td></td></tr>`;
 const miner = (id: number, firmware: string) =>
   `<tr data-testid="channel-miner-${id}"><td>Miner ${id} ${version}</td><td>${firmware}</td><td>Up to date</td></tr>`;
+const rolloutProgress = (status = "Updating") =>
+  `<span role="progressbar" data-testid="model-group-rollout-progress-Rig" aria-label="Proto Rig: ${status}. Updating to ${version}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">50%</span>`;
 
 async function renderCreateChannel(page: Page, listContent = '<div data-testid="channels-table">Channels</div>') {
   await page.setContent(`
@@ -203,6 +206,22 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
       ).rejects.toThrow(/toHaveCount/);
     });
   }
+
+  test("active update and review helpers read the progress bar's accessible status", async ({ page }) => {
+    await renderTables(page, "", "", rolloutProgress());
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.validateChannelUpdateInProgress(channel, version);
+
+    await renderTables(page, "", "", rolloutProgress("Review needed"));
+    await firmware.waitForModelReviewNeeded(channel, 300);
+  });
+
+  test("completion rejects an ongoing progress bar even after miners report the target version", async ({ page }) => {
+    await renderTables(page, completed, miner(1, version) + miner(2, version), rolloutProgress());
+    await expect(
+      new SettingsFirmwarePage(page).waitForChannelUpdateCompleted(channel, target, version, 2, 300),
+    ).rejects.toThrow(/toBeHidden/);
+  });
 
   test("completion requires the exact reported firmware, not the miner name or a version prefix", async ({ page }) => {
     await renderTables(page, completed, miner(1, `${version}-old`) + miner(2, version));

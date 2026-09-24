@@ -13,7 +13,8 @@ type FirmwareUploadMetadata = FirmwareTarget & {
 };
 
 const targetLabel = ({ manufacturer, model }: FirmwareTarget): string => `${manufacturer} ${model}`.trim();
-const exactText = (text: string): RegExp => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const exactText = (text: string): RegExp => new RegExp(`^${escapeRegExp(text)}$`);
 
 export class SettingsFirmwarePage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
@@ -307,6 +308,10 @@ export class SettingsFirmwarePage extends BasePage {
       });
   }
 
+  private modelRolloutProgress(channelName: string, target: FirmwareTarget): Locator {
+    return this.modelGroupRow(channelName, target).getByTestId(`model-group-rollout-progress-${target.model}`);
+  }
+
   // Opens the model group's miner table via its "View miners" button.
   async openModelMiners(channelName: string, target: FirmwareTarget) {
     await this.closeChannelSettings();
@@ -400,9 +405,11 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async validateChannelUpdateInProgress(channelName: string, version: string) {
-    await expect(this.channelView(channelName).getByText(`Updating to ${version}`)).toBeVisible({
-      timeout: DEFAULT_TIMEOUT,
-    });
+    await expect(
+      this.channelView(channelName).getByRole("progressbar", {
+        name: new RegExp(`Updating to ${escapeRegExp(version)}$`),
+      }),
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
   }
 
   async validateChannelUpdatePill(channelName: string) {
@@ -412,7 +419,7 @@ export class SettingsFirmwarePage extends BasePage {
   // The model group sits at a review gate: the batch is on the new version
   // and the rest wait for the update to be continued.
   async waitForModelReviewNeeded(channelName: string, timeoutMs: number) {
-    await expect(this.channelView(channelName).getByText("Review needed", { exact: true }).first()).toBeVisible({
+    await expect(this.channelView(channelName).getByRole("progressbar", { name: /Review needed/ })).toBeVisible({
       timeout: timeoutMs,
     });
   }
@@ -581,7 +588,7 @@ export class SettingsFirmwarePage extends BasePage {
 
   // The update is done when every miner in the model group reports the
   // target version (checked in the live "View miners" modal), the progress
-  // bar clears, and the update shows up as completed in the channel's history.
+  // indicator clears, and the update shows up as completed in the channel's history.
   async waitForChannelUpdateCompleted(
     channelName: string,
     target: FirmwareTarget,
@@ -593,7 +600,6 @@ export class SettingsFirmwarePage extends BasePage {
       Number.isInteger(expectedMinerCount) && expectedMinerCount > 0,
       "Completion needs a positive expected miner count",
     ).toBe(true);
-    const view = this.channelView(channelName);
     await this.openModelMiners(channelName, target);
     const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
     await expect(minerRows).toHaveCount(expectedMinerCount, { timeout: timeoutMs });
@@ -604,7 +610,7 @@ export class SettingsFirmwarePage extends BasePage {
     });
     await this.closeModelMiners();
     // Status flips on the next enforcement tick after the miners report in.
-    await expect(view.getByText(`Updating to ${version}`)).toBeHidden({ timeout: timeoutMs });
+    await expect(this.modelRolloutProgress(channelName, target)).toBeHidden({ timeout: timeoutMs });
     await this.validateHistoryOutcome(channelName, version, "Completed", timeoutMs);
   }
 
@@ -638,8 +644,14 @@ export class SettingsFirmwarePage extends BasePage {
         ).trim(),
         outcome,
         activeUpdates: await this.activeUpdateRow(channelName, target).count(),
+        rolloutProgress: await this.modelRolloutProgress(channelName, target).count(),
       };
-      expect(updateState).toEqual({ assignment: targetVersion, outcome: "Canceled", activeUpdates: 0 });
+      expect(updateState).toEqual({
+        assignment: targetVersion,
+        outcome: "Canceled",
+        activeUpdates: 0,
+        rolloutProgress: 0,
+      });
       await this.openModelMiners(channelName, target);
       const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
       const identifiers = await minerRows.evaluateAll((rows) =>

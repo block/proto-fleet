@@ -255,7 +255,9 @@ describe("release channel active rollout identity", () => {
         new Promise<never[]>((resolve) => signal!.addEventListener("abort", () => resolve([]), { once: true })),
     );
     const { rerender } = render(<ReleaseChannelManageView {...props} />);
-    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Review needed");
+    expect(within(screen.getByTestId("model-group-Rig")).getByRole("progressbar")).toHaveAccessibleName(
+      expect.stringContaining("Review needed"),
+    );
     fireEvent.click(screen.getByTestId("view-miners-Rig"));
     await waitFor(() =>
       expect(props.listRolloutDevices).toHaveBeenCalledWith(gatedRigRollout.id, expect.any(AbortSignal)),
@@ -269,7 +271,12 @@ describe("release channel active rollout identity", () => {
     expect(screen.queryByTestId("channel-update-pill")).not.toBeInTheDocument();
     expect(props.listRolloutDevices).toHaveBeenCalledOnce();
     rerender(<ReleaseChannelManageView {...props} channel={channel} rollouts={[current, gatedRigRollout]} />);
-    expect(screen.getByTestId("model-group-rollout-progress-Rig")).toHaveTextContent("Updating to 2.0.0");
+    expect(screen.getByTestId("model-group-rollout-progress-Rig")).toHaveAccessibleName(
+      expect.stringContaining("Updating to 2.0.0"),
+    );
+    expect(screen.getByRole("table", { name: "Assigned miners by model" }).querySelectorAll("tbody tr")).toHaveLength(
+      1,
+    );
     expect(screen.getByTestId("channel-update-pill")).toHaveTextContent("Update in progress");
     expect(screen.getByTestId("view-miners-Rig")).toBeEnabled();
     await waitFor(() => expect(props.listRolloutDevices).toHaveBeenLastCalledWith(current.id, expect.any(AbortSignal)));
