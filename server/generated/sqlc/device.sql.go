@@ -1724,6 +1724,50 @@ func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64
 	return items, nil
 }
 
+const getPairedProtoDeviceIdentifiersByIdentifiers = `-- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status = 'PAIRED'
+  AND dd.manufacturer = 'Proto'
+ORDER BY d.id
+FOR SHARE OF d, dd, dp
+`
+
+type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Lock eligible rows until targeted fallback-config commands are enqueued.
+// Pairing, manufacturer, and deletion changes must wait for that transaction.
+func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalDevicesPendingAuth = `-- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
 FROM device d

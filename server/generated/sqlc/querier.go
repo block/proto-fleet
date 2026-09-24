@@ -799,6 +799,9 @@ type Querier interface {
 	// Used by Foreman import to resolve Foreman miner IDs to Fleet device identifiers in a single query.
 	GetPairedDevicesByMACAddresses(ctx context.Context, arg GetPairedDevicesByMACAddressesParams) ([]GetPairedDevicesByMACAddressesRow, error)
 	GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64, error)
+	// Lock eligible rows until targeted fallback-config commands are enqueued.
+	// Pairing, manufacturer, and deletion changes must wait for that transaction.
+	GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (PendingEnrollment, error)
 	// Filter to the active status: a fleet_node_id can have terminal rows
 	// (CONFIRMED/CANCELLED/EXPIRED) alongside the live AWAITING_CONFIRMATION,
@@ -1324,6 +1327,10 @@ type Querier interface {
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
+	// Run after claiming in a separate statement: its fresh snapshot includes
+	// targets committed by a concurrent requester before the claim obtained its
+	// organization lock. Targets refreshed after the claim remain for the next pass.
+	ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error)
 	// Returns every permission key attached to the given role. Used by the
 	// per-request resolver and by the role-edit privilege-parity check
 	// (a caller can only assign a role whose permissions are a subset of
@@ -1672,6 +1679,9 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
+	// Lock/update the organization before writing targets. Completion and terminal
+	// retry follow the same lock order so concurrent requests cannot lose targets.
+	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
 	// Re-queues the pair's suppressed miners (device_ids: what
 	// ListReleaseChannelSuppressedMembers returns for the rollout's pair and
 	// generation) into an active rollout and returns them. Miners the rollout
@@ -1681,10 +1691,9 @@ type Querier interface {
 	// hold them. Excluded rows are left alone: re-inclusion brings such a miner
 	// back still halted, for the next retry.
 	RequeueFirmwareRolloutDevices(ctx context.Context, arg RequeueFirmwareRolloutDevicesParams) ([]int64, error)
-	// The command queue has bounded per-message retries. Reopen the organization
-	// generation when one config command becomes terminal so reconciliation keeps
-	// retrying instead of treating durable enqueue as durable device application.
-	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error
+	// The command queue has bounded per-message retries. Retain only the failed
+	// eligible device for another attempt; successful devices need no new command.
+	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error
 	ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error)
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one

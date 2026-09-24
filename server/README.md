@@ -121,6 +121,24 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Fleet Management**: High-level operations for managing groups of devices (listing, filtering, monitoring status).
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
 
+### Rig Curtailment Configuration Delivery
+
+MQTT settings changes durably request configuration delivery to every fully
+paired Proto rig in the organization. Pairing requests delivery only to the
+identified devices, and terminal command failures retry only the affected
+device. Both paths use the same organization lease and generation counters so
+concurrent requests coalesce without losing work that arrives during delivery.
+The outbox records the latest whole-fleet generation with each worker claim,
+so settings changes retain full scope when they coalesce with device requests.
+Target requests are filtered by organization, manufacturer, and pairing status
+before enqueueing. An empty target set never expands to the whole organization.
+
+The reconciler acknowledges durable command enqueue; the command queue handles
+device execution and retries. A disabled configuration is still delivered when
+there are no enabled MQTT sources, clearing stale fallback settings on rigs.
+Pairing retains a best-effort post-commit request, so a request persistence
+failure is logged without undoing a successfully paired device.
+
 ### Plugin System
 
 Plugins are external processes that communicate with the fleet service:

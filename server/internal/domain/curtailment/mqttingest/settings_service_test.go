@@ -28,6 +28,7 @@ type fakeSettingsStore struct {
 	updateErr           error
 	automationRuleCount int64
 	rigConfigRequests   map[int64]RigConfigReconciliation
+	rigConfigTargets    map[int64][]string
 	rigConfigRequestErr error
 	rigConfigComplete   []RigConfigReconciliation
 	rigConfigRetry      []RigConfigReconciliation
@@ -39,6 +40,7 @@ func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
 		configs:           make(map[int64]SourceConfig),
 		states:            make(map[int64]SourceState),
 		rigConfigRequests: make(map[int64]RigConfigReconciliation),
+		rigConfigTargets:  make(map[int64][]string),
 	}
 	for _, cfg := range configs {
 		if cfg.ID == 0 {
@@ -161,17 +163,29 @@ func (f *fakeSettingsStore) requestRigConfigLocked(orgID, requestedBy int64) {
 	request.OrganizationID = orgID
 	request.RequestedBy = requestedBy
 	request.DesiredGeneration++
+	request.FullReconcileGeneration = request.DesiredGeneration
 	f.rigConfigRequests[orgID] = request
 }
 
-func (f *fakeSettingsStore) RequestRigConfigReconciliation(_ context.Context, orgID, requestedBy int64) error {
+func (f *fakeSettingsStore) RequestRigConfigReconciliationForDevices(_ context.Context, orgID, requestedBy int64, identifiers []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.rigConfigRequestErr != nil {
 		return f.rigConfigRequestErr
 	}
-	f.requestRigConfigLocked(orgID, requestedBy)
+	request := f.rigConfigRequests[orgID]
+	request.OrganizationID = orgID
+	request.RequestedBy = requestedBy
+	request.DesiredGeneration++
+	f.rigConfigRequests[orgID] = request
+	f.rigConfigTargets[orgID] = append(f.rigConfigTargets[orgID], identifiers...)
 	return nil
+}
+
+func (f *fakeSettingsStore) ListRigConfigReconciliationTargets(_ context.Context, orgID, _, _ int64) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.rigConfigTargets[orgID]...), nil
 }
 
 func (f *fakeSettingsStore) ClaimRigConfigReconciliation(context.Context) (RigConfigReconciliation, error) {
@@ -190,6 +204,7 @@ func (f *fakeSettingsStore) CompleteRigConfigReconciliation(_ context.Context, o
 	f.rigConfigComplete = append(f.rigConfigComplete, RigConfigReconciliation{
 		OrganizationID: orgID, DesiredGeneration: generation,
 	})
+	delete(f.rigConfigTargets, orgID)
 	return nil
 }
 
@@ -271,10 +286,18 @@ func (f *sessionCapturingRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(ctx
 	return f.err
 }
 
+func (f *sessionCapturingRigConfigApplier) ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, _ []string) error {
+	return f.ApplyCurtailmentConfigToProtoRigs(ctx, config)
+}
+
 func (f *fakeRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(_ context.Context, config sdk.CurtailmentConfig) error {
 	f.calls++
 	f.configs = append(f.configs, config)
 	return f.err
+}
+
+func (f *fakeRigConfigApplier) ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, _ []string) error {
+	return f.ApplyCurtailmentConfigToProtoRigs(ctx, config)
 }
 
 func (f *fakeSourceConnectionTester) TestConnection(_ context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
@@ -569,7 +592,7 @@ func TestSettingsService_ReapplyRigConfigUsesSyntheticAuditIdentity(t *testing.T
 	})
 	require.NoError(t, err)
 
-	svc.ReapplyRigConfigBestEffort(t.Context(), 42, 99)
+	svc.ReapplyRigConfigBestEffort(t.Context(), 42, 99, []string{"paired-rig"})
 	svc.processDueRigConfigReconciliations(t.Context())
 
 	require.NoError(t, applier.err)

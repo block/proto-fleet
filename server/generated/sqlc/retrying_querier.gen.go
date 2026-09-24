@@ -3294,6 +3294,18 @@ func (q *retryingQuerier) GetPairedDevicesIds(ctx context.Context, orgID int64) 
 	return result, err
 }
 
+func (q *retryingQuerier) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetPairedProtoDeviceIdentifiersByIdentifiers", func() error {
+		callResult, callErr := q.next.GetPairedProtoDeviceIdentifiersByIdentifiers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (PendingEnrollment, error) {
 	var result PendingEnrollment
 	err := q.retrier.RetryQuery(ctx, "GetPendingEnrollmentByCodeHash", func() error {
@@ -5130,6 +5142,18 @@ func (q *retryingQuerier) ListResponseProfileInfrastructureDevicesByOrg(ctx cont
 	return result, err
 }
 
+func (q *retryingQuerier) ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListRigConfigReconciliationTargets", func() error {
+		callResult, callErr := q.next.ListRigConfigReconciliationTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListRolePermissionKeys(ctx context.Context, roleID int64) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListRolePermissionKeys", func() error {
@@ -6054,6 +6078,12 @@ func (q *retryingQuerier) RequestRigConfigReconciliation(ctx context.Context, ar
 	})
 }
 
+func (q *retryingQuerier) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {
+	return q.retrier.RetryQuery(ctx, "RequestRigConfigReconciliationForDevices", func() error {
+		return q.next.RequestRigConfigReconciliationForDevices(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) RequeueFirmwareRolloutDevices(ctx context.Context, arg RequeueFirmwareRolloutDevicesParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "RequeueFirmwareRolloutDevices", func() error {
@@ -6066,9 +6096,9 @@ func (q *retryingQuerier) RequeueFirmwareRolloutDevices(ctx context.Context, arg
 	return result, err
 }
 
-func (q *retryingQuerier) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error {
+func (q *retryingQuerier) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error {
 	return q.retrier.RetryQuery(ctx, "RequeueRigConfigReconciliationAfterTerminalFailure", func() error {
-		return q.next.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, organizationID)
+		return q.next.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, arg)
 	})
 }
 

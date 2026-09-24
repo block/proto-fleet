@@ -111,10 +111,7 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 		Actor:          session.ActorCurtailment,
 	})
 
-	config, err := s.buildRigCurtailmentConfig(applyCtx, request.OrganizationID)
-	if err == nil {
-		err = s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config)
-	}
+	err := s.applyRigConfigReconciliation(applyCtx, request)
 	if err != nil {
 		slog.Error("enqueue Proto rig curtailment config reconciliation",
 			"org_id", request.OrganizationID,
@@ -131,6 +128,33 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 			"error", err,
 		)
 	}
+}
+
+func (s *SettingsService) applyRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation) error {
+	// The full-delivery watermark belongs to the claimed snapshot. A later
+	// settings write must not change the scope of this already claimed range.
+	targeted := request.FullReconcileGeneration <= request.EnqueuedGeneration
+	var identifiers []string
+	var err error
+	if targeted {
+		identifiers, err = s.rigConfigStore.ListRigConfigReconciliationTargets(ctx, request.OrganizationID, request.EnqueuedGeneration, request.DesiredGeneration)
+		if err != nil {
+			return err
+		}
+		if len(identifiers) == 0 {
+			// Devices may have been unpaired, deleted, or superseded by a newer
+			// request. Completing this generation must never broaden its scope.
+			return nil
+		}
+	}
+	config, err := s.buildRigCurtailmentConfig(ctx, request.OrganizationID)
+	if err != nil {
+		return err
+	}
+	if !targeted {
+		return s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(ctx, config)
+	}
+	return s.rigConfigApplier.ApplyCurtailmentConfigToDevices(ctx, config, identifiers)
 }
 
 func (s *SettingsService) retryRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation, deliveryErr error) {
