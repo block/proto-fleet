@@ -137,6 +137,45 @@ func TestPairAllOnNodeFinishesInFlightBatchAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestPairAllOnNodeCancellationBeforeEnqueueStopsDispatch(t *testing.T) {
+	store := pairAllTestStore(MaxPairBatch + 1)
+	registry := control.NewRegistry()
+	stream := registry.Register(7)
+	defer stream.Unregister()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// Cancel after PairAllOnNode's final context check but before Registry.Send
+	// enqueues the command. The real registry must still see the cancellation.
+	sender := cancelBeforeEnqueueSender{Sender: registry, cancel: cancel, stream: stream}
+	service := NewService(store, nil, nil).WithProvisioning(nil, nil, sender)
+
+	err := service.PairAllOnNode(ctx, 7, 20, nil, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
+
+	assert.True(t, fleeterror.IsCanceledError(err), "enqueue cancellation must remain a canceled error: %v", err)
+	require.Len(t, store.calls, 1)
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("canceled request dispatched command %q", cmd.GetCommandId())
+	default:
+	}
+}
+
+type cancelBeforeEnqueueSender struct {
+	control.Sender
+	cancel context.CancelFunc
+	stream *control.Stream
+}
+
+func (s cancelBeforeEnqueueSender) Send(ctx context.Context, nodeID int64, minimumVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error) {
+	s.cancel()
+	session, err := s.Sender.Send(ctx, nodeID, minimumVersion, cmd, scope, kind, pair)
+	if err == nil {
+		// Let the regressed implementation finish rather than waiting 12 minutes.
+		s.stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+	}
+	return session, err
+}
+
 func TestPairAllOnNodeRejectsEmptySelection(t *testing.T) {
 	service := NewService(pairAllTestStore(0), nil, nil)
 	err := service.PairAllOnNode(t.Context(), 7, 20, nil, nil, nil)
