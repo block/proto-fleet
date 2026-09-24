@@ -293,10 +293,11 @@ export const canaryChannel: ChannelView = {
   ],
 };
 
-// The same channel with the Rig update finished and every miner compliant.
-// Served under channel id 3 so productionChannel's members resolve too.
+// A separate snapshot with the Rig update finished. Its own channel id keeps
+// drilldowns isolated from the active Canary snapshot's member list.
+const settledChannelId = 4n;
 const settledRigGroup = modelGroup(
-  BigInt(3),
+  settledChannelId,
   {
     manufacturer: "Proto",
     model: "Rig",
@@ -310,7 +311,18 @@ const settledRigGroup = modelGroup(
 );
 export const canaryChannelSettled: ChannelView = {
   ...canaryChannel,
-  modelGroups: canaryChannel.modelGroups.map((group) => (group.model === "Rig" ? settledRigGroup : group)),
+  id: settledChannelId,
+  modelGroups: canaryChannel.modelGroups.map((group) =>
+    group.model === "Rig"
+      ? settledRigGroup
+      : modelGroup(
+          settledChannelId,
+          group,
+          (channelMiners[canaryChannel.id.toString()] ?? []).filter(
+            (miner) => miner.manufacturer === group.manufacturer && miner.model === group.model,
+          ),
+        ),
+  ),
 };
 
 // Alternate active scenarios enforce the same assignment but have their own
@@ -351,9 +363,16 @@ export const productionChannel: ChannelView = {
     description: "Everything else.",
     scope: create(ReleaseChannelScopeSchema, { siteIds: [BigInt(1)] }),
     behavior: batchedAutoBehavior,
-    minerCount: 240,
   }),
-  modelGroups: canaryChannelSettled.modelGroups,
+  modelGroups: canaryChannelSettled.modelGroups.map((group) =>
+    modelGroup(
+      3n,
+      group,
+      (channelMiners[settledChannelId.toString()] ?? []).filter(
+        (miner) => miner.manufacturer === group.manufacturer && miner.model === group.model,
+      ),
+    ),
+  ),
 };
 
 export const canaryPreview: PreviewReleaseChannelScopeResponse = create(PreviewReleaseChannelScopeResponseSchema, {
@@ -463,8 +482,8 @@ export const activeRigRollout: Rollout = rolloutWithDevices(
     }),
   },
   [
-    rigDevice(1, "1.4.4", RolloutDevicePhase.DONE, { attempts: 1 }),
-    rigDevice(2, "1.4.4", RolloutDevicePhase.DONE, { attempts: 1 }),
+    rigDevice(1, "1.4.4", RolloutDevicePhase.DONE, { attempts: 1, ...healthy(115, 112, 11) }),
+    rigDevice(2, "1.4.4", RolloutDevicePhase.DONE, { attempts: 1, ...healthy(115, 112, 12) }),
     rigDevice(3, "1.4.3", RolloutDevicePhase.IN_PROGRESS, { attempts: 1, ...offline(112, 13) }),
     rigDevice(4, "1.4.3", RolloutDevicePhase.QUEUED),
     rigDevice(5, "1.4.3", RolloutDevicePhase.QUEUED),
@@ -602,6 +621,7 @@ export const completedWithFailuresRigRollout: Rollout = rolloutWithDevices(
     ...completedRigRollout,
     id: BigInt(48),
     firmwareFileId: "fw-rig-144",
+    firmwareChecksum: checksums.rig144,
     firmwareVersion: "1.4.4",
     status: RolloutStatus.COMPLETED_WITH_FAILURES,
     state: RolloutState.COMPLETED_WITH_FAILURES,

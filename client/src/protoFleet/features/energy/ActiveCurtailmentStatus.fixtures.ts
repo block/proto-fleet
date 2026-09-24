@@ -34,7 +34,8 @@ export const restoringCurtailmentEvent: ActiveCurtailmentEvent = {
   state: "restoring",
   rollups: [
     { state: "resolved", count: 8 },
-    { state: "confirmed", count: 10 },
+    { state: "confirmed", count: 9 },
+    { state: "restoreFailed", count: 1 },
   ],
 };
 

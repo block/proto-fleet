@@ -88,12 +88,12 @@ export const BatchReviewWithFailure: Story = {
 };
 
 export const Settled: Story = {
-  name: "Every model up to date",
+  name: "Rig miners up to date",
   render: () => (
     <Frame>
       <ReleaseChannelManageView
         channel={canaryChannelSettled}
-        rollouts={[completedRigRollout]}
+        rollouts={[]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}
         previewScope={resolveTo(canaryPreview)}
@@ -112,8 +112,8 @@ export const ScopeOverlap: Story = {
   render: () => (
     <Frame>
       <ReleaseChannelManageView
-        channel={productionChannel}
-        rollouts={[]}
+        channel={canaryChannel}
+        rollouts={[activeRigRollout]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}
         previewScope={resolveTo(conflictingPreview)}

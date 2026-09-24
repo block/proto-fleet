@@ -29,6 +29,7 @@ import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Active Monitor",
   component: ActiveUpdatesMonitor,
+  excludeStories: ["FirmwareMonitorPage"],
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof ActiveUpdatesMonitor>;
 
@@ -66,7 +67,7 @@ const s21Devices = [RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.QUEUED].m
 
 // The monitor and drilldowns use production components. Mutations settle
 // locally; these stories show fixed server snapshots, without issuing RPCs.
-function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
+export function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
   const [activeTab, setActiveTab] = useState("files");
   const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
   const tabNavigationRef = useRef<HTMLDivElement>(null);

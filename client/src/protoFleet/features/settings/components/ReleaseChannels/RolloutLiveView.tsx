@@ -143,7 +143,7 @@ function PerformanceStrip({
   );
 }
 
-function statusIcon(rollout: Rollout): ReactNode {
+function statusIcon(rollout: Rollout, activityTestId: string): ReactNode {
   switch (rollout.state) {
     case RolloutState.COMPLETED:
       return <Success className="text-intent-success-fill" />;
@@ -156,8 +156,21 @@ function statusIcon(rollout: Rollout): ReactNode {
       return <Info className="text-text-primary" />;
     case RolloutState.PAUSED:
       return <Alert className="text-core-accent-fill" />;
+    case RolloutState.IN_PROGRESS:
+    case RolloutState.STABILIZING_TELEMETRY:
+      return (
+        <ProgressCircular
+          indeterminate
+          className="text-core-primary-fill motion-reduce:animate-none"
+          dataTestId={activityTestId}
+        />
+      );
+    // A delegated rollout dispatches no work until its controller acts.
+    // Unknown states likewise must not imply ongoing activity.
+    case RolloutState.WAITING_FOR_CONTROLLER:
+    case RolloutState.UNSPECIFIED:
     default:
-      return <ProgressCircular indeterminate className="text-core-primary-fill" />;
+      return <Info className="text-text-primary-50" />;
   }
 }
 
@@ -417,7 +430,7 @@ const RolloutLiveView = ({
             <div className="flex flex-wrap items-start justify-between gap-6">
               <div className="grid min-w-0 gap-3">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
-                  {statusIcon(rollout)}
+                  {statusIcon(rollout, testId("rollout-status-activity"))}
                 </div>
                 <div>
                   <div className="text-heading-50 text-text-primary-70">Update status</div>

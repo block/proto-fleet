@@ -77,7 +77,7 @@ export const WithFailures: Story = {
 };
 
 export const AllSettled: Story = {
-  name: "Everything up to date",
+  name: "No active updates",
   render: () => (
     <Frame>
       <ReleaseChannelsTable

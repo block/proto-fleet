@@ -4,7 +4,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { deferred } from "./__tests__/helpers";
 import { activeRigRollout, batchedRigRollout, gatedRigRollout, pausedRigRollout } from "./ReleaseChannels.fixtures";
 import RolloutLiveView from "./RolloutLiveView";
-import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  RolloutStage,
+  RolloutState,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFleetStore } from "@/protoFleet/store";
 
 const initialAuth = useFleetStore.getState().auth;
@@ -142,4 +147,59 @@ it("honors the monitor action lock while keeping miner navigation and details av
   fireEvent.click(screen.getByTestId("inline-view-rollout-view-miners-action"));
   expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
   expect(props.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(gatedRigRollout.id, expect.any(AbortSignal));
+});
+
+it.each([
+  { state: RolloutState.IN_PROGRESS, status: RolloutStatus.ACTIVE, label: "Updating", animates: true },
+  {
+    state: RolloutState.STABILIZING_TELEMETRY,
+    status: RolloutStatus.ACTIVE,
+    label: "Waiting for telemetry",
+    animates: true,
+  },
+  {
+    state: RolloutState.WAITING_FOR_CONTROLLER,
+    status: RolloutStatus.ACTIVE,
+    label: "Waiting for controller",
+    animates: false,
+  },
+  { state: RolloutState.UNSPECIFIED, status: RolloutStatus.ACTIVE, label: "Updating", animates: false },
+  {
+    state: RolloutState.PAUSED_AT_PILOT_GATE,
+    status: RolloutStatus.ACTIVE,
+    label: "Pilot batch review",
+    animates: false,
+  },
+  {
+    state: RolloutState.PAUSED_AT_BATCH_REVIEW,
+    status: RolloutStatus.ACTIVE,
+    label: "Batch review",
+    animates: false,
+  },
+  { state: RolloutState.PAUSED, status: RolloutStatus.ACTIVE, label: "Paused", animates: false },
+  { state: RolloutState.COMPLETED, status: RolloutStatus.COMPLETED, label: "Completed", animates: false },
+  {
+    state: RolloutState.COMPLETED_WITH_FAILURES,
+    status: RolloutStatus.COMPLETED_WITH_FAILURES,
+    label: "Completed with failures",
+    animates: false,
+  },
+  { state: RolloutState.CANCELED, status: RolloutStatus.CANCELED, label: "Canceled", animates: false },
+])("indicates activity accurately for $label (state $state)", ({ state, status, label, animates }) => {
+  const rollout = {
+    ...activeRigRollout,
+    state,
+    status,
+    stage:
+      state === RolloutState.STABILIZING_TELEMETRY ||
+      state === RolloutState.PAUSED_AT_PILOT_GATE ||
+      state === RolloutState.PAUSED_AT_BATCH_REVIEW
+        ? RolloutStage.AWAITING_REVIEW
+        : activeRigRollout.stage,
+  };
+  render(<RolloutLiveView {...propsFor(rollout)} />);
+  expect(screen.getByTestId("inline-rollout-status-headline")).toHaveTextContent(label);
+  const activity = screen.queryByTestId("inline-rollout-status-activity");
+  if (animates) expect(activity).toHaveClass("animate-spin", "motion-reduce:animate-none");
+  else expect(activity).not.toBeInTheDocument();
 });
