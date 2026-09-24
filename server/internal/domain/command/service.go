@@ -816,7 +816,7 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 		}
 		return devices, nil
 	}
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]resolvedDevice, error) {
+	resolve := func(q sqlc.Querier) ([]resolvedDevice, error) {
 		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
 		if err != nil {
 			return nil, err
@@ -839,7 +839,11 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 			devices = append(devices, resolvedDevice{id: id, identifier: identifier})
 		}
 		return devices, nil
-	})
+	}
+	if q := db.GetTxQueries(ctx); q != nil {
+		return resolve(q)
+	}
+	return db.WithTransaction(ctx, s.conn, resolve)
 }
 
 func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID int64, devices []resolvedDevice, payload dto.UpdateMinerPasswordPayload) (interface{}, []queue.EnqueueMessage, error) {
@@ -938,12 +942,19 @@ func (s *Service) resolveDeviceCommandRoutes(ctx context.Context, orgID int64, d
 	for _, device := range devices {
 		identifiers = append(identifiers, device.identifier)
 	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+	resolve := func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
 		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
 			OrgID:             orgID,
 			DeviceIdentifiers: identifiers,
 		})
-	})
+	}
+	var rows []sqlc.GetDeviceCommandRoutesRow
+	var err error
+	if q := db.GetTxQueries(ctx); q != nil {
+		rows, err = resolve(q)
+	} else {
+		rows, err = db.WithTransaction(ctx, s.conn, resolve)
+	}
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
 	}
@@ -1873,16 +1884,18 @@ func (s *Service) ApplyCurtailmentConfigToDevices(ctx context.Context, config sd
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
 	}
-	eligible, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]string, error) {
-		return q.GetPairedProtoDeviceIdentifiersByIdentifiers(ctx, sqlc.GetPairedProtoDeviceIdentifiersByIdentifiersParams{
+	// Hold the eligibility locks through queue insertion. A pairing, deletion,
+	// or manufacturer change cannot invalidate a selected target mid-dispatch.
+	return sqlstores.NewSQLTransactor(s.conn).RunInTxNoRetry(ctx, func(txCtx context.Context) error {
+		eligible, err := db.GetTxQueries(txCtx).GetPairedProtoDeviceIdentifiersByIdentifiers(txCtx, sqlc.GetPairedProtoDeviceIdentifiersByIdentifiersParams{
 			OrgID:             info.OrganizationID,
 			DeviceIdentifiers: identifiers,
 		})
+		if err != nil {
+			return err
+		}
+		return s.applyCurtailmentConfigToIdentifiers(txCtx, config, eligible)
 	})
-	if err != nil {
-		return err
-	}
-	return s.applyCurtailmentConfigToIdentifiers(ctx, config, eligible)
 }
 
 func (s *Service) applyCurtailmentConfigToIdentifiers(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error {

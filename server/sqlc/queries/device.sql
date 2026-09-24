@@ -36,8 +36,8 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY dp.id, d.id;
 
 -- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
--- Recheck eligibility for a targeted fallback-config delivery without expanding
--- the request to other paired rigs in the organization.
+-- Lock eligible rows until targeted fallback-config commands are enqueued.
+-- Pairing, manufacturer, and deletion changes must wait for that transaction.
 SELECT d.device_identifier
 FROM device d
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
@@ -47,7 +47,8 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
-ORDER BY d.id;
+ORDER BY d.id
+FOR SHARE OF d, dd, dp;
 
 -- name: GetTotalPairedDevices :one
 -- The site filter is additive: site_ids is an OR across sites,

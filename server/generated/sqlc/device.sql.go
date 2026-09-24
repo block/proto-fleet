@@ -1735,6 +1735,7 @@ WHERE d.org_id = $1
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
 ORDER BY d.id
+FOR SHARE OF d, dd, dp
 `
 
 type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
@@ -1742,8 +1743,8 @@ type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
 	DeviceIdentifiers []string
 }
 
-// Recheck eligibility for a targeted fallback-config delivery without expanding
-// the request to other paired rigs in the organization.
+// Lock eligible rows until targeted fallback-config commands are enqueued.
+// Pairing, manufacturer, and deletion changes must wait for that transaction.
 func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {

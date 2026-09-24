@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -90,6 +91,91 @@ func TestApplyCurtailmentConfigToDevicesOnlyEnqueuesRequestedEligibleRigs(t *tes
 	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, config, nil))
 	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, config, []string{}))
 	assertCommandDispatchRows(t, conn, 1)
+}
+
+func TestApplyCurtailmentConfigToDevicesHoldsEligibilityThroughEnqueue(t *testing.T) {
+	changes := []struct {
+		name  string
+		query string
+	}{
+		{"unpair", "UPDATE device_pairing SET pairing_status = 'UNPAIRED' WHERE device_id = $1"},
+		{"manufacturer", "UPDATE discovered_device SET manufacturer = 'Bitmain' WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)"},
+		{"delete", "UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1"},
+	}
+	for _, change := range changes {
+		t.Run(change.name, func(t *testing.T) {
+			svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+			ctx := manualSessionCtx(1)
+			reachedResolver := make(chan struct{})
+			releaseResolver := make(chan struct{})
+			defer func() {
+				select {
+				case <-releaseResolver:
+				default:
+					close(releaseResolver)
+				}
+			}()
+			svc.resolveDevicesOverride = func(context.Context, []string) ([]resolvedDevice, error) {
+				close(reachedResolver)
+				<-releaseResolver
+				return []resolvedDevice{{id: deviceID, identifier: identifier}}, nil
+			}
+			dispatched := make(chan error, 1)
+			go func() {
+				dispatched <- svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier})
+			}()
+			select {
+			case <-reachedResolver:
+			case <-time.After(5 * time.Second):
+				t.Fatal("dispatch did not reach device resolution")
+			}
+
+			writer, err := conn.Conn(ctx)
+			require.NoError(t, err)
+			defer func() {
+				select {
+				case <-releaseResolver:
+				default:
+					close(releaseResolver)
+				}
+				_ = writer.Close()
+			}()
+			var writerPID int
+			require.NoError(t, writer.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&writerPID))
+			changed := make(chan error, 1)
+			go func() {
+				_, err := writer.ExecContext(ctx, change.query, deviceID)
+				changed <- err
+			}()
+			require.Eventually(t, func() bool {
+				var blocked bool
+				err := conn.QueryRowContext(ctx, "SELECT cardinality(pg_blocking_pids($1)) > 0", writerPID).Scan(&blocked)
+				return err == nil && blocked
+			}, 5*time.Second, 10*time.Millisecond, "eligibility change must wait for dispatch")
+			select {
+			case err := <-changed:
+				t.Fatalf("eligibility changed before enqueue: %v", err)
+			default:
+			}
+			close(releaseResolver)
+			select {
+			case err := <-dispatched:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("dispatch did not finish")
+			}
+			select {
+			case err := <-changed:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("eligibility change did not finish after dispatch")
+			}
+			var queuedID int64
+			require.NoError(t, conn.QueryRowContext(ctx, "SELECT device_id FROM queue_message").Scan(&queuedID))
+			require.Equal(t, deviceID, queuedID)
+			assertCommandDispatchRows(t, conn, 1)
+		})
+	}
 }
 
 func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {

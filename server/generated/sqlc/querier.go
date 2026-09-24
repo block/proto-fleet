@@ -799,8 +799,8 @@ type Querier interface {
 	// Used by Foreman import to resolve Foreman miner IDs to Fleet device identifiers in a single query.
 	GetPairedDevicesByMACAddresses(ctx context.Context, arg GetPairedDevicesByMACAddressesParams) ([]GetPairedDevicesByMACAddressesRow, error)
 	GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64, error)
-	// Recheck eligibility for a targeted fallback-config delivery without expanding
-	// the request to other paired rigs in the organization.
+	// Lock eligible rows until targeted fallback-config commands are enqueued.
+	// Pairing, manufacturer, and deletion changes must wait for that transaction.
 	GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (PendingEnrollment, error)
 	// Filter to the active status: a fleet_node_id can have terminal rows
