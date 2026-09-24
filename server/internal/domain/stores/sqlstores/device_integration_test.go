@@ -189,6 +189,58 @@ func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
 	target := targets[0]
 	require.Equal(t, identifier, target.DeviceIdentifier)
 
+	for _, write := range []struct {
+		name  string
+		apply func(context.Context, interfaces.FleetNodeRecoveryTarget, string, string, string) (bool, error)
+	}{
+		{"endpoint", store.ApplyFleetNodeRecoveredEndpoint},
+		{"authentication", store.ApplyFleetNodeRecoveryAuthenticationNeeded},
+	} {
+		t.Run(write.name+" waits for node revocation", func(t *testing.T) {
+			revokeTx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer revokeTx.Rollback()
+			// Leave the binding intact: revocation must exclude the late ack
+			// even before its separate ownership cleanup completes.
+			_, err = revokeTx.Exec(`UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			type applyResult struct {
+				applied bool
+				err     error
+			}
+			result := make(chan applyResult, 1)
+			go func() {
+				ok, applyErr := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+				result <- applyResult{ok, applyErr}
+			}()
+			select {
+			case early := <-result:
+				require.Failf(t, "recovery did not wait for node revocation", "result: %+v", early)
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, revokeTx.Commit())
+			select {
+			case final := <-result:
+				require.NoError(t, final.err)
+				require.False(t, final.applied)
+			case <-time.After(5 * time.Second):
+				require.Fail(t, "recovery did not resume after node revocation")
+			}
+			var ipAddress, pairingStatus string
+			require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+			require.Equal(t, "10.0.0.10", ipAddress)
+			require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+			require.Equal(t, "PAIRED", pairingStatus)
+			_, err = conn.Exec(`UPDATE fleet_node SET enrollment_status='CONFIRMED', deleted_at=NOW() WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			applied, err := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+			require.NoError(t, err)
+			require.False(t, applied, "a deleted node cannot authorize recovery")
+			_, err = conn.Exec(`UPDATE fleet_node SET deleted_at=NULL WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+		})
+	}
+
 	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.12' WHERE id=$1`, discoveredID)
 	require.NoError(t, err)
 	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")

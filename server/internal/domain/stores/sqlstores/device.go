@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -982,20 +983,38 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stor
 }
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
-	_, err := s.getQueries(ctx).ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
-		IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
-		DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
-		MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
-		ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
+		// Lock the node before miner rows, matching revocation and pairing.
+		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || node.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
+		_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
+			IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
+			DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
+			ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
+		// Lock the node before the device, matching revocation and pairing.
+		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || node.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
 		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
 			DeviceIdentifier: target.DeviceIdentifier,
 			OrgID:            target.OrgID,
