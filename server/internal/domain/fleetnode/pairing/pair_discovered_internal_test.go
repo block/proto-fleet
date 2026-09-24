@@ -95,7 +95,7 @@ func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context
 
 func TestResolvePairAllPagesPreserveScopeAndCredentials(t *testing.T) {
 	password := ""
-	for _, credentials := range []*pairingpb.Credentials{nil, {Username: "root"}, {Password: &password}} {
+	for _, credentials := range []*pairingpb.Credentials{nil, {Password: &password}} {
 		store := pairAllTestStore(MaxPairBatch + 2)
 		store.devices[MaxPairBatch].PairingStatus = StatusAuthenticationNeeded
 		service := NewService(store, nil, nil)

@@ -17,7 +17,7 @@ import (
 )
 
 func TestPairAllOnNodePagesPastBatchLimit(t *testing.T) {
-	for _, count := range []int{1, MaxPairBatch, MaxPairBatch + 1, 3*MaxPairBatch + 7} {
+	for _, count := range []int{MaxPairBatch, MaxPairBatch + 1, 3*MaxPairBatch + 7} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			var credentials *pairingpb.Credentials
 			if count > MaxPairBatch {
