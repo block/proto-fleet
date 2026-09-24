@@ -101,37 +101,30 @@ func (s *Service) selectTargets(nodeID int64, targets []stores.FleetNodeRecovery
 		rotated = append(rotated, targets[start:]...)
 		targets = append(rotated, targets[:start]...)
 	}
-	selected, payload, next := selectTargets(targets)
-	// Advance before network I/O so a timeout cannot monopolize the next cycle.
-	if next == "" {
-		delete(s.nextTarget, nodeID)
+	// Rotate one target before dispatch, even when the whole list fits. Batches
+	// may overlap, but partial replies and timeouts cannot keep one target first.
+	if len(targets) > 1 {
+		s.nextTarget[nodeID] = targets[1].DeviceIdentifier
 	} else {
-		s.nextTarget[nodeID] = next
+		delete(s.nextTarget, nodeID)
 	}
-	return selected, payload
+	return selectTargets(targets)
 }
 
-func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte, string) {
+func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNodeRecoveryTarget, []byte) {
 	selected := make([]stores.FleetNodeRecoveryTarget, 0, min(len(targets), maxTargetsPerCommand))
 	descriptors := make([]*gatewaypb.MinerConnectionDescriptor, 0, cap(selected))
 	scanPorts := make([]string, 0, discoverylimits.MaxPortsPerIP)
 	seenPorts := make(map[string]struct{}, discoverylimits.MaxPortsPerIP)
-	var nextTarget string
 	command := &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_RecoverMinerEndpoints{
 		RecoverMinerEndpoints: &gatewaypb.RecoverMinerEndpointsRequest{Targets: descriptors, ScanPorts: scanPorts},
 	}}
 	for _, target := range targets {
 		if len(selected) == maxTargetsPerCommand {
-			if nextTarget == "" {
-				nextTarget = target.DeviceIdentifier
-			}
 			break
 		}
 		_, seenPort := seenPorts[target.LastKnownPort]
 		if !seenPort && len(scanPorts) == discoverylimits.MaxPortsPerIP {
-			if nextTarget == "" {
-				nextTarget = target.DeviceIdentifier
-			}
 			continue
 		}
 		descriptor := descriptorFromTarget(target)
@@ -150,21 +143,18 @@ func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNode
 			}
 			command.GetRecoverMinerEndpoints().Targets = descriptors
 			command.GetRecoverMinerEndpoints().ScanPorts = scanPorts
-			if nextTarget == "" {
-				nextTarget = target.DeviceIdentifier
-			}
 			break
 		}
 		selected = append(selected, target)
 	}
 	if len(selected) == 0 {
-		return nil, nil, nextTarget
+		return nil, nil
 	}
 	payload, err := proto.Marshal(command)
 	if err != nil {
-		return nil, nil, nextTarget
+		return nil, nil
 	}
-	return selected, payload, nextTarget
+	return selected, payload
 }
 
 func descriptorFromTarget(target stores.FleetNodeRecoveryTarget) *gatewaypb.MinerConnectionDescriptor {

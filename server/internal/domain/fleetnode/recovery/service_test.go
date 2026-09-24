@@ -109,7 +109,40 @@ func TestRunCycleGroupsByOwnerCapsAndAdvancesBatches(t *testing.T) {
 
 	assert.Equal(t, []int64{7, 9, 7, 9}, nodeIDs)
 	assert.Equal(t, []int{512, 1, 512, 1}, targetCounts)
-	assert.Equal(t, []string{"node-7-0", "node-7-512"}, node7FirstTargets)
+	assert.Equal(t, []string{"node-7-0", "node-7-1"}, node7FirstTargets)
+}
+
+func TestRunCycleRotatesAfterIncompleteAttempts(t *testing.T) {
+	for _, outcome := range []string{"partial prefix", "empty partial", "timeout"} {
+		t.Run(outcome, func(t *testing.T) {
+			store := &fakeStore{targets: []stores.FleetNodeRecoveryTarget{
+				testTarget(7, "a", "serial-a"),
+				testTarget(7, "b", "serial-b"),
+				testTarget(7, "c", "serial-c"),
+			}}
+			var firstTargets []string
+			sender := sendFunc(func(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+				envelope := &gatewaypb.AgentCommand{}
+				require.NoError(t, proto.Unmarshal(cmd.GetPayload(), envelope))
+				first := envelope.GetRecoverMinerEndpoints().GetTargets()[0].GetDeviceIdentifier()
+				firstTargets = append(firstTargets, first)
+				switch outcome {
+				case "partial prefix":
+					return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_PARTIAL,
+						&gatewaypb.MinerEndpointRecoveryResult{DeviceIdentifier: first, Outcome: gatewaypb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_NOT_FOUND}), nil
+				case "empty partial":
+					return ackWithResults(t, gatewaypb.AckCode_ACK_CODE_PARTIAL), nil
+				default:
+					return nil, context.DeadlineExceeded
+				}
+			})
+			service := NewService(store, sender, nil, nil, testLogger())
+			for range 4 {
+				service.RunCycle(t.Context())
+			}
+			assert.Equal(t, []string{"a", "b", "c", "a"}, firstTargets)
+		})
+	}
 }
 
 func TestSelectTargetsHonorsEncodedSizeLimit(t *testing.T) {
@@ -120,7 +153,7 @@ func TestSelectTargetsHonorsEncodedSizeLimit(t *testing.T) {
 		targets[i].CredentialPassword = make([]byte, 4096)
 	}
 
-	selected, payload, _ := selectTargets(targets)
+	selected, payload := selectTargets(targets)
 
 	assert.Less(t, len(selected), 512)
 	assert.LessOrEqual(t, len(payload), maxEncodedRequest)
@@ -134,7 +167,7 @@ func TestSelectTargetsCapsDistinctScanPorts(t *testing.T) {
 		targets[i].LastKnownPort = strconv.Itoa(8000 + i)
 	}
 
-	selected, payload, next := selectTargets(targets)
+	selected, payload := selectTargets(targets)
 	envelope := &gatewaypb.AgentCommand{}
 	require.NoError(t, proto.Unmarshal(payload, envelope))
 
@@ -142,7 +175,6 @@ func TestSelectTargetsCapsDistinctScanPorts(t *testing.T) {
 	assert.Len(t, envelope.GetRecoverMinerEndpoints().GetScanPorts(), 10)
 	assert.Equal(t, "8000", envelope.GetRecoverMinerEndpoints().GetScanPorts()[0])
 	assert.Equal(t, "8009", envelope.GetRecoverMinerEndpoints().GetScanPorts()[9])
-	assert.Equal(t, "miner-10", next)
 }
 
 func TestRunCyclePersistsValidatedResultsAndInvalidatesFoundMiner(t *testing.T) {
