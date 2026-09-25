@@ -3,6 +3,10 @@
 This profile installs the fixed three-host active/passive topology from a
 packaged release.
 
+The default endpoint is a LAN virtual IP. For routed hosts behind a separately
+provisioned HTTPS load balancer, use the [external endpoint profile](external-endpoint.md).
+Both profiles use the same database replication, runtime lease, and request fencing.
+
 The topology is:
 
 - `ha-a` and `ha-b`: Fleet, a loopback-only Grafana sidecar, PostgreSQL + TimescaleDB managed by Patroni, and etcd;

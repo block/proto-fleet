@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,6 +154,7 @@ func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
 	if err != nil {
 		return err
 	}
+	args = endpointComposeArgs(args, slices.Contains(environment, "HA_ENDPOINT_MODE=external"))
 
 	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
 	command := exec.CommandContext(ctx, "docker", commandArgs...)
@@ -164,6 +166,20 @@ func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
 		return fmt.Errorf("run Docker Compose: %w", err)
 	}
 	return nil
+}
+
+func endpointComposeArgs(args []string, external bool) []string {
+	if !external {
+		return args
+	}
+	result := make([]string, 0, len(args)+2)
+	for i, arg := range args {
+		result = append(result, arg)
+		if i > 0 && args[i-1] == "--file" && filepath.Base(arg) == "fleet-compose.yaml" {
+			result = append(result, "--file", filepath.Join(filepath.Dir(arg), "fleet-compose.external.yaml"))
+		}
+	}
+	return result
 }
 
 func composeEnvironment(args []string) ([]string, error) {
@@ -182,8 +198,23 @@ func composeEnvironment(args []string) ([]string, error) {
 			return nil, fmt.Errorf("HA node environment rejected: %w", err)
 		}
 		// The shared tracing overlay requires DD_HOSTNAME during interpolation.
-		// Derive it from the validated HA identity instead of persisting a second hostname.
-		return append(environment, "DD_HOSTNAME="+config.NodeName), nil
+		// External deployments share a monitoring account, so qualify the host
+		// identity with the validated public hostname. Keep VIP names unchanged.
+		hostname := config.NodeName
+		if config.externalEndpoint() {
+			publicURL, _ := url.Parse(config.PublicURL) // validated above
+			hostname += "." + publicURL.Hostname()
+		}
+		environment = append(environment, "DD_HOSTNAME="+hostname, "HA_PUBLIC_URL="+config.publicURL())
+		nodeIP := ""
+		if config.externalEndpoint() {
+			nodeIP = config.NodeIP
+		}
+		mode := "vip"
+		if config.externalEndpoint() {
+			mode = endpointModeExternal
+		}
+		return append(environment, "HA_ENDPOINT_NODE_IP="+nodeIP, "HA_ENDPOINT_MODE="+mode), nil
 	}
 	return environment, nil
 }
