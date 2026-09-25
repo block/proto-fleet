@@ -85,6 +85,70 @@ async function renderCreateChannel(page: Page, listContent = '<div data-testid="
 }
 
 test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
+  test("modal title helpers ignore the retained hidden title when it collapses into the header", async ({ page }) => {
+    await page.setContent(`
+      <section data-testid="modal">
+        <div id="header-title" class="text-heading-200" style="visibility:hidden">Channel settings</div>
+        <div id="body-title" class="text-heading-300">Channel settings</div>
+      </section>
+    `);
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.validateTitleInModal("Channel settings");
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>("#header-title")!.style.visibility = "visible";
+      document.querySelector<HTMLElement>("#body-title")!.style.visibility = "hidden";
+    });
+    await firmware.validateTitleInModal("Channel settings");
+    await page.getByTestId("modal").evaluate((modal) => modal.setAttribute("hidden", ""));
+    await firmware.validateTitleInModalNotVisible("Channel settings");
+  });
+
+  for (const navigation of ["tab", "header pill"]) {
+    const openChannels = navigation === "tab" ? "openReleaseChannelsTab" : "followAppRolloutPillToChannels";
+    for (const hasChannels of [true, false]) {
+      test(`${navigation} navigation waits for the selected tab and loaded ${hasChannels ? "channels table" : "empty state"}`, async ({
+        page,
+      }) => {
+        await page.setContent(`
+          ${responsiveModalActions}
+          <h1 class="text-heading-400">Firmware</h1>
+          <button onclick="document.querySelector('#unexpected').textContent = 'Wrong tab'">Release channels</button>
+          <button aria-label="View ongoing firmware updates" onclick="document.querySelector('#pill-popover').hidden = false">Firmware updates</button>
+          <div id="pill-popover" hidden><a href="#release-channels" onclick="openChannels(); this.parentElement.hidden = true">View release channels</a></div>
+          <div data-testid="firmware-tab-navigation">
+            <div><button aria-current="page"><span>Files</span></button></div>
+            <div><button id="channels-tab" onclick="openChannels()"><span>Release channels</span></button></div>
+          </div>
+          <div id="channel-loading" hidden>Loading release channels...</div>
+          <div id="channel-content" hidden>
+            <button>Create release channel</button>
+            ${hasChannels ? '<div data-testid="channels-table">Channels</div>' : "<h2>No release channels</h2>"}
+          </div>
+          <button id="finish-loading" onclick="document.querySelector('#channel-loading').hidden = true; document.querySelector('#channel-content').hidden = false">Finish fixture loading</button>
+          <p id="unexpected"></p>
+          <script>
+            function openChannels() {
+              document.querySelector('[aria-current]').removeAttribute('aria-current');
+              document.querySelector('#channels-tab').setAttribute('aria-current', 'page');
+              document.querySelector('#channel-loading').hidden = false;
+            }
+          </script>
+        `);
+        const firmware = new SettingsFirmwarePage(page);
+        const opened = firmware[openChannels]();
+        await expect(page.getByText("Loading release channels...", { exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Create release channel", exact: true })).toBeHidden();
+        await page.locator("#finish-loading").click();
+        await opened;
+        await expect(
+          page.getByTestId("firmware-tab-navigation").getByRole("button", { name: "Release channels" }),
+        ).toHaveAttribute("aria-current", "page");
+        await expect(page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+        await expect(page.locator("#unexpected")).toBeEmpty();
+      });
+    }
+  }
+
   test("new-channel helpers edit in the create modal and wait for its dismissal after saving", async ({
     page,
     isMobile,
@@ -159,6 +223,37 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.locator("#pilot-size")).toHaveValue("3");
   });
 
+  test("scope removal checks the draft selection and its Original and Target preview before applying", async ({
+    page,
+  }) => {
+    await page.setContent(`
+      ${responsiveModalActions}
+      <button>Miners 2 miners</button>
+      <section data-testid="channel-settings-modal">
+        <div data-testid="scope-editor"><button>Miners 1 miner</button></div>
+        ${modalSaveButtons("Review changes", "document.querySelector('[data-testid=channel-settings-modal]').hidden = true; document.querySelector('[data-testid=apply-firmware-dialog]').hidden = false")}
+      </section>
+      <section data-testid="apply-firmware-dialog" hidden>
+        <table aria-label="Channel settings changes">
+          <thead><tr><th>Setting</th><th>Original</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Name</th><td>Old channel</td><td>Rig A (miner-a)</td></tr>
+            <tr><th scope="row">Applies to · Miners</th><td>Rig A (miner-a)\nRig B (miner-b)</td><td>Rig B (miner-b)</td></tr>
+          </tbody>
+        </table>
+        <button onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Channel changes applied'; this.closest('section').hidden = true">Apply changes</button>
+      </section>
+      <div data-testid="toaster-container"></div>
+    `);
+    const firmware = new SettingsFirmwarePage(page);
+    await firmware.validateScopeMinerSelection(1);
+    await firmware.reviewChannelChanges();
+    await firmware.validateScopeMinerRemoval("Rig A", "Rig B");
+    await expect(page.getByTestId("toaster-container")).toBeEmpty();
+    await firmware.confirmChannelChanges();
+    await expect(page.getByTestId("apply-firmware-dialog")).toBeHidden();
+  });
+
   test("reviewing settings with staged firmware leaves both changes pending until confirmation", async ({ page }) => {
     await page.setContent(`
       ${responsiveModalActions}
@@ -197,26 +292,21 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.getByTestId("toaster-container")).toBeEmpty();
   });
 
-  for (const creating of [true, false]) {
-    const modalTestId = creating ? "create-release-channel-modal" : "channel-settings-modal";
-    const action = creating ? "Create channel" : "Review changes";
-
-    test(`scope conflicts check the visible ${creating ? "creation" : "settings"} action`, async ({ page }) => {
-      await page.setContent(`
+  test("scope conflicts check the visible creation action", async ({ page }) => {
+    await page.setContent(`
         ${responsiveModalActions}
-        <section data-testid="${modalTestId}">
+        <section data-testid="create-release-channel-modal">
           <p data-testid="scope-conflicts">Overlaps another channel</p>
-          ${modalSaveButtons(action)}
+          ${modalSaveButtons("Create channel")}
         </section>
       `);
-      // Only the visible action is disabled, so checking its hidden duplicate
-      // cannot accidentally satisfy the helper's conflict assertion.
-      await page.getByRole("button", { name: action, exact: true }).evaluate((button) => {
-        button.setAttribute("disabled", "");
-      });
-      await new SettingsFirmwarePage(page).validateScopeConflict("another channel");
+    // Only the visible action is disabled, so checking its hidden duplicate
+    // cannot accidentally satisfy the helper's conflict assertion.
+    await page.getByRole("button", { name: "Create channel", exact: true }).evaluate((button) => {
+      button.setAttribute("disabled", "");
     });
-  }
+    await new SettingsFirmwarePage(page).validateScopeConflict("another channel");
+  });
 
   test("history does not accept the requested version in another row's rollback action", async ({ page }) => {
     await renderTables(

@@ -1,9 +1,10 @@
-import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
 import RolloutLiveView from "./RolloutLiveView";
+import RolloutMinersModal, { type RolloutMinerFilter } from "./RolloutMinersModal";
 import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
@@ -46,8 +47,8 @@ interface ActiveUpdatesMonitorProps {
 
 // Everything about ongoing firmware updates that lives above the firmware
 // page tabs: a single live card or concurrent banners, full-screen detail, and
-// the lifecycle actions (continue, pause, resume, retry failed, cancel
-// remaining and roll back, the last two with confirmation).
+// all lifecycle actions, confirmations and miner drill-downs. Dialog ownership
+// stays here so switching presentation never discards an open dialog or read.
 const ActiveUpdatesMonitor = ({
   api,
   onManageChannel,
@@ -74,12 +75,9 @@ const ActiveUpdatesMonitor = ({
   );
   // Retain the opened or returned snapshot if a subsequent poll fails.
   const [viewUpdate, setViewUpdate] = useState<Rollout | null>(null);
-  // A change in the number of active updates must not dismiss a miner list or
-  // retry confirmation that the operator opened from the inline card.
-  const [inlineDialogSnapshot, setInlineDialogSnapshot] = useState<Rollout | null>(null);
-  const handleInlineDialogChange = useCallback((rollout: Rollout, isOpen: boolean) => {
-    setInlineDialogSnapshot((current) => (isOpen ? rollout : current?.id === rollout.id ? null : current));
-  }, []);
+  const [localRetryTarget, setLocalRetryTarget] = useState<Rollout | null>(null);
+  const [minersSelection, setMinersSelection] = useState<{ rollout: Rollout; filter: RolloutMinerFilter } | null>(null);
+  const [retryingId, setRetryingId] = useState<bigint | null>(null);
   const [localCancelTarget, setLocalCancelTarget] = useState<Rollout | null>(null);
   const [localRollbackTarget, setLocalRollbackTarget] = useState<Rollout | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -117,14 +115,19 @@ const ActiveUpdatesMonitor = ({
   // poll. Prefer equally recent or newer live rows without losing that detail.
   const selectedRollout = validRequest?.kind === "view" ? validRequest.rollout : viewUpdate;
   const selectedSnapshot = availableSnapshot(selectedRollout);
-  const currentRollout = byId(selectedSnapshot?.id);
-  const viewedSnapshot =
-    selectedSnapshot && (!currentRollout || selectedSnapshot.revision > currentRollout.revision)
-      ? selectedSnapshot
-      : currentRollout;
-  const viewedRollout = viewedSnapshot
-    ? acknowledgeRollout(viewedSnapshot, acknowledgedRollbacks, api.channels, polledRollouts)
-    : undefined;
+  const latestSnapshot = (snapshot: Rollout | null) => {
+    if (!snapshot) return null;
+    const current = byId(snapshot.id);
+    return acknowledgeRollout(
+      current && current.revision >= snapshot.revision ? current : snapshot,
+      acknowledgedRollbacks,
+      api.channels,
+      polledRollouts,
+    );
+  };
+  const viewedRollout = latestSnapshot(selectedSnapshot);
+  const minersRollout = latestSnapshot(availableSnapshot(minersSelection?.rollout ?? null));
+  if (minersSelection && !minersRollout) setMinersSelection(null);
   const assignmentInvalidated = (rollout: Rollout) =>
     isRollbackAcknowledged(rollout, acknowledgedRollbacks) ||
     isRolloutSuperseded(rollout, api.channels, polledRollouts);
@@ -149,6 +152,15 @@ const ActiveUpdatesMonitor = ({
       ? cancelSnapshot
       : null;
   const rollbackTarget = currentConfirmation(rollbackSnapshot);
+  const retrySnapshot = availableSnapshot(localRetryTarget);
+  const currentRetry = latestSnapshot(retrySnapshot);
+  const retryEligible = (rollout: Rollout) =>
+    !assignmentInvalidated(rollout) && canRetryRemaining(rollout, api.channels, rollouts);
+  // Validate against live eligibility, but send the revision the operator saw
+  // when opening confirmation. Invalidated confirmations must not reappear.
+  const retryTarget = currentRetry && retryEligible(currentRetry) ? retrySnapshot : null;
+  if (localRetryTarget && !retryTarget) setLocalRetryTarget(null);
+
   // Mutation results may arrive after the operator closes, reopens or changes
   // the selection. Track that intent separately from revisions updated by polls.
   const selectionEpoch = useRef(0);
@@ -208,10 +220,14 @@ const ActiveUpdatesMonitor = ({
         }),
     );
 
-  const handleRetry = (rollout: Rollout) => {
+  const handleRetry = () => {
+    if (!retryTarget || mutationInFlight.current) return;
+    const rollout = retryTarget;
+    setLocalRetryTarget(null);
     const startedAtSelection = selectionEpoch.current;
-    return mutate(() =>
-      retryFailedDevices(rollout.id, rollout.revision)
+    return mutate(() => {
+      setRetryingId(rollout.id);
+      return retryFailedDevices(rollout.id, rollout.revision)
         .then((next) => {
           if (next && next.id !== rollout.id && selectionEpoch.current === startedAtSelection) {
             selectionChanged();
@@ -225,8 +241,9 @@ const ActiveUpdatesMonitor = ({
         })
         .catch((error) => {
           pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
-        }),
-    );
+        })
+        .finally(() => setRetryingId(null));
+    });
   };
 
   const handleCancel = () => {
@@ -281,64 +298,35 @@ const ActiveUpdatesMonitor = ({
   const liveViewProps = (rollout: Rollout) => ({
     rollout,
     currentGeneration: assignmentInvalidated(rollout) ? undefined : pairGeneration(api.channels, rollout),
-    canRetryRemaining: !assignmentInvalidated(rollout) && canRetryRemaining(rollout, api.channels, rollouts),
+    canRetryRemaining: retryEligible(rollout),
     actionsDisabled: isBusy,
-    minerNames,
-    listRolloutDevices,
+    isRetrying: retryingId === rollout.id,
+    onViewMiners: (target: Rollout, filter: RolloutMinerFilter) => setMinersSelection({ rollout: target, filter }),
     onContinue: handleContinue,
     onPause: (target: Rollout) => togglePause(target, true),
     onResume: (target: Rollout) => togglePause(target, false),
     onCancel: setCancelTarget,
     onRollback: setRollbackTarget,
-    onRetryFailed: handleRetry,
+    onRetryFailed: (target: Rollout) => {
+      selectionChanged();
+      setLocalRetryTarget(target);
+    },
     onManage: (target: Rollout) => {
       closeDetail();
       onManageChannel(target.channelId);
     },
   });
   const singleActiveRollout = activeRollouts.length === 1 && !viewedRollout ? activeRollouts[0] : null;
-  const retainedInlineSnapshot = availableSnapshot(inlineDialogSnapshot);
-  const currentInlineRollout = byId(retainedInlineSnapshot?.id);
-  const retainedInlineRollout = retainedInlineSnapshot
-    ? acknowledgeRollout(
-        currentInlineRollout && currentInlineRollout.revision >= retainedInlineSnapshot.revision
-          ? currentInlineRollout
-          : retainedInlineSnapshot,
-        acknowledgedRollbacks,
-        api.channels,
-        polledRollouts,
-      )
-    : null;
-  const inlineRollouts = singleActiveRollout ? [singleActiveRollout] : [];
-  if (retainedInlineRollout && retainedInlineRollout.id !== singleActiveRollout?.id) {
-    inlineRollouts.push(retainedInlineRollout);
-  }
 
   return (
     <>
-      {inlineRollouts.map((rollout) => {
-        const showCard = rollout.id === singleActiveRollout?.id;
-        return (
-          <div
-            key={rollout.id.toString()}
-            data-testid={showCard ? "active-updates-section" : undefined}
-            className={showCard ? undefined : "contents"}
-          >
-            <div
-              data-testid={showCard ? `active-update-${rollout.id.toString()}` : undefined}
-              className={showCard ? undefined : "contents"}
-            >
-              <RolloutLiveView
-                {...liveViewProps(rollout)}
-                presentation="inline"
-                hideCard={!showCard}
-                onDialogChange={handleInlineDialogChange}
-                onViewUpdate={openDetail}
-              />
-            </div>
+      {singleActiveRollout ? (
+        <div data-testid="active-updates-section">
+          <div data-testid={`active-update-${singleActiveRollout.id.toString()}`}>
+            <RolloutLiveView {...liveViewProps(singleActiveRollout)} presentation="inline" onViewUpdate={openDetail} />
           </div>
-        );
-      })}
+        </div>
+      ) : null}
       {!singleActiveRollout ? <ActiveUpdateBanners rollouts={activeRollouts} onViewUpdate={openDetail} /> : null}
 
       {viewedRollout ? (
@@ -347,6 +335,37 @@ const ActiveUpdatesMonitor = ({
           {...liveViewProps(viewedRollout)}
           refreshWarning={refreshWarning}
           onClose={closeDetail}
+        />
+      ) : null}
+
+      {minersRollout && minersSelection ? (
+        <RolloutMinersModal
+          key={`${minersRollout.id}-${minersSelection.filter}`}
+          rollout={minersRollout}
+          minerNames={minerNames}
+          listRolloutDevices={listRolloutDevices}
+          initialFilter={minersSelection.filter}
+          onClose={() => setMinersSelection(null)}
+        />
+      ) : null}
+
+      {retryTarget ? (
+        <Dialog
+          open
+          testId="retry-rollout-dialog"
+          title="Retry remaining updates?"
+          subtitle={`Retry failed, skipped, or canceled work for ${pairLabel(retryTarget)} in ${retryTarget.channelName}, including earlier updates for this firmware assignment. This does not advance review gates.`}
+          onDismiss={() => setLocalRetryTarget(null)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setLocalRetryTarget(null) },
+            {
+              text: "Retry remaining",
+              testId: "confirm-rollout-retry",
+              variant: variants.primary,
+              onClick: handleRetry,
+              disabled: isBusy,
+            },
+          ]}
         />
       ) : null}
 

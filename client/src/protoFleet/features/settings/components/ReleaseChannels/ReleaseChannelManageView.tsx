@@ -67,6 +67,8 @@ const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
 const delegatedApplyMessage =
   "Firmware updates for externally controlled channels are not available yet. Choose another update method in Channel settings before applying changes.";
+const scopeAndFirmwareMessage =
+  "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
 const unsupportedTargetMessage =
   "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
 
@@ -92,6 +94,29 @@ const supportsFirmwareFileAssignment = (file: FirmwareFileInfo): boolean => {
 
 interface AcknowledgedAssignment extends AssignmentDraft {
   label: string;
+}
+
+const hasFirmwareAssignment = (group: ReleaseChannelModelGroup, acknowledged?: AcknowledgedAssignment): boolean =>
+  acknowledged ? acknowledged.firmwareFileId !== "" : group.firmwareChecksum !== "";
+
+const isFirmwareChange = (
+  group: ReleaseChannelModelGroup,
+  acknowledged: AcknowledgedAssignment | undefined,
+  fileId: string | undefined,
+): boolean =>
+  fileId !== undefined &&
+  (fileId !== (acknowledged?.firmwareFileId ?? group.firmwareFileId) ||
+    (fileId === "" && hasFirmwareAssignment(group, acknowledged)));
+
+interface ApplyPreview {
+  title: string;
+  button: string;
+  summary: string;
+  count: number;
+  settingsChanges: ReturnType<typeof getChannelSettingsChanges> | null;
+  behaviorChangedDuringUpdate: boolean;
+  scopeChanged: boolean;
+  firmwareRows: { key: string; label: string; original: string; target: string }[];
 }
 
 function channelTextError(value: string, label: string, maxLength: number): string | undefined {
@@ -321,6 +346,7 @@ const ReleaseChannelManageView = ({
   // Serialize settings and firmware writes, including clicks before React rerenders.
   const writeInFlightRef = useRef(false);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [submittedPreview, setSubmittedPreview] = useState<ApplyPreview | null>(null);
   // Pair whose miner table is open in the "View miners" modal.
   const [minersPair, setMinersPair] = useState<string | null>(null);
 
@@ -364,16 +390,6 @@ const ReleaseChannelManageView = ({
       );
     }
   }
-  const dirty =
-    savedSettings === undefined ||
-    trimMinerTarget(name) !== savedSettings.name ||
-    trimMinerTarget(description) !== savedSettings.description ||
-    !scopeSelectionsEqual(scope, savedSettings.scope ?? create(ReleaseChannelScopeSchema)) ||
-    !equals(
-      RolloutBehaviorSchema,
-      behaviorForComparison(behavior),
-      behaviorForComparison(savedSettings.behavior ?? create(RolloutBehaviorSchema)),
-    );
   const currentPreview = preview?.scope === scope && preview.load === previewForChannel ? preview.value : null;
   const scopeChanged =
     channel !== undefined && !scopeSelectionsEqual(scope, savedSettings?.scope ?? create(ReleaseChannelScopeSchema));
@@ -382,6 +398,12 @@ const ReleaseChannelManageView = ({
     behaviorForComparison(behavior),
     behaviorForComparison(savedSettings?.behavior ?? create(RolloutBehaviorSchema)),
   );
+  const dirty =
+    savedSettings === undefined ||
+    trimMinerTarget(name) !== savedSettings.name ||
+    trimMinerTarget(description) !== savedSettings.description ||
+    scopeChanged ||
+    behaviorChanged;
   const canCreateInScope =
     isScopeEmpty(scope) ||
     (currentPreview !== null && currentPreview.conflictCount === 0 && currentPreview.conflicts.length === 0);
@@ -409,12 +431,7 @@ const ReleaseChannelManageView = ({
   const handleSave = async () => {
     if (writeInFlightRef.current || !canSave) return;
     if (writeLock && !writeLock.tryAcquire()) return;
-    const submitted = {
-      name: trimMinerTarget(name),
-      description: trimMinerTarget(description),
-      scope,
-      behavior: rolloutBehaviorForRequest(behavior),
-    };
+    const submitted = settingsDraft;
     writeInFlightRef.current = true;
     setIsSaving(true);
     try {
@@ -483,9 +500,7 @@ const ReleaseChannelManageView = ({
       invalidSelections.set(key, "Wait for the firmware assignment to refresh before applying changes.");
     }
     const acknowledged = acknowledgedAssignments[key];
-    const savedFileId = acknowledged?.firmwareFileId ?? group.firmwareFileId;
-    const hasAssignment = acknowledged ? acknowledged.firmwareFileId !== "" : group.firmwareChecksum !== "";
-    if (fileId !== undefined && (fileId !== savedFileId || (fileId === "" && hasAssignment))) {
+    if (fileId !== undefined && isFirmwareChange(group, acknowledged, fileId)) {
       const file = firmwareFiles.find((candidate) => candidate.id === fileId);
       const targetKey = minerTargetKey(group.manufacturer, group.model);
       const matchingFile =
@@ -550,28 +565,31 @@ const ReleaseChannelManageView = ({
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
   const effectiveSettings = dirty ? settingsDraft : savedSettings;
   const delegatedApplyBlocked = effectiveSettings?.behavior?.method === RolloutMethod.DELEGATED && assignmentCount > 0;
+  // Settings and assignments use separate RPCs. Until they can be committed
+  // atomically, never expose a changed scope with an assignment being replaced.
+  const scopeAndFirmwareBlocked =
+    scopeChanged &&
+    modelGroups.some(
+      (group) =>
+        dirtyAssignmentsByPair.has(pairKey(group)) &&
+        hasFirmwareAssignment(group, acknowledgedAssignments[pairKey(group)]),
+    );
   const canApply =
     hasUnsavedChanges &&
     (!dirty || settingsValid) &&
     !delegatedApplyBlocked &&
+    !scopeAndFirmwareBlocked &&
     !exceedsAssignmentLimit &&
     invalidSelections.size === 0 &&
     !isWriting;
 
-  const applyTitle = dirty
-    ? "Apply channel changes?"
+  const applyCopy = dirty
+    ? { title: "Apply channel changes?", button: "Apply changes" }
     : clearCount === 0
-      ? "Start firmware update?"
+      ? { title: "Start firmware update?", button: "Start update" }
       : assignmentCount === 0
-        ? "Clear firmware assignments?"
-        : "Apply firmware changes?";
-  const applyButtonText = dirty
-    ? "Apply changes"
-    : clearCount === 0
-      ? "Start update"
-      : assignmentCount === 0
-        ? "Clear assignments"
-        : "Apply changes";
+        ? { title: "Clear firmware assignments?", button: "Clear assignments" }
+        : { title: "Apply firmware changes?", button: "Apply changes" };
   const applySummary = [
     dirty
       ? dirtyAssignments.length > 0
@@ -582,7 +600,7 @@ const ReleaseChannelManageView = ({
       ? `Assign firmware for ${assignmentCount} ${assignmentCount === 1 ? "model" : "models"} in ${effectiveSettings?.name}. Updates start where needed. Pacing: ${pacingSummary(effectiveSettings?.behavior).toLowerCase()}.`
       : "",
     clearCount > 0
-      ? `Clear firmware assignments for ${clearCount} ${clearCount === 1 ? "model" : "models"} in ${channel?.name}. Clearing stops enforcement and cancels remaining updates for these models; updates already dispatched may finish.`
+      ? `Clear firmware assignments for ${clearCount} ${clearCount === 1 ? "model" : "models"} in ${effectiveSettings?.name}. Clearing stops enforcement and cancels remaining updates for these models; updates already dispatched may finish.`
       : "",
   ]
     .filter(Boolean)
@@ -604,6 +622,21 @@ const ReleaseChannelManageView = ({
     return group?.firmwareChecksum ? group.firmwareVersion || "Unknown version" : "No firmware";
   };
 
+  const applyPreview: ApplyPreview = submittedPreview ?? {
+    ...applyCopy,
+    summary: applySummary,
+    count: pendingChangeCount,
+    settingsChanges,
+    behaviorChangedDuringUpdate: behaviorChanged && activeCount > 0,
+    scopeChanged,
+    firmwareRows: dirtyAssignments.map((assignment) => ({
+      key: pairKey(assignment),
+      label: pairLabel(assignment),
+      original: originalVersionLabel(assignment),
+      target: versionLabel(assignment.firmwareFileId),
+    })),
+  };
+
   const handleApply = async () => {
     if (writeInFlightRef.current || !channel || !canApply) return;
     if (writeLock && !writeLock.tryAcquire()) return;
@@ -615,13 +648,22 @@ const ReleaseChannelManageView = ({
     const submittedSelections = staged;
     let settingsSaved = false;
     writeInFlightRef.current = true;
+    setSubmittedPreview(applyPreview);
     setIsApplying(true);
     setApplyError(null);
     try {
       if (submittedSettings) {
         await onSave(submittedSettings);
-        if (!mountedRef.current) return;
         settingsSaved = true;
+        if (!mountedRef.current) {
+          if (submitted.length > 0)
+            pushToast({
+              message:
+                "Channel settings were saved, but firmware changes were not applied. Open the channel to review its firmware assignments.",
+              status: STATUSES.error,
+            });
+          return;
+        }
         setSavedDraft({ settings: submittedSettings, beforeSave: latestChannelRef.current });
         setSettingsBase(submittedSettings);
       }
@@ -665,6 +707,7 @@ const ReleaseChannelManageView = ({
     } finally {
       writeInFlightRef.current = false;
       setIsApplying(false);
+      setSubmittedPreview(null);
       writeLock?.release();
     }
   };
@@ -689,6 +732,25 @@ const ReleaseChannelManageView = ({
   };
 
   const lastFinished = lastFinishedByChannelAssignment(channelRollouts);
+
+  const scopeAndFirmwareWarning = scopeAndFirmwareBlocked ? (
+    <div className="grid justify-items-start gap-2">
+      <p role="alert" className="text-200 text-intent-critical-fill">
+        {scopeAndFirmwareMessage}
+      </p>
+      <Button
+        text="Keep current scope"
+        variant={variants.secondary}
+        size={sizes.compact}
+        disabled={isWriting}
+        onClick={() => {
+          if (writeInFlightRef.current || isWriting) return;
+          setScope(savedSettings?.scope ?? create(ReleaseChannelScopeSchema));
+          setPreview(null);
+        }}
+      />
+    </div>
+  ) : null;
 
   const settingsFields = (
     <div className="grid gap-8">
@@ -787,13 +849,11 @@ const ReleaseChannelManageView = ({
             <h2 className="text-heading-200 text-text-primary">{channel.name}</h2>
             {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
           </div>
-          {channel ? (
-            <div className="flex items-center gap-2 text-200 text-text-primary-50">
-              <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
-              <span>·</span>
-              <span>{liveGroups.length === 1 ? "1 model" : `${liveGroups.length} models`}</span>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-2 text-200 text-text-primary-50">
+            <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
+            <span>·</span>
+            <span>{liveGroups.length === 1 ? "1 model" : `${liveGroups.length} models`}</span>
+          </div>
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
           <Button
@@ -846,123 +906,118 @@ const ReleaseChannelManageView = ({
         </div>
       </div>
 
-      {channel ? (
-        <Section
-          title="Assigned miners"
-          subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
-        >
-          {exceedsAssignmentLimit ? (
-            <p role="alert" className="text-200 text-intent-critical-fill">
-              {assignmentLimitMessage}
-            </p>
-          ) : null}
-          {delegatedApplyBlocked ? (
-            <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
-              {delegatedApplyMessage}
-            </p>
-          ) : null}
-          {modelGroups.length === 0 ? (
-            <span className="text-300 text-text-primary-50">
-              No miners in scope yet. Open Channel settings and change Applies to to include miners.
-            </span>
-          ) : (
-            <table aria-label="Assigned miners by model" className="w-full text-left text-200">
-              <thead>
-                <tr className="text-text-primary-50">
-                  <th className="py-1.5 pr-4 font-normal">Model</th>
-                  <th className="py-1.5 pr-4 font-normal">Miners</th>
-                  <th className="py-1.5 pr-4 font-normal">Firmware</th>
-                  <th className="py-1.5 pr-4 font-normal">Update status</th>
-                  <th className="py-1.5 font-normal">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-text-primary">
-                {modelGroups.map((group) => {
-                  const acknowledged = acknowledgedAssignments[pairKey(group)];
-                  const activeRollout = acknowledged ? undefined : activeForGroup(group);
-                  const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                  return (
-                    <tr
-                      key={observedPairKey(group)}
-                      className="border-t border-border-5"
-                      data-testid={`model-group-${group.model}`}
-                    >
-                      <td className="py-3 pr-4 text-emphasis-300">{pairLabel(group)}</td>
-                      <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
-                      <td className="py-3 pr-4">
-                        <FirmwarePickerCell
+      {!showSettings && !showApplyDialog ? scopeAndFirmwareWarning : null}
+      <Section
+        title="Assigned miners"
+        subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
+      >
+        {exceedsAssignmentLimit ? (
+          <p role="alert" className="text-200 text-intent-critical-fill">
+            {assignmentLimitMessage}
+          </p>
+        ) : null}
+        {delegatedApplyBlocked ? (
+          <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
+            {delegatedApplyMessage}
+          </p>
+        ) : null}
+        {modelGroups.length === 0 ? (
+          <span className="text-300 text-text-primary-50">
+            No miners in scope yet. Open Channel settings and change Applies to to include miners.
+          </span>
+        ) : (
+          <table aria-label="Assigned miners by model" className="w-full text-left text-200">
+            <thead>
+              <tr className="text-text-primary-50">
+                <th className="py-1.5 pr-4 font-normal">Model</th>
+                <th className="py-1.5 pr-4 font-normal">Miners</th>
+                <th className="py-1.5 pr-4 font-normal">Firmware</th>
+                <th className="py-1.5 pr-4 font-normal">Update status</th>
+                <th className="py-1.5 font-normal">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="text-text-primary">
+              {modelGroups.map((group) => {
+                const acknowledged = acknowledgedAssignments[pairKey(group)];
+                const activeRollout = acknowledged ? undefined : activeForGroup(group);
+                const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
+                return (
+                  <tr
+                    key={observedPairKey(group)}
+                    className="border-t border-border-5"
+                    data-testid={`model-group-${group.model}`}
+                  >
+                    <td className="py-3 pr-4 text-emphasis-300">{pairLabel(group)}</td>
+                    <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
+                    <td className="py-3 pr-4">
+                      <FirmwarePickerCell
+                        group={group}
+                        firmwareFiles={firmwareFiles}
+                        stagedFileId={staged[pairKey(group)]?.fileId}
+                        acknowledgedAssignment={acknowledged}
+                        selectionError={invalidSelections.get(pairKey(group))}
+                        disabled={isWriting}
+                        onStageFirmware={(g, fileId) => {
+                          if (!writeInFlightRef.current && !isWriting) {
+                            const key = pairKey(g);
+                            setStaged((prev) => {
+                              const next = { ...prev };
+                              if (!isFirmwareChange(g, acknowledged, fileId)) delete next[key];
+                              else next[key] = { fileId, group: g };
+                              return next;
+                            });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="py-3 pr-4">
+                      {acknowledged ? (
+                        <span className="text-text-primary-50">Refreshing update status</span>
+                      ) : !livePairs.has(pairKey(group)) ? (
+                        <span className="text-text-primary-50">—</span>
+                      ) : activeRollout ? (
+                        <RolloutProgressIndicator
                           group={group}
-                          firmwareFiles={firmwareFiles}
-                          stagedFileId={staged[pairKey(group)]?.fileId}
-                          acknowledgedAssignment={acknowledged}
-                          selectionError={invalidSelections.get(pairKey(group))}
-                          disabled={isWriting}
-                          onStageFirmware={(g, fileId) => {
-                            if (!writeInFlightRef.current && !isWriting) {
-                              const key = pairKey(g);
-                              const savedFileId = acknowledged?.firmwareFileId ?? g.firmwareFileId;
-                              const hasAssignment = acknowledged
-                                ? acknowledged.firmwareFileId !== ""
-                                : g.firmwareChecksum !== "";
-                              setStaged((prev) => {
-                                const next = { ...prev };
-                                if (fileId === savedFileId && (fileId !== "" || !hasAssignment)) delete next[key];
-                                else next[key] = { fileId, group: g };
-                                return next;
-                              });
-                            }
-                          }}
+                          rollout={activeRollout}
+                          testId={`model-group-rollout-progress-${group.model}`}
                         />
-                      </td>
-                      <td className="py-3 pr-4">
-                        {acknowledged ? (
-                          <span className="text-text-primary-50">Refreshing update status</span>
-                        ) : !livePairs.has(pairKey(group)) ? (
-                          <span className="text-text-primary-50">—</span>
-                        ) : activeRollout ? (
-                          <RolloutProgressIndicator
-                            group={group}
-                            rollout={activeRollout}
-                            testId={`model-group-rollout-progress-${group.model}`}
-                          />
-                        ) : (
-                          <ModelStatusCell
-                            historyState={historyState}
-                            group={group}
-                            activeRollout={activeRollout}
-                            lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
-                          />
-                        )}
-                      </td>
-                      <td className="py-3 text-right">
-                        {group.minerCount > 0 ? (
-                          <Button
-                            variant={variants.secondary}
-                            size={sizes.compact}
-                            text="View miners"
-                            disabled={
-                              !livePairs.has(pairKey(group)) ||
-                              acknowledged !== undefined ||
-                              rolloutPending ||
-                              group.rollbackPending
-                            }
-                            onClick={() => setMinersPair(observedPairKey(group))}
-                            testId={`view-miners-${group.model}`}
-                          />
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </Section>
-      ) : null}
+                      ) : (
+                        <ModelStatusCell
+                          historyState={historyState}
+                          group={group}
+                          activeRollout={activeRollout}
+                          lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
+                        />
+                      )}
+                    </td>
+                    <td className="py-3 text-right">
+                      {group.minerCount > 0 ? (
+                        <Button
+                          variant={variants.secondary}
+                          size={sizes.compact}
+                          text="View miners"
+                          disabled={
+                            !livePairs.has(pairKey(group)) ||
+                            acknowledged !== undefined ||
+                            rolloutPending ||
+                            group.rollbackPending
+                          }
+                          onClick={() => setMinersPair(observedPairKey(group))}
+                          testId={`view-miners-${group.model}`}
+                        />
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Section>
 
-      {channel && showSettings ? (
+      {showSettings ? (
         <Modal
           open
           title="Channel settings"
@@ -984,6 +1039,7 @@ const ReleaseChannelManageView = ({
           ]}
         >
           {settingsFields}
+          {scopeAndFirmwareWarning ? <div className="mt-6">{scopeAndFirmwareWarning}</div> : null}
           {onDelete ? (
             <div className="mt-8">
               <Section
@@ -1013,7 +1069,7 @@ const ReleaseChannelManageView = ({
         </Modal>
       ) : null}
 
-      {channel && minersGroup && !minersRolloutPending && !acknowledgedAssignments[pairKey(minersGroup)] ? (
+      {minersGroup && !minersRolloutPending && !acknowledgedAssignments[pairKey(minersGroup)] ? (
         <ModelMinersModal
           channelId={channel.id}
           channelName={channel.name}
@@ -1026,91 +1082,81 @@ const ReleaseChannelManageView = ({
         />
       ) : null}
 
-      {channel ? (
-        <Dialog
-          open={showApplyDialog}
-          title={applyTitle}
-          subtitle={applySummary}
-          testId="apply-firmware-dialog"
-          onDismiss={() => {
-            if (!isApplying) setShowApplyDialog(false);
-          }}
-          buttons={[
-            {
-              text: "Cancel",
-              variant: variants.secondary,
-              onClick: () => setShowApplyDialog(false),
-              disabled: isApplying,
-            },
-            {
-              text: applyButtonText,
-              variant: variants.primary,
-              onClick: handleApply,
-              disabled: !canApply,
-              loading: isApplying,
-            },
-          ]}
-        >
-          <p role="status" className="mb-4 text-200 text-text-primary-70">
-            {pendingChangeCount} {pendingChangeCount === 1 ? "change" : "changes"} pending
+      <Dialog
+        open={showApplyDialog}
+        title={applyPreview.title}
+        subtitle={applyPreview.summary}
+        testId="apply-firmware-dialog"
+        onDismiss={() => {
+          if (!isApplying) setShowApplyDialog(false);
+        }}
+        buttons={[
+          {
+            text: "Cancel",
+            variant: variants.secondary,
+            onClick: () => setShowApplyDialog(false),
+            disabled: isApplying,
+          },
+          {
+            text: applyPreview.button,
+            variant: variants.primary,
+            onClick: handleApply,
+            disabled: !canApply,
+            loading: isApplying,
+          },
+        ]}
+      >
+        <p role="status" className="mb-4 text-200 text-text-primary-70">
+          {applyPreview.count} {applyPreview.count === 1 ? "change" : "changes"} pending
+        </p>
+        {scopeAndFirmwareWarning}
+        {applyError ? (
+          <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
+            {applyError}
           </p>
-          {applyError ? (
-            <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
-              {applyError}
-            </p>
-          ) : null}
-          {dirty && !settingsValid ? (
-            <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
-              Correct the channel settings before applying changes.
-            </p>
-          ) : null}
-          {delegatedApplyBlocked ? (
-            <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
-              {delegatedApplyMessage}
-            </p>
-          ) : null}
-          {invalidSelections.size > 0 ? (
-            <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
-              Choose valid firmware for every changed model or discard the pending changes.
-            </p>
-          ) : null}
-          {exceedsAssignmentLimit ? (
-            <p role="alert" className="mb-3 text-200 text-text-primary">
-              {assignmentLimitMessage}
-            </p>
-          ) : null}
-          {dirty && savedSettings ? (
-            <div className="mb-5">
-              <ChannelSettingsChanges before={savedSettingsDraft} after={settingsDraft} minerNames={minerNames} />
-              {behaviorChanged && activeCount > 0 ? (
-                <p className="mt-3 text-200 text-text-primary-70">
-                  Updates already in progress keep their original behavior, except for the channel-wide offline limit.
-                </p>
-              ) : null}
-              {scopeChanged ? (
-                <p className="mt-3 text-200 text-text-primary-70">
-                  Scope changes also affect current firmware assignments.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          {dirtyAssignments.length > 0 ? (
-            <section aria-label="Firmware changes">
-              <h3 className="mb-2 text-emphasis-300">Firmware</h3>
-              <ChangePreviewTable
-                label="Firmware changes"
-                subject="Model"
-                rows={dirtyAssignments.map((assignment) => ({
-                  key: pairKey(assignment),
-                  label: pairLabel(assignment),
-                  original: originalVersionLabel(assignment),
-                  target: versionLabel(assignment.firmwareFileId),
-                }))}
-              />
-            </section>
-          ) : null}
-        </Dialog>
-      ) : null}
+        ) : null}
+        {dirty && !settingsValid ? (
+          <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
+            Correct the channel settings before applying changes.
+          </p>
+        ) : null}
+        {delegatedApplyBlocked ? (
+          <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
+            {delegatedApplyMessage}
+          </p>
+        ) : null}
+        {invalidSelections.size > 0 ? (
+          <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
+            Choose valid firmware for every changed model or discard the pending changes.
+          </p>
+        ) : null}
+        {exceedsAssignmentLimit ? (
+          <p role="alert" className="mb-3 text-200 text-text-primary">
+            {assignmentLimitMessage}
+          </p>
+        ) : null}
+        {applyPreview.settingsChanges ? (
+          <div className="mb-5">
+            <ChannelSettingsChanges changes={applyPreview.settingsChanges} />
+            {applyPreview.behaviorChangedDuringUpdate ? (
+              <p className="mt-3 text-200 text-text-primary-70">
+                Updates already in progress keep their original behavior, except for the channel-wide offline limit.
+              </p>
+            ) : null}
+            {applyPreview.scopeChanged ? (
+              <p className="mt-3 text-200 text-text-primary-70">
+                Scope changes also affect current firmware assignments.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {applyPreview.firmwareRows.length > 0 ? (
+          <section aria-label="Firmware changes">
+            <h3 className="mb-2 text-emphasis-300">Firmware</h3>
+            <ChangePreviewTable label="Firmware changes" subject="Model" rows={applyPreview.firmwareRows} />
+          </section>
+        ) : null}
+      </Dialog>
     </div>
   );
 };

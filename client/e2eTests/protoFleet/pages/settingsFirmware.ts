@@ -44,11 +44,23 @@ export class SettingsFirmwarePage extends BasePage {
 
   async openReleaseChannelsTab() {
     await this.closeChannelSettings();
-    await this.page.getByRole("button", { name: "Release channels", exact: true }).click();
-    await this.validateTitle("Release channels");
+    await this.releaseChannelsTab().click();
+    await this.validateReleaseChannelsTabOpened();
+  }
+
+  private releaseChannelsTab(): Locator {
+    return this.page
+      .getByTestId("firmware-tab-navigation")
+      .getByRole("button", { name: "Release channels", exact: true });
+  }
+
+  private async validateReleaseChannelsTabOpened() {
+    await expect(this.releaseChannelsTab()).toHaveAttribute("aria-current", "page");
     // The channels table renders only after loading finishes; helpers like
     // deleteChannelIfPresent would otherwise race and see no channels.
     await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
+    await expect(this.page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+    await expect(this.page.getByTestId("release-channels-load-error")).toBeHidden();
   }
 
   // The manage view for a channel, shown after drilling in via "Manage" or
@@ -115,17 +127,21 @@ export class SettingsFirmwarePage extends BasePage {
 
   async saveChannelChanges() {
     await this.reviewChannelChanges();
+    await this.confirmChannelChanges();
+  }
+
+  async confirmChannelChanges() {
     await this.applyDialog().getByRole("button", { name: "Apply changes", exact: true }).click();
     await expect(this.applyDialog()).toBeHidden();
     await this.validateTextInToast("Channel changes applied");
   }
 
-  // The save action is blocked because the scope overlaps another channel.
+  // Creation is blocked when the scope overlaps another channel. Existing
+  // channels can still review changes before server validation during Apply.
   async validateScopeConflict(otherChannelName: string) {
-    const modal = await this.openChannelSettings();
-    const action = (await this.createChannelModal.isVisible()) ? "Create channel" : "Review changes";
-    await expect(modal.getByTestId("scope-conflicts")).toContainText(otherChannelName);
-    await expect(modal.getByRole("button", { name: action, exact: true })).toBeDisabled();
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("scope-conflicts")).toContainText(otherChannelName);
+    await expect(this.createChannelModal.getByRole("button", { name: "Create channel", exact: true })).toBeDisabled();
   }
 
   // Opens the "Miners" selector of the Applies to section.
@@ -174,6 +190,30 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.createChannelModal.getByTestId("scope-preview")).toContainText(
       `covers ${count} ${count === 1 ? "miner" : "miners"}`,
     );
+  }
+
+  async validateScopeMinerSelection(count: number) {
+    await expect(
+      this.page
+        .getByTestId("channel-settings-modal")
+        .getByTestId("scope-editor")
+        .getByRole("button", { name: `Miners ${count} ${count === 1 ? "miner" : "miners"}`, exact: true }),
+    ).toBeVisible();
+  }
+
+  async validateScopeMinerRemoval(removedMiner: string, remainingMiner: string) {
+    const table = this.applyDialog().getByRole("table", { name: "Channel settings changes", exact: true });
+    await expect(table.getByRole("columnheader")).toHaveText(["Setting", "Original", "Target"]);
+    const cells = table
+      .getByRole("row")
+      .filter({ has: this.page.getByRole("rowheader", { name: "Applies to · Miners", exact: true }) })
+      .getByRole("cell");
+    await expect(cells).toHaveCount(2);
+    // Preview values include the identifier after each display name. Check
+    // the Original and Target columns so an old selection cannot satisfy both.
+    await expect(cells.nth(0)).toContainText(`${removedMiner} (`);
+    await expect(cells.nth(0)).toContainText(`${remainingMiner} (`);
+    await expect(cells.nth(1)).toHaveText(new RegExp(`^${escapeRegExp(remainingMiner)} \\([^\\n]+\\)$`));
   }
 
   // --- Update behavior controls ---
@@ -596,8 +636,7 @@ export class SettingsFirmwarePage extends BasePage {
     await this.closeChannelSettings();
     await this.appRolloutPill().click();
     await this.page.getByRole("link", { name: "View release channels", exact: true }).click();
-    await this.validateTitle("Release channels");
-    await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
+    await this.validateReleaseChannelsTabOpened();
   }
 
   // The update is done when every miner in the model group reports the

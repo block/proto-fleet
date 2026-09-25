@@ -478,7 +478,9 @@ describe("release channel write ordering", () => {
     expect(onApply).toHaveBeenCalledOnce();
     expect(screen.getByTestId("channel-settings")).toBeDisabled();
     await act(async () => write.reject(new Error("Firmware rejected")));
-    expect(dialog).toHaveTextContent(/settings.*applied|settings.*saved/i);
+    expect(dialog).toHaveTextContent(
+      "Channel settings were saved, but firmware changes could not be applied. Your firmware selections are still pending. Firmware rejected",
+    );
     expect(dialog).toHaveTextContent("Firmware rejected");
     expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
     expect(dialog).toHaveTextContent("1 change pending");
@@ -538,6 +540,13 @@ describe("release channel write ordering", () => {
 
   test("retains a staged model when a scope save removes its row and firmware needs retry", async () => {
     const channel = assignedChannel();
+    channel.modelGroups = channel.modelGroups.map((group) => ({
+      ...group,
+      firmwareFileId: "",
+      firmwareChecksum: "",
+      firmwareVersion: "",
+      assignmentGeneration: 0n,
+    }));
     const { onApply, onSave, updateChannel } = renderManage(channel, undefined, false, [replacementFile]);
     openChannelSettings();
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));

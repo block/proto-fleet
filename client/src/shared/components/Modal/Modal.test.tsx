@@ -21,6 +21,7 @@ describe("Modal", () => {
 
     const scrollArea = screen.getByTestId("modal");
     const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    const bodyTitle = screen.getByText("Channel settings");
 
     expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
     expect(screen.getByText("Channel settings")).toBeInTheDocument();
@@ -28,11 +29,41 @@ describe("Modal", () => {
     for (const scrollTop of [1, 1, 100, 100, 1]) {
       fireEvent.scroll(scrollArea, { target: { scrollTop } });
       expect(within(header).getByText("Channel settings")).toBeInTheDocument();
+      expect(bodyTitle).toHaveClass("invisible");
+      expect(bodyTitle).not.toHaveClass("hidden");
+      expect(scrollArea).toContainElement(bodyTitle);
     }
 
     fireEvent.scroll(scrollArea, { target: { scrollTop: 0 } });
     expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
     expect(screen.getByText("Channel settings")).toBeInTheDocument();
+    expect(bodyTitle).not.toHaveClass("invisible");
+  });
+
+  it("retains the body title on phones when the sticky header is hidden there", () => {
+    render(
+      <Modal title="Phone settings" hideHeaderOnPhone>
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+    const bodyTitle = screen.getByText("Phone settings");
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 20 } });
+
+    expect(header).toHaveClass("phone:hidden");
+    expect(bodyTitle).toHaveClass("invisible", "phone:visible");
+    expect(bodyTitle).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("keeps the body title visible while scrolling without a header", () => {
+    render(
+      <Modal title="Headerless settings" showHeader={false}>
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 20 } });
+    expect(screen.getByText("Headerless settings")).not.toHaveClass("invisible");
   });
 
   it("tracks scrolling when first opened and resets the title when reopened", () => {

@@ -206,8 +206,12 @@ const Modal = ({
           ) : null}
           {title && !isFullscreen && !forceTitleCollapsed ? (
             <div
+              // Retain this space so collapsing the title cannot move the
+              // scroll boundary. Only the visible title should be announced.
               className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
                 "phone:mb-0": hideHeaderOnPhone,
+                invisible: showHeader && showTitleInHeader,
+                "phone:visible": hideHeaderOnPhone,
               })}
             >
               {title}

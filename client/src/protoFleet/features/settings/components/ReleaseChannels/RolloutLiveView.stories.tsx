@@ -1,14 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
-import {
-  activeRigRollout,
-  batchedRigRollout,
-  gatedRigRollout,
-  listRolloutDevicesFixture,
-  minerNames,
-  pausedRigRollout,
-} from "./ReleaseChannels.fixtures";
+import { activeRigRollout, batchedRigRollout, gatedRigRollout, pausedRigRollout } from "./ReleaseChannels.fixtures";
 import RolloutLiveView from "./RolloutLiveView";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
@@ -34,8 +27,6 @@ const meta = {
   argTypes: {
     rollout: { control: false },
     currentGeneration: { control: false },
-    minerNames: { control: false },
-    listRolloutDevices: { control: false },
     onViewUpdate: { control: false },
   },
   args: {
@@ -45,12 +36,12 @@ const meta = {
     onResume: fn(() => Promise.resolve()),
     onCancel: fn(),
     onRollback: fn(),
-    onRetryFailed: fn(() => Promise.resolve()),
+    onRetryFailed: fn(),
+    onViewMiners: fn(),
     onManage: fn(),
     // Explicit absence also prevents the global action regex adding a callback.
     onViewUpdate: undefined,
     onClose: fn(),
-    onDialogChange: fn(),
   },
 } satisfies Meta<typeof RolloutLiveView>;
 
@@ -60,15 +51,7 @@ type Story = StoryObj<typeof RolloutLiveView>;
 // Protobuf fixtures contain bigint values, which Storybook's object controls
 // cannot serialize. Keep them in the render while exposing primitive controls.
 const card = (rollout: Rollout): Story => ({
-  render: (args) => (
-    <RolloutLiveView
-      {...args}
-      rollout={rollout}
-      currentGeneration={rollout.assignmentGeneration}
-      minerNames={minerNames}
-      listRolloutDevices={listRolloutDevicesFixture}
-    />
-  ),
+  render: (args) => <RolloutLiveView {...args} rollout={rollout} currentGeneration={rollout.assignmentGeneration} />,
 });
 
 export const Updating: Story = card(activeRigRollout);

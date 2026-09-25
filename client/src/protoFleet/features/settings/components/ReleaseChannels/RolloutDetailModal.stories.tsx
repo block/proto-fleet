@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
 
 import {
   activeRigRollout,
@@ -7,8 +8,6 @@ import {
   completedRigRollout,
   completedWithFailuresRigRollout,
   gatedRigRollout,
-  listRolloutDevicesFixture,
-  minerNames,
   pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
 import RolloutDetailModal from "./RolloutDetailModal";
@@ -21,6 +20,23 @@ const meta = {
   component: RolloutDetailModal,
   parameters: {
     layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "Fixed server snapshots. Callbacks are recorded in Actions; use the Active Monitor stories for navigation and confirmation flows.",
+      },
+    },
+  },
+  args: {
+    onClose: fn(),
+    onContinue: fn(() => Promise.resolve()),
+    onPause: fn(() => Promise.resolve()),
+    onResume: fn(() => Promise.resolve()),
+    onCancel: fn(),
+    onRollback: fn(),
+    onRetryFailed: fn(),
+    onViewMiners: fn(),
+    onManage: fn(),
   },
 } satisfies Meta<typeof RolloutDetailModal>;
 
@@ -28,25 +44,10 @@ export default meta;
 
 type Story = StoryObj<typeof RolloutDetailModal>;
 
-const settle = () => Promise.resolve();
-const noop = () => {};
-
 const detail = (rollout: Rollout): Story => ({
-  render: () => (
+  render: (args) => (
     <div className="min-h-screen bg-surface-base">
-      <RolloutDetailModal
-        rollout={rollout}
-        minerNames={minerNames}
-        listRolloutDevices={listRolloutDevicesFixture}
-        onClose={noop}
-        onContinue={settle}
-        onPause={settle}
-        onResume={settle}
-        onCancel={noop}
-        onRollback={noop}
-        onRetryFailed={settle}
-        onManage={noop}
-      />
+      <RolloutDetailModal {...args} rollout={rollout} />
     </div>
   ),
 });

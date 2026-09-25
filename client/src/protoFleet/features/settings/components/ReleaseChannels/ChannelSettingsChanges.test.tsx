@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import { defaultBehavior } from "./behaviorUtils";
-import ChannelSettingsChanges from "./ChannelSettingsChanges";
+import ChannelSettingsChangesView from "./ChannelSettingsChanges";
+import { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
 import {
   ReleaseChannelScopeSchema,
   RolloutAutomationThresholdsSchema,
@@ -14,6 +15,16 @@ import {
 import type { ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 afterEach(cleanup);
+
+const ChannelSettingsChanges = ({
+  before,
+  after,
+  minerNames,
+}: {
+  before: ReleaseChannelDraft;
+  after: ReleaseChannelDraft;
+  minerNames: Record<string, string>;
+}) => <ChannelSettingsChangesView changes={getChannelSettingsChanges(before, after, minerNames)} />;
 
 const draft = (patch: Partial<ReleaseChannelDraft> = {}): ReleaseChannelDraft => ({
   name: "Stable",

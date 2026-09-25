@@ -27,13 +27,10 @@ it.each([
   expect(screen.getByTestId("inline-rollout-evidence")).toBeInTheDocument();
 });
 
-it("uses an explicit action spy for layout-effect dialog notifications", async () => {
+it("records miner drilldowns as explicit actions in the isolated card story", () => {
   render(<Paused />);
-  expect(Paused.args.onDialogChange).toHaveBeenCalledWith(pausedRigRollout, false);
   fireEvent.click(screen.getByTestId("inline-view-rollout-more-actions-trigger"));
   expect(screen.queryByTestId("inline-view-rollout-open-action")).not.toBeInTheDocument();
   fireEvent.click(screen.getByTestId("inline-view-rollout-view-miners-action"));
-  expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
-  expect(await screen.findByText("Rig A01")).toBeInTheDocument();
-  expect(Paused.args.onDialogChange).toHaveBeenLastCalledWith(pausedRigRollout, true);
+  expect(Paused.args.onViewMiners).toHaveBeenCalledWith(pausedRigRollout, "all");
 });

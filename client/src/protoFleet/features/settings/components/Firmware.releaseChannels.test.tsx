@@ -215,9 +215,13 @@ describe("update detail Manage navigation", () => {
       expect(api.updateChannel).not.toHaveBeenCalled();
       expect(api.applyFirmware).not.toHaveBeenCalled();
 
+      // Keep both drafts while navigating, then explicitly retain the current
+      // scope before applying a change to an existing firmware assignment.
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Keep current scope" }));
       fireEvent.click(screen.getByTestId("save-channel"));
       const preview = within(screen.getByTestId("apply-firmware-dialog"));
-      expect(preview.getByText("5 changes pending")).toBeInTheDocument();
+      expect(preview.getByText("4 changes pending")).toBeInTheDocument();
       expect(api.updateChannel).not.toHaveBeenCalled();
       expect(api.applyFirmware).not.toHaveBeenCalled();
       fireEvent.click(preview.getByRole("button", { name: "Apply changes" }));
@@ -227,7 +231,7 @@ describe("update detail Manage navigation", () => {
         expect.objectContaining({
           name: "Canary draft",
           description: "Keep this description",
-          scope: expect.objectContaining({ siteIds: [2n] }),
+          scope: canaryChannel.scope,
           behavior: expect.objectContaining({ pilotSize: 3 }),
         }),
       );

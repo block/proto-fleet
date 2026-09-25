@@ -1,7 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { deferred } from "./__tests__/helpers";
 import { activeRigRollout, batchedRigRollout, gatedRigRollout, pausedRigRollout } from "./ReleaseChannels.fixtures";
 import RolloutLiveView from "./RolloutLiveView";
 import {
@@ -26,14 +25,13 @@ afterEach(() => {
 const propsFor = (rollout: Rollout) => ({
   rollout,
   presentation: "inline" as const,
-  minerNames: {},
-  listRolloutDevices: vi.fn().mockResolvedValue([]),
+  onViewMiners: vi.fn(),
   onContinue: vi.fn().mockResolvedValue(undefined),
   onPause: vi.fn().mockResolvedValue(undefined),
   onResume: vi.fn().mockResolvedValue(undefined),
   onCancel: vi.fn(),
   onRollback: vi.fn(),
-  onRetryFailed: vi.fn().mockResolvedValue(undefined),
+  onRetryFailed: vi.fn(),
   onManage: vi.fn(),
   onViewUpdate: vi.fn(),
 });
@@ -110,26 +108,15 @@ it("updates expanded evidence from polling and collapses details for a different
   expect(screen.queryByTestId("inline-rollout-evidence")).not.toBeInTheDocument();
 });
 
-it("keeps inline recovery confirmations and navigation available with the current update snapshot", async () => {
+it("requests retry confirmation and navigation with the current update snapshot", () => {
   const props = propsFor(activeRigRollout);
-  const pending = deferred();
-  props.onRetryFailed.mockReturnValue(pending.promise);
   render(<RolloutLiveView {...props} currentGeneration={activeRigRollout.assignmentGeneration} />);
   fireEvent.click(screen.getByTestId("inline-view-rollout-more-actions-trigger"));
   fireEvent.click(screen.getByTestId("inline-view-rollout-retry-action"));
-  expect(props.onRetryFailed).not.toHaveBeenCalled();
-  const dialog = screen.getByTestId("inline-retry-rollout-dialog");
-  expect(dialog).toHaveTextContent("including earlier updates");
-  fireEvent.click(within(dialog).getByTestId("inline-confirm-rollout-retry"));
   expect(props.onRetryFailed).toHaveBeenCalledExactlyOnceWith(activeRigRollout);
-  expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
-  expect(screen.getByTestId("inline-view-rollout-pause-action")).toBeDisabled();
   fireEvent.click(screen.getByTestId("inline-view-rollout-more-actions-trigger"));
-  expect(screen.getByTestId("inline-view-rollout-cancel-action")).toBeDisabled();
-  expect(screen.getByTestId("inline-view-rollout-rollback-action")).toBeDisabled();
   fireEvent.click(screen.getByTestId("inline-view-rollout-open-action"));
   expect(props.onViewUpdate).toHaveBeenCalledExactlyOnceWith(activeRigRollout);
-  await act(async () => pending.resolve());
 });
 
 it("honors the monitor action lock while keeping miner navigation and details available", async () => {
@@ -145,8 +132,7 @@ it("honors the monitor action lock while keeping miner navigation and details av
   expect(screen.getByTestId("inline-view-rollout-cancel-action")).toBeDisabled();
   expect(screen.getByTestId("inline-view-rollout-rollback-action")).toBeDisabled();
   fireEvent.click(screen.getByTestId("inline-view-rollout-view-miners-action"));
-  expect(await screen.findByTestId("rollout-miners-modal")).toBeInTheDocument();
-  expect(props.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(gatedRigRollout.id, expect.any(AbortSignal));
+  expect(props.onViewMiners).toHaveBeenCalledExactlyOnceWith(gatedRigRollout, "all");
 });
 
 it.each([

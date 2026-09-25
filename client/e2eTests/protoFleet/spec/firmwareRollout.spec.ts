@@ -169,9 +169,10 @@ test.describe("Firmware release channels", () => {
     });
 
     let sharedMiner = "";
+    let retainedMiner = "";
 
     await test.step("A second channel cannot claim a miner already in the first", async () => {
-      [sharedMiner] = await settingsFirmwarePage.getChannelMinerNames(channelA, rigTarget);
+      [sharedMiner, retainedMiner] = await settingsFirmwarePage.getChannelMinerNames(channelA, rigTarget);
       await settingsFirmwarePage.backToChannels();
       await settingsFirmwarePage.startCreateChannel(channelB);
       await settingsFirmwarePage.openScopeMiners();
@@ -186,7 +187,10 @@ test.describe("Firmware release channels", () => {
       await settingsFirmwarePage.openScopeMiners();
       await settingsFirmwarePage.toggleScopeMinerByName(sharedMiner);
       await settingsFirmwarePage.confirmScopeMinerSelection();
-      await settingsFirmwarePage.saveChannelChanges();
+      await settingsFirmwarePage.validateScopeMinerSelection(1);
+      await settingsFirmwarePage.reviewChannelChanges();
+      await settingsFirmwarePage.validateScopeMinerRemoval(sharedMiner, retainedMiner);
+      await settingsFirmwarePage.confirmChannelChanges();
       await settingsFirmwarePage.validateChannelViewMinerCount(channelA, 1);
       await settingsFirmwarePage.backToChannels();
       await settingsFirmwarePage.startCreateChannel(channelB);

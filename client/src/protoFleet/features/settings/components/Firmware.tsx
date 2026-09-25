@@ -6,20 +6,19 @@ import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
+import FirmwarePageLayout from "@/protoFleet/features/settings/components/FirmwarePageLayout";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
-import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
-import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -359,11 +358,6 @@ const TAB_FILES = "files";
 const TAB_RELEASE_CHANNELS = "releaseChannels";
 export const RELEASE_CHANNELS_TAB_PARAM = "release-channels";
 
-const firmwareTabs = [
-  { key: TAB_FILES, title: "Files" },
-  { key: TAB_RELEASE_CHANNELS, title: "Release channels" },
-];
-
 // The active tab lives in the `tab` search param so other surfaces can
 // deep-link straight to the release channels view. The active-updates monitor
 // consumes channel data on both tabs, so one page-owned poll feeds both views.
@@ -385,12 +379,6 @@ const Firmware = () => {
 
   // Let the existing tab handle navigation so an open editor can keep its draft.
   const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
-  const tabNavigationRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (activeTab === TAB_RELEASE_CHANNELS && manageRequest) {
-      tabNavigationRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
-    }
-  }, [activeTab, manageRequest]);
   // Update detail / rollback the history modal asked the monitor to open.
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
 
@@ -416,37 +404,31 @@ const Firmware = () => {
   ) : null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Firmware" />
-      {refreshWarning}
-      <ActiveUpdatesMonitor
-        api={channelsApi}
-        refreshWarning={refreshWarning}
-        request={monitorRequest}
-        onRequestHandled={() => setMonitorRequest(null)}
-        onManageChannel={(channelId) => {
-          setManageRequest({ channelId });
+    <FirmwarePageLayout
+      activeTab={activeTab}
+      manageRequest={manageRequest}
+      refreshWarning={refreshWarning}
+      onSelectTab={(key) => {
+        if (key === TAB_RELEASE_CHANNELS) {
           showChannels();
-        }}
-      />
-      <div ref={tabNavigationRef} className="scroll-mt-6" data-testid="firmware-tab-navigation">
-        <TabStrip
-          activeId={activeTab}
-          ariaLabel="Firmware sections"
-          onSelect={(key) => {
-            if (key === TAB_RELEASE_CHANNELS) {
-              showChannels();
-            } else {
-              setManageRequest(null);
-              setSearchParams({}, { replace: true });
-            }
+        } else {
+          setManageRequest(null);
+          setSearchParams({}, { replace: true });
+        }
+      }}
+      monitor={
+        <ActiveUpdatesMonitor
+          api={channelsApi}
+          refreshWarning={refreshWarning}
+          request={monitorRequest}
+          onRequestHandled={() => setMonitorRequest(null)}
+          onManageChannel={(channelId) => {
+            setManageRequest({ channelId });
+            showChannels();
           }}
-        >
-          {firmwareTabs.map((tab) => (
-            <TabStripItem key={tab.key} id={tab.key} label={tab.title} />
-          ))}
-        </TabStrip>
-      </div>
+        />
+      }
+    >
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
           api={channelsApi}
@@ -457,7 +439,7 @@ const Firmware = () => {
       ) : (
         <FirmwareFilesSection />
       )}
-    </div>
+    </FirmwarePageLayout>
   );
 };
 

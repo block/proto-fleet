@@ -1,10 +1,11 @@
-import { type ComponentProps, useEffect, useRef, useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ActiveUpdatesMonitor from "./ActiveUpdatesMonitor";
 import {
   activeRigRollout,
+  batchedAutoBehavior,
   batchedRigRollout,
   canaryChannel,
   checksums,
@@ -12,25 +13,35 @@ import {
   gatedRigRollout,
   listRolloutDevicesFixture,
   minerNames,
+  pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import {
   type Rollout,
+  RolloutBehaviorSchema,
   RolloutDeviceCountsSchema,
   RolloutDevicePhase,
   RolloutDeviceSchema,
+  RolloutEvidenceSchema,
+  RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import FirmwarePageLayout, { type FirmwareTab } from "@/protoFleet/features/settings/components/FirmwarePageLayout";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Active Monitor",
   component: ActiveUpdatesMonitor,
-  excludeStories: ["FirmwareMonitorPage"],
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "Production firmware page layout and monitor with fixed server snapshots. Actions settle locally without issuing RPCs.",
+      },
+    },
+  },
 } satisfies Meta<typeof ActiveUpdatesMonitor>;
 
 export default meta;
@@ -67,15 +78,9 @@ const s21Devices = [RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.QUEUED].m
 
 // The monitor and drilldowns use production components. Mutations settle
 // locally; these stories show fixed server snapshots, without issuing RPCs.
-export function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
-  const [activeTab, setActiveTab] = useState("files");
+function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
+  const [activeTab, setActiveTab] = useState<FirmwareTab>("files");
   const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
-  const tabNavigationRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (activeTab === "releaseChannels" && manageRequest) {
-      tabNavigationRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
-    }
-  }, [activeTab, manageRequest]);
   const channels = [
     {
       ...canaryChannel,
@@ -116,28 +121,23 @@ export function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
 
   return (
     <div className="min-h-screen bg-surface-base p-6 tablet:p-10" data-testid="firmware-monitor-story">
-      <div className="flex flex-col gap-6">
-        <SettingsPageHeader title="Firmware" />
-        <ActiveUpdatesMonitor
-          api={api}
-          onManageChannel={(channelId) => {
-            setManageRequest({ channelId });
-            setActiveTab("releaseChannels");
-          }}
-        />
-        <div ref={tabNavigationRef} className="scroll-mt-6" data-testid="firmware-tab-navigation">
-          <TabStrip
-            activeId={activeTab}
-            onSelect={(tab) => {
-              setActiveTab(tab);
-              if (tab === "files") setManageRequest(null);
+      <FirmwarePageLayout
+        activeTab={activeTab}
+        manageRequest={manageRequest}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          if (tab === "files") setManageRequest(null);
+        }}
+        monitor={
+          <ActiveUpdatesMonitor
+            api={api}
+            onManageChannel={(channelId) => {
+              setManageRequest({ channelId });
+              setActiveTab("releaseChannels");
             }}
-            ariaLabel="Firmware sections"
-          >
-            <TabStripItem id="files" label="Files" />
-            <TabStripItem id="releaseChannels" label="Release channels" />
-          </TabStrip>
-        </div>
+          />
+        }
+      >
         <div className="flex">
           <Button
             text={activeTab === "files" ? "Upload firmware" : "Create release channel"}
@@ -163,7 +163,7 @@ export function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
         ) : (
           <ReleaseChannelsTable channels={channels} rollouts={rollouts} onManage={noop} />
         )}
-      </div>
+      </FirmwarePageLayout>
     </div>
   );
 }
@@ -186,4 +186,31 @@ export const SingleBatchReview: Story = {
 export const ConcurrentUpdates: Story = {
   name: "Concurrent model updates",
   render: () => <FirmwareMonitorPage rollouts={[gatedRigRollout, activeS21Rollout]} />,
+};
+
+// The server keeps the healthy pilot at the gate until telemetry stabilizes.
+const waitingForTelemetry: Rollout = {
+  ...gatedRigRollout,
+  state: RolloutState.STABILIZING_TELEMETRY,
+  behavior: create(RolloutBehaviorSchema, {
+    ...create(RolloutBehaviorSchema, gatedRigRollout.behavior),
+    autoContinueOnHealthyTelemetry: true,
+    stabilizationSeconds: batchedAutoBehavior.stabilizationSeconds,
+    thresholds: batchedAutoBehavior.thresholds,
+  }),
+  evidence: create(RolloutEvidenceSchema, {
+    ...create(RolloutEvidenceSchema, gatedRigRollout.evidence),
+    holdReason: "Waiting for telemetry to stabilize",
+    stabilizationRemainingSeconds: 90,
+    readyToAdvance: false,
+  }),
+};
+
+export const WaitingForTelemetry: Story = {
+  name: "Waiting for telemetry",
+  render: () => <FirmwareMonitorPage rollouts={[waitingForTelemetry]} />,
+};
+
+export const Paused: Story = {
+  render: () => <FirmwareMonitorPage rollouts={[pausedRigRollout]} />,
 };

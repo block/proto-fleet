@@ -47,6 +47,10 @@ const FirmwarePickerContent = ({
     setPopoverRenderMode("portal-scrolling");
   }, [setPopoverRenderMode]);
 
+  // Closing for a write lock must also clear the open state, otherwise the
+  // old menu returns as soon as the write finishes.
+  if (disabled && open) setOpen(false);
+
   const selected = options.find((option) => option.value === value);
   const selectedLabel = assignment?.value === value ? assignment.label : selected?.label;
 

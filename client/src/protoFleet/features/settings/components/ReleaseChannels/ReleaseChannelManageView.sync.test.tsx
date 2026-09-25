@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { applyChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
-import { canaryChannel } from "./ReleaseChannels.fixtures";
+import { canaryChannel, firmwareFiles } from "./ReleaseChannels.fixtures";
 import {
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
@@ -12,6 +12,7 @@ import {
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
@@ -48,10 +49,12 @@ function renderManage(
   channel = channelFor(),
   onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(),
   previewScope = vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
+  files: FirmwareFileInfo[] = [],
 ) {
   const props = {
     ...manageViewProps(),
     channel,
+    firmwareFiles: files,
     previewScope,
     onSave,
   };
@@ -81,10 +84,16 @@ describe("release channel settings refresh", () => {
   it("blocks a combined draft with an oversized scope and recovers after correction", () => {
     const channel = channelFor();
     channel.scope = { ...channel.scope!, siteIds: Array.from({ length: 101 }, (_, index) => BigInt(index + 1)) };
-    const { onSave } = renderManage(channel);
+    channel.modelGroups = channel.modelGroups.map((group) => ({
+      ...group,
+      firmwareFileId: "",
+      firmwareChecksum: "",
+      firmwareVersion: "",
+    }));
+    const { onSave } = renderManage(channel, undefined, undefined, firmwareFiles);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local name" } });
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
-    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.3/ }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Select no more than 100 sites (101 selected).");
     expect(screen.getByTestId("save-channel")).toBeDisabled();

@@ -1,18 +1,14 @@
 import { useId } from "react";
 
 import ChangePreviewTable from "./ChangePreviewTable";
-import { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
-import type { ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
+import type { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
 
 interface ChannelSettingsChangesProps {
-  before: ReleaseChannelDraft;
-  after: ReleaseChannelDraft;
-  minerNames: Record<string, string>;
+  changes: ReturnType<typeof getChannelSettingsChanges>;
 }
 
-export default function ChannelSettingsChanges({ before, after, minerNames }: ChannelSettingsChangesProps) {
+export default function ChannelSettingsChanges({ changes: { changes, scopeChanges } }: ChannelSettingsChangesProps) {
   const headingId = useId();
-  const { changes, scopeChanges } = getChannelSettingsChanges(before, after, minerNames);
   if (changes.length === 0 && scopeChanges.length === 0) return null;
 
   return (

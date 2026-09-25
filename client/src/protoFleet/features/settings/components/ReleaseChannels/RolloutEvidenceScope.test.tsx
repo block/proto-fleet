@@ -2,8 +2,9 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+import { apiFor } from "./__tests__/monitorHelpers";
+import ActiveUpdatesMonitor from "./ActiveUpdatesMonitor";
 import { activeRigRollout } from "./ReleaseChannels.fixtures";
-import RolloutDetailModal from "./RolloutDetailModal";
 import RolloutMinersModal from "./RolloutMinersModal";
 import {
   RolloutBehaviorSchema,
@@ -40,17 +41,10 @@ describe("rollout evidence scope", () => {
   it("distinguishes overall REST progress from remaining-miner evidence in the detail and miner views", async () => {
     const listRolloutDevices = vi.fn().mockResolvedValue(devices);
     render(
-      <RolloutDetailModal
-        rollout={restRollout}
-        minerNames={{}}
-        listRolloutDevices={listRolloutDevices}
-        onClose={vi.fn()}
-        onContinue={vi.fn().mockResolvedValue(undefined)}
-        onPause={vi.fn().mockResolvedValue(undefined)}
-        onResume={vi.fn().mockResolvedValue(undefined)}
-        onCancel={vi.fn()}
-        onRollback={vi.fn()}
-        onRetryFailed={vi.fn().mockResolvedValue(undefined)}
+      <ActiveUpdatesMonitor
+        api={{ ...apiFor(restRollout), listRolloutDevices }}
+        request={{ kind: "view", rollout: restRollout }}
+        onManageChannel={vi.fn()}
       />,
     );
 

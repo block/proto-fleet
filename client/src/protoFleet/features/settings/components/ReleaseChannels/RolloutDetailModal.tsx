@@ -1,8 +1,6 @@
 import RolloutLiveView, { type RolloutLiveViewProps } from "./RolloutLiveView";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 
-export type { RolloutDetailActions } from "./RolloutLiveView";
-
 interface RolloutDetailModalProps extends Omit<RolloutLiveViewProps, "presentation" | "onClose"> {
   onClose: () => void;
 }
