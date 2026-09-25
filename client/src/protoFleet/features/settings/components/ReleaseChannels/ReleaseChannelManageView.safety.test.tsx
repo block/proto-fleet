@@ -10,9 +10,14 @@ import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("./ScopeEditor", () => ({
   default: ({ scope, onChange }: { scope: ReleaseChannelScope; onChange: (scope: ReleaseChannelScope) => void }) => (
-    <button onClick={() => onChange(create(ReleaseChannelScopeSchema, { ...scope, siteIds: [1n, 2n] }))}>
-      Add another site
-    </button>
+    <>
+      <button onClick={() => onChange(create(ReleaseChannelScopeSchema, { ...scope, siteIds: [1n, 2n] }))}>
+        Add another site
+      </button>
+      <button onClick={() => onChange(create(ReleaseChannelScopeSchema, { ...scope, deviceIdentifiers: ["new"] }))}>
+        Replace miners
+      </button>
+    </>
   ),
 }));
 vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn(), STATUSES: { success: "success", error: "error" } }));
@@ -126,6 +131,38 @@ describe("safe combined channel changes", () => {
     expect(dialog).toHaveTextContent("2 changes pending");
     await act(async () => apply.resolve());
     await waitFor(() => expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument());
+  });
+
+  it("preserves submitted miner lists across refreshes and clears nested details when Apply completes", async () => {
+    const props = {
+      ...manageViewProps(),
+      channel: { ...unassigned, scope: create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["old"] }) },
+      firmwareFiles,
+      minerNames: { old: "Original rig", new: "Target rig" },
+    };
+    const apply = deferred<void>();
+    props.onApply.mockReturnValueOnce(apply.promise);
+    const { rerender } = render(<ReleaseChannelManageView {...props} />);
+    chooseFirmware();
+    openChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: "Replace miners" }));
+    fireEvent.click(screen.getByTestId("save-channel"));
+    const preview = screen.getByTestId("apply-firmware-dialog");
+    await act(async () => fireEvent.click(within(preview).getByRole("button", { name: "Apply changes" })));
+    rerender(<ReleaseChannelManageView {...props} minerNames={{ old: "Renamed original", new: "Renamed target" }} />);
+    fireEvent.click(within(preview).getByRole("button", { name: "View miners" }));
+    const table = screen.getByRole("table", { name: "Miner changes" });
+    expect(table).toHaveTextContent("Original rig");
+    expect(table).toHaveTextContent("Target rig");
+    expect(table).not.toHaveTextContent("Renamed");
+    await act(async () => apply.resolve());
+    expect(screen.queryByTestId("miner-scope-changes-modal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Next name" } });
+    fireEvent.click(screen.getByTestId("save-channel"));
+    expect(screen.getByTestId("apply-firmware-dialog")).not.toHaveAttribute("inert");
+    expect(screen.queryByTestId("miner-scope-changes-modal")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("uses acknowledged assignments when refresh is unavailable (cleared=%s)", async (cleared) => {

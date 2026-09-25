@@ -70,6 +70,37 @@ const selectorLabels = {
   deviceIdentifiers: ["Miners", "Miner"],
 } as const;
 
+export interface MinerScopeChanges {
+  originalCount: number;
+  targetCount: number;
+  addedCount: number;
+  removedCount: number;
+  miners: { identifier: string; name: string; original: boolean; target: boolean }[];
+}
+
+function compareMiners(
+  before: string[],
+  after: string[],
+  minerNames: Record<string, string>,
+): MinerScopeChanges | null {
+  if (sameSelection(before, after)) return null;
+  const oldIds = new Set(before);
+  const newIds = new Set(after);
+  const selections = [...new Set([...oldIds, ...newIds])].sort().map((identifier) => ({
+    identifier,
+    name: (Object.prototype.hasOwnProperty.call(minerNames, identifier) && minerNames[identifier]) || identifier,
+    original: oldIds.has(identifier),
+    target: newIds.has(identifier),
+  }));
+  return {
+    originalCount: oldIds.size,
+    targetCount: newIds.size,
+    addedCount: selections.filter((miner) => !miner.original).length,
+    removedCount: selections.filter((miner) => !miner.target).length,
+    miners: selections,
+  };
+}
+
 export function getChannelSettingsChanges(
   before: ReleaseChannelDraft,
   after: ReleaseChannelDraft,
@@ -88,15 +119,18 @@ export function getChannelSettingsChanges(
   const changes = Object.entries(next)
     .filter(([label, value]) => previous[label] !== value)
     .map(([label, value]) => ({ label, before: previous[label] || "None", after: value || "None" }));
+  const minerChanges = compareMiners(before.scope.deviceIdentifiers, after.scope.deviceIdentifiers, minerNames);
   const scopeChanges = scopeSelectionFields.flatMap((field) => {
     if (sameSelection(before.scope[field], after.scope[field])) return [];
     const [label, singular] = selectorLabels[field];
     const oldIds = new Set(before.scope[field].map(String));
     const newIds = new Set(after.scope[field].map(String));
-    const describe = (id: string): string =>
-      field === "deviceIdentifiers" && minerNames[id] ? `${minerNames[id]} (${id})` : `${singular} ${id}`;
+    if (field === "deviceIdentifiers") {
+      return [{ label, before: miners(oldIds.size), after: miners(newIds.size) }];
+    }
+    const describe = (id: string): string => `${singular} ${id}`;
     const selection = (ids: Set<string>): string => [...ids].sort().map(describe).join("\n") || "None";
     return [{ label, before: selection(oldIds), after: selection(newIds) }];
   });
-  return { changes, scopeChanges };
+  return { changes, scopeChanges, minerChanges };
 }

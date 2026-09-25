@@ -1,13 +1,18 @@
 import { useId } from "react";
 
 import ChangePreviewTable from "./ChangePreviewTable";
-import type { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
+import type { getChannelSettingsChanges, MinerScopeChanges } from "./channelSettingsChangesUtils";
+import Button, { variants } from "@/shared/components/Button";
 
 interface ChannelSettingsChangesProps {
   changes: ReturnType<typeof getChannelSettingsChanges>;
+  onViewMiners: (changes: MinerScopeChanges, trigger: HTMLButtonElement) => void;
 }
 
-export default function ChannelSettingsChanges({ changes: { changes, scopeChanges } }: ChannelSettingsChangesProps) {
+export default function ChannelSettingsChanges({
+  changes: { changes, scopeChanges, minerChanges },
+  onViewMiners,
+}: ChannelSettingsChangesProps) {
   const headingId = useId();
   if (changes.length === 0 && scopeChanges.length === 0) return null;
 
@@ -29,6 +34,19 @@ export default function ChannelSettingsChanges({ changes: { changes, scopeChange
           })),
         ]}
       />
+      {minerChanges ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-200">
+          <span className="text-text-primary-70">
+            {minerChanges.addedCount.toLocaleString()} added · {minerChanges.removedCount.toLocaleString()} removed
+          </span>
+          <Button
+            variant={variants.textOnly}
+            text="View miners"
+            ariaHasPopup="dialog"
+            onClick={(event) => onViewMiners(minerChanges, event.currentTarget)}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

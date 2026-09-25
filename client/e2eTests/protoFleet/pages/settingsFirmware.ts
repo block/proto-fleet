@@ -208,12 +208,27 @@ export class SettingsFirmwarePage extends BasePage {
       .getByRole("row")
       .filter({ has: this.page.getByRole("rowheader", { name: "Applies to · Miners", exact: true }) })
       .getByRole("cell");
-    await expect(cells).toHaveCount(2);
-    // Preview values include the identifier after each display name. Check
-    // the Original and Target columns so an old selection cannot satisfy both.
-    await expect(cells.nth(0)).toContainText(`${removedMiner} (`);
-    await expect(cells.nth(0)).toContainText(`${remainingMiner} (`);
-    await expect(cells.nth(1)).toHaveText(new RegExp(`^${escapeRegExp(remainingMiner)} \\([^\\n]+\\)$`));
+    await expect(cells).toHaveText(["2 miners", "1 miner"]);
+
+    await this.applyDialog().getByRole("button", { name: "View miners", exact: true }).click();
+    const details = this.page.getByTestId("miner-scope-changes-modal");
+    await expect(details).toBeVisible();
+    const miners = details.getByRole("table", { name: "Miner changes", exact: true });
+    await expect(miners.getByRole("columnheader")).toHaveText(["Miner", "Original", "Target"]);
+    // Check membership on each named row, independent of table order and
+    // similar miner names elsewhere in the preview.
+    for (const [name, target] of [
+      [removedMiner, "Not included"],
+      [remainingMiner, "Included"],
+    ]) {
+      const row = miners.getByRole("row").filter({ has: this.page.getByText(name, { exact: true }) });
+      await expect(row.getByRole("rowheader").getByText(name, { exact: true })).toBeVisible();
+      const membership = row.getByRole("cell");
+      await expect(membership).toHaveText(["Included", target]);
+    }
+    await details.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(details).toBeHidden();
+    await expect(this.applyDialog()).toBeVisible();
   }
 
   // --- Update behavior controls ---

@@ -1318,6 +1318,36 @@ describe("release channel scope synchronization", () => {
     fireEvent.click(screen.getByRole("button", { name: selection }));
   };
 
+  test("opens miner details above the preview and returns focus without discarding the draft", async () => {
+    const channel = { ...existingChannel(), scope: scopeWith(1n) };
+    const { onSave, previewScope } = renderSettings(channel);
+    choose("Miners", "Choose miner 2");
+    await waitFor(() =>
+      expect(previewScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({ deviceIdentifiers: ["miner-2"] }),
+        channel.id,
+        expect.any(AbortSignal),
+      ),
+    );
+    fireEvent.click(screen.getByTestId("save-channel"));
+    const preview = screen.getByTestId("apply-firmware-dialog");
+    const viewMiners = within(preview).getByRole("button", { name: "View miners" });
+    fireEvent.click(viewMiners);
+    expect(preview).toHaveAttribute("inert");
+    expect(screen.getByLabelText("Search miners")).toHaveFocus();
+    expect(screen.getByRole("table", { name: "Miner changes" })).toHaveTextContent("miner-1");
+    expect(screen.getByRole("table", { name: "Miner changes" })).toHaveTextContent("miner-2");
+    fireEvent.keyDown(screen.getByLabelText("Search miners"), { key: "Escape" });
+    expect(screen.queryByTestId("miner-scope-changes-modal")).not.toBeInTheDocument();
+    expect(preview).not.toHaveAttribute("inert");
+    expect(viewMiners).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(viewMiners);
+    fireEvent.click(within(screen.getByTestId("miner-scope-changes-modal")).getByRole("button", { name: "Done" }));
+    expect(preview).toBeInTheDocument();
+    expect(viewMiners).toHaveFocus();
+  });
+
   test.each([
     ["Sites", "siteIds", "Choose site 2", [2n]],
     ["Buildings", "buildingIds", "Choose building 2", [2n]],

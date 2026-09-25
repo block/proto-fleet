@@ -237,11 +237,24 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
         <table aria-label="Channel settings changes">
           <thead><tr><th>Setting</th><th>Original</th><th>Target</th></tr></thead>
           <tbody>
-            <tr><th scope="row">Name</th><td>Old channel</td><td>Rig A (miner-a)</td></tr>
-            <tr><th scope="row">Applies to · Miners</th><td>Rig A (miner-a)\nRig B (miner-b)</td><td>Rig B (miner-b)</td></tr>
+            <tr><th scope="row">Name</th><td>1 miner</td><td>2 miners</td></tr>
+            <tr><th scope="row">Applies to · Miners</th><td>2 miners</td><td>1 miner</td></tr>
           </tbody>
         </table>
+        <button onclick="document.querySelector('[data-testid=miner-scope-changes-modal]').hidden = false">View miners</button>
         <button onclick="document.querySelector('[data-testid=toaster-container]').textContent = 'Channel changes applied'; this.closest('section').hidden = true">Apply changes</button>
+      </section>
+      <section data-testid="miner-scope-changes-modal" hidden>
+        <h2>Miner changes</h2>
+        <p>Rig A</p>
+        <table aria-label="Miner changes">
+          <thead><tr><th>Miner</th><th>Original</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span>Rig B</span><span>miner-b</span></th><td>Included</td><td>Included</td></tr>
+            <tr><th scope="row"><span>Rig A</span><span>miner-a</span></th><td>Included</td><td>Not included</td></tr>
+          </tbody>
+        </table>
+        <button onclick="this.closest('section').hidden = true">Done</button>
       </section>
       <div data-testid="toaster-container"></div>
     `);

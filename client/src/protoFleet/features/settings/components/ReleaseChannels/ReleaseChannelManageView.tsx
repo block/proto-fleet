@@ -13,9 +13,10 @@ import { create, equals } from "@bufbuild/protobuf";
 import { behaviorForComparison, defaultBehavior, rebaseBehavior, rolloutBehaviorErrors } from "./behaviorUtils";
 import ChangePreviewTable from "./ChangePreviewTable";
 import ChannelSettingsChanges from "./ChannelSettingsChanges";
-import { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
+import { getChannelSettingsChanges, type MinerScopeChanges } from "./channelSettingsChangesUtils";
 import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
+import MinerScopeChangesModal from "./MinerScopeChangesModal";
 import ModelMinersModal from "./ModelMinersModal";
 import RolloutControls, { type RolloutNumberDraft } from "./RolloutControls";
 import RolloutProgressIndicator from "./RolloutProgressIndicator";
@@ -346,6 +347,19 @@ const ReleaseChannelManageView = ({
   // Serialize settings and firmware writes, including clicks before React rerenders.
   const writeInFlightRef = useRef(false);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [minerScopePreview, setMinerScopePreview] = useState<MinerScopeChanges | null>(null);
+  const minerPreviewTrigger = useRef<HTMLButtonElement | null>(null);
+  const closeApplyDialog = () => {
+    setShowApplyDialog(false);
+    setMinerScopePreview(null);
+    minerPreviewTrigger.current = null;
+  };
+  useLayoutEffect(() => {
+    if (!minerScopePreview && minerPreviewTrigger.current) {
+      minerPreviewTrigger.current.focus();
+      minerPreviewTrigger.current = null;
+    }
+  }, [minerScopePreview]);
   const [submittedPreview, setSubmittedPreview] = useState<ApplyPreview | null>(null);
   // Pair whose miner table is open in the "View miners" modal.
   const [minersPair, setMinersPair] = useState<string | null>(null);
@@ -691,7 +705,7 @@ const ReleaseChannelManageView = ({
         }
         return remaining;
       });
-      setShowApplyDialog(false);
+      closeApplyDialog();
       pushToast({
         message: submittedSettings ? "Channel changes applied" : "Firmware changes applied",
         status: STATUSES.success,
@@ -728,7 +742,7 @@ const ReleaseChannelManageView = ({
     setPreview(null);
     setStaged({});
     setApplyError(null);
-    setShowApplyDialog(false);
+    closeApplyDialog();
   };
 
   const lastFinished = lastFinishedByChannelAssignment(channelRollouts);
@@ -1084,17 +1098,18 @@ const ReleaseChannelManageView = ({
 
       <Dialog
         open={showApplyDialog}
+        inert={minerScopePreview !== null}
         title={applyPreview.title}
         subtitle={applyPreview.summary}
         testId="apply-firmware-dialog"
         onDismiss={() => {
-          if (!isApplying) setShowApplyDialog(false);
+          if (!isApplying) closeApplyDialog();
         }}
         buttons={[
           {
             text: "Cancel",
             variant: variants.secondary,
-            onClick: () => setShowApplyDialog(false),
+            onClick: () => closeApplyDialog(),
             disabled: isApplying,
           },
           {
@@ -1137,7 +1152,13 @@ const ReleaseChannelManageView = ({
         ) : null}
         {applyPreview.settingsChanges ? (
           <div className="mb-5">
-            <ChannelSettingsChanges changes={applyPreview.settingsChanges} />
+            <ChannelSettingsChanges
+              changes={applyPreview.settingsChanges}
+              onViewMiners={(changes, trigger) => {
+                minerPreviewTrigger.current = trigger;
+                setMinerScopePreview(changes);
+              }}
+            />
             {applyPreview.behaviorChangedDuringUpdate ? (
               <p className="mt-3 text-200 text-text-primary-70">
                 Updates already in progress keep their original behavior, except for the channel-wide offline limit.
@@ -1157,6 +1178,9 @@ const ReleaseChannelManageView = ({
           </section>
         ) : null}
       </Dialog>
+      {showApplyDialog && minerScopePreview ? (
+        <MinerScopeChangesModal changes={minerScopePreview} onClose={() => setMinerScopePreview(null)} />
+      ) : null}
     </div>
   );
 };
