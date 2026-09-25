@@ -25,10 +25,11 @@ import (
 const MaxPairBatch = 1024
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
-// from the not-yet-paired devices the node discovered (the listing already
-// excludes cloud-paired and already-bound devices), so a requested identifier
-// that is not pairable is silently dropped. Explicit selections are filtered in
-// SQL by identifier (no whole-org scan); pair_all is capped at one batch.
+// from devices the node discovered that are either not yet paired or are bound
+// to this node and need credentials. The listing excludes cloud-paired and
+// foreign-node-bound devices, so a requested identifier that is not pairable is
+// silently dropped. Explicit selections are filtered in SQL by identifier (no
+// whole-org scan); pair_all is capped at one batch.
 func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int64, identifiers []string, pairAllUnpaired bool, credentials *pairingpb.Credentials) ([]*pairingpb.FleetNodePairTarget, error) {
 	targets, _, err := s.resolvePairTargetsPage(ctx, fleetNodeID, orgID, identifiers, pairAllUnpaired, credentials, nil)
 	return targets, err

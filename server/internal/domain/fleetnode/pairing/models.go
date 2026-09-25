@@ -36,9 +36,9 @@ type FleetNodeDevice struct {
 	AssignedBy       *int64
 }
 
-// FleetNodeDiscoveredDevice is a device a fleet node discovered that is not yet
-// paired to it. PairingStatus is empty when never attempted, or
-// "AUTHENTICATION_NEEDED" after a pair attempt that needs credentials.
+// FleetNodeDiscoveredDevice is a device available to a Fleet Node for pairing
+// or credential retry. PairingStatus is empty when never attempted, or
+// "AUTHENTICATION_NEEDED" after pairing or recovery needs new credentials.
 type FleetNodeDiscoveredDevice struct {
 	ID               int64
 	FleetNodeID      int64

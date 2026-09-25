@@ -16,7 +16,7 @@ type cloudRecoveryErrorQuerier struct {
 	err error
 }
 
-func (q cloudRecoveryErrorQuerier) LockCloudRecoveryDevice(context.Context, sqlc.LockCloudRecoveryDeviceParams) ([]int64, error) {
+func (q cloudRecoveryErrorQuerier) LockDeviceByIdentifier(context.Context, sqlc.LockDeviceByIdentifierParams) ([]int64, error) {
 	return nil, q.err
 }
 

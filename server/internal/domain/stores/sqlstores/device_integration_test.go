@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -125,6 +127,356 @@ func TestGetOfflineDevices_InvalidLimit(t *testing.T) {
 			require.Contains(t, err.Error(), "limit must be at least 1")
 		})
 	}
+}
+
+func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	_, err := conn.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'recovery-org', 'Recovery Org') ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+
+	var nodeID, replacementNodeID, discoveredID, deviceID int64
+	nodeIdentity := make([]byte, 32)
+	nodeIdentity[0] = 1
+	replacementIdentity := make([]byte, 32)
+	replacementIdentity[0] = 2
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'recovery-node', $1, $2, 'CONFIRMED') RETURNING id`, nodeIdentity, nodeIdentity).Scan(&nodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'replacement-node', $1, $2, 'CONFIRMED') RETURNING id`, replacementIdentity, replacementIdentity).Scan(&replacementNodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.10', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&discoveredID))
+	identifier := fmt.Sprintf("recovery-device-%d", discoveredID)
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, 'aa:bb:cc:dd:ee:01', 'recovery-serial', 1, $2) RETURNING id`, identifier, discoveredID).Scan(&deviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '10 minutes')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+	credentialBlob := append([]byte{1}, []byte("PFNC")...)
+	credentialBlob = append(credentialBlob, make([]byte, 28)...)
+	usernameEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	credentialBlob[len(credentialBlob)-1] = 1
+	passwordEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	_, err = conn.Exec(`INSERT INTO miner_credentials (device_id, username_enc, password_enc) VALUES ($1, $2, $3)`, deviceID, usernameEnc, passwordEnc)
+	require.NoError(t, err)
+	var identitylessDiscoveredID, identitylessDeviceID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.11', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&identitylessDiscoveredID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, '', '', 1, $2) RETURNING id`, fmt.Sprintf("identityless-recovery-device-%d", identitylessDiscoveredID), identitylessDiscoveredID).Scan(&identitylessDeviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '20 minutes')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, identitylessDeviceID)
+	require.NoError(t, err)
+
+	targets, err := store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target := targets[0]
+	require.Equal(t, identifier, target.DeviceIdentifier)
+
+	for _, write := range []struct {
+		name  string
+		apply func(context.Context, interfaces.FleetNodeRecoveryTarget, string, string, string) (bool, error)
+	}{
+		{"endpoint", store.ApplyFleetNodeRecoveredEndpoint},
+		{"authentication", store.ApplyFleetNodeRecoveryAuthenticationNeeded},
+	} {
+		t.Run(write.name+" waits for node revocation", func(t *testing.T) {
+			revokeTx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer revokeTx.Rollback()
+			// Leave the binding intact: revocation must exclude the late ack
+			// even before its separate ownership cleanup completes.
+			_, err = revokeTx.Exec(`UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			type applyResult struct {
+				applied bool
+				err     error
+			}
+			result := make(chan applyResult, 1)
+			go func() {
+				ok, applyErr := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+				result <- applyResult{ok, applyErr}
+			}()
+			select {
+			case early := <-result:
+				require.Failf(t, "recovery did not wait for node revocation", "result: %+v", early)
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, revokeTx.Commit())
+			select {
+			case final := <-result:
+				require.NoError(t, final.err)
+				require.False(t, final.applied)
+			case <-time.After(5 * time.Second):
+				require.Fail(t, "recovery did not resume after node revocation")
+			}
+			var ipAddress, pairingStatus string
+			require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+			require.Equal(t, "10.0.0.10", ipAddress)
+			require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+			require.Equal(t, "PAIRED", pairingStatus)
+			_, err = conn.Exec(`UPDATE fleet_node SET enrollment_status='CONFIRMED', deleted_at=NOW() WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			applied, err := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+			require.NoError(t, err)
+			require.False(t, applied, "a deleted node cannot authorize recovery")
+			_, err = conn.Exec(`UPDATE fleet_node SET deleted_at=NULL WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+		})
+	}
+
+	for _, recoveryFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("endpoint recovery first=%t", recoveryFirst), func(t *testing.T) {
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer tx.Rollback()
+			q := sqlc.New(tx)
+			locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{DeviceIdentifier: identifier, OrgID: 1})
+			require.NoError(t, err)
+			require.Equal(t, []int64{deviceID}, locked)
+			if recoveryFirst {
+				_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
+					IpAddress: "10.0.0.20", Port: "8080", UrlScheme: "http",
+					DeviceIdentifier: identifier, OrgID: 1, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+					MacAddress: target.MacAddress, FleetNodeID: nodeID,
+					ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+				})
+				require.NoError(t, err)
+			} else {
+				row, err := q.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierParams{
+					DeviceIdentifier: identifier, OrgID: 1,
+					ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+				})
+				require.NoError(t, err)
+				require.True(t, row.Updated)
+			}
+			result := make(chan reconcileResult, 1)
+			go func() {
+				waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				if recoveryFirst {
+					eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(waitCtx, identifier, 1, networking.ConnectionInfo{IPAddress: "10.0.0.10", Port: 80, Protocol: networking.ProtocolHTTP})
+					result <- reconcileResult{eligible, updated, err}
+				} else {
+					applied, err := store.ApplyFleetNodeRecoveredEndpoint(waitCtx, target, "10.0.0.20", "8080", "http")
+					result <- reconcileResult{updated: applied, err: err}
+				}
+			}()
+			select {
+			case early := <-result:
+				require.Failf(t, "write did not wait for the device lock", "result: %+v", early)
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, tx.Commit())
+			select {
+			case final := <-result:
+				require.NoError(t, final.err)
+				require.False(t, final.eligible)
+				require.False(t, final.updated, "the waiting write must recheck the winner's endpoint or pairing status")
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "write did not resume after the device lock was released")
+			}
+			var ipAddress, pairingStatus string
+			require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+			require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+			if recoveryFirst {
+				require.Equal(t, "10.0.0.20", ipAddress)
+				require.Equal(t, "PAIRED", pairingStatus)
+			} else {
+				require.Equal(t, "10.0.0.10", ipAddress)
+				require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+			}
+			_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.10', port='80' WHERE id=$1`, discoveredID)
+			require.NoError(t, err)
+			_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+			require.NoError(t, err)
+		})
+	}
+
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.12' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite a newer discovered endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.10' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+
+	applied, err = store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied)
+	var ipAddress, port string
+	require.NoError(t, conn.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress, &port))
+	require.Equal(t, "10.0.0.20", ipAddress)
+	require.Equal(t, "8080", port)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
+
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8081' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change authentication for a newer endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8080' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite repaired credentials")
+	var pairingStatus string
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
+	type applyResult struct {
+		applied bool
+		err     error
+	}
+	repairTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer repairTx.Rollback()
+	_, err = repairTx.Exec(`SELECT id FROM device WHERE id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	_, err = repairTx.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	result := make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not wait for credential repair", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.NoError(t, repairTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "a stale acknowledgement must not undo credential repair")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after credential repair")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+	require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+	require.Equal(t, "10.0.0.21", ipAddress, "authentication failure must retain the recovered endpoint for credential retry")
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, replacementNodeID, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, nodeID, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`DELETE FROM miner_credentials WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	credentiallessTarget := target
+	credentiallessTarget.CredentialUsername = nil
+	credentiallessTarget.CredentialPassword = nil
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied, "an absent credential snapshot should still apply when credentials remain absent")
+
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	ownerTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer ownerTx.Rollback()
+	_, err = ownerTx.Exec(`SELECT 1 FROM fleet_node_device WHERE device_id=$1 AND org_id=1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+
+	result = make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock ownership", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = ownerTx.Exec(`DELETE FROM fleet_node_device WHERE device_id=$1 AND org_id=1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, ownerTx.Commit())
+
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind unpair must recheck ownership")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after ownership removal")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+	statusTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer statusTx.Rollback()
+	_, err = statusTx.Exec(`SELECT 1 FROM device_status WHERE device_id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	result = make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock status", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = statusTx.Exec(`UPDATE device_status SET status='ACTIVE', status_timestamp=NOW() WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, statusTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind telemetry must recheck offline status")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after status change")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
 }
 
 func TestGetKnownSubnets(t *testing.T) {
@@ -2761,7 +3113,7 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStat
 			deviceIdentifier := fmt.Sprintf("auth-needed-reconcile-%d", i)
 			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EF:%02X", i+10), tt.initialStatus)
 
-			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
 			require.NoError(t, err)
 			require.Equal(t, tt.wantEligible, eligible)
 			require.Equal(t, tt.wantUpdated, updated)
@@ -2771,6 +3123,47 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStat
 			require.Equal(t, tt.wantFinal, finalStatus)
 		})
 	}
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_EndpointGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+	const deviceID int64 = 7350
+	const identifier = "auth-needed-endpoint-guard"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, identifier, "AA:BB:CC:DD:EF:70", sqlc.PairingStatusEnumPAIRED)
+	for _, tt := range []struct {
+		name       string
+		identifier string
+		orgID      int64
+		endpoint   networking.ConnectionInfo
+	}{
+		{"IP changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.31", Port: 443, Protocol: networking.ProtocolHTTPS}},
+		{"port changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 80, Protocol: networking.ProtocolHTTPS}},
+		{"scheme changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTP}},
+		{"wrong organization", identifier, 2, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS}},
+		{"missing device", "missing-auth-needed-device", 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, tt.identifier, tt.orgID, tt.endpoint)
+			require.NoError(t, err)
+			require.False(t, eligible)
+			require.False(t, updated)
+			status, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, sqlc.PairingStatusEnumPAIRED, status)
+		})
+	}
+	_, err := conn.ExecContext(ctx, `UPDATE device SET deleted_at=NOW() WHERE id=$1`, deviceID)
+	require.NoError(t, err)
+	eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
+	require.NoError(t, err)
+	require.False(t, eligible)
+	require.False(t, updated)
 }
 
 func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransitionDoesNotRePair(t *testing.T) {
@@ -2788,7 +3181,7 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransi
 	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:77", sqlc.PairingStatusEnumPAIRED)
 
 	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
-		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier)
+		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
 	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
 }
 

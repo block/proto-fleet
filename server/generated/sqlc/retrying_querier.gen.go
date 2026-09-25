@@ -114,6 +114,30 @@ func (q *retryingQuerier) AppendFirmwareRolloutDevices(ctx context.Context, arg 
 	})
 }
 
+func (q *retryingQuerier) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ApplyFleetNodeRecoveredEndpoint", func() error {
+		callResult, callErr := q.next.ApplyFleetNodeRecoveredEndpoint(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ApplyFleetNodeRecoveryAuthenticationNeeded", func() error {
+		callResult, callErr := q.next.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AssignBuildingToSite(ctx context.Context, arg AssignBuildingToSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignBuildingToSite", func() error {
@@ -3126,6 +3150,18 @@ func (q *retryingQuerier) GetOfflineDevices(ctx context.Context, limit int32) ([
 	return result, err
 }
 
+func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error) {
+	var result []GetOfflineFleetNodeDevicesRow
+	err := q.retrier.RetryQuery(ctx, "GetOfflineFleetNodeDevices", func() error {
+		callResult, callErr := q.next.GetOfflineFleetNodeDevices(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error) {
 	var result Error
 	err := q.retrier.RetryQuery(ctx, "GetOpenErrorByDedupKey", func() error {
@@ -5340,18 +5376,6 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
-func (q *retryingQuerier) LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "LockCloudRecoveryDevice", func() error {
-		callResult, callErr := q.next.LockCloudRecoveryDevice(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error) {
 	var result BatchStatusEnum
 	err := q.retrier.RetryQuery(ctx, "LockCommandBatch", func() error {
@@ -5506,6 +5530,18 @@ func (q *retryingQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx cont
 	var result []LockCurtailmentTopologyMemberDeviceSitesByOrgRow
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentTopologyMemberDeviceSitesByOrg", func() error {
 		callResult, callErr := q.next.LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockDeviceByIdentifier", func() error {
+		callResult, callErr := q.next.LockDeviceByIdentifier(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5958,10 +5994,10 @@ func (q *retryingQuerier) ReassignRacksUnderBuildingsBulk(ctx context.Context, a
 	return result, err
 }
 
-func (q *retryingQuerier) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+func (q *retryingQuerier) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
 	var result ReconcileAuthenticationNeededPairingStatusByIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "ReconcileAuthenticationNeededPairingStatusByIdentifier", func() error {
-		callResult, callErr := q.next.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+		callResult, callErr := q.next.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

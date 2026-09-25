@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -18,6 +19,8 @@ import (
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -295,9 +298,25 @@ func (s *SQLDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx c
 
 // ReconcileAuthenticationNeededPairingStatusByIdentifier moves only paired-like
 // rows to AUTHENTICATION_NEEDED. eligible=false means the current row was
-// deleted, missing, or in a lifecycle state telemetry must not resurrect.
-func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error) {
-	row, err := s.getQueries(ctx).ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+// deleted, missing, at another endpoint, or in a lifecycle state telemetry must not resurrect.
+func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (eligible bool, updated bool, err error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            orgID,
+		})
+		if err != nil || len(locked) == 0 {
+			return sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierRow{}, err
+		}
+		// Recheck the endpoint in a fresh statement after any concurrent recovery.
+		return q.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierParams{
+			DeviceIdentifier:  deviceIdentifier,
+			OrgID:             orgID,
+			ExpectedIpAddress: string(endpoint.IPAddress),
+			ExpectedPort:      endpoint.Port.String(),
+			ExpectedUrlScheme: endpoint.Protocol.String(),
+		})
+	})
 	if err != nil {
 		return false, false, fleeterror.NewInternalErrorf("failed to reconcile auth-needed pairing status for device %s: %v", deviceIdentifier, err)
 	}
@@ -305,7 +324,7 @@ func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(
 }
 
 func (s *SQLDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, error) {
-	rows, err := s.getQueries(ctx).LockCloudRecoveryDevice(ctx, sqlc.LockCloudRecoveryDeviceParams{
+	rows, err := s.getQueries(ctx).LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
 	})
@@ -959,6 +978,104 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	}
 
 	return offlineDevices, nil
+}
+
+func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stores.FleetNodeRecoveryTarget, error) {
+	rows, err := s.getQueries(ctx).GetOfflineFleetNodeDevices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get offline Fleet Node devices: %w", err)
+	}
+	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, stores.FleetNodeRecoveryTarget{
+			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
+			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
+			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
+			LastKnownScheme: row.UrlScheme, CredentialUsername: decodeFleetNodeCredential(row.UsernameEnc),
+			CredentialPassword: decodeFleetNodeCredential(row.PasswordEnc),
+		})
+	}
+	return targets, nil
+}
+
+func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
+		// Lock the node before miner rows, matching revocation and pairing.
+		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || node.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: target.DeviceIdentifier,
+			OrgID:            target.OrgID,
+		})
+		if err != nil || len(locked) == 0 {
+			return false, err
+		}
+		_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
+			IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
+			DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
+			ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+}
+
+func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
+		// Lock the node before the device, matching revocation and pairing.
+		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || node.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: target.DeviceIdentifier,
+			OrgID:            target.OrgID,
+		})
+		if err != nil || len(locked) == 0 {
+			return false, err
+		}
+		_, err = q.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
+			IpAddress:             ipAddress,
+			Port:                  port,
+			UrlScheme:             urlScheme,
+			DeviceIdentifier:      target.DeviceIdentifier,
+			OrgID:                 target.OrgID,
+			SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress:            target.MacAddress,
+			FleetNodeID:           target.FleetNodeID,
+			ExpectedIpAddress:     target.LastKnownIP,
+			ExpectedPort:          target.LastKnownPort,
+			ExpectedUrlScheme:     target.LastKnownScheme,
+			CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
+			CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+}
+
+func decodeFleetNodeCredential(value sql.NullString) []byte {
+	if !value.Valid {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(value.String)
+	if err != nil || !credentialblob.IsValid(decoded) {
+		return nil
+	}
+	return decoded
 }
 
 // GetKnownSubnets retrieves unique subnets inferred from paired devices' last known IP addresses.

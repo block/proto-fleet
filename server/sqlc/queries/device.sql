@@ -172,12 +172,19 @@ SELECT
 -- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
 -- Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 -- but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+-- Call after locking the device, so endpoint recovery is visible in this statement.
 WITH candidate AS (
   SELECT device_pairing.device_id
   FROM device_pairing
   JOIN device d ON device_pairing.device_id = d.id
+  JOIN discovered_device dd ON dd.id = d.discovered_device_id
   WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
+    AND dd.deleted_at IS NULL
+    AND dd.ip_address = sqlc.arg('expected_ip_address')
+    AND dd.port = sqlc.arg('expected_port')
+    AND dd.url_scheme = sqlc.arg('expected_url_scheme')
     AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
 ),
 updated AS (
@@ -193,10 +200,10 @@ SELECT
   EXISTS(SELECT 1 FROM candidate) AS eligible,
   EXISTS(SELECT 1 FROM updated) AS updated;
 
--- name: LockCloudRecoveryDevice :many
--- Cloud recovery takes this device-row lock before checking ownership in a
--- subsequent statement. Fleet Node assignment takes the same row lock, so the
--- later transaction observes the earlier ownership decision at READ COMMITTED.
+-- name: LockDeviceByIdentifier :many
+-- Serialize ownership and authentication reconciliation with pairing changes
+-- and credential repair. Callers recheck their predicates in a subsequent
+-- statement so they see the winner at READ COMMITTED.
 SELECT id
 FROM device
 WHERE device_identifier = sqlc.arg('device_identifier')
@@ -663,6 +670,141 @@ WHERE dp.pairing_status = 'PAIRED'
   )
 ORDER BY ds.status_timestamp DESC
 LIMIT $1;
+
+-- name: GetOfflineFleetNodeDevices :many
+-- Stable oldest-offline ordering lets the recovery service rotate bounded
+-- per-node batches in memory. Credentials remain the Fleet Node-encrypted
+-- blobs stored during pairing.
+SELECT
+    fnd.fleet_node_id,
+    d.device_identifier,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    dd.driver_name,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    mc.username_enc,
+    mc.password_enc
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN device_status ds ON ds.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+WHERE d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'OFFLINE'
+  AND (BTRIM(COALESCE(d.serial_number, '')) != '' OR BTRIM(COALESCE(d.mac_address, '')) != '')
+ORDER BY ds.status_timestamp ASC,
+         d.id ASC;
+
+-- name: ApplyFleetNodeRecoveredEndpoint :one
+-- The ownership/pairing/offline predicates are repeated at write time so a
+-- stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+-- miner. Locking the ownership and status rows serializes this recheck with
+-- unpairing, reassignment, and telemetry recovery. Returns the device id only
+-- when the guarded update applied.
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+      AND ds.status = 'OFFLINE'
+    FOR UPDATE OF fnd, ds
+)
+UPDATE discovered_device dd
+SET ip_address = sqlc.arg(ip_address),
+    port = sqlc.arg(port),
+    url_scheme = sqlc.arg(url_scheme),
+    last_seen = NOW()
+FROM device d
+JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE d.discovered_device_id = dd.id
+  AND d.device_identifier = sqlc.arg(device_identifier)
+  AND d.org_id = sqlc.arg(org_id)
+  AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
+  AND d.mac_address = sqlc.arg(mac_address)
+  AND dd.ip_address = sqlc.arg(expected_ip_address)
+  AND dd.port = sqlc.arg(expected_port)
+  AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+RETURNING d.id;
+
+-- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
+-- Authentication state is changed only for the still-owned, paired-like,
+-- offline miner named by the acknowledgement. Identity evidence is validated
+-- by the domain layer before this conditional write. Locking the ownership and
+-- status rows serializes this recheck with unpairing, reassignment, and
+-- telemetry recovery. The caller separately locks the device row before this
+-- statement so credential repair is observed from a fresh snapshot.
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = sqlc.arg(fleet_node_id)
+      AND ds.status = 'OFFLINE'
+      AND dd.ip_address = sqlc.arg(expected_ip_address)
+      AND dd.port = sqlc.arg(expected_port)
+      AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+    FOR UPDATE OF fnd, ds, dd
+), updated_pairing AS (
+    UPDATE device_pairing dp
+    SET pairing_status = 'AUTHENTICATION_NEEDED'
+    FROM device d
+    JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+    WHERE dp.device_id = d.id
+      AND d.device_identifier = sqlc.arg(device_identifier)
+      AND d.org_id = sqlc.arg(org_id)
+      AND COALESCE(d.serial_number, '') = sqlc.arg(serial_number)
+      AND d.mac_address = sqlc.arg(mac_address)
+      AND dd.ip_address = sqlc.arg(expected_ip_address)
+      AND dd.port = sqlc.arg(expected_port)
+      AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+      AND d.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND (
+          (mc.device_id IS NULL
+           AND sqlc.arg(credential_username_enc)::text = ''
+           AND sqlc.arg(credential_password_enc)::text = '')
+          OR (mc.username_enc = sqlc.arg(credential_username_enc)
+              AND mc.password_enc = sqlc.arg(credential_password_enc))
+      )
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    RETURNING d.id, d.discovered_device_id
+)
+UPDATE discovered_device dd
+SET ip_address = sqlc.arg(ip_address),
+    port = sqlc.arg(port),
+    url_scheme = sqlc.arg(url_scheme),
+    last_seen = NOW()
+FROM updated_pairing up
+WHERE dd.id = up.discovered_device_id
+RETURNING up.id;
 
 -- name: GetKnownSubnets :many
 SELECT DISTINCT

@@ -920,21 +920,15 @@ func TestResolvePairTargetsByFilter_AuthNeededIncludesDivergedLinkage(t *testing
 }
 
 func TestResolvePairTargets_PairAllExcludesAuthNeededWithoutCredentials(t *testing.T) {
-	// Arrange: one never-attempted device and one AUTHENTICATION_NEEDED device.
+	// Arrange: one never-attempted device and one node-bound miner that recovery
+	// marked AUTHENTICATION_NEEDED.
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
 	node := createFleetNode(t, enrollment, orgID, "node-resolve-authneeded")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:new")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:authneeded")
-	var ddID int64
-	require.NoError(t, db.QueryRow(
-		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
-		orgID, "mac:authneeded").Scan(&ddID))
-	var devID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
-		 VALUES ($1, 'aa:bb:cc:00:an:01', 'sn-an', $2, $3) RETURNING id`,
-		"mac:authneeded", orgID, ddID).Scan(&devID))
+	devID := deviceForDiscovered(t, db, orgID, "mac:authneeded")
+	require.NoError(t, pairing.PairDevice(ctx, node, devID, orgID, nil))
 	setPairingStatus(t, db, devID, "AUTHENTICATION_NEEDED")
 
 	// Act + Assert: pair-all WITHOUT credentials can't satisfy the auth-needed row,

@@ -48,6 +48,19 @@ type Querier interface {
 	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
+	// The ownership/pairing/offline predicates are repeated at write time so a
+	// stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+	// miner. Locking the ownership and status rows serializes this recheck with
+	// unpairing, reassignment, and telemetry recovery. Returns the device id only
+	// when the guarded update applied.
+	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error)
+	// Authentication state is changed only for the still-owned, paired-like,
+	// offline miner named by the acknowledgement. Identity evidence is validated
+	// by the domain layer before this conditional write. Locking the ownership and
+	// status rows serializes this recheck with unpairing, reassignment, and
+	// telemetry recovery. The caller separately locks the device row before this
+	// statement so credential repair is observed from a fresh snapshot.
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -753,6 +766,10 @@ type Querier interface {
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
+	// Stable oldest-offline ordering lets the recovery service rotate bounded
+	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
+	// blobs stored during pairing.
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error)
 	// Finds an open error (closed_at IS NULL) matching the deduplication key.
 	// Used to determine if an upsert should update an existing error or insert a new one.
 	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
@@ -1199,10 +1216,11 @@ type Querier interface {
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
-	// Fleet-node-discovered devices not yet paired to their node. A discovered
-	// device is excluded when ANY of its live device rows is already node-bound
-	// (fleet_node_device) or cloud-paired-like; AUTHENTICATION_NEEDED rows (a pair
-	// attempt that needs credentials) surface for retry. Inverse of
+	// Fleet-node-discovered devices available for pairing or credential retry. A
+	// discovered device is excluded when ANY live device row is cloud-paired-like
+	// or bound to another node. A row bound to the requesting node surfaces only
+	// in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
+	// Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
 	// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 	// The exclusions use NOT EXISTS so a device with more than one live row is
 	// judged across all of them, not just the joined row. They match by
@@ -1413,10 +1431,6 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
-	// Cloud recovery takes this device-row lock before checking ownership in a
-	// subsequent statement. Fleet Node assignment takes the same row lock, so the
-	// later transaction observes the earlier ownership decision at READ COMMITTED.
-	LockCloudRecoveryDevice(ctx context.Context, arg LockCloudRecoveryDeviceParams) ([]int64, error)
 	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
@@ -1467,6 +1481,10 @@ type Querier interface {
 	// Topology writes still conflict with this lock, while command queue inserts
 	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
+	// Serialize ownership and authentication reconciliation with pairing changes
+	// and credential repair. Callers recheck their predicates in a subsequent
+	// statement so they see the winner at READ COMMITTED.
+	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the
@@ -1622,7 +1640,8 @@ type Querier interface {
 	ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error)
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
-	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	// Call after locking the device, so endpoint recovery is visible in this statement.
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
 	// A credential rejection from cloud IP recovery applies only while the cloud
 	// still owns the device. The caller must first lock the device row above in the
 	// same transaction so Fleet Node assignment and this ownership check serialize.
