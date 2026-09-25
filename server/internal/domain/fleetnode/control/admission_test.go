@@ -107,6 +107,14 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantClass: CommandAdmissionExclusive,
 			wantKind:  "pairing",
 		},
+		{
+			name: "endpoint recovery",
+			command: &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_RecoverMinerEndpoints{
+				RecoverMinerEndpoints: &gatewaypb.RecoverMinerEndpointsRequest{},
+			}},
+			wantClass: CommandAdmissionExclusive,
+			wantKind:  "endpoint_recovery",
+		},
 	}
 
 	for _, tt := range tests {

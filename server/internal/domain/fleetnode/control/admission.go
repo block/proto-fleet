@@ -39,6 +39,8 @@ func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass
 		return CommandAdmissionExclusive, "discovery"
 	case *gatewaypb.AgentCommand_Pair:
 		return CommandAdmissionExclusive, "pairing"
+	case *gatewaypb.AgentCommand_RecoverMinerEndpoints:
+		return CommandAdmissionExclusive, "endpoint_recovery"
 	case *gatewaypb.AgentCommand_Telemetry:
 		return CommandAdmissionDeferrableRead, "telemetry"
 	case *gatewaypb.AgentCommand_MinerCommand:

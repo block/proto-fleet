@@ -70,12 +70,26 @@ type Client struct {
 // can translate it into their surface's wording.
 var errInvalidCredentials = errors.New("invalid credentials")
 
+// ErrHTMLResponse identifies a web page returned in place of the Proto JSON API.
+var ErrHTMLResponse = errors.New("received HTML instead of a Proto API response")
+
 // DeviceInfo represents basic device information.
 type DeviceInfo struct {
 	SerialNumber string
 	MacAddress   string
 	Model        string
 	Manufacturer string
+}
+
+// HTTPStatusError preserves a non-success response code so discovery can
+// distinguish an unsupported endpoint from a transient server failure.
+type HTTPStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("request failed with status %d: %s", e.StatusCode, e.Body)
 }
 
 // Status represents the current status of a miner.
@@ -708,11 +722,24 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		return resp.StatusCode, &HTTPStatusError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	if result != nil {
-		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		decoder := json.NewDecoder(resp.Body)
+		if err := decoder.Decode(result); err != nil {
+			var syntaxErr *json.SyntaxError
+			if errors.As(err, &syntaxErr) {
+				prefix, _ := io.ReadAll(decoder.Buffered())
+				if strings.HasPrefix(http.DetectContentType(prefix), "text/html") {
+					// A failed body read is still an incomplete probe, even if its
+					// initial bytes look like an unrelated service's web page.
+					if _, readErr := io.Copy(io.Discard, resp.Body); readErr != nil {
+						return resp.StatusCode, fmt.Errorf("failed to read response: %w", readErr)
+					}
+					return resp.StatusCode, ErrHTMLResponse
+				}
+			}
 			return resp.StatusCode, fmt.Errorf("failed to decode response: %w", err)
 		}
 	}

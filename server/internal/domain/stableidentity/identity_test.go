@@ -15,6 +15,8 @@ func TestIdentityMatches(t *testing.T) {
 	}{
 		{name: "normalized MAC", candidate: New("", "aa-bb-cc-dd-ee-ff"), paired: New("", "AA:BB:CC:DD:EE:FF"), want: true},
 		{name: "trimmed serial", candidate: New(" SN-1 ", ""), paired: New("SN-1", ""), want: true},
+		{name: "one shared identifier is enough", candidate: New("SN-1", ""), paired: New("SN-1", "AA:BB:CC:DD:EE:FF"), want: true},
+		{name: "no shared identifier stays unmatched", candidate: New("", "AA:BB:CC:DD:EE:FF"), paired: New("SN-1", ""), want: false},
 		{name: "invalid MACs are not evidence", candidate: New("", "invalid-a"), paired: New("", "invalid-b"), want: false},
 		{name: "one conflicting identifier rejects the candidate", candidate: New("SN-1", "AA:BB:CC:DD:EE:FF"), paired: New("SN-2", "AA:BB:CC:DD:EE:FF"), want: false},
 	}

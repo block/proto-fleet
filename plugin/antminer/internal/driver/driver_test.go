@@ -39,7 +39,6 @@ func TestNew(t *testing.T) {
 	d, err := New(createMockClientFactory())
 	require.NoError(t, err)
 	require.NotNil(t, d)
-	assert.NotNil(t, d.devices)
 	assert.NotNil(t, d.clientFactory)
 }
 
@@ -373,7 +372,9 @@ func TestDiscoverDevice_NotAntminer(t *testing.T) {
 	// Test discovery
 	_, err = d.DiscoverDevice(t.Context(), testIPAddress, correctPort)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not an Antminer device")
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 func TestDiscoverDevice_RejectsNonStockFirmware(t *testing.T) {

@@ -31,18 +31,22 @@ func (i Identity) Usable() bool {
 // Matches reports whether the identities share at least one identifier and no
 // identifier present in both conflicts.
 func (i Identity) Matches(other Identity) bool {
+	if i.Conflicts(other) {
+		return false
+	}
 	matched := false
 	if i.MACAddress != "" && other.MACAddress != "" {
-		if i.MACAddress != other.MACAddress {
-			return false
-		}
 		matched = true
 	}
 	if i.SerialNumber != "" && other.SerialNumber != "" {
-		if i.SerialNumber != other.SerialNumber {
-			return false
-		}
 		matched = true
 	}
 	return matched
+}
+
+// Conflicts reports whether an identifier present in both identities differs.
+// Non-overlapping partial identities are insufficient evidence, not a conflict.
+func (i Identity) Conflicts(other Identity) bool {
+	return (i.MACAddress != "" && other.MACAddress != "" && i.MACAddress != other.MACAddress) ||
+		(i.SerialNumber != "" && other.SerialNumber != "" && i.SerialNumber != other.SerialNumber)
 }

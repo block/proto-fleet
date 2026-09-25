@@ -119,13 +119,13 @@ func SetStatusTTL(ttl time.Duration) func(*Device) {
 //   - Connection establishment and validation
 //   - Authentication setup
 //   - Status caching configuration
-func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, opts ...DeviceOption) (*Device, error) {
-	return newWithClientAuth(deviceID, deviceInfo, func(client *proto.Client) error {
+func New(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, opts ...DeviceOption) (*Device, error) {
+	return newWithClientAuth(ctx, deviceID, deviceInfo, func(client *proto.Client) error {
 		return client.SetCredentials(credentials)
 	}, opts...)
 }
 
-func newWithClientAuth(deviceID string, deviceInfo sdk.DeviceInfo, configureClient func(*proto.Client) error, opts ...DeviceOption) (*Device, error) {
+func newWithClientAuth(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, configureClient func(*proto.Client) error, opts ...DeviceOption) (*Device, error) {
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
@@ -153,7 +153,7 @@ func newWithClientAuth(deviceID string, deviceInfo sdk.DeviceInfo, configureClie
 		opt(device)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), deviceVerificationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, deviceVerificationTimeout)
 	defer cancel()
 
 	if _, err := device.Status(ctx); err != nil {
@@ -232,6 +232,14 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		// FULL curtailment uses mining start/stop. Efficiency uses the power target mode.
 		sdk.CapabilityCurtailFull:       true,
 		sdk.CapabilityCurtailEfficiency: true,
+	}
+	if d.deviceInfo.SerialNumber == "" && d.deviceInfo.MacAddress == "" {
+		info, err := d.client.GetDeviceInfo(ctx)
+		if err != nil {
+			return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
+		}
+		d.deviceInfo.SerialNumber = info.SerialNumber
+		d.deviceInfo.MacAddress = info.MacAddress
 	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)

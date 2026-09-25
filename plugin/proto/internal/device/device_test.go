@@ -200,7 +200,7 @@ func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-default-password", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-default-password", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -256,7 +256,7 @@ func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-default-password-change", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-default-password-change", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -321,7 +321,7 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-firmware-reboot", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-firmware-reboot", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -390,7 +390,7 @@ func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-firmware-reboot-retry", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-firmware-reboot-retry", sdk.DeviceInfo{
 		Host:            host,
 		Port:            int32(port),
 		URLScheme:       "http",
@@ -469,9 +469,11 @@ func TestDevice_UncurtailAuthFailureReturnsAuthenticationFailed(t *testing.T) {
 func TestDevice_DescribeDeviceAdvertisesFullAndEfficiencyCurtailment(t *testing.T) {
 	dev := newMiningControlTestDevice(t, http.StatusOK)
 
-	_, caps, err := dev.DescribeDevice(context.Background())
+	info, caps, err := dev.DescribeDevice(context.Background())
 
 	require.NoError(t, err)
+	assert.Equal(t, "proto-serial", info.SerialNumber)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", info.MacAddress)
 	assert.True(t, caps[sdk.CapabilityCurtailFull])
 	assert.True(t, caps[sdk.CapabilityCurtailEfficiency])
 }
@@ -872,6 +874,12 @@ func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(poolsJSON))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pairing/info":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"system-info":{"model":"Rig","manufacturer":"Proto"}}`))
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
 			if onControl != nil {
 				onControl(r)
@@ -890,7 +898,7 @@ func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
@@ -959,7 +967,7 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
@@ -1024,7 +1032,7 @@ func newFullEfficiencyCurtailmentTestDevice(
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	dev, err := New("device-curtail", sdk.DeviceInfo{
+	dev, err := New(t.Context(), "device-curtail", sdk.DeviceInfo{
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
