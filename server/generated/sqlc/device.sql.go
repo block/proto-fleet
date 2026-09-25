@@ -2444,8 +2444,14 @@ WITH candidate AS (
   SELECT device_pairing.device_id
   FROM device_pairing
   JOIN device d ON device_pairing.device_id = d.id
+  JOIN discovered_device dd ON dd.id = d.discovered_device_id
   WHERE d.device_identifier = $1
+    AND d.org_id = $2
     AND d.deleted_at IS NULL
+    AND dd.deleted_at IS NULL
+    AND dd.ip_address = $3
+    AND dd.port = $4
+    AND dd.url_scheme = $5
     AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
 ),
 updated AS (
@@ -2462,6 +2468,14 @@ SELECT
   EXISTS(SELECT 1 FROM updated) AS updated
 `
 
+type ReconcileAuthenticationNeededPairingStatusByIdentifierParams struct {
+	DeviceIdentifier  string
+	OrgID             int64
+	ExpectedIpAddress string
+	ExpectedPort      string
+	ExpectedUrlScheme string
+}
+
 type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
 	Eligible bool
 	Updated  bool
@@ -2469,8 +2483,15 @@ type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
 
 // Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 // but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
-func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
-	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier, deviceIdentifier)
+// Call after locking the device, so endpoint recovery is visible in this statement.
+func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
+	)
 	var i ReconcileAuthenticationNeededPairingStatusByIdentifierRow
 	err := row.Scan(&i.Eligible, &i.Updated)
 	return i, err

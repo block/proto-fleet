@@ -94,6 +94,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
@@ -1197,6 +1198,24 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 	}
 }
 
+// authenticationFailure retains the endpoint from the handle that made the
+// failed request, rather than looking up a possibly recovered endpoint later.
+type authenticationFailure struct {
+	cause    error
+	orgID    int64
+	endpoint networking.ConnectionInfo
+}
+
+func (e *authenticationFailure) Error() string { return e.cause.Error() }
+func (e *authenticationFailure) Unwrap() error { return e.cause }
+
+func withAuthenticationEndpoint(err error, miner interfaces.Miner) error {
+	if !fleeterror.IsAuthenticationError(err) {
+		return err
+	}
+	return &authenticationFailure{cause: err, orgID: miner.GetOrgID(), endpoint: miner.GetConnectionInfo()}
+}
+
 // handleCredentialRemediation sets the pairing state matching the failure:
 // DEFAULT_PASSWORD for a default-password rig, otherwise AUTHENTICATION_NEEDED.
 func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, deviceID models.DeviceIdentifier, cause error) error {
@@ -1215,7 +1234,13 @@ func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, devi
 		return nil
 	}
 
-	eligible, updated, err := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, string(deviceID))
+	var failure *authenticationFailure
+	if !errors.As(cause, &failure) {
+		// Resolution failed before returning a handle; no contacted endpoint is
+		// available to safely authorize a pairing-state change.
+		return nil
+	}
+	eligible, updated, err := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, string(deviceID), failure.orgID, failure.endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to reconcile auth-needed pairing status for device %s: %w", deviceID, err)
 	}
@@ -1357,6 +1382,7 @@ func (s *TelemetryService) fetchTelemetryFromMinerForOrg(
 		driverName: miner.GetDriverName(),
 	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
+	result.metricsErr = withAuthenticationEndpoint(result.metricsErr, miner)
 	if fleeterror.IsResourceExhaustedError(result.metricsErr) {
 		return result, result.metricsErr
 	}
@@ -1413,6 +1439,7 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 	}
 	orgID, driverName, siteID := miner.GetOrgID(), miner.GetDriverName(), miner.GetSiteID()
 	status, err := miner.GetDeviceStatus(ctx)
+	err = withAuthenticationEndpoint(err, miner)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
 			return mm.MinerStatusOffline, orgID, driverName, siteID, nil

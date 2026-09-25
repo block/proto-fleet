@@ -5994,10 +5994,10 @@ func (q *retryingQuerier) ReassignRacksUnderBuildingsBulk(ctx context.Context, a
 	return result, err
 }
 
-func (q *retryingQuerier) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+func (q *retryingQuerier) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
 	var result ReconcileAuthenticationNeededPairingStatusByIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "ReconcileAuthenticationNeededPairingStatusByIdentifier", func() error {
-		callResult, callErr := q.next.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+		callResult, callErr := q.next.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

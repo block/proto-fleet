@@ -1640,7 +1640,8 @@ type Querier interface {
 	ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error)
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
-	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	// Call after locking the device, so endpoint recovery is visible in this statement.
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
 	// A credential rejection from cloud IP recovery applies only while the cloud
 	// still owns the device. The caller must first lock the device row above in the
 	// same transaction so Fleet Node assignment and this ownership check serialize.

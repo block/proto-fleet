@@ -172,12 +172,19 @@ SELECT
 -- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
 -- Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 -- but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+-- Call after locking the device, so endpoint recovery is visible in this statement.
 WITH candidate AS (
   SELECT device_pairing.device_id
   FROM device_pairing
   JOIN device d ON device_pairing.device_id = d.id
+  JOIN discovered_device dd ON dd.id = d.discovered_device_id
   WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
+    AND dd.deleted_at IS NULL
+    AND dd.ip_address = sqlc.arg('expected_ip_address')
+    AND dd.port = sqlc.arg('expected_port')
+    AND dd.url_scheme = sqlc.arg('expected_url_scheme')
     AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
 ),
 updated AS (

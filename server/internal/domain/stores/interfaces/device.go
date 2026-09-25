@@ -14,6 +14,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -198,7 +199,7 @@ type DeviceStore interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error)
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error)
-	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error)
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (eligible bool, updated bool, err error)
 	LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (locked bool, err error)
 	ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error)
 	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)

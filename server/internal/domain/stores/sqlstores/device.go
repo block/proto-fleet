@@ -298,9 +298,25 @@ func (s *SQLDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx c
 
 // ReconcileAuthenticationNeededPairingStatusByIdentifier moves only paired-like
 // rows to AUTHENTICATION_NEEDED. eligible=false means the current row was
-// deleted, missing, or in a lifecycle state telemetry must not resurrect.
-func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error) {
-	row, err := s.getQueries(ctx).ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+// deleted, missing, at another endpoint, or in a lifecycle state telemetry must not resurrect.
+func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (eligible bool, updated bool, err error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            orgID,
+		})
+		if err != nil || len(locked) == 0 {
+			return sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierRow{}, err
+		}
+		// Recheck the endpoint in a fresh statement after any concurrent recovery.
+		return q.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierParams{
+			DeviceIdentifier:  deviceIdentifier,
+			OrgID:             orgID,
+			ExpectedIpAddress: string(endpoint.IPAddress),
+			ExpectedPort:      endpoint.Port.String(),
+			ExpectedUrlScheme: endpoint.Protocol.String(),
+		})
+	})
 	if err != nil {
 		return false, false, fleeterror.NewInternalErrorf("failed to reconcile auth-needed pairing status for device %s: %v", deviceIdentifier, err)
 	}
@@ -990,6 +1006,13 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 			return false, nil
 		}
 		if err != nil || node.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: target.DeviceIdentifier,
+			OrgID:            target.OrgID,
+		})
+		if err != nil || len(locked) == 0 {
 			return false, err
 		}
 		_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
