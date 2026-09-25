@@ -917,6 +917,12 @@ func TestNewService_PreservesExistingFirmwareFilesAcrossRestart(t *testing.T) {
 	restartedSvc, err := NewService(Config{})
 	require.NoError(t, err)
 
+	listed, err := restartedSvc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, fileID, listed[0].ID)
+	assert.Equal(t, checksumOf(content), listed[0].SHA256)
+
 	reader, filename, size, err := restartedSvc.OpenFirmwareFile(fileID)
 	require.NoError(t, err)
 	defer reader.Close()
@@ -948,6 +954,7 @@ func TestNewService_PreservesLegacyFirmwareDirectoriesWithoutMetadata(t *testing
 	assert.Empty(t, listed[0].TargetManufacturer)
 	assert.Empty(t, listed[0].TargetModel)
 	assert.Empty(t, listed[0].FirmwareVersion)
+	assert.Equal(t, checksumOf("legacy"), listed[0].SHA256)
 
 	reader, filename, _, err := svc.OpenFirmwareFile("11111111-1111-1111-1111-111111111111")
 	require.NoError(t, err)
@@ -1367,12 +1374,63 @@ func TestListFirmwareFiles_ReturnsSavedFiles(t *testing.T) {
 		if f.ID == id1 {
 			assert.Equal(t, "alpha.swu", f.Filename)
 			assert.Equal(t, int64(len("alpha content")), f.Size)
+			assert.Equal(t, checksumOf("alpha content"), f.SHA256)
 		} else {
 			assert.Equal(t, "beta.tar.gz", f.Filename)
 			assert.Equal(t, int64(len("beta content here")), f.Size)
+			assert.Equal(t, checksumOf("beta content here"), f.SHA256)
 		}
 		assert.False(t, f.UploadedAt.IsZero(), "upload time should be set")
 	}
+}
+
+func TestListFirmwareFiles_IdentifiesDuplicatePayloadsIndependentlyOfMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	firstID, err := svc.SaveFirmwareFile("first.swu", strings.NewReader("same payload"), testFirmwareMetadata())
+	require.NoError(t, err)
+	duplicateID, err := svc.SaveFirmwareFile("copy.swu", strings.NewReader("same payload"), testFirmwareMetadata())
+	require.NoError(t, err)
+	differentID, err := svc.SaveFirmwareFile("different.swu", strings.NewReader("different payload"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NotEqual(t, firstID, duplicateID)
+
+	metadata := testFirmwareMetadata()
+	metadata.FirmwareVersion = "renamed version"
+	_, err = svc.UpdateFirmwareMetadata(duplicateID, metadata)
+	require.NoError(t, err)
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 3)
+	checksums := make(map[string]string, len(listed))
+	for _, file := range listed {
+		checksums[file.ID] = file.SHA256
+	}
+	assert.Equal(t, checksumOf("same payload"), checksums[firstID])
+	assert.Equal(t, checksums[firstID], checksums[duplicateID])
+	assert.Equal(t, checksumOf("different payload"), checksums[differentID])
+}
+
+func TestListFirmwareFiles_DoesNotHashUnindexedPayload(t *testing.T) {
+	svc := setupService(t)
+
+	// A file placed outside the upload path after startup has no cached
+	// identity. Listing must not turn repeated UI reads into payload scans.
+	const fileID = "11111111-1111-1111-1111-111111111111"
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "unindexed.swu"), []byte("unindexed payload"), 0600))
+
+	for range 2 {
+		listed, err := svc.ListFirmwareFiles()
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, fileID, listed[0].ID)
+		assert.Empty(t, listed[0].SHA256)
+	}
+	_, cached := svc.lookupFirmwareChecksum(fileID)
+	assert.False(t, cached)
 }
 
 func TestListFirmwareFiles_SkipsStagingDir(t *testing.T) {

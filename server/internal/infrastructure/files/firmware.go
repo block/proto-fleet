@@ -1043,10 +1043,14 @@ func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
 			uploadedAt = dirInfo.ModTime()
 		}
 
+		// Uploads and startup indexing cache immutable payload identity. Lists
+		// must not rehash firmware on every UI refresh; unknown identities stay empty.
+		checksum, _ := s.lookupFirmwareChecksum(fileID)
 		result = append(result, FirmwareFileInfo{
 			ID:                 fileID,
 			Filename:           filepath.Base(filePath),
 			Size:               fileInfo.Size(),
+			SHA256:             checksum,
 			UploadedAt:         uploadedAt,
 			TargetManufacturer: metadata.TargetManufacturer,
 			TargetModel:        metadata.TargetModel,

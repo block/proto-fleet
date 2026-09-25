@@ -107,6 +107,7 @@ export interface FirmwareFileInfo {
   target_manufacturer: string;
   target_model: string;
   firmware_version?: string;
+  sha256?: string;
 }
 
 interface CheckFirmwareResponse {
