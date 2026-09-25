@@ -1062,8 +1062,8 @@ func TestDeleteFileHandler_ReturnsConflictDuringCommandDelivery(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rr.Code)
 	var response errorResponse
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
-	assert.Contains(t, response.Error, "in use by an executing command")
-	assert.Contains(t, response.Error, "retry deletion after it finishes")
+	assert.Contains(t, response.Error, "in use by a firmware update")
+	assert.Contains(t, response.Error, "wait for it to finish before deleting the file")
 	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
 	require.NoError(t, err, "the executing command still needs this path")
 
@@ -1162,7 +1162,7 @@ func TestDeleteAllFilesHandler_ReportsPartialDeletionWhileCommandIsActive(t *tes
 	rr, response := deleteAll()
 	require.Equal(t, http.StatusConflict, rr.Code)
 	assert.Equal(t, 1, response.DeletedCount)
-	assert.Contains(t, response.Error, "in use by an executing command")
+	assert.Contains(t, response.Error, "in use by a firmware update")
 	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
 	require.NoError(t, err)
 	_, err = env.fileSvc.GetFirmwareFilePath(idleID)

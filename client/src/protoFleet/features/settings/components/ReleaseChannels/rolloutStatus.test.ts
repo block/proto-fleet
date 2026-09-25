@@ -329,6 +329,15 @@ describe("device counts and progress", () => {
     expect(rolloutProgressSummary(counts)).toBe("3 of 6 miners updated (50%), 1 failed");
   });
 
+  it("uses a neutral canceled segment for unfinished terminal work", () => {
+    const counts = rolloutDeviceCounts(batchedRigRollout);
+    expect(rolloutProgressSegments(counts, RolloutStatus.CANCELED)).toEqual([
+      { name: "Updated", status: "OK", count: 3 },
+      { name: "Canceled", status: "NA", count: 2 },
+      { name: "Failed", status: "CRITICAL", count: 1 },
+    ]);
+  });
+
   it("scopes counts to the batch under review", () => {
     expect(scopeCounts(gatedRigRollout)).toMatchObject({ updated: 2, total: 2, percent: 100 });
     expect(scopeCounts(activeRigRollout)).toMatchObject({ updated: 2, total: 6 });

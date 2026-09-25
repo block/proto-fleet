@@ -483,7 +483,7 @@ const ReleaseChannelsTab = ({
       <Dialog
         open={channelToDelete !== null}
         title="Delete release channel?"
-        subtitle={`Miners in ${channelToDelete?.name ?? "this channel"} keep their current firmware, but it is no longer enforced for them and the channel's update history is removed.`}
+        subtitle={`Deleting ${channelToDelete?.name ?? "this channel"} stops firmware enforcement and removes its update history. Cancel active updates and wait for any dispatched commands to finish before deleting.`}
         testId="delete-channel-dialog"
         onDismiss={dismissDelete}
         icon={

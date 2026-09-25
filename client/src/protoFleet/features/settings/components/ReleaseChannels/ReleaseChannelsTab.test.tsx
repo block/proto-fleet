@@ -275,6 +275,8 @@ describe("release channel deletion navigation", () => {
       const confirmation = screen.getByTestId("delete-channel-dialog");
       expect(settings).toBeInTheDocument();
       expect(confirmation).toHaveTextContent(canaryChannel.name);
+      expect(confirmation).toHaveTextContent("Cancel active updates and wait for any dispatched commands to finish");
+      expect(confirmation).not.toHaveTextContent("keep their current firmware");
       if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
       else fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
       expect(settings).toBeInTheDocument();

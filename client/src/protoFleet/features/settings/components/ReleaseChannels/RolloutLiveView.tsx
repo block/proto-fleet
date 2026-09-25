@@ -27,7 +27,13 @@ import {
   scopeCounts,
   scopedToBatch,
 } from "./rolloutStatus";
-import { type Rollout, type RolloutEvidence, RolloutState } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  type RolloutEvidence,
+  RolloutStage,
+  RolloutState,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
@@ -253,8 +259,10 @@ const RolloutLiveView = ({
   const counts = inline ? rolloutDeviceCounts(rollout) : batchCounts;
   const scopedTargetCount = batchCounts.total + batchCounts.excluded + batchCounts.skipped;
   const failed = failedCount(rollout);
-  const segments = rolloutProgressSegments(counts);
+  const segments = rolloutProgressSegments(counts, rollout.status);
   const evidence = rollout.evidence;
+  const dispatchHoldReason =
+    active && !paused && !awaitingReview && rollout.stage !== RolloutStage.WAITING ? evidence?.holdReason : undefined;
   const startedAtMs = rollout.createdAt ? timestampMs(rollout.createdAt) : undefined;
   const finishedAtMs = rollout.finishedAt ? timestampMs(rollout.finishedAt) : undefined;
   const title = `${rollout.channelName}, ${pairLabel(rollout)} firmware update`;
@@ -467,6 +475,11 @@ const RolloutLiveView = ({
               <span className="text-right text-text-primary-50">{`${counts.skipped.toLocaleString()} skipped`}</span>
             ) : null}
           </div>
+          {rollout.status === RolloutStatus.CANCELED && counts.updating + counts.retrying + counts.queued > 0 ? (
+            <p className="text-200 text-text-primary-70">
+              Remaining work was canceled. Update commands already sent may still finish.
+            </p>
+          ) : null}
           {!inline ? (
             <Button
               text="View miners"
@@ -477,6 +490,17 @@ const RolloutLiveView = ({
             />
           ) : null}
         </div>
+
+        {dispatchHoldReason ? (
+          <Callout
+            className="mt-6"
+            intent={intents.information}
+            prefixIcon={<Info />}
+            testId={testId("rollout-dispatch-hold")}
+            title="Waiting to update"
+            subtitle={dispatchHoldReason}
+          />
+        ) : null}
 
         {failed > 0 ? (
           <Callout

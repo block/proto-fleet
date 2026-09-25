@@ -1078,7 +1078,8 @@ type RolloutBehavior struct {
 	ReviewAfterEachBatch bool `protobuf:"varint,6,opt,name=review_after_each_batch,json=reviewAfterEachBatch,proto3" json:"review_after_each_batch,omitempty"`
 	// Gated methods only (PILOT_THEN_CONTINUE, or BATCHED with review):
 	// release a gate automatically once the DONE count and failed-device
-	// checks pass, every set threshold passes under the
+	// checks pass, reviewed miners are currently online and hashing if required
+	// by their original baseline, every set threshold passes under the
 	// RolloutAutomationThresholds coverage rule, and stabilization_seconds
 	// has elapsed.
 	AutoContinueOnHealthyTelemetry bool `protobuf:"varint,7,opt,name=auto_continue_on_healthy_telemetry,json=autoContinueOnHealthyTelemetry,proto3" json:"auto_continue_on_healthy_telemetry,omitempty"`
@@ -1090,13 +1091,15 @@ type RolloutBehavior struct {
 	// Channel-wide budget of miners mid-update, shared by every active rollout
 	// in the channel whatever its method. Each distinct target holds at most
 	// one slot: a reservation, taken just before its update command is
-	// dispatched, or an offline slot, taken whenever it is observed offline in
-	// any phase, whatever caused the outage. A reservation becomes an offline
+	// dispatched, or an offline slot for a current member previously targeted
+	// by the channel. Departed targets count only while their dispatch reservation
+	// remains unresolved. A reservation becomes an offline
 	// slot when the target is observed offline and is released without one
-	// only when the command reaches a terminal state with the target never
-	// observed offline; online observations alone never release it, since a
+	// only when the command reaches a terminal state and the target is online;
+	// online observations alone never release it, since a
 	// miner stays reachable while it downloads. An offline slot is released
-	// when the target is next observed online. Deleting the target from the
+	// when the target is next observed online. Once released, a later unrelated
+	// outage of a departed target does not consume capacity. Deleting the target from the
 	// fleet releases either kind; becoming EXCLUDED, FAILED, or otherwise
 	// terminal does not. Dispatch in every rollout of the channel waits while
 	// a nonzero budget is full. Cancellation stops dispatch for the canceled
@@ -2138,14 +2141,15 @@ type RolloutEvidence struct {
 	// Errors opened since baseline, summed over the batch (never below 0).
 	NewErrors int32 `protobuf:"varint,10,opt,name=new_errors,json=newErrors,proto3" json:"new_errors,omitempty"`
 	// Whether every reviewed miner is DONE, EXCLUDED, or SKIPPED with none
-	// FAILED, every set threshold passes under the RolloutAutomationThresholds
+	// FAILED, DONE miners meet their live online/hashing recovery requirements,
+	// every set threshold passes using samples taken after verification under the RolloutAutomationThresholds
 	// coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
 	// miners are neutral: they neither block readiness nor contribute samples.
 	// The server derives this value and reports it false for rollouts without
 	// auto-continue or outside the AWAITING_REVIEW stage.
 	ReadyToAdvance bool `protobuf:"varint,11,opt,name=ready_to_advance,json=readyToAdvance,proto3" json:"ready_to_advance,omitempty"`
-	// Why the rollout is holding at the gate when it cannot auto-continue,
-	// including which metric lacks the required sample coverage.
+	// Why the rollout is holding: gate health/sample coverage, missing firmware,
+	// or unavailable offline capacity. Empty when no blocker is present.
 	HoldReason string `protobuf:"bytes,12,opt,name=hold_reason,json=holdReason,proto3" json:"hold_reason,omitempty"`
 	// Seconds of stabilization still required before auto-continue.
 	StabilizationRemainingSeconds int32 `protobuf:"varint,13,opt,name=stabilization_remaining_seconds,json=stabilizationRemainingSeconds,proto3" json:"stabilization_remaining_seconds,omitempty"`

@@ -374,7 +374,7 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 
 	b := spec.Behavior
 	// Every creation path snapshots the channel's live cap, including the
-	// all-at-once behavior used by reconciliation, retries and rollback.
+	// all-at-once behavior used by retries and rollback.
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: spec.ChannelID, OrgID: spec.OrgID})
 	if err != nil {
 		return nil, channelLookupError(spec.ChannelID, err)
@@ -798,6 +798,11 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		if err != nil {
 			return err
 		}
+		// Retrying must restore the original health requirement, not accept
+		// a degraded state caused by the update as the new baseline.
+		if err := q.PreserveFirmwareRolloutRetryBaselines(ctx, started.ID); err != nil {
+			return fleeterror.NewInternalErrorf("preserve retry baselines: %w", err)
+		}
 		s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(suppressed)}))
 		s.logRolloutEvent(ctx, *started, channelName, EventRolloutStarted, false, map[string]any{"retry_of": rolloutID})
 		view, err = s.refreshView(ctx, orgID, started.ID)
@@ -1216,6 +1221,12 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 	var ev *Evidence
 	if r.Status == StatusActive {
 		e := s.evaluate(r, evidenceScope(r, targets))
+		if !r.PausedAt.Valid && (r.Stage == StageBatch || r.Stage == StageRest) {
+			e.HoldReason, err = s.dispatchHoldReason(ctx, r, targets, firmwareFileID != "")
+			if err != nil {
+				return nil, err
+			}
+		}
 		ev = &e
 		view.Evidence = ev
 	}

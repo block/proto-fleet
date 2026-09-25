@@ -206,6 +206,10 @@ type Querier interface {
 	// NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
 	// the total affected row count across all racks.
 	CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error)
+	// Uploaded artifacts are global. Assignments protect continuous enforcement,
+	// active rollouts protect in-progress targets, and queued commands protect
+	// dispatches that may outlive a rollout or use a legacy file ID.
+	CheckFirmwareArtifactInUse(ctx context.Context, arg CheckFirmwareArtifactInUseParams) (bool, error)
 	// Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 	// policy state (pending or unavailable) instead of immediately claiming them
 	// as DISPATCHING. Same-event RELEASED, topology-restored RESOLVED, or failed
@@ -431,10 +435,10 @@ type Querier interface {
 	DeletePool(ctx context.Context, id int64) error
 	DeleteReleaseChannel(ctx context.Context, arg DeleteReleaseChannelParams) (int64, error)
 	DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error
-	// Offline targets keep an offline slot through their retained rollout target
-	// history, so a terminal command no longer needs its reservation row. A live
-	// command can also release after an observed offline/online cycle. Keep that
-	// observation until recovery, and discard fleet-deleted targets immediately.
+	// Retain an offline dispatched target until recovery, including after command
+	// completion or departure from the channel. A live command can also release
+	// after an observed offline/online cycle. Once released, later unrelated
+	// outages of departed historical targets do not reserve capacity again.
 	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
 	// True when the device is cloud-dialed: paired-like and not bound to any fleet node.
@@ -818,6 +822,11 @@ type Querier interface {
 	GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error)
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
 	GetReleaseChannel(ctx context.Context, arg GetReleaseChannelParams) (ReleaseChannel, error)
+	// Channel deletion must not erase active rollout controls or command history
+	// while an already-dispatched update remains pending. A recovered target may
+	// have released its reservation while the command still runs, so consult the
+	// durable dispatch identity as well as reservations.
+	GetReleaseChannelDeletionState(ctx context.Context, channelID int64) (GetReleaseChannelDeletionStateRow, error)
 	GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	// Serialize assignment changes before reading any pair, including pairs with
 	// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
@@ -1164,7 +1173,8 @@ type Querier interface {
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
-	// status, latest telemetry within 15 minutes of this statement, open errors
+	// status, latest telemetry within 15 minutes of this statement and at or after
+	// verification once DONE (so baseline samples cannot pass post-update gates), open errors
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 	// and channel membership separately from eligibility for the rollout's pair.
@@ -1186,11 +1196,11 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
-	// Every historical target can hold an offline slot, regardless of phase or
-	// current membership. Actual command reservations persist until their command
-	// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
-	// Fleet deletion releases both. UNION counts a device only once, including
-	// when it was targeted by several rollouts in this channel.
+	// Offline current members that have been targeted hold capacity. Departed
+	// targets count only while a durable dispatch reservation remains unresolved:
+	// a pending command before an offline cycle, or an offline miner not yet
+	// observed recovered. Completed historical targets cannot reacquire capacity
+	// after leaving. UNION counts each device only once; fleet deletion releases it.
 	ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned. Incremental polls
@@ -1234,6 +1244,11 @@ type Querier interface {
 	// a crash before the active-event pointer was written, cannot hide it.
 	ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]ListMQTTSourcesWithActiveCurtailmentRow, error)
 	ListMaintenanceAssignees(ctx context.Context, orgID int64) ([]ListMaintenanceAssigneesRow, error)
+	// A direct firmware command must not compete with release-channel enforcement,
+	// including a command that happens to report the assigned version. Firmware
+	// can rename a target's reported hardware; active enrollment remains owned by
+	// its current assignment until that paired device settles or leaves scope.
+	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
 	// TYPE GENERATION STUB - This query is never executed.
 	// The actual list query uses a hand-written query builder in device.go
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
@@ -1568,6 +1583,10 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	// Retrying a failed deployment preserves its original health expectations.
+	// A failed update can itself stop hashing; recapturing that degraded state
+	// would incorrectly lower the requirements for the retry to succeed.
+	PreserveFirmwareRolloutRetryBaselines(ctx context.Context, rolloutID int64) error
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)

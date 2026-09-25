@@ -893,12 +893,22 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 }
 
 // DeleteFirmwareFile removes a firmware file from disk and the checksum index.
-// Returns NotFound if the ID does not exist, or FailedPrecondition while command
-// delivery needs its path. The caller can retry after the command finishes.
+// Returns FailedPrecondition while an assignment, rollout, or outstanding
+// command still needs the firmware. The lifecycle lock serializes the durable
+// reference check with admission leases and execution pins.
 func (s *Service) DeleteFirmwareFile(fileID string) error {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return err
+	}
+	var check FirmwareDeletionCheck
+	if s.firmwareDeletionGuard != nil {
+		var release func()
+		check, release, err = s.firmwareDeletionGuard()
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 
 	// Serialize deletion with checksum reuse lookups so a lookup either returns
@@ -909,7 +919,7 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 	inUse := s.firmwareExecutionPins[canonical] > 0
 	s.mu.Unlock()
 	if inUse {
-		return fleeterror.NewFailedPreconditionErrorf("firmware file %s is in use by an executing command; retry deletion after it finishes", canonical)
+		return fleeterror.NewFailedPreconditionErrorf("firmware file %s is in use by a firmware update; wait for it to finish before deleting the file", canonical)
 	}
 
 	dir := getFirmwareDirPath(canonical)
@@ -918,6 +928,12 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 			return fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
 		}
 		return fleeterror.NewInternalErrorf("failed to stat firmware dir %s: %v", canonical, err)
+	}
+	if check != nil {
+		checksum, _ := s.lookupFirmwareChecksum(canonical)
+		if err := check(canonical, checksum); err != nil {
+			return err
+		}
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fleeterror.NewInternalErrorf("failed to remove firmware dir %s: %v", canonical, err)

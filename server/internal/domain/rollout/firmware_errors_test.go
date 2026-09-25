@@ -74,6 +74,12 @@ func TestFirmwareLookupErrorsDistinguishMissingRows(t *testing.T) {
 			assert.False(t, fleeterror.IsNotFoundError(err))
 			require.ErrorIs(t, err, context.Canceled)
 
+			current, err := f.svc.GetRollout(ctx, f.orgID, rollout.ID)
+			require.NoError(t, err)
+			if current.Status == StatusActive {
+				_, _, err = f.svc.CancelRollout(ctx, f.orgID, rollout.ID, byOperator)
+				require.NoError(t, err)
+			}
 			require.NoError(t, f.svc.DeleteChannel(ctx, f.orgID, f.channelID))
 			assert.True(t, fleeterror.IsNotFoundError(operation.run(ctx, f.svc, f.orgID, id)))
 		})

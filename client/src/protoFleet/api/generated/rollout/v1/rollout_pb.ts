@@ -190,7 +190,8 @@ export type RolloutBehavior = Message<"rollout.v1.RolloutBehavior"> & {
   /**
    * Gated methods only (PILOT_THEN_CONTINUE, or BATCHED with review):
    * release a gate automatically once the DONE count and failed-device
-   * checks pass, every set threshold passes under the
+   * checks pass, reviewed miners are currently online and hashing if required
+   * by their original baseline, every set threshold passes under the
    * RolloutAutomationThresholds coverage rule, and stabilization_seconds
    * has elapsed.
    *
@@ -217,13 +218,15 @@ export type RolloutBehavior = Message<"rollout.v1.RolloutBehavior"> & {
    * Channel-wide budget of miners mid-update, shared by every active rollout
    * in the channel whatever its method. Each distinct target holds at most
    * one slot: a reservation, taken just before its update command is
-   * dispatched, or an offline slot, taken whenever it is observed offline in
-   * any phase, whatever caused the outage. A reservation becomes an offline
+   * dispatched, or an offline slot for a current member previously targeted
+   * by the channel. Departed targets count only while their dispatch reservation
+   * remains unresolved. A reservation becomes an offline
    * slot when the target is observed offline and is released without one
-   * only when the command reaches a terminal state with the target never
-   * observed offline; online observations alone never release it, since a
+   * only when the command reaches a terminal state and the target is online;
+   * online observations alone never release it, since a
    * miner stays reachable while it downloads. An offline slot is released
-   * when the target is next observed online. Deleting the target from the
+   * when the target is next observed online. Once released, a later unrelated
+   * outage of a departed target does not consume capacity. Deleting the target from the
    * fleet releases either kind; becoming EXCLUDED, FAILED, or otherwise
    * terminal does not. Dispatch in every rollout of the channel waits while
    * a nonzero budget is full. Cancellation stops dispatch for the canceled
@@ -859,7 +862,8 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
 
   /**
    * Whether every reviewed miner is DONE, EXCLUDED, or SKIPPED with none
-   * FAILED, every set threshold passes under the RolloutAutomationThresholds
+   * FAILED, DONE miners meet their live online/hashing recovery requirements,
+   * every set threshold passes using samples taken after verification under the RolloutAutomationThresholds
    * coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
    * miners are neutral: they neither block readiness nor contribute samples.
    * The server derives this value and reports it false for rollouts without
@@ -870,8 +874,8 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
   readyToAdvance: boolean;
 
   /**
-   * Why the rollout is holding at the gate when it cannot auto-continue,
-   * including which metric lacks the required sample coverage.
+   * Why the rollout is holding: gate health/sample coverage, missing firmware,
+   * or unavailable offline capacity. Empty when no blocker is present.
    *
    * @generated from field: string hold_reason = 12;
    */
@@ -3859,8 +3863,10 @@ export const RolloutErrorReasonSchema: GenEnum<RolloutErrorReason> =
  * or filename. ApplyReleaseChannelFirmware takes a firmware_file_id only to
  * resolve that checksum and snapshot the file's target manufacturer, target
  * model and firmware version onto the assignment; after that the file may be
- * renamed, have its metadata edited, or be deleted without changing the
- * assignment or any rollout. While no uploaded file carries the assignment's
+ * renamed or have its metadata edited without changing the assignment or any
+ * rollout. Deletion is rejected while an assignment, active rollout, or pending
+ * firmware command references it. Assignment admission protects the payload
+ * through commit. If files are lost outside the application and no upload carries the assignment's
  * checksum, the pair reports firmware_available = false, dispatch for that
  * pair waits, and RPCs that would need the payload fail with
  * FAILED_PRECONDITION, reason ARTIFACT_MISSING. Uploading a file with that
@@ -3970,8 +3976,10 @@ export const RolloutService: GenService<{
     output: typeof UpdateReleaseChannelResponseSchema;
   };
   /**
-   * Deletes a channel with its assignments and rollout history. Miners keep
-   * their running firmware; firmware files are not affected.
+   * Deletes a channel with its assignments and rollout history. Rejected
+   * while a rollout is active or its firmware commands are pending/in flight,
+   * including commands issued before cancellation. Firmware files are not
+   * affected; deleting settled history does not change miners' firmware.
    *
    * @generated from rpc rollout.v1.RolloutService.DeleteReleaseChannel
    */
@@ -4041,9 +4049,8 @@ export const RolloutService: GenService<{
    * starts at most one all-at-once rollout for members mismatched under the
    * RolloutService mismatch rule, so a member whose superseded update is
    * still outstanding is included and receives the restored target behind
-   * that update. A restored artifact that is not currently
-   * uploaded is still assigned; enforcement waits under the RolloutService
-   * artifact identity rule. Commands already sent finish under existing
+   * that update. An unavailable restored artifact fails with ARTIFACT_MISSING
+   * before any assignment changes. Commands already sent finish under existing
    * cancellation semantics.
    *
    * @generated from rpc rollout.v1.RolloutService.RollbackReleaseChannelFirmware
@@ -4200,7 +4207,7 @@ export const RolloutService: GenService<{
    * Re-queues the suppressed members of a rollout's manufacturer/model pair.
    * An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
    * and adds suppressed members from earlier rollouts of the generation as
-   * unbatched late joiners without baselines. A
+   * unbatched targets retaining their original recovery baselines. A
    * finished rollout, while it is current under the RolloutService
    * assignment-generation rule and its pair has no active rollout under the
    * single-active-rollout rule, starts one all-at-once rollout for every
@@ -4211,7 +4218,8 @@ export const RolloutService: GenService<{
    * reachable after later reconciliation rollouts for other miners, and
    * retrying any current finished rollout of the pair has the same effect.
    * The new rollout inherits the pair's assignment_generation and assignment
-   * lineage (previous_firmware_checksum and previous_firmware_version), so
+   * lineage (previous_firmware_checksum and previous_firmware_version), and
+   * each retried target retains its original recovery baseline, so
    * rolling it back reverses the original assignment. When nothing is
    * suppressed, no rollout starts and the response carries the referenced
    * rollout unchanged.
