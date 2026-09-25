@@ -1,10 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { applyChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
-import { canaryChannel } from "./ReleaseChannels.fixtures";
+import { canaryChannel, firmwareFiles } from "./ReleaseChannels.fixtures";
 import {
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
@@ -12,6 +12,7 @@ import {
   RolloutMethod,
   RolloutOrder,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView, ReleaseChannelDraft } from "@/protoFleet/api/useReleaseChannels";
 
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
@@ -48,14 +49,17 @@ function renderManage(
   channel = channelFor(),
   onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockResolvedValue(),
   previewScope = vi.fn().mockResolvedValue(create(PreviewReleaseChannelScopeResponseSchema)),
+  files: FirmwareFileInfo[] = [],
 ) {
   const props = {
     ...manageViewProps(),
     channel,
+    firmwareFiles: files,
     previewScope,
     onSave,
   };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
+  openChannelSettings();
   return {
     ...props,
     update: (next: ChannelView, hasRefreshError = false) =>
@@ -77,19 +81,25 @@ afterEach(() => {
 });
 
 describe("release channel settings refresh", () => {
-  it("blocks saving an oversized scope without blocking staged firmware and recovers after correction", () => {
+  it("blocks a combined draft with an oversized scope and recovers after correction", () => {
     const channel = channelFor();
     channel.scope = { ...channel.scope!, siteIds: Array.from({ length: 101 }, (_, index) => BigInt(index + 1)) };
-    const { onSave } = renderManage(channel);
+    channel.modelGroups = channel.modelGroups.map((group) => ({
+      ...group,
+      firmwareFileId: "",
+      firmwareChecksum: "",
+      firmwareVersion: "",
+    }));
+    const { onSave } = renderManage(channel, undefined, undefined, firmwareFiles);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local name" } });
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
-    fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    fireEvent.click(screen.getByRole("option", { name: /1\.4\.3/ }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Select no more than 100 sites (101 selected).");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("save-channel"));
     expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 9" }));
@@ -115,8 +125,9 @@ describe("release channel settings refresh", () => {
       await act(async () => vi.advanceTimersByTime(5000));
     }
     expect(previewScope).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
     await act(async () => finish(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 17, modelCount: 1 })));
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("17 miners");
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
   });
 
   it("updates clean settings without losing staged firmware when the channel and assignment change", async () => {
@@ -146,11 +157,11 @@ describe("release channel settings refresh", () => {
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Pilot batch, then remaining");
     expect(screen.getByLabelText("Pilot batch size (miners)")).toHaveValue("3");
     expect(screen.getByLabelText("Max miners offline at once (0 for no limit)")).toHaveValue("6");
-    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("No firmware");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local rename" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         name: "Local rename",
@@ -183,7 +194,7 @@ describe("release channel settings refresh", () => {
     expect(screen.getByLabelText("Max miners offline at once (0 for no limit)")).toHaveValue("oops");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "7" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         name: "Local name",
@@ -207,7 +218,7 @@ describe("release channel settings refresh", () => {
     const { channel, update } = renderManage();
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "unfinished" } });
     chooseMethod("Single batch");
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     const next = {
       ...channel,
       name: "Remote name",
@@ -226,7 +237,7 @@ describe("release channel settings refresh", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
-  it("preserves a newer edit that reverts to the old name while a successful save is pending", async () => {
+  it("prevents editing while settings apply and accepts remote fields after completion", async () => {
     let finish!: () => void;
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(
       new Promise<void>((resolve) => {
@@ -236,15 +247,15 @@ describe("release channel settings refresh", () => {
     const { channel, update } = renderManage(channelFor(), onSave);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
     fireEvent.click(screen.getByTestId("save-channel"));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: channel.name } });
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }));
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     update({ ...channel, name: "Submitted name", description: "Remote description" });
-    expect(screen.getByLabelText("Description")).toHaveValue(channel.description);
     await act(async () => finish());
-
-    expect(screen.getByLabelText("Name")).toHaveValue(channel.name);
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Submitted name");
+    expect(screen.getByLabelText("Description")).toHaveValue(channel.description);
+    update({ ...channel, name: "Submitted name", description: "Remote description" });
     expect(screen.getByLabelText("Description")).toHaveValue("Remote description");
-    expect(screen.getByTestId("save-channel")).toBeEnabled();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
@@ -252,7 +263,7 @@ describe("release channel settings refresh", () => {
     const { channel, update, onSave } = renderManage();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
     update(channel, true);
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(screen.getByLabelText("Name")).toHaveValue("Saved name");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     update({ ...channel }, true);

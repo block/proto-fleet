@@ -33,7 +33,7 @@ describe("release channel firmware availability", () => {
       onTargetCount: canaryChannel.modelGroups[0].minerCount,
     };
     const channel = { ...canaryChannel, modelGroups: [group, canaryChannel.modelGroups[1]] };
-    const props = { channels: [channel], rollouts: [activeRigRollout], onCreate: vi.fn(), onManage: vi.fn() };
+    const props = { channels: [channel], rollouts: [activeRigRollout], onManage: vi.fn() };
     const { rerender } = render(<ReleaseChannelsTable {...props} />);
     expect(screen.getByTestId("channel-status-Canary").textContent).toBe(
       active ? "1 firmware assignment unavailable; 1 updating" : "1 firmware assignment unavailable",
@@ -83,7 +83,6 @@ describe("release channel firmware availability", () => {
           },
         ]}
         rollouts={[]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );
@@ -123,7 +122,6 @@ describe("release channel current assignment history", () => {
         <ReleaseChannelsTable
           channels={[{ ...canaryChannel, modelGroups: [group] }]}
           rollouts={[canceled, previous]}
-          onCreate={vi.fn()}
           onManage={vi.fn()}
         />,
       );
@@ -166,7 +164,6 @@ describe("release channel current assignment history", () => {
       <ReleaseChannelsTable
         channels={[{ ...canaryChannel, modelGroups: [group] }]}
         rollouts={[otherGeneration, earlier, otherChannel, finished]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );
@@ -182,7 +179,7 @@ describe("release channel update summary", () => {
       const current = { ...activeRigRollout, id: 99n, assignmentGeneration: generation };
       const group = { ...canaryChannel.modelGroups[0], activeRolloutId: current.id, assignmentGeneration: generation };
       const channel = { ...canaryChannel, modelGroups: [group] };
-      const props = { channels: [channel], rollouts: [gatedRigRollout], onCreate: vi.fn(), onManage: vi.fn() };
+      const props = { channels: [channel], rollouts: [gatedRigRollout], onManage: vi.fn() };
       const { rerender } = render(<ReleaseChannelsTable {...props} />);
       fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
       expect(screen.getByTestId("model-status-Canary-Rig")).toHaveTextContent(/^Refreshing update status$/);
@@ -227,7 +224,6 @@ describe("release channel update summary", () => {
           },
         ]}
         rollouts={[rollout]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );
@@ -265,7 +261,6 @@ describe("release channel update summary", () => {
       <ReleaseChannelsTable
         channels={[{ ...canaryChannel, modelGroups }]}
         rollouts={[...updates, { ...activeRigRollout, id: 100n, channelId: 2n }]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );
@@ -289,7 +284,6 @@ describe("release channel model row identity", () => {
       <ReleaseChannelsTable
         channels={[{ ...canaryChannel, modelGroups }]}
         rollouts={[activeRigRollout]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );
@@ -320,7 +314,7 @@ describe("release channel model row identity", () => {
     const firstGroup = create(ReleaseChannelModelGroupSchema, { ...first, minerCount: 2 });
     const secondGroup = create(ReleaseChannelModelGroupSchema, { ...second, minerCount: 3 });
     const channel = { ...canaryChannel, minerCount: 5, modelGroups: [firstGroup, secondGroup] };
-    const props = { channels: [channel], rollouts: [], onCreate: vi.fn(), onManage: vi.fn() };
+    const props = { channels: [channel], rollouts: [], onManage: vi.fn() };
     const { rerender } = render(<ReleaseChannelsTable {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Expand Canary models" }));
     const firstRow = screen.getByTestId(`model-row-Canary-${first.model}`).closest("tr")!;
@@ -365,7 +359,6 @@ describe("acknowledged rollback assignment", () => {
       <ReleaseChannelsTable
         channels={[{ ...canaryChannel, modelGroups: [group] }]}
         rollouts={[activeRigRollout]}
-        onCreate={vi.fn()}
         onManage={vi.fn()}
       />,
     );

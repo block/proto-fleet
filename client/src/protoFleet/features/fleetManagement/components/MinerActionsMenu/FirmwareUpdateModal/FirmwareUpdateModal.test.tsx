@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import { uploadHookState } from "@/protoFleet/components/FirmwareUpload/useFirmwareUpload.fixtures";
+import type Modal from "@/shared/components/Modal/Modal";
 
 const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
@@ -24,12 +25,17 @@ vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
 }));
 
 vi.mock("@/shared/components/Modal/Modal", () => ({
-  default: vi.fn(({ children, open, title }: { children: ReactNode; open?: boolean; title?: string }) => {
+  default: vi.fn(({ children, open, title, buttons }: ComponentProps<typeof Modal>) => {
     if (open === false) return null;
     return (
       <div data-testid="modal">
         <div>{title}</div>
         {children}
+        {buttons?.map(({ text, disabled, onClick }) => (
+          <button key={text} disabled={disabled} onClick={onClick}>
+            {text}
+          </button>
+        ))}
       </div>
     );
   }),
@@ -88,6 +94,55 @@ describe("FirmwareUpdateModal", () => {
     expect(await screen.findByText("Select an existing firmware file")).toBeInTheDocument();
     expect(screen.getByText("alpha.swu")).toBeInTheDocument();
   });
+
+  it("enables Continue only after selecting an existing payload and submits its ID", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "Rig",
+      },
+    ]);
+    const onConfirm = vi.fn();
+    render(<FirmwareUpdateModal open target={target} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+    fireEvent.click(continueButton);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole("radio", { name: /alpha.swu/ }));
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+    expect(onConfirm).toHaveBeenCalledExactlyOnceWith("fw-1");
+    expect(continueButton).toBeDisabled();
+  });
+
+  it.each(["idle", "hashing", "checking", "uploading", "error"] as const)(
+    "disables Continue while an uploaded payload is %s and enables it when ready",
+    (state) => {
+      mockListFirmwareFiles.mockResolvedValue([]);
+      const file = new File(["firmware"], "update.swu");
+      const onConfirm = vi.fn();
+      const upload = uploadHookState({ state, file, serverConfig: { allowedExtensions: [".swu"] } });
+      mockUseFirmwareUpload.mockReturnValue(upload);
+      const view = render(<FirmwareUpdateModal open target={target} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+
+      const continueButton = screen.getByRole("button", { name: "Continue" });
+      expect(continueButton).toBeDisabled();
+      fireEvent.click(continueButton);
+      expect(onConfirm).not.toHaveBeenCalled();
+
+      mockUseFirmwareUpload.mockReturnValue({ ...upload, state: "ready", firmwareFileId: "fw-uploaded" });
+      view.rerender(<FirmwareUpdateModal open target={target} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+      expect(continueButton).toBeEnabled();
+      fireEvent.click(continueButton);
+      expect(onConfirm).toHaveBeenCalledExactlyOnceWith("fw-uploaded");
+    },
+  );
 
   it("filters existing files to the selected miner target", async () => {
     mockListFirmwareFiles.mockResolvedValue([

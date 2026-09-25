@@ -215,11 +215,11 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
   return (
     <div className="min-w-0">
       <div className="text-200 text-text-primary-50">{label}</div>
-      <div className="mt-1 truncate text-emphasis-300 text-text-primary" title={value}>
+      <div className="mt-1 text-emphasis-300 break-words text-text-primary" title={value}>
         {value}
       </div>
       {detail ? (
-        <div className="mt-1 truncate text-200 text-text-primary-70" title={detail}>
+        <div className="mt-1 text-200 break-words text-text-primary-70" title={detail}>
           {detail}
         </div>
       ) : null}

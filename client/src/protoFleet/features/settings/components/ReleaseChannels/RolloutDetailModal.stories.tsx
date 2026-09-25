@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fn } from "storybook/test";
 
 import {
   activeRigRollout,
@@ -7,21 +8,35 @@ import {
   completedRigRollout,
   completedWithFailuresRigRollout,
   gatedRigRollout,
-  listRolloutDevicesFixture,
-  minerNames,
   pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
 import RolloutDetailModal from "./RolloutDetailModal";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
-// The full-screen update detail: lifecycle actions in the sticky header,
-// failures first, the status lockup, plan stats, progress against plan and
-// the telemetry evidence strip.
+// The full-screen live view contains its own title and dismissal alongside
+// status, lifecycle controls, progress, plan details and telemetry evidence.
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Update Detail",
   component: RolloutDetailModal,
   parameters: {
     layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "Fixed server snapshots. Callbacks are recorded in Actions; use the Active Monitor stories for navigation and confirmation flows.",
+      },
+    },
+  },
+  args: {
+    onClose: fn(),
+    onContinue: fn(() => Promise.resolve()),
+    onPause: fn(() => Promise.resolve()),
+    onResume: fn(() => Promise.resolve()),
+    onCancel: fn(),
+    onRollback: fn(),
+    onRetryFailed: fn(),
+    onViewMiners: fn(),
+    onManage: fn(),
   },
 } satisfies Meta<typeof RolloutDetailModal>;
 
@@ -29,25 +44,10 @@ export default meta;
 
 type Story = StoryObj<typeof RolloutDetailModal>;
 
-const settle = () => Promise.resolve();
-const noop = () => {};
-
 const detail = (rollout: Rollout): Story => ({
-  render: () => (
+  render: (args) => (
     <div className="min-h-screen bg-surface-base">
-      <RolloutDetailModal
-        rollout={rollout}
-        minerNames={minerNames}
-        listRolloutDevices={listRolloutDevicesFixture}
-        onClose={noop}
-        onContinue={settle}
-        onPause={settle}
-        onResume={settle}
-        onCancel={noop}
-        onRollback={noop}
-        onRetryFailed={settle}
-        onManage={noop}
-      />
+      <RolloutDetailModal {...args} rollout={rollout} />
     </div>
   ),
 });

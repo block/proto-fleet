@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
+import { createPortal } from "react-dom";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
+import FirmwarePageLayout from "@/protoFleet/features/settings/components/FirmwarePageLayout";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
-import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
-import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -125,7 +125,6 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
 };
 
 const activeCols: FirmwareColumns[] = ["filename", "target", "firmwareVersion", "uploadedAt", "size"];
-const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
@@ -139,7 +138,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   };
 }
 
-const FirmwareFilesSection = () => {
+const FirmwareFilesSection = ({ actionContainer }: { actionContainer: HTMLElement | null }) => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -275,30 +274,31 @@ const FirmwareFilesSection = () => {
     [handleDeleteFile, handleEditMetadata],
   );
 
+  const uploadAction = (
+    <Button
+      variant={variants.primary}
+      size={sizes.compact}
+      text="Upload firmware"
+      onClick={() => setShowUploadDialog(true)}
+      className="shrink-0 phone:w-full"
+    />
+  );
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
-        <div className="flex shrink-0 gap-3 phone:w-full phone:flex-col">
+      {actionContainer ? createPortal(uploadAction, actionContainer) : uploadAction}
+      {files.length > 0 ? (
+        <div className="flex justify-end">
           <Button
-            variant={variants.primary}
+            variant={variants.danger}
             size={sizes.compact}
-            text="Upload firmware"
-            onClick={() => setShowUploadDialog(true)}
+            text="Delete all"
+            onClick={() => setShowDeleteAllDialog(true)}
+            disabled={isDeletingAll}
             className="phone:w-full"
           />
-          {files.length > 0 ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Delete all"
-              onClick={() => setShowDeleteAllDialog(true)}
-              disabled={isDeletingAll}
-              className="phone:w-full"
-            />
-          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {isLoading ? (
         <div className="text-center text-text-primary-50">Loading firmware files...</div>
@@ -363,11 +363,6 @@ const TAB_FILES = "files";
 const TAB_RELEASE_CHANNELS = "releaseChannels";
 export const RELEASE_CHANNELS_TAB_PARAM = "release-channels";
 
-const firmwareTabs = [
-  { key: TAB_FILES, title: "Files" },
-  { key: TAB_RELEASE_CHANNELS, title: "Release channels" },
-];
-
 // The active tab lives in the `tab` search param so other surfaces can
 // deep-link straight to the release channels view. The active-updates monitor
 // consumes channel data on both tabs, so one page-owned poll feeds both views.
@@ -375,6 +370,7 @@ const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
+  const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
   const retryChannels = () => {
@@ -414,45 +410,44 @@ const Firmware = () => {
   ) : null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <SegmentedControl
-        // SegmentedControl is uncontrolled; remount it when navigation
-        // (rather than a click) changes the URL-derived tab.
-        key={activeTab}
-        className="self-start"
-        segments={firmwareTabs}
-        initialSegmentKey={activeTab}
-        onSelect={(key) => {
-          if (key === TAB_RELEASE_CHANNELS) {
-            showChannels();
-          } else {
-            setManageRequest(null);
-            setSearchParams({}, { replace: true });
-          }
-        }}
-      />
-      {refreshWarning}
-      <ActiveUpdatesMonitor
-        api={channelsApi}
-        refreshWarning={refreshWarning}
-        request={monitorRequest}
-        onRequestHandled={() => setMonitorRequest(null)}
-        onManageChannel={(channelId) => {
-          setManageRequest({ channelId });
+    <FirmwarePageLayout
+      activeTab={activeTab}
+      headerAction={<div ref={setActionContainer} className="shrink-0 empty:hidden phone:w-full" />}
+      manageRequest={manageRequest}
+      refreshWarning={refreshWarning}
+      onSelectTab={(key) => {
+        if (key === TAB_RELEASE_CHANNELS) {
           showChannels();
-        }}
-      />
+        } else {
+          setManageRequest(null);
+          setSearchParams({}, { replace: true });
+        }
+      }}
+      monitor={
+        <ActiveUpdatesMonitor
+          api={channelsApi}
+          refreshWarning={refreshWarning}
+          request={monitorRequest}
+          onRequestHandled={() => setMonitorRequest(null)}
+          onManageChannel={(channelId) => {
+            setManageRequest({ channelId });
+            showChannels();
+          }}
+        />
+      }
+    >
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
           api={channelsApi}
+          actionContainer={actionContainer}
           manageRequest={manageRequest}
           onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rollout })}
           onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />
       ) : (
-        <FirmwareFilesSection />
+        <FirmwareFilesSection actionContainer={actionContainer} />
       )}
-    </div>
+    </FirmwarePageLayout>
   );
 };
 

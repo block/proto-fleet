@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { deferred, manageViewProps } from "./__tests__/helpers";
+import {
+  applyChannelSettings,
+  closeChannelSettings,
+  deferred,
+  manageViewProps,
+  openChannelSettings,
+} from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { activeRigRollout, canaryChannel, gatedRigRollout } from "./ReleaseChannels.fixtures";
@@ -101,6 +107,12 @@ function renderManage(
   };
 }
 
+function renderSettings(...args: Parameters<typeof renderManage>) {
+  const result = renderManage(...args);
+  if (args[0]) openChannelSettings();
+  return result;
+}
+
 const assignedChannel = (firmwareFileId = ""): ChannelView => ({
   ...existingChannel(),
   modelGroups: [
@@ -149,18 +161,18 @@ describe("release channel active sizing validation", () => {
         thresholds: { maxHashrateDropPercent: 10, minSampleCoveragePercent: 50 },
       }),
     };
-    const { onSave } = renderManage(channel);
+    const { onSave } = renderSettings(channel);
     const coverage = screen.getByLabelText("Min sample coverage (%)");
     expect(coverage).toHaveValue("50");
     fireEvent.change(coverage, { target: { value: "0" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(coverage, { target: { value: "75" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[0][0].behavior.thresholds).toEqual(
       expect.objectContaining({ maxHashrateDropPercent: 10, minSampleCoveragePercent: 75 }),
     );
-    fireEvent.change(coverage, { target: { value: "" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    fireEvent.change(screen.getByLabelText("Min sample coverage (%)"), { target: { value: "" } });
+    await applyChannelSettings();
     expect(onSave.mock.calls[1][0].behavior.thresholds?.minSampleCoveragePercent).toBeUndefined();
     expect(onSave.mock.calls[1][0].behavior.thresholds?.maxHashrateDropPercent).toBe(10);
   });
@@ -175,7 +187,7 @@ describe("release channel active sizing validation", () => {
   ] as const)(
     "blocks %s with active size %s/%s=%s, then recovers or switches methods",
     async (method, label, field, invalidValue) => {
-      const { onSave } = renderManage(existingChannel());
+      const { onSave } = renderSettings(existingChannel());
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
       const chooseMethod = (name: string) => {
         fireEvent.click(screen.getByTestId("rollout-method"));
@@ -184,40 +196,40 @@ describe("release channel active sizing validation", () => {
       chooseMethod(method);
       fireEvent.change(screen.getByLabelText(label), { target: { value: invalidValue } });
       expect(screen.getByLabelText(label)).toHaveAttribute("aria-invalid", "true");
-      expect(screen.getByText("Enter at least 1 miner.")).toBeVisible();
+      await waitFor(() => expect(screen.getByText("Enter at least 1 miner.")).toBeVisible());
       const save = screen.getByTestId("save-channel");
-      expect(save).toBeDisabled();
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
       fireEvent.click(save);
       expect(onSave).not.toHaveBeenCalled();
       chooseMethod(method === "Multiple batches" ? "Pilot batch, then remaining" : "Multiple batches");
-      expect(save).toBeEnabled();
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
       chooseMethod("Single batch");
-      expect(save).toBeEnabled();
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
       chooseMethod(method);
-      expect(save).toBeDisabled();
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
       fireEvent.change(screen.getByLabelText(label), { target: { value: "1" } });
       expect(screen.getByLabelText(label)).not.toHaveAttribute("aria-invalid");
-      expect(save).toBeEnabled();
-      await act(async () => fireEvent.click(save));
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
+      await applyChannelSettings();
       expect(onSave).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ behavior: expect.objectContaining({ [field]: 1 }) }),
       );
     },
   );
 
-  test("allows firmware Apply to use saved settings when an unsaved active size is invalid", async () => {
-    const { onSave, onApply } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
+  test("blocks firmware Apply when a staged active size is invalid", async () => {
+    const { onSave, onApply } = renderSettings(assignedChannel(), undefined, false, [replacementFile]);
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "0" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: /1\.4\.4/ }));
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: single batch.");
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Unsaved channel changes");
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
-    expect(onApply).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
   });
 });
@@ -248,7 +260,9 @@ describe("release channel active rollout identity", () => {
         new Promise<never[]>((resolve) => signal!.addEventListener("abort", () => resolve([]), { once: true })),
     );
     const { rerender } = render(<ReleaseChannelManageView {...props} />);
-    expect(screen.getByTestId("model-group-Rig")).toHaveTextContent("Review needed");
+    expect(within(screen.getByTestId("model-group-Rig")).getByRole("progressbar")).toHaveAccessibleName(
+      expect.stringContaining("Review needed"),
+    );
     fireEvent.click(screen.getByTestId("view-miners-Rig"));
     await waitFor(() =>
       expect(props.listRolloutDevices).toHaveBeenCalledWith(gatedRigRollout.id, expect.any(AbortSignal)),
@@ -262,7 +276,12 @@ describe("release channel active rollout identity", () => {
     expect(screen.queryByTestId("channel-update-pill")).not.toBeInTheDocument();
     expect(props.listRolloutDevices).toHaveBeenCalledOnce();
     rerender(<ReleaseChannelManageView {...props} channel={channel} rollouts={[current, gatedRigRollout]} />);
-    expect(screen.getByTestId("model-group-rollout-progress-Rig")).toHaveTextContent("Updating to 2.0.0");
+    expect(screen.getByTestId("model-group-rollout-progress-Rig")).toHaveAccessibleName(
+      expect.stringContaining("Updating to 2.0.0"),
+    );
+    expect(screen.getByRole("table", { name: "Assigned miners by model" }).querySelectorAll("tbody tr")).toHaveLength(
+      1,
+    );
     expect(screen.getByTestId("channel-update-pill")).toHaveTextContent("Update in progress");
     expect(screen.getByTestId("view-miners-Rig")).toBeEnabled();
     await waitFor(() => expect(props.listRolloutDevices).toHaveBeenLastCalledWith(current.id, expect.any(AbortSignal)));
@@ -298,7 +317,7 @@ describe("release channel pacing guidance", () => {
       create(ReleaseChannelModelGroupSchema, { ...channel.modelGroups[0], minerCount: 10 }),
       create(ReleaseChannelModelGroupSchema, { manufacturer: "Bitmain", model: "S21", minerCount: 10 }),
     ];
-    renderManage(channel);
+    renderSettings(channel);
     const controls = screen.getByTestId("rollout-controls");
     expect(controls).not.toHaveTextContent(aggregatePlan);
     expect(
@@ -313,11 +332,11 @@ describe("release channel pacing guidance", () => {
     // Staging only a clear must not turn the whole scope into a predicted update.
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
-    expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
-    expect(controls).not.toHaveTextContent(aggregatePlan);
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("rollout-controls")).not.toHaveTextContent(aggregatePlan);
   });
 
-  test("keeps scope counts visible without treating one model or a draft preview as rollout targets", async () => {
+  test("does not treat one model or a draft scope preview as rollout targets", async () => {
     const channel = assignedChannel();
     channel.minerCount = 10;
     channel.behavior = create(RolloutBehaviorSchema, { method: RolloutMethod.BATCHED, batchSize: 5 });
@@ -331,7 +350,7 @@ describe("release channel pacing guidance", () => {
         onTargetCount: 4,
       }),
     ];
-    const { previewScope } = renderManage(channel);
+    const { previewScope } = renderSettings(channel);
     const controls = screen.getByTestId("rollout-controls");
     expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
     previewScope.mockResolvedValue(
@@ -346,7 +365,14 @@ describe("release channel pacing guidance", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
-    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 60 miners"));
+    await waitFor(() =>
+      expect(previewScope).toHaveBeenLastCalledWith(
+        create(ReleaseChannelScopeSchema, { siteIds: [2n] }),
+        channel.id,
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
     expect(controls).not.toHaveTextContent("~12 batches of 5 across 60 miners");
     expect(controls).not.toHaveTextContent("~2 batches of 5 across 10 miners");
     expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("5");
@@ -366,124 +392,184 @@ describe("release channel write ordering", () => {
   };
 
   const chooseBatches = (batchSize: string) => {
+    openChannelSettings();
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: batchSize } });
   };
 
-  test("confirms acknowledged pacing after a failed refresh without treating newer or rejected drafts as saved", async () => {
+  test("reviews both drafts and saves settings before starting firmware under one write lock", async () => {
     const channel = assignedChannel();
     const write = deferredWrite();
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValueOnce(write.promise);
-    const { updateChannel, onApply } = renderManage(channel, onSave, false, [replacementFile]);
+    const { onApply } = renderManage(channel, onSave, false, [replacementFile]);
     chooseBatches("3");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Canary" } });
+    closeChannelSettings();
     stageReplacement();
-    const save = screen.getByTestId("save-channel");
-    const apply = screen.getByTestId("apply-firmware-changes");
-    fireEvent.click(save);
-    expect(apply).toBeDisabled();
-    fireEvent.click(apply);
-    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    openChannelSettings();
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("3");
+    fireEvent.click(screen.getByTestId("save-channel"));
+    expect(onSave).not.toHaveBeenCalled();
     expect(onApply).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "8" } });
-    updateChannel(channel, true);
-    await act(async () => write.resolve());
-    expect(onSave.mock.calls[0][0].behavior.batchSize).toBe(3);
-    expect(save).toBeEnabled();
-    expect(apply).toBeEnabled();
-    fireEvent.click(apply);
     const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(dialog).toHaveTextContent("Channel settings");
+    expect(dialog).toHaveTextContent("Canary");
     expect(dialog).toHaveTextContent("Pacing: batches of 3, back to back.");
-    expect(dialog).not.toHaveTextContent("batches of 8");
-    expect(dialog).toHaveTextContent("Unsaved channel changes");
-
-    onSave.mockRejectedValueOnce(new Error("Newer save rejected"));
-    await act(async () => fireEvent.click(save));
-    expect(dialog).toHaveTextContent("Pacing: batches of 3, back to back.");
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("8");
-    expect(save).toBeEnabled();
-
-    const refreshed = {
-      ...channel,
-      behavior: create(RolloutBehaviorSchema, {
-        method: RolloutMethod.BATCHED,
-        order: RolloutOrder.LEAST_EFFICIENT_FIRST,
-        batchSize: 5,
-      }),
-    };
-    updateChannel(refreshed, false);
-    expect(dialog).toHaveTextContent("Pacing: batches of 5, back to back.");
-    updateChannel(refreshed, true);
-    expect(dialog).toHaveTextContent("Pacing: batches of 5, back to back.");
-    expect(dialog).not.toHaveTextContent("batches of 3");
-  });
-
-  test("blocks an already-open confirmation during save and permits retry after save rejection", async () => {
-    const channel = assignedChannel();
-    const write = deferredWrite();
-    const onSave = vi
-      .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
-      .mockResolvedValue(undefined)
-      .mockReturnValueOnce(write.promise);
-    const { onApply } = renderManage(channel, onSave, true, [replacementFile]);
-    stageReplacement();
-    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    chooseBatches("7");
-    const save = screen.getByTestId("save-channel");
-    const start = screen.getByRole("button", { name: "Start update" });
-    fireEvent.click(save);
-    expect(start).toBeDisabled();
-    fireEvent.click(start);
+    expect(dialog).toHaveTextContent("1.4.4");
+    const apply = within(dialog).getByRole("button", { name: "Apply changes" });
+    fireEvent.click(apply);
+    fireEvent.click(apply);
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "Canary", behavior: expect.objectContaining({ batchSize: 3 }) }),
+    );
     expect(onApply).not.toHaveBeenCalled();
-    await act(async () => write.reject(new Error("Settings rejected")));
-    expect(start).toBeEnabled();
-    expect(save).toBeEnabled();
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: single batch.");
-    expect(pushToast).toHaveBeenCalledWith({ message: "Settings rejected", status: "error" });
-
-    await act(async () => fireEvent.click(save));
-    expect(onSave).toHaveBeenCalledTimes(2);
-    expect(save).toBeDisabled();
-    expect(start).toBeEnabled();
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Pacing: batches of 7, back to back.");
-    await act(async () => fireEvent.click(start));
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toBeDisabled();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled();
+    await act(async () => write.resolve());
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
       { manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" },
     ]);
+    expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(onApply.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
   });
 
-  test.each(["success", "failure"])("blocks settings saves until an in-flight apply ends in %s", async (outcome) => {
-    const { onApply, onSave } = renderManage(assignedChannel(), undefined, false, [replacementFile]);
+  test("keeps both drafts retryable after settings rejection and never starts firmware first", async () => {
+    const write = deferredWrite();
+    const onSave = vi
+      .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { onApply } = renderManage(assignedChannel(), onSave, true, [replacementFile]);
+    chooseBatches("7");
+    closeChannelSettings();
+    stageReplacement();
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    const apply = within(dialog).getByRole("button", { name: "Apply changes" });
+    fireEvent.click(apply);
+    expect(apply).toBeDisabled();
+    await act(async () => write.reject(new Error("Settings rejected")));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(apply).toBeEnabled();
+    expect(dialog).toHaveTextContent("Pacing: batches of 7, back to back.");
+    expect(pushToast).toHaveBeenCalledWith({ message: "Settings rejected", status: "error" });
+    await act(async () => fireEvent.click(apply));
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1]).toEqual(onSave.mock.calls[0]);
+    expect(onApply).toHaveBeenCalledOnce();
+  });
+
+  test("retains acknowledged settings after firmware fails and retries only the pending firmware", async () => {
+    const channel = assignedChannel();
+    const { onApply, onSave, updateChannel } = renderManage(channel, undefined, true, [replacementFile]);
     const write = deferredWrite();
     onApply.mockReturnValueOnce(write.promise);
+    chooseBatches("4");
+    closeChannelSettings();
     stageReplacement();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    const save = screen.getByTestId("save-channel");
-    const start = screen.getByRole("button", { name: "Start update" });
-    fireEvent.click(start);
-    expect(save).toBeDisabled();
-    expect(start).toBeDisabled();
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
-    fireEvent.click(save);
-    fireEvent.click(start);
-    expect(onSave).not.toHaveBeenCalled();
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" })));
+    expect(onSave).toHaveBeenCalledOnce();
     expect(onApply).toHaveBeenCalledOnce();
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Newer unsaved name" } });
-    await act(async () => {
-      if (outcome === "success") write.resolve();
-      else write.reject(new Error("Apply rejected"));
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
+    await act(async () => write.reject(new Error("Firmware rejected")));
+    expect(dialog).toHaveTextContent(
+      "Channel settings were saved, but firmware changes could not be applied. Your firmware selections are still pending. Firmware rejected",
+    );
+    expect(dialog).toHaveTextContent("Firmware rejected");
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
+    expect(dialog).toHaveTextContent("1 change pending");
+    expect(screen.queryByText("Channel settings changes pending")).not.toBeInTheDocument();
+    updateChannel({ ...channel }, true);
+    expect(dialog).toHaveTextContent("Pacing: batches of 4, back to back.");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Start update" })));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onApply).toHaveBeenCalledTimes(2);
+    expect(onApply.mock.calls[1]).toEqual(onApply.mock.calls[0]);
+    openChannelSettings();
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("4");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+  });
+
+  test("stages firmware for a model introduced by draft scope and applies scope first", async () => {
+    const newFile = { ...replacementFile, id: "other-firmware", target_model: "Other" };
+    const channel = assignedChannel();
+    const { previewScope, onSave, onApply } = renderManage(channel, undefined, false, [newFile]);
+    previewScope.mockResolvedValue(
+      create(PreviewReleaseChannelScopeResponseSchema, {
+        minerCount: 3,
+        modelCount: 2,
+        models: [
+          { manufacturer: "Proto", model: "Rig", minerCount: 1 },
+          { manufacturer: "Proto", model: "Other", minerCount: 2 },
+        ],
+      }),
+    );
+    openChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
+    await waitFor(() => expect(screen.getByTestId("channel-firmware-select-Other")).toBeInTheDocument());
+    closeChannelSettings();
+    const row = screen.getByTestId("channel-firmware-select-Other").closest("tr")!;
+    expect(row).not.toHaveTextContent("Pending scope change");
+    expect(within(row).getByTestId("view-miners-Other")).toBeDisabled();
+    fireEvent.click(within(row).getByTestId("channel-firmware-select-Other"));
+    fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
+    expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(dialog).toHaveTextContent("Applies to");
+    expect(dialog).toHaveTextContent("Proto Other");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" })));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ scope: expect.objectContaining({ siteIds: [2n] }) }),
+    );
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(channel.id, [
+      { manufacturer: "Proto", model: "Other", firmwareFileId: "other-firmware" },
+    ]);
+    expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(onApply.mock.invocationCallOrder[0]);
+  });
+
+  test("retains a staged model when a scope save removes its row and firmware needs retry", async () => {
+    const channel = assignedChannel();
+    channel.modelGroups = channel.modelGroups.map((group) => ({
+      ...group,
+      firmwareFileId: "",
+      firmwareChecksum: "",
+      firmwareVersion: "",
+      assignmentGeneration: 0n,
+    }));
+    const { onApply, onSave, updateChannel } = renderManage(channel, undefined, false, [replacementFile]);
+    openChannelSettings();
+    fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear sites" }));
+    closeChannelSettings();
+    stageReplacement();
+    onSave.mockImplementationOnce(async (draft) => {
+      updateChannel({ ...channel, ...draft, modelGroups: [], minerCount: 0 }, true);
     });
-    expect(save).toBeEnabled();
-    if (outcome === "failure") {
-      expect(start).toBeEnabled();
-      expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
-      await act(async () => fireEvent.click(start));
-      expect(onApply).toHaveBeenCalledTimes(2);
-      expect(onApply.mock.calls[1]).toEqual(onApply.mock.calls[0]);
-    }
-    await act(async () => fireEvent.click(save));
-    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Newer unsaved name" }));
+    onApply.mockRejectedValueOnce(new Error("Retry firmware"));
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" })));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("1.4.4");
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
+    expect(dialog).toHaveTextContent("Retry firmware");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Start update" })));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onApply).toHaveBeenCalledTimes(2);
+    expect(onApply.mock.calls[1]).toEqual(onApply.mock.calls[0]);
+    expect(onApply.mock.calls[1][1]).toEqual([{ manufacturer: "Proto", model: "Rig", firmwareFileId: "replacement" }]);
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
   });
 });
 
@@ -507,12 +593,12 @@ describe("release channel firmware assignments", () => {
     expect(clear).toHaveAttribute("aria-selected", "false");
     fireEvent.click(clear);
     expect(picker).toHaveTextContent("No firmware");
-    expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
 
     updateChannel(channel, true);
     expect(picker).toHaveTextContent("No firmware");
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("no firmware");
+    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("No firmware");
     fireEvent.click(screen.getByRole("button", { name: "Clear assignments" }));
     await waitFor(() =>
       expect(onApply).toHaveBeenCalledExactlyOnceWith(channel.id, [
@@ -522,17 +608,19 @@ describe("release channel firmware assignments", () => {
     await waitFor(() => expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument());
   });
 
-  test("discarding a staged clear restores the unavailable assignment without changing channel edits", () => {
-    renderManage(assignedChannel());
+  test("discarding a staged clear restores both the unavailable assignment and channel settings", () => {
+    renderSettings(assignedChannel());
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
+    closeChannelSettings();
     const picker = screen.getByTestId("channel-firmware-select-Rig");
     fireEvent.click(picker);
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(picker).toHaveTextContent("1.4.3");
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
-    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Production");
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   test("does not stage a clear when the model has no assignment", () => {
@@ -672,6 +760,7 @@ describe("release channel firmware assignments", () => {
         replacementFile,
         otherFile,
       ]);
+      openChannelSettings();
       for (const model of ["Rig", "Other"]) {
         fireEvent.click(screen.getByTestId(`channel-firmware-select-${model}`));
         fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
@@ -686,7 +775,7 @@ describe("release channel firmware assignments", () => {
         recoveredFile,
         ...(change === "retargeted" ? [{ ...replacementFile, target_model: "Other" }] : []),
       ]);
-      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
       expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("Firmware details unavailable");
       expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent(
         "Choose valid firmware for every changed model or discard the pending changes.",
@@ -695,16 +784,24 @@ describe("release channel firmware assignments", () => {
       expect(start).toBeDisabled();
       fireEvent.click(start);
       expect(onApply).not.toHaveBeenCalled();
-      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Independent settings change" } });
-      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
-      expect(onSave).toHaveBeenCalledOnce();
-      expect(start).toBeDisabled();
+      fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Cancel" }));
+      openChannelSettings();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Combined settings change" } });
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
+      fireEvent.click(screen.getByTestId("save-channel"));
+      expect(onSave).not.toHaveBeenCalled();
+      closeChannelSettings();
 
       fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
       fireEvent.click(screen.getByRole("option", { name: /1.4.5/ }));
       expect(apply).toBeEnabled();
-      expect(start).toBeEnabled();
-      await act(async () => fireEvent.click(start));
+      fireEvent.click(apply);
+      await act(async () =>
+        fireEvent.click(
+          within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }),
+        ),
+      );
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Combined settings change" }));
       expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
         { manufacturer: "Proto", model: "Rig", firmwareFileId: "new-rig-file" },
         { manufacturer: "Proto", model: "Other", firmwareFileId: "other-file" },
@@ -735,7 +832,7 @@ describe("release channel firmware assignments", () => {
       const start = screen.getByRole("button", { name: "Start update" });
       expect(start).toBeEnabled();
       updateFirmwareFiles([{ ...replacementFile, firmware_version: version }, otherFile]);
-      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
       expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("Firmware details unavailable");
       expect(screen.getByTestId("channel-firmware-select-Other")).toHaveTextContent("1.4.4");
       expect(apply).toBeDisabled();
@@ -772,7 +869,7 @@ describe("release channel firmware assignments", () => {
       fireEvent.click(screen.getByRole("option", { name: /1.4.4/ }));
     }
     updateFirmwareFiles([]);
-    expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
     expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
@@ -889,7 +986,7 @@ describe("release channel firmware assignments", () => {
     expect(screen.getByTestId("channel-firmware-select-\uFEFFRig", { normalizer: (text) => text })).toHaveTextContent(
       "No firmware",
     );
-    expect(screen.getByText(/1 firmware change pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
@@ -967,7 +1064,7 @@ describe("release channel firmware assignments", () => {
           false,
         );
       }
-      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
       expect(screen.getByTestId("channel-firmware-select-Other")).toHaveTextContent("2.0.0");
       expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
       expect(start).toBeDisabled();
@@ -982,7 +1079,7 @@ describe("release channel firmware assignments", () => {
 
       if (change === "catalog target") updateFirmwareFiles(files);
       else updateChannel(channel, false);
-      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
       expect(start).toBeEnabled();
       await act(async () => fireEvent.click(start));
       expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
@@ -1015,7 +1112,7 @@ describe("release channel firmware assignments", () => {
       expect(screen.getByTestId("channel-firmware-select- rig ", { normalizer: (value) => value })).toHaveTextContent(
         action === "clear" ? "No firmware" : "1.4.4",
       );
-      expect(screen.getByText(/2 firmware changes pending/)).toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("2");
       fireEvent.click(screen.getByTestId("apply-firmware-changes"));
       fireEvent.click(screen.getByRole("button", { name: action === "clear" ? "Clear assignments" : "Start update" }));
       await waitFor(() =>
@@ -1099,21 +1196,21 @@ describe("effective release channel behavior", () => {
     },
   ])("becomes clean after saving $name while retaining hidden form values", async ({ change, saved }) => {
     const channel = { ...assignedChannel(), behavior: reviewedBatches() };
-    const { onSave, updateChannel } = renderManage(channel);
-    const save = screen.getByTestId("save-channel");
-    expect(save).toBeDisabled();
+    const { onSave, updateChannel } = renderSettings(channel);
+
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     change();
-    expect(save).toBeEnabled();
-    await act(async () => fireEvent.click(save));
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledOnce();
     // The form keeps values for switching back; serialization strips them.
     expect(onSave.mock.calls[0][0].behavior.thresholds).toBeUndefined();
     updateChannel({ ...channel, behavior: saved() }, false);
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "5" } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Max miners offline at once (0 for no limit)"), { target: { value: "4" } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
@@ -1130,10 +1227,10 @@ describe("effective release channel behavior", () => {
         waitBetweenBatchesSeconds: 120,
       }),
     };
-    const { onSave, updateChannel } = renderManage(channel);
-    const save = screen.getByTestId("save-channel");
+    const { onSave, updateChannel } = renderSettings(channel);
+
     fireEvent.click(screen.getByLabelText("Review after each batch"));
-    await act(async () => fireEvent.click(save));
+    await applyChannelSettings();
     expect(onSave.mock.calls[0][0].behavior.waitBetweenBatchesSeconds).toBe(0);
     updateChannel(
       {
@@ -1147,12 +1244,12 @@ describe("effective release channel behavior", () => {
       },
       false,
     );
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByLabelText("Review after each batch"));
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Pilot batch/ }));
     fireEvent.change(screen.getByLabelText("Pilot batch size (miners)"), { target: { value: "2" } });
-    await act(async () => fireEvent.click(save));
+    await applyChannelSettings();
     updateChannel(
       {
         ...channel,
@@ -1165,7 +1262,7 @@ describe("effective release channel behavior", () => {
       },
       false,
     );
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   test("treats empty thresholds as absent while preserving an explicit zero limit", async () => {
@@ -1179,18 +1276,18 @@ describe("effective release channel behavior", () => {
       thresholds: { maxHashrateDropPercent: 10 },
     });
     const channel = { ...existingChannel(), behavior };
-    const { updateChannel } = renderManage(channel);
-    const save = screen.getByTestId("save-channel");
+    const { updateChannel } = renderSettings(channel);
+
     fireEvent.change(screen.getByLabelText("Max hashrate drop (%)"), { target: { value: "" } });
-    await act(async () => fireEvent.click(save));
+    await applyChannelSettings();
     updateChannel(
       { ...channel, behavior: create(RolloutBehaviorSchema, { ...behavior, thresholds: undefined }) },
       false,
     );
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "0" } });
-    expect(save).toBeEnabled();
-    await act(async () => fireEvent.click(save));
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await applyChannelSettings();
     updateChannel(
       {
         ...channel,
@@ -1201,9 +1298,9 @@ describe("effective release channel behavior", () => {
       },
       false,
     );
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "" } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 });
 
@@ -1221,6 +1318,36 @@ describe("release channel scope synchronization", () => {
     fireEvent.click(screen.getByRole("button", { name: selection }));
   };
 
+  test("opens miner details above the preview and returns focus without discarding the draft", async () => {
+    const channel = { ...existingChannel(), scope: scopeWith(1n) };
+    const { onSave, previewScope } = renderSettings(channel);
+    choose("Miners", "Choose miner 2");
+    await waitFor(() =>
+      expect(previewScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({ deviceIdentifiers: ["miner-2"] }),
+        channel.id,
+        expect.any(AbortSignal),
+      ),
+    );
+    fireEvent.click(screen.getByTestId("save-channel"));
+    const preview = screen.getByTestId("apply-firmware-dialog");
+    const viewMiners = within(preview).getByRole("button", { name: "View miners" });
+    fireEvent.click(viewMiners);
+    expect(preview).toHaveAttribute("inert");
+    expect(screen.getByLabelText("Search miners")).toHaveFocus();
+    expect(screen.getByRole("table", { name: "Miner changes" })).toHaveTextContent("miner-1");
+    expect(screen.getByRole("table", { name: "Miner changes" })).toHaveTextContent("miner-2");
+    fireEvent.keyDown(screen.getByLabelText("Search miners"), { key: "Escape" });
+    expect(screen.queryByTestId("miner-scope-changes-modal")).not.toBeInTheDocument();
+    expect(preview).not.toHaveAttribute("inert");
+    expect(viewMiners).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(viewMiners);
+    fireEvent.click(within(screen.getByTestId("miner-scope-changes-modal")).getByRole("button", { name: "Done" }));
+    expect(preview).toBeInTheDocument();
+    expect(viewMiners).toHaveFocus();
+  });
+
   test.each([
     ["Sites", "siteIds", "Choose site 2", [2n]],
     ["Buildings", "buildingIds", "Choose building 2", [2n]],
@@ -1231,25 +1358,25 @@ describe("release channel scope synchronization", () => {
     "keeps a local %s edit while accepting other scope dimensions from polling",
     async (label, field, selection, ids) => {
       const channel = { ...existingChannel(), scope: scopeWith(1n) };
-      const { onSave, updateChannel, previewScope } = renderManage(channel);
+      const { onSave, updateChannel, previewScope } = renderSettings(channel);
       choose(label, selection);
       const incoming = scopeWith(3n);
       updateChannel({ ...channel, scope: incoming }, false);
       const expected = create(ReleaseChannelScopeSchema, { ...incoming, [field]: [...ids] });
       await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(expected, channel.id, expect.any(AbortSignal)));
       expect(screen.getByTestId("save-channel")).toBeEnabled();
-      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      await applyChannelSettings();
       expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: expected }));
     },
   );
 
   test("preserves a local scope clear while accepting remote additions and removals", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     choose("Sites", "Clear sites");
     const incoming = create(ReleaseChannelScopeSchema, { ...scopeWith(3n), rackIds: [], deviceIdentifiers: [] });
     updateChannel({ ...channel, scope: incoming }, false);
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         scope: create(ReleaseChannelScopeSchema, { ...incoming, siteIds: [] }),
@@ -1259,7 +1386,7 @@ describe("release channel scope synchronization", () => {
 
   test("treats selector reordering as unchanged and accepts a later remote edit to that dimension", async () => {
     const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { onSave, updateChannel, previewScope } = renderManage(channel);
+    const { onSave, updateChannel, previewScope } = renderSettings(channel);
     choose("Sites", "Choose sites 2 and 1");
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     const incoming = scopeWith(3n);
@@ -1267,30 +1394,32 @@ describe("release channel scope synchronization", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     await waitFor(() => expect(previewScope).toHaveBeenLastCalledWith(incoming, channel.id, expect.any(AbortSignal)));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scope: incoming }));
   });
 
-  test("rebases a recovered scope against the acknowledged save while retaining edits made during Save", async () => {
+  test("rebases a recovered scope against the acknowledged save before accepting later edits", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
     const write = deferredWrite();
     const onSave = vi
       .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
       .mockReturnValueOnce(write.promise)
       .mockResolvedValue(undefined);
-    const { updateChannel } = renderManage(channel, onSave);
+    const { updateChannel } = renderSettings(channel, onSave);
     choose("Sites", "Choose site 2");
     fireEvent.click(screen.getByTestId("save-channel"));
-    choose("Buildings", "Choose building 2");
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }));
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     updateChannel(channel, true);
     await act(async () => write.resolve());
     expect(onSave.mock.calls[0][0].scope).toEqual(
       create(ReleaseChannelScopeSchema, { ...channel.scope, siteIds: [2n] }),
     );
-    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    openChannelSettings();
+    choose("Buildings", "Choose building 2");
     const incoming = scopeWith(3n);
     updateChannel({ ...channel, scope: incoming }, false);
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[1][0].scope).toEqual(
       create(ReleaseChannelScopeSchema, { ...incoming, buildingIds: [2n] }),
     );
@@ -1298,7 +1427,7 @@ describe("release channel scope synchronization", () => {
 
   test("keeps a pending preview when polling changes only selector order", async () => {
     const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { previewScope, updateChannel } = renderManage(channel);
+    const { previewScope, updateChannel } = renderSettings(channel);
     let finishPreview!: (preview: PreviewReleaseChannelScopeResponse) => void;
     previewScope.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -1308,17 +1437,17 @@ describe("release channel scope synchronization", () => {
     await waitFor(() => expect(previewScope).toHaveBeenCalledOnce());
     updateChannel({ ...channel, scope: create(ReleaseChannelScopeSchema, { siteIds: [2n, 1n] }) }, false);
     await act(async () => finishPreview(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 42 })));
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 42 miners");
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
     expect(previewScope).toHaveBeenCalledOnce();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   test("treats an absent remote scope as empty dimensions while retaining a local edit", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
-    const { onSave, updateChannel } = renderManage(channel);
+    const { onSave, updateChannel } = renderSettings(channel);
     choose("Sites", "Choose site 2");
     updateChannel({ ...channel, scope: undefined }, false);
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         scope: create(ReleaseChannelScopeSchema, { siteIds: [2n] }),
@@ -1348,22 +1477,22 @@ describe("new release channel scope verification", () => {
     previewScope.mockReturnValue(pending.promise);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New channel" } });
     const save = screen.getByTestId("save-channel");
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     chooseSite();
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("Wait for the preview before creating the channel.");
     fireEvent.click(save);
     await tick(299);
     expect(previewScope).not.toHaveBeenCalled();
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     await tick(1);
     expect(previewScope).toHaveBeenCalledOnce();
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
     await act(async () => pending.resolve(cleanPreview()));
-    expect(save).toBeEnabled();
-    await act(async () => fireEvent.click(save));
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ name: "New channel", scope: expect.objectContaining({ siteIds: [2n] }) }),
     );
@@ -1379,19 +1508,19 @@ describe("new release channel scope verification", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Preview unavailable");
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("clear it to create an empty channel");
     const save = screen.getByTestId("save-channel");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
     expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     await tick();
     expect(previewScope).toHaveBeenCalledTimes(2);
     expect(previewScope.mock.calls[1][0]).toBe(previewScope.mock.calls[0][0]);
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     await act(async () => retry.resolve(cleanPreview()));
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 
   test("invalidates prior success and ignores late responses after changing or returning to a scope", async () => {
@@ -1406,21 +1535,21 @@ describe("new release channel scope verification", () => {
     chooseSite();
     await tick();
     const save = screen.getByTestId("save-channel");
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     chooseSite("Choose sites 2 and 1");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     await tick();
     chooseSite();
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("Last valid preview");
     await tick();
     await act(async () => oldPending.resolve(cleanPreview()));
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
     await act(async () => currentPending.resolve(cleanPreview()));
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 
   test("allows an empty selection without waiting for a pending preview", async () => {
@@ -1464,17 +1593,17 @@ describe("new release channel scope verification", () => {
   });
 
   test("allows existing-channel edits while preview is pending or failed", async () => {
-    const { onSave, previewScope } = renderManage(existingChannel());
+    const { onSave, previewScope } = renderSettings(existingChannel());
     const pending = pendingPreview();
     previewScope.mockReturnValue(pending.promise);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
-    const save = screen.getByTestId("save-channel");
-    expect(save).toBeEnabled();
+
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     await tick();
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     await act(async () => pending.reject(new Error("Preview unavailable")));
-    expect(save).toBeEnabled();
-    await act(async () => fireEvent.click(save));
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Renamed" }));
   });
 });
@@ -1487,35 +1616,37 @@ describe("release channel saves during scope overlaps", () => {
       finishSaving = resolve;
     });
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(completion);
-    renderManage(channel, onSave);
+    renderSettings(channel, onSave);
     await screen.findByTestId("scope-conflicts");
     const save = screen.getByTestId("save-channel");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "   " } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Existing overlaps can remain");
     fireEvent.click(save);
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Renamed", scope: channel.scope }));
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     await act(async () => finishSaving());
-    expect(save).toBeDisabled();
+    openChannelSettings();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Another edit" } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 
   test("lets the server reject newly introduced overlaps and displays its error", async () => {
     const onSave = vi
       .fn<(draft: ReleaseChannelDraft) => Promise<void>>()
       .mockRejectedValue(new Error("Scope adds an overlap with Canary"));
-    renderManage(existingChannel(), onSave);
+    renderSettings(existingChannel(), onSave);
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     fireEvent.click(screen.getByRole("button", { name: "Choose site 2" }));
     await screen.findByTestId("scope-conflicts");
-    const save = screen.getByTestId("save-channel");
-    expect(save).toBeEnabled();
-    fireEvent.click(save);
+
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    await applyChannelSettings();
     await waitFor(() =>
       expect(pushToast).toHaveBeenCalledWith({ message: "Scope adds an overlap with Canary", status: "error" }),
     );
@@ -1523,7 +1654,7 @@ describe("release channel saves during scope overlaps", () => {
       expect.objectContaining({ scope: expect.objectContaining({ siteIds: [2n] }) }),
     );
     expect(screen.getByLabelText("Name")).toHaveValue("Production");
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
   });
 
   test("continues to block creating a channel whose scope overlaps", async () => {
@@ -1536,7 +1667,7 @@ describe("release channel saves during scope overlaps", () => {
       "Remove those miners from one of the channels before saving",
     );
     const save = screen.getByTestId("save-channel");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -1545,70 +1676,66 @@ describe("release channel saves during scope overlaps", () => {
 describe("release channel saves while refresh fails", () => {
   test("acknowledges a committed draft until reads recover without hiding subsequent edits", async () => {
     const channel = existingChannel();
-    const { onSave, updateChannel } = renderManage(channel, undefined, true);
+    const { onSave, updateChannel } = renderSettings(channel, undefined, true);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
     const save = screen.getByTestId("save-channel");
-    fireEvent.click(save);
+    await applyChannelSettings();
     await waitFor(() =>
-      expect(pushToast).toHaveBeenCalledWith({ message: "Release channel saved", status: "success" }),
+      expect(pushToast).toHaveBeenCalledWith({ message: "Channel changes applied", status: "success" }),
     );
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(save);
     expect(onSave).toHaveBeenCalledOnce();
 
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "New unsaved description" } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "" } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     // The server has the saved name, even though the last read still has
     // the original name. Reverting to that original value is a new edit.
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: channel.name } });
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Saved name" } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
 
     updateChannel({ ...channel, name: "Saved name" }, false);
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     updateChannel({ ...channel, name: "Another operator's name" }, false);
     expect(screen.getByLabelText("Name")).toHaveValue("Another operator's name");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
     updateChannel({ ...channel, name: "Another operator's name" }, true);
     expect(screen.getByLabelText("Name")).toHaveValue("Another operator's name");
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
-  test("does not acknowledge local edits made while the successful save was pending", async () => {
+  test("accepts a later edit only after the acknowledged write completes", async () => {
     const channel = existingChannel();
-    let finishSaving!: () => void;
-    const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(
-      new Promise<void>((resolve) => {
-        finishSaving = resolve;
-      }),
-    );
-    const { updateChannel } = renderManage(channel, onSave);
+    const write = deferredWrite();
+    const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockReturnValue(write.promise);
+    const { updateChannel } = renderSettings(channel, onSave);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
-    const save = screen.getByTestId("save-channel");
-    fireEvent.click(save);
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Next unsaved name" } });
+    fireEvent.click(screen.getByTestId("save-channel"));
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" }));
+    expect(screen.getByTestId("channel-settings")).toBeDisabled();
     updateChannel(channel, true);
-    await act(async () => finishSaving());
-
+    await act(async () => write.resolve());
     expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Submitted name" }));
-    expect(screen.getByLabelText("Name")).toHaveValue("Next unsaved name");
-    expect(save).toBeEnabled();
+    openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Next unsaved name" } });
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Submitted name" } });
-    expect(save).toBeDisabled();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   test("leaves a rejected write dirty and retryable", async () => {
     const onSave = vi.fn<(draft: ReleaseChannelDraft) => Promise<void>>().mockRejectedValue(new Error("Save rejected"));
-    renderManage(existingChannel(), onSave, true);
+    renderSettings(existingChannel(), onSave, true);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unsaved name" } });
-    const save = screen.getByTestId("save-channel");
-    fireEvent.click(save);
+
+    await applyChannelSettings();
 
     await waitFor(() => expect(pushToast).toHaveBeenCalledWith({ message: "Save rejected", status: "error" }));
-    expect(save).toBeEnabled();
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(screen.getByLabelText("Name")).toHaveValue("Unsaved name");
   });
 });

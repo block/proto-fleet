@@ -13,10 +13,12 @@ type FirmwareUploadMetadata = FirmwareTarget & {
 };
 
 const targetLabel = ({ manufacturer, model }: FirmwareTarget): string => `${manufacturer} ${model}`.trim();
-const exactText = (text: string): RegExp => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const exactText = (text: string): RegExp => new RegExp(`^${escapeRegExp(text)}$`);
 
 export class SettingsFirmwarePage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
+  private readonly createChannelModal = this.page.getByTestId("create-release-channel-modal");
 
   async validateFirmwarePageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
@@ -26,6 +28,7 @@ export class SettingsFirmwarePage extends BasePage {
   // --- Release channels ---
 
   async openFilesTab() {
+    await this.closeChannelSettings();
     const [catalog] = await Promise.all([
       this.page.waitForResponse(
         (response) =>
@@ -40,11 +43,24 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openReleaseChannelsTab() {
-    await this.page.getByRole("button", { name: "Release channels", exact: true }).click();
-    await this.validateTitle("Release channels");
+    await this.closeChannelSettings();
+    await this.releaseChannelsTab().click();
+    await this.validateReleaseChannelsTabOpened();
+  }
+
+  private releaseChannelsTab(): Locator {
+    return this.page
+      .getByTestId("firmware-tab-navigation")
+      .getByRole("button", { name: "Release channels", exact: true });
+  }
+
+  private async validateReleaseChannelsTabOpened() {
+    await expect(this.releaseChannelsTab()).toHaveAttribute("aria-current", "page");
     // The channels table renders only after loading finishes; helpers like
     // deleteChannelIfPresent would otherwise race and see no channels.
     await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
+    await expect(this.page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+    await expect(this.page.getByTestId("release-channels-load-error")).toBeHidden();
   }
 
   // The manage view for a channel, shown after drilling in via "Manage" or
@@ -59,37 +75,78 @@ export class SettingsFirmwarePage extends BasePage {
     return this.page.getByTestId("list-row").filter({ has: this.page.getByTestId(`channel-row-${channelName}`) });
   }
 
+  // New channels already have their settings in the create modal; existing
+  // channels open a separate modal above the assigned miners table.
+  private async openChannelSettings(): Promise<Locator> {
+    if (await this.createChannelModal.isVisible()) {
+      return this.createChannelModal;
+    }
+    const modal = this.page.getByTestId("channel-settings-modal");
+    if (!(await modal.isVisible())) {
+      await this.page.getByTestId("channel-settings").click();
+    }
+    await expect(modal).toBeVisible();
+    return modal;
+  }
+
+  private async closeChannelSettings() {
+    const modal = this.page.getByTestId("channel-settings-modal");
+    if (await modal.isVisible()) {
+      await modal.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(modal).toBeHidden();
+    }
+  }
+
   // Opens the create form and names the channel; scope and behavior are set
   // with the helpers below before saveNewChannel.
   async startCreateChannel(channelName: string) {
     await this.clickButton("Create release channel");
-    await expect(this.page.getByTestId("release-channel-new")).toBeVisible();
-    await this.page.locator("#channel-name").fill(channelName);
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByText("Create release channel", { exact: true })).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("release-channel-new")).toBeVisible();
+    await this.createChannelModal.locator("#channel-name").fill(channelName);
   }
 
   async saveNewChannel(channelName: string) {
-    const save = this.page.getByTestId("save-channel");
+    const save = this.createChannelModal.getByRole("button", { name: "Create channel", exact: true });
     await expect(save).toBeEnabled();
     await save.click();
     await this.validateTextInToast(`Created release channel ${channelName}`);
+    await expect(this.createChannelModal).toBeHidden();
     await expect(this.channelView(channelName)).toBeVisible();
   }
 
-  async saveChannelChanges() {
-    const save = this.page.getByTestId("save-channel");
-    await expect(save).toBeEnabled();
-    await save.click();
-    await this.validateTextInToast("Release channel saved");
+  async reviewChannelChanges() {
+    const modal = await this.openChannelSettings();
+    const review = modal.getByRole("button", { name: "Review changes", exact: true });
+    await expect(review).toBeEnabled();
+    await review.click();
+    await expect(modal).toBeHidden();
+    await expect(this.applyDialog()).toBeVisible();
   }
 
-  // The save action is blocked because the scope overlaps another channel.
+  async saveChannelChanges() {
+    await this.reviewChannelChanges();
+    await this.confirmChannelChanges();
+  }
+
+  async confirmChannelChanges() {
+    await this.applyDialog().getByRole("button", { name: "Apply changes", exact: true }).click();
+    await expect(this.applyDialog()).toBeHidden();
+    await this.validateTextInToast("Channel changes applied");
+  }
+
+  // Creation is blocked when the scope overlaps another channel. Existing
+  // channels can still review changes before server validation during Apply.
   async validateScopeConflict(otherChannelName: string) {
-    await expect(this.page.getByTestId("scope-conflicts")).toContainText(otherChannelName);
-    await expect(this.page.getByTestId("save-channel")).toBeDisabled();
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("scope-conflicts")).toContainText(otherChannelName);
+    await expect(this.createChannelModal.getByRole("button", { name: "Create channel", exact: true })).toBeDisabled();
   }
 
   // Opens the "Miners" selector of the Applies to section.
   async openScopeMiners() {
+    await this.openChannelSettings();
     await this.page
       .getByTestId("scope-editor")
       .getByRole("button", { name: /^Miners / })
@@ -127,25 +184,68 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
-  // The Applies to preview resolved to this many miners.
+  // Only new channels show the aggregate Applies to preview.
   async validateScopeCovers(count: number) {
-    await expect(this.page.getByTestId("scope-preview")).toContainText(
+    await expect(this.createChannelModal).toBeVisible();
+    await expect(this.createChannelModal.getByTestId("scope-preview")).toContainText(
       `covers ${count} ${count === 1 ? "miner" : "miners"}`,
     );
+  }
+
+  async validateScopeMinerSelection(count: number) {
+    await expect(
+      this.page
+        .getByTestId("channel-settings-modal")
+        .getByTestId("scope-editor")
+        .getByRole("button", { name: `Miners ${count} ${count === 1 ? "miner" : "miners"}`, exact: true }),
+    ).toBeVisible();
+  }
+
+  async validateScopeMinerRemoval(removedMiner: string, remainingMiner: string) {
+    const table = this.applyDialog().getByRole("table", { name: "Channel settings changes", exact: true });
+    await expect(table.getByRole("columnheader")).toHaveText(["Setting", "Original", "Target"]);
+    const cells = table
+      .getByRole("row")
+      .filter({ has: this.page.getByRole("rowheader", { name: "Applies to · Miners", exact: true }) })
+      .getByRole("cell");
+    await expect(cells).toHaveText(["2 miners", "1 miner"]);
+
+    await this.applyDialog().getByRole("button", { name: "View miners", exact: true }).click();
+    const details = this.page.getByTestId("miner-scope-changes-modal");
+    await expect(details).toBeVisible();
+    const miners = details.getByRole("table", { name: "Miner changes", exact: true });
+    await expect(miners.getByRole("columnheader")).toHaveText(["Miner", "Original", "Target"]);
+    // Check membership on each named row, independent of table order and
+    // similar miner names elsewhere in the preview.
+    for (const [name, target] of [
+      [removedMiner, "Not included"],
+      [remainingMiner, "Included"],
+    ]) {
+      const row = miners.getByRole("row").filter({ has: this.page.getByText(name, { exact: true }) });
+      await expect(row.getByRole("rowheader").getByText(name, { exact: true })).toBeVisible();
+      const membership = row.getByRole("cell");
+      await expect(membership).toHaveText(["Included", target]);
+    }
+    await details.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(details).toBeHidden();
+    await expect(this.applyDialog()).toBeVisible();
   }
 
   // --- Update behavior controls ---
 
   async setMethod(label: "Single batch" | "Multiple batches" | "Pilot batch, then remaining") {
+    await this.openChannelSettings();
     await this.page.getByTestId("rollout-method").click();
     await this.page.getByRole("option", { name: label }).click();
   }
 
   async setPilotSize(size: number) {
+    await this.openChannelSettings();
     await this.page.locator("#pilot-size").fill(String(size));
   }
 
   async setBatchSize(size: number) {
+    await this.openChannelSettings();
     await this.page.locator("#batch-size").fill(String(size));
   }
 
@@ -159,10 +259,12 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async enableReviewAfterEachBatch() {
+    await this.openChannelSettings();
     await this.turnOnSwitch("review-after-each-batch", "Review after each batch");
   }
 
   async enableAutoContinue({ maxHashrateDropPercent }: { maxHashrateDropPercent: number }) {
+    await this.openChannelSettings();
     await this.turnOnSwitch("auto-continue", "Auto-continue healthy batches");
     await this.page.locator("#max-hashrate-drop").fill(String(maxHashrateDropPercent));
     await this.page.locator("#max-efficiency-increase").fill("");
@@ -177,8 +279,15 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.channelView(channelName)).toBeVisible();
   }
 
-  // Returns from the manage view to the channels table.
+  // Dismisses an unsaved creation or returns from the manage view to the list.
   async backToChannels() {
+    if (await this.createChannelModal.isVisible()) {
+      await this.createChannelModal.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(this.createChannelModal).toBeHidden();
+      await expect(this.page.getByRole("button", { name: "Create release channel", exact: true })).toBeVisible();
+      return;
+    }
+    await this.closeChannelSettings();
     await this.page.getByTestId("back-to-channels").click();
     await expect(this.page.getByTestId("channels-table")).toBeVisible();
   }
@@ -234,18 +343,27 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.activeUpdateRow(channelName, target)).toBeVisible();
   }
 
-  // Opens the detail of an active update, whichever action label the banner
-  // currently carries ("View update" or "Review update").
+  // A single update opens from its inline card's menu; concurrent updates
+  // open from their exact channel/model banner.
   async openActiveUpdate(channelName: string, target: FirmwareTarget) {
-    await this.activeUpdateRow(channelName, target)
-      .getByRole("button", { name: /^(View|Review) update$/ })
-      .click();
+    await this.closeChannelSettings();
+    const update = this.activeUpdateRow(channelName, target);
+    await expect(update).toBeVisible();
+    if (await update.getByTestId("inline-rollout-live-view").isVisible()) {
+      await update.getByTestId("inline-view-rollout-more-actions-trigger").click();
+      await this.page
+        .getByTestId("inline-view-rollout-more-actions-menu")
+        .getByTestId("inline-view-rollout-open-action")
+        .click();
+    } else {
+      await update.getByRole("button", { name: /^(View|Review) update$/ }).click();
+    }
     await this.validateTitleInModal(`${channelName}, ${targetLabel(target)} firmware update`);
     await expect(this.page.getByTestId("modal").getByText("Update status", { exact: true })).toBeVisible();
   }
 
   async closeUpdateDetail() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Close update details" }).click();
+    await this.page.getByTestId("modal").getByRole("button", { name: "Back", exact: true }).click();
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
@@ -261,8 +379,13 @@ export class SettingsFirmwarePage extends BasePage {
       });
   }
 
+  private modelRolloutProgress(channelName: string, target: FirmwareTarget): Locator {
+    return this.modelGroupRow(channelName, target).getByTestId(`model-group-rollout-progress-${target.model}`);
+  }
+
   // Opens the model group's miner table via its "View miners" button.
   async openModelMiners(channelName: string, target: FirmwareTarget) {
+    await this.closeChannelSettings();
     await this.modelGroupRow(channelName, target).getByRole("button", { name: "View miners", exact: true }).click();
     await this.validateTitleInModal(`${targetLabel(target)} miners`);
     // Members are fetched when the modal opens; rows appear once loaded.
@@ -320,6 +443,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async selectChannelFirmware(channelName: string, target: FirmwareTarget, optionLabel: string | RegExp) {
+    await this.closeChannelSettings();
     await this.modelGroupRow(channelName, target)
       .getByRole("button", { name: `Firmware for ${targetLabel(target)}`, exact: true })
       .click();
@@ -343,6 +467,7 @@ export class SettingsFirmwarePage extends BasePage {
   // Applies staged firmware changes through the confirmation dialog; the
   // update runs with the channel's saved behavior.
   async applyFirmwareChanges(channelName: string) {
+    await this.closeChannelSettings();
     await this.channelView(channelName).getByTestId("apply-firmware-changes").click();
     await expect(this.applyDialog()).toBeVisible();
     await this.applyDialog().getByRole("button", { name: "Start update", exact: true }).click();
@@ -351,9 +476,11 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async validateChannelUpdateInProgress(channelName: string, version: string) {
-    await expect(this.channelView(channelName).getByText(`Updating to ${version}`)).toBeVisible({
-      timeout: DEFAULT_TIMEOUT,
-    });
+    await expect(
+      this.channelView(channelName).getByRole("progressbar", {
+        name: new RegExp(`Updating to ${escapeRegExp(version)}$`),
+      }),
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
   }
 
   async validateChannelUpdatePill(channelName: string) {
@@ -363,7 +490,7 @@ export class SettingsFirmwarePage extends BasePage {
   // The model group sits at a review gate: the batch is on the new version
   // and the rest wait for the update to be continued.
   async waitForModelReviewNeeded(channelName: string, timeoutMs: number) {
-    await expect(this.channelView(channelName).getByText("Review needed", { exact: true }).first()).toBeVisible({
+    await expect(this.channelView(channelName).getByRole("progressbar", { name: /Review needed/ })).toBeVisible({
       timeout: timeoutMs,
     });
   }
@@ -376,30 +503,28 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("rollout-status-headline")).toHaveText(text);
   }
 
-  // The review evidence is on screen: verification lockups in the stats
-  // grid and the telemetry strip with its error count.
+  // Verification lockups and telemetry belong to the scoped evidence
+  // section, separate from the update's static plan metadata.
   async validateEvidenceVisible() {
-    const stats = this.detailModal().getByTestId("rollout-detail-stats");
-    await expect(stats.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
-    await expect(stats.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
     const evidence = this.detailModal().getByTestId("rollout-evidence");
     await expect(evidence).toBeVisible();
+    await expect(evidence.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
+    await expect(evidence.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
     await expect(evidence.getByTestId("evidence-hashrate")).toBeVisible();
     await expect(evidence.getByTestId("evidence-errors")).toBeVisible();
   }
 
-  // Opens the miners drill-down from the detail's overflow menu and checks
+  // Opens the miners drill-down beside the detail's progress and checks
   // it lists this many miners, then closes it.
   async validateDetailMinersCount(count: number) {
-    await this.detailModal().getByTestId("view-rollout-more-actions-trigger").click();
-    await this.page.getByTestId("view-rollout-view-miners-action").click();
+    await this.detailModal().getByTestId("view-rollout-view-miners-action").click();
     const miners = this.page.getByTestId("rollout-miners-modal");
     await expect(miners.getByTestId("list-row")).toHaveCount(count);
     await miners.getByRole("button", { name: "Done", exact: true }).click();
     await expect(miners).toBeHidden();
   }
 
-  // Pause from the detail header and confirm the update reports paused;
+  // Pause from the live status and confirm the update reports paused;
   // then resume and confirm it no longer does.
   async pauseAndResumeFromDetail() {
     await this.detailModal().getByRole("button", { name: "Pause", exact: true }).click();
@@ -411,7 +536,7 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("paused-banner")).toBeHidden();
   }
 
-  // Releases the review gate from the detail header; the detail stays open
+  // Releases the review gate from the live status; the detail stays open
   // showing the next step, so close it explicitly afterwards.
   async continueFromDetail() {
     await this.detailModal().getByRole("button", { name: "Continue", exact: true }).click();
@@ -438,6 +563,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openChannelHistory(channelName: string) {
+    await this.closeChannelSettings();
     await this.channelView(channelName).getByTestId("channel-history").click();
     await this.validateTitleInModal("Update history");
     await expect(this.historyModal().getByText("Loading update history…", { exact: true })).toBeHidden();
@@ -522,15 +648,15 @@ export class SettingsFirmwarePage extends BasePage {
   // Opens the app-header pill popover and follows its link to the release
   // channels view.
   async followAppRolloutPillToChannels() {
+    await this.closeChannelSettings();
     await this.appRolloutPill().click();
     await this.page.getByRole("link", { name: "View release channels", exact: true }).click();
-    await this.validateTitle("Release channels");
-    await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
+    await this.validateReleaseChannelsTabOpened();
   }
 
   // The update is done when every miner in the model group reports the
   // target version (checked in the live "View miners" modal), the progress
-  // bar clears, and the update shows up as completed in the channel's history.
+  // indicator clears, and the update shows up as completed in the channel's history.
   async waitForChannelUpdateCompleted(
     channelName: string,
     target: FirmwareTarget,
@@ -542,7 +668,6 @@ export class SettingsFirmwarePage extends BasePage {
       Number.isInteger(expectedMinerCount) && expectedMinerCount > 0,
       "Completion needs a positive expected miner count",
     ).toBe(true);
-    const view = this.channelView(channelName);
     await this.openModelMiners(channelName, target);
     const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
     await expect(minerRows).toHaveCount(expectedMinerCount, { timeout: timeoutMs });
@@ -553,7 +678,7 @@ export class SettingsFirmwarePage extends BasePage {
     });
     await this.closeModelMiners();
     // Status flips on the next enforcement tick after the miners report in.
-    await expect(view.getByText(`Updating to ${version}`)).toBeHidden({ timeout: timeoutMs });
+    await expect(this.modelRolloutProgress(channelName, target)).toBeHidden({ timeout: timeoutMs });
     await this.validateHistoryOutcome(channelName, version, "Completed", timeoutMs);
   }
 
@@ -587,8 +712,14 @@ export class SettingsFirmwarePage extends BasePage {
         ).trim(),
         outcome,
         activeUpdates: await this.activeUpdateRow(channelName, target).count(),
+        rolloutProgress: await this.modelRolloutProgress(channelName, target).count(),
       };
-      expect(updateState).toEqual({ assignment: targetVersion, outcome: "Canceled", activeUpdates: 0 });
+      expect(updateState).toEqual({
+        assignment: targetVersion,
+        outcome: "Canceled",
+        activeUpdates: 0,
+        rolloutProgress: 0,
+      });
       await this.openModelMiners(channelName, target);
       const minerRows = this.minersModal().locator('[data-testid^="channel-miner-"]');
       const identifiers = await minerRows.evaluateAll((rows) =>
@@ -604,14 +735,20 @@ export class SettingsFirmwarePage extends BasePage {
     } while (performance.now() - startedAt < durationMs);
   }
 
-  // Deletes the channel from its open manage view. Deleting returns to the
-  // channels table, where the row must be gone.
+  // Deletes the channel from its settings modal. Deleting returns to the
+  // channels table, where the row and settings modal must be gone.
   async deleteChannel(channelName: string) {
-    await this.channelView(channelName).getByTestId("delete-channel").click();
+    await this.closeChannelSettings();
+    await this.channelView(channelName).getByTestId("channel-settings").click();
+    const settings = this.page.getByTestId("channel-settings-modal");
+    await expect(settings).toBeVisible();
+    await settings.getByTestId("delete-channel").click();
     const dialog = this.page.getByTestId("delete-channel-dialog");
     await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Miners in ${channelName} keep their current firmware`);
     await dialog.getByRole("button", { name: "Delete channel", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await expect(settings).toBeHidden();
     await expect(this.channelRow(channelName)).toBeHidden();
   }
 

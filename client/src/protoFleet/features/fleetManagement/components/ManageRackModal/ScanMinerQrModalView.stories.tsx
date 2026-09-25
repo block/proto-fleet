@@ -82,6 +82,10 @@ const Harness = ({
 const meta = {
   title: "Proto Fleet/Rack Management/ScanMinerQrModal",
   component: Harness,
+  argTypes: {
+    // Found-miner snapshots include bigint rack IDs; keep these typed fixtures out of the JSON editor.
+    phase: { control: false },
+  },
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof Harness>;
 

@@ -97,6 +97,37 @@ describe("FirmwarePickerButton", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
+  test("keeps a picker closed after a write lock is released", () => {
+    const props = {
+      label: "Firmware",
+      options,
+      value: "",
+      onChange: vi.fn(),
+      testId: "picker",
+    };
+    const { rerender } = render(<FirmwarePickerButton {...props} />);
+    const trigger = screen.getByRole("button", { name: "Firmware" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    rerender(<FirmwarePickerButton {...props} disabled />);
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(props.onChange).not.toHaveBeenCalled();
+
+    rerender(<FirmwarePickerButton {...props} />);
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("option", { name: "1.4.4" }));
+    expect(props.onChange).toHaveBeenCalledExactlyOnceWith("uploaded-file");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   test("does not describe an unresolved nonempty file ID as no firmware", () => {
     render(
       <FirmwarePickerButton

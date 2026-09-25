@@ -26,6 +26,10 @@ const operation = (phase: UpgradePhase, message: string) =>
 const meta = {
   title: "Proto Fleet/Settings/UpgradeOperationModal",
   component: UpgradeOperationModal,
+  argTypes: {
+    // Protobuf outcome revisions are bigint values, which the JSON editor cannot serialize.
+    operation: { control: false },
+  },
   parameters: {
     layout: "fullscreen",
   },

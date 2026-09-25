@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
@@ -19,11 +19,10 @@ import {
   minerNames,
   productionChannel,
 } from "./ReleaseChannels.fixtures";
+import ReleaseChannelsTable from "./ReleaseChannelsTable";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
-// The per-channel management surface behind "Manage": General, Applies to
-// and Update behavior are saved together; Firmware is assigned per model and
-// starts an update paced by the saved behavior. The same view creates a
-// channel when no channel is passed.
+// Manage prioritizes assigned miners; channel settings and creation use modals.
 const meta = {
   title: "Proto Fleet/Firmware/Release Channels/Manage View",
   component: ReleaseChannelManageView,
@@ -89,12 +88,12 @@ export const BatchReviewWithFailure: Story = {
 };
 
 export const Settled: Story = {
-  name: "Every model up to date",
+  name: "Rig miners up to date",
   render: () => (
     <Frame>
       <ReleaseChannelManageView
         channel={canaryChannelSettled}
-        rollouts={[completedRigRollout]}
+        rollouts={[]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}
         previewScope={resolveTo(canaryPreview)}
@@ -113,8 +112,8 @@ export const ScopeOverlap: Story = {
   render: () => (
     <Frame>
       <ReleaseChannelManageView
-        channel={productionChannel}
-        rollouts={[]}
+        channel={canaryChannel}
+        rollouts={[activeRigRollout]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}
         previewScope={resolveTo(conflictingPreview)}
@@ -150,18 +149,41 @@ export const EmptyChannel: Story = {
 
 export const Create: Story = {
   name: "Create a release channel",
-  render: () => (
-    <Frame>
-      <ReleaseChannelManageView
-        rollouts={[activeRigRollout]}
-        firmwareFiles={firmwareFiles}
-        minerNames={minerNames}
-        previewScope={resolveTo(canaryPreview)}
-        listChannelMiners={listChannelMinersFixture}
-        listRolloutDevices={listRolloutDevicesFixture}
-        onSave={settle}
-        onApply={settle}
-      />
-    </Frame>
-  ),
+  render: function CreateStory() {
+    const [isCreating, setIsCreating] = useState(true);
+    return (
+      <Frame>
+        <div className="flex flex-col gap-6" inert={isCreating}>
+          <div className="flex">
+            <Button
+              variant={variants.primary}
+              size={sizes.compact}
+              text="Create release channel"
+              onClick={() => setIsCreating(true)}
+              className="shrink-0 phone:w-full"
+              testId="create-release-channel"
+            />
+          </div>
+          <ReleaseChannelsTable
+            channels={[canaryChannel, productionChannel]}
+            rollouts={[activeRigRollout]}
+            onManage={() => {}}
+          />
+        </div>
+        {isCreating ? (
+          <ReleaseChannelManageView
+            rollouts={[activeRigRollout]}
+            firmwareFiles={firmwareFiles}
+            minerNames={minerNames}
+            previewScope={resolveTo(canaryPreview)}
+            listChannelMiners={listChannelMinersFixture}
+            listRolloutDevices={listRolloutDevicesFixture}
+            onCancelCreate={() => setIsCreating(false)}
+            onSave={async () => setIsCreating(false)}
+            onApply={settle}
+          />
+        ) : null}
+      </Frame>
+    );
+  },
 };

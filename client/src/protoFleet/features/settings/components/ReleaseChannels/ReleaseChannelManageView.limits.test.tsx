@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import { ReleaseChannelModelGroupSchema, ReleaseChannelSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -71,18 +71,19 @@ describe("firmware assignment request limit", () => {
     const props = manageViewProps();
     const { onApply, onSave } = props;
     render(<ReleaseChannelManageView {...props} channel={channel} firmwareFiles={firmwareFiles} />);
+    openChannelSettings();
     for (let index = 0; index < 100; index += 1) {
       fireEvent.change(screen.getByTestId(`channel-firmware-select-Model-${index}`), {
         target: { value: `new-${index}` },
       });
     }
-    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("100");
     const aliasPicker = screen.getByTestId("channel-firmware-select- model-0 ", { normalizer: (value) => value });
     expect(aliasPicker).toHaveValue("new-0");
     fireEvent.change(aliasPicker, { target: { value: "old-0" } });
-    expect(screen.getByText(/99 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("99");
     fireEvent.change(aliasPicker, { target: { value: "" } });
-    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("100");
     const apply = screen.getByTestId("apply-firmware-changes");
     expect(apply).toBeEnabled();
     fireEvent.click(apply);
@@ -90,24 +91,30 @@ describe("firmware assignment request limit", () => {
     expect(start).toBeEnabled();
 
     fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "new-100" } });
-    expect(screen.getByText(/101 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("101");
     expect(apply).toBeDisabled();
     expect(start).toBeDisabled();
     expect(screen.getAllByText(/Apply up to 100 model changes at a time/)).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
     fireEvent.click(start);
     expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Cancel" }));
+    openChannelSettings();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed channel" } });
-    expect(screen.getByTestId("save-channel")).toBeEnabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
-    expect(onSave).toHaveBeenCalledOnce();
-    expect(screen.getByText(/101 firmware changes pending/)).toBeInTheDocument();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("save-channel"));
+    expect(onSave).not.toHaveBeenCalled();
+    closeChannelSettings();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("102");
 
     fireEvent.change(screen.getByTestId("channel-firmware-select-Model-100"), { target: { value: "old-100" } });
-    expect(screen.getByText(/100 firmware changes pending/)).toBeInTheDocument();
-    expect(screen.queryByText(/Apply up to 100 model changes at a time/)).not.toBeInTheDocument();
-    expect(start).toBeEnabled();
-    await act(async () => fireEvent.click(start));
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("101");
+    await waitFor(() => expect(screen.queryByText(/Apply up to 100 model changes at a time/)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const confirm = within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Apply changes" });
+    expect(confirm).toBeEnabled();
+    await act(async () => fireEvent.click(confirm));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "Renamed channel" }));
     expect(onApply).toHaveBeenCalledExactlyOnceWith(
       1n,
       groups.slice(0, 100).map((group, index) => ({
