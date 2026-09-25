@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import ChannelHistoryModal from "./ChannelHistoryModal";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
@@ -33,6 +34,8 @@ interface ReleaseChannelsTabProps {
   // Shared with the active-updates monitor above the tabs, so one poll
   // feeds both.
   api: ReleaseChannelsApi;
+  // Keep creation state here while placing its action in the page header.
+  actionContainer?: HTMLElement | null;
   // Optional initial channel for the manage view.
   initialManagedChannelId?: bigint | null;
   // Each request represents an explicit navigation, including reopening the same channel.
@@ -45,6 +48,7 @@ interface ReleaseChannelsTabProps {
 
 const ReleaseChannelsTab = ({
   api,
+  actionContainer,
   initialManagedChannelId = null,
   manageRequest = null,
   onViewRollout,
@@ -263,23 +267,25 @@ const ReleaseChannelsTab = ({
     listChannelRollouts,
   });
 
+  const createAction = showCreate ? (
+    <div className="flex justify-end phone:w-full" inert={view.kind === "create"}>
+      <Button
+        variant={variants.primary}
+        size={sizes.compact}
+        text="Create release channel"
+        disabled={isWriting}
+        onClick={openCreate}
+        className="shrink-0 phone:w-full"
+        testId="create-release-channel"
+      />
+    </div>
+  ) : null;
+
   return (
     // Modal content is portaled outside this element. Keep the retained list
     // out of keyboard navigation while a new channel is being edited.
     <div className="flex flex-col gap-6" inert={view.kind === "create"}>
-      {showCreate ? (
-        <div className="flex">
-          <Button
-            variant={variants.primary}
-            size={sizes.compact}
-            text="Create release channel"
-            disabled={isWriting}
-            onClick={openCreate}
-            className="shrink-0 phone:w-full"
-            testId="create-release-channel"
-          />
-        </div>
-      ) : null}
+      {actionContainer ? createPortal(createAction, actionContainer) : createAction}
 
       {historyChannelIds.map((id) => {
         const state = history.states.get(id);

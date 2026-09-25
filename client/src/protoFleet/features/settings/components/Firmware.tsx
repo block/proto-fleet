@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
+import { createPortal } from "react-dom";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
@@ -137,7 +138,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   };
 }
 
-const FirmwareFilesSection = () => {
+const FirmwareFilesSection = ({ actionContainer }: { actionContainer: HTMLElement | null }) => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -273,17 +274,21 @@ const FirmwareFilesSection = () => {
     [handleDeleteFile, handleEditMetadata],
   );
 
+  const uploadAction = (
+    <Button
+      variant={variants.primary}
+      size={sizes.compact}
+      text="Upload firmware"
+      onClick={() => setShowUploadDialog(true)}
+      className="shrink-0 phone:w-full"
+    />
+  );
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <Button
-          variant={variants.primary}
-          size={sizes.compact}
-          text="Upload firmware"
-          onClick={() => setShowUploadDialog(true)}
-          className="phone:w-full"
-        />
-        {files.length > 0 ? (
+      {actionContainer ? createPortal(uploadAction, actionContainer) : uploadAction}
+      {files.length > 0 ? (
+        <div className="flex justify-end">
           <Button
             variant={variants.danger}
             size={sizes.compact}
@@ -292,8 +297,8 @@ const FirmwareFilesSection = () => {
             disabled={isDeletingAll}
             className="phone:w-full"
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div className="text-center text-text-primary-50">Loading firmware files...</div>
@@ -365,6 +370,7 @@ const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
+  const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
   const retryChannels = () => {
@@ -406,6 +412,7 @@ const Firmware = () => {
   return (
     <FirmwarePageLayout
       activeTab={activeTab}
+      headerAction={<div ref={setActionContainer} className="shrink-0 empty:hidden phone:w-full" />}
       manageRequest={manageRequest}
       refreshWarning={refreshWarning}
       onSelectTab={(key) => {
@@ -432,12 +439,13 @@ const Firmware = () => {
       {activeTab === TAB_RELEASE_CHANNELS ? (
         <ReleaseChannelsTab
           api={channelsApi}
+          actionContainer={actionContainer}
           manageRequest={manageRequest}
           onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rollout })}
           onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />
       ) : (
-        <FirmwareFilesSection />
+        <FirmwareFilesSection actionContainer={actionContainer} />
       )}
     </FirmwarePageLayout>
   );

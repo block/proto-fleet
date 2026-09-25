@@ -128,6 +128,15 @@ function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
           setActiveTab(tab);
           if (tab === "files") setManageRequest(null);
         }}
+        headerAction={
+          <Button
+            text={activeTab === "files" ? "Upload firmware" : "Create release channel"}
+            variant={variants.primary}
+            size={sizes.compact}
+            onClick={noop}
+            className="shrink-0 phone:w-full"
+          />
+        }
         monitor={
           <ActiveUpdatesMonitor
             api={api}
@@ -138,14 +147,6 @@ function FirmwareMonitorPage({ rollouts }: { rollouts: Rollout[] }) {
           />
         }
       >
-        <div className="flex">
-          <Button
-            text={activeTab === "files" ? "Upload firmware" : "Create release channel"}
-            variant={variants.primary}
-            size={sizes.compact}
-            onClick={noop}
-          />
-        </div>
         {activeTab === "files" ? (
           <List<FirmwareFileInfo, string, "filename" | "model" | "version">
             items={firmwareFiles}
