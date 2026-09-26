@@ -80,6 +80,36 @@ afterEach(() => {
   }
 });
 
+it("shows usage for matching payloads and opens the selected channel from the Files tab", async () => {
+  const assignedFile = firmwareFiles[1];
+  const rigGroup = canaryChannel.modelGroups[0];
+  mockListFirmwareFiles.mockResolvedValue([
+    assignedFile,
+    { ...assignedFile, id: "duplicate", filename: "copy.swu", firmware_version: "renamed version" },
+    { ...assignedFile, id: "same-version", filename: "different-payload.swu", sha256: "f".repeat(64) },
+  ]);
+  mockUseReleaseChannels.mockReturnValue({
+    ...apiFor(),
+    channels: [canaryChannel, { ...productionChannel, modelGroups: [{ ...rigGroup, activeRolloutId: 0n }] }],
+  });
+  render(page("files"));
+
+  const usageButton = await screen.findByRole("button", { name: `View channels using ${assignedFile.filename}` });
+  expect(screen.getByRole("button", { name: "View channels using copy.swu" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "View channels using different-payload.swu" })).not.toBeInTheDocument();
+  fireEvent.click(usageButton);
+  const usage = screen.getByTestId("firmware-usage-modal");
+  expect(within(usage).getByText("Canary")).toBeInTheDocument();
+  expect(within(usage).getByText("Production")).toBeInTheDocument();
+  fireEvent.click(within(usage).getByRole("button", { name: "Manage Production" }));
+
+  expect(await screen.findByTestId("release-channel-Production")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Release channels" })).toHaveAttribute("aria-current", "page");
+  expect(screen.queryByTestId("firmware-usage-modal")).not.toBeInTheDocument();
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start", behavior: "instant" });
+  expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByTestId("firmware-tab-navigation"));
+});
+
 describe("update detail Manage navigation", () => {
   const productionRollout = {
     ...gatedRigRollout,

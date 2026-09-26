@@ -60,6 +60,7 @@ export const firmwareFiles: FirmwareFileInfo[] = [
     target_manufacturer: "Proto",
     target_model: "Rig",
     firmware_version: "1.4.3",
+    sha256: checksums.rig143,
   },
   {
     id: "fw-rig-144",
@@ -69,6 +70,7 @@ export const firmwareFiles: FirmwareFileInfo[] = [
     target_manufacturer: "Proto",
     target_model: "Rig",
     firmware_version: "1.4.4",
+    sha256: checksums.rig144,
   },
   {
     id: "fw-s21-301",
@@ -78,6 +80,7 @@ export const firmwareFiles: FirmwareFileInfo[] = [
     target_manufacturer: "Bitmain",
     target_model: "S21",
     firmware_version: "3.0.1",
+    sha256: checksums.s21301,
   },
 ];
 

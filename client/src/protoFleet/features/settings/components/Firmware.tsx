@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
-import { useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
+import { type ReleaseChannelsApi, useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwarePageLayout from "@/protoFleet/features/settings/components/FirmwarePageLayout";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import FirmwareUsageBadge from "@/protoFleet/features/settings/components/FirmwareUsageBadge";
 import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
@@ -29,6 +30,7 @@ type FirmwareFileData = {
   targetManufacturer: string;
   targetModel: string;
   firmwareVersion: string;
+  checksum: string;
   size: number;
   uploadedAt: number;
 };
@@ -110,10 +112,6 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
     component: (file) => <span>{`${file.targetManufacturer} ${file.targetModel}`.trim() || "Unknown"}</span>,
     width: "w-48",
   },
-  firmwareVersion: {
-    component: (file) => <span>{file.firmwareVersion || "-"}</span>,
-    width: "w-36",
-  },
   uploadedAt: {
     component: (file) => <span>{formatTimestamp(file.uploadedAt)}</span>,
     width: "w-48",
@@ -133,12 +131,23 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     targetManufacturer: info.target_manufacturer,
     targetModel: info.target_model,
     firmwareVersion: info.firmware_version ?? "",
+    checksum: info.sha256 ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),
   };
 }
 
-const FirmwareFilesSection = ({ actionContainer }: { actionContainer: HTMLElement | null }) => {
+const FirmwareFilesSection = ({
+  actionContainer,
+  channelsApi,
+  refreshWarning,
+  onManageChannel,
+}: {
+  actionContainer: HTMLElement | null;
+  channelsApi: ReleaseChannelsApi;
+  refreshWarning: ReactNode;
+  onManageChannel: (channelId: bigint) => void;
+}) => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -149,6 +158,26 @@ const FirmwareFilesSection = ({ actionContainer }: { actionContainer: HTMLElemen
   const [isDeletingSingle, setIsDeletingSingle] = useState(false);
   const [fileToEdit, setFileToEdit] = useState<FirmwareFileData | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+
+  const fileColConfig: typeof colConfig = {
+    ...colConfig,
+    firmwareVersion: {
+      width: "w-36",
+      allowWrap: true,
+      component: (file) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="break-all">{file.firmwareVersion || "-"}</span>
+          <FirmwareUsageBadge
+            checksum={file.checksum}
+            filename={file.filename}
+            api={channelsApi}
+            refreshWarning={refreshWarning}
+            onManageChannel={onManageChannel}
+          />
+        </div>
+      ),
+    },
+  };
 
   const fetchFiles = useCallback(() => {
     setIsLoading(true);
@@ -308,7 +337,7 @@ const FirmwareFilesSection = ({ actionContainer }: { actionContainer: HTMLElemen
           itemKey="id"
           activeCols={activeCols}
           colTitles={colTitles}
-          colConfig={colConfig}
+          colConfig={fileColConfig}
           total={files.length}
           itemName={{ singular: "file", plural: "files" }}
           noDataElement={
@@ -389,6 +418,10 @@ const Firmware = () => {
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
 
   const showChannels = () => setSearchParams({ tab: RELEASE_CHANNELS_TAB_PARAM }, { replace: true });
+  const manageChannel = (channelId: bigint) => {
+    setManageRequest({ channelId });
+    showChannels();
+  };
   const refreshWarning = channelsApi.error ? (
     <div role="alert" aria-busy={isRetrying}>
       <Callout
@@ -429,10 +462,7 @@ const Firmware = () => {
           refreshWarning={refreshWarning}
           request={monitorRequest}
           onRequestHandled={() => setMonitorRequest(null)}
-          onManageChannel={(channelId) => {
-            setManageRequest({ channelId });
-            showChannels();
-          }}
+          onManageChannel={manageChannel}
         />
       }
     >
@@ -445,7 +475,12 @@ const Firmware = () => {
           onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
         />
       ) : (
-        <FirmwareFilesSection actionContainer={actionContainer} />
+        <FirmwareFilesSection
+          actionContainer={actionContainer}
+          channelsApi={channelsApi}
+          refreshWarning={refreshWarning}
+          onManageChannel={manageChannel}
+        />
       )}
     </FirmwarePageLayout>
   );

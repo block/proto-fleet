@@ -338,6 +338,11 @@ func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice)
 }
 
 func preflightBlockedMessage(requestedCount int, skipped []SkippedDevice) string {
+	for _, device := range skipped {
+		if device.FilterName == releaseChannelFirmwareFilterName {
+			return fmt.Sprintf("command blocked: %s", device.Reason)
+		}
+	}
 	if skipsOnlyFromFilter(skipped, CurtailmentActiveFilterName) {
 		deviceNoun := "devices"
 		if requestedCount == 1 {
@@ -705,7 +710,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 			filter = &pb.DeviceFilter{}
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]string, error) {
+		resolve := func(q sqlc.Querier) ([]string, error) {
 			var deviceStatus sql.NullString
 			var modelFilter sql.NullString
 			var manufacturerFilter sql.NullString
@@ -738,7 +743,11 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 				ModelFilter:         modelFilter,
 				ManufacturerFilter:  manufacturerFilter,
 			})
-		})
+		}
+		if q := db.GetTxQueries(ctx); q != nil {
+			return resolve(q)
+		}
+		return db.WithTransaction(ctx, s.conn, resolve)
 	case *pb.DeviceSelector_IncludeDevices:
 		if x.IncludeDevices == nil {
 			return []string{}, nil
@@ -790,9 +799,13 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	if s.resolveDeviceIDsOverride != nil {
 		return s.resolveDeviceIDsOverride(ctx, identifiers)
 	}
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]int64, error) {
+	resolve := func(q sqlc.Querier) ([]int64, error) {
 		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
-	})
+	}
+	if q := db.GetTxQueries(ctx); q != nil {
+		return resolve(q)
+	}
+	return db.WithTransaction(ctx, s.conn, resolve)
 }
 
 func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers []string) ([]resolvedDevice, error) {
@@ -992,10 +1005,38 @@ func commandPayloadRedacted(kind string) map[string]any {
 	}
 }
 
-// processCommand resolves selectors, filters, writes the batch row, and
-// enqueues work. External callers fail on skips; internal callers may inspect
-// CommandResult.Skipped.
+// processCommand admits a command and durably audits external rejections.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
+	result, err := s.admitCommand(ctx, command)
+	return result, s.auditPreflightRejection(ctx, err)
+}
+
+type preflightRejection struct {
+	commandType commandtype.Type
+	requested   []string
+	skipped     []SkippedDevice
+}
+
+func (e *preflightRejection) Error() string {
+	return preflightBlockedMessage(len(e.requested), e.skipped)
+}
+
+func (s *Service) auditPreflightRejection(ctx context.Context, err error) error {
+	var rejected *preflightRejection
+	if !errors.As(err, &rejected) {
+		return err
+	}
+	if err := s.logPreflightBlockedStrict(ctx, rejected.commandType, rejected.requested, rejected.skipped); err != nil {
+		return fleeterror.NewInternalErrorf("logging preflight block: %v", err)
+	}
+	return fleeterror.NewFailedPreconditionError(rejected.Error())
+}
+
+// admitCommand resolves selectors, filters, writes the batch row, and enqueues
+// work. External callers fail on skips; internal callers may inspect Skipped.
+// Its caller audits rejections after releasing any admission transaction so
+// the independent audit write never needs a second connection while holding it.
+func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if db.GetTxQueries(ctx) != nil && !db.HasCommitHooks(ctx) {
 		return nil, fleeterror.NewInternalError("transactional command dispatch requires post-commit callbacks")
 	}
@@ -1040,11 +1081,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if len(deviceIDs) == 0 {
 			return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 		}
-		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
-			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
-		}
-		return nil, fleeterror.NewFailedPreconditionError(
-			preflightBlockedMessage(len(identifiers), skipped))
+		return nil, &preflightRejection{commandType: command.commandType, requested: identifiers, skipped: skipped}
 	}
 
 	if len(kept) == 0 && len(skipped) > 0 {
@@ -1742,14 +1779,48 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
 
-	payload := dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID}
-	result, err := s.processCommand(ctx, &Command{
-		commandType:    commandtype.FirmwareUpdate,
-		deviceSelector: deviceSelector,
-		payload:        payload,
-	})
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("get firmware command session: %v", err)
+	}
+	if info.OrganizationID <= 0 {
+		return nil, fleeterror.NewInternalError("cannot create command batch: session missing organization_id")
+	}
+	// Snapshot the selection before admission. Rich fleet filters use their
+	// own database connection; ownership of this selected set is still checked
+	// under the scope lock immediately before enqueue.
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, deviceSelector, commandtype.FirmwareUpdate)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
+	}
+	// Keep the payload present until the queued reference is committed. A
+	// processCommand metadata lease alone ends before an enclosing commit.
+	reader, _, err := s.filesService.OpenFirmwareFileForExecution(canonicalFileID, "")
 	if err != nil {
 		return nil, err
+	}
+	defer reader.Close()
+	var result *CommandResult
+	transactor := sqlstores.NewSQLTransactor(s.conn)
+	err = transactor.RunInTxNoRetry(ctx, func(ctx context.Context) error {
+		// Reuse the channel mutation lock so assignment/scope changes cannot
+		// slip between ownership preflight and enqueue. This transaction only
+		// admits work; it does not wait for miner delivery.
+		if err := db.GetTxQueries(ctx).LockReleaseChannelScopes(ctx, info.OrganizationID); err != nil {
+			return fleeterror.NewInternalErrorf("lock firmware command admission: %v", err)
+		}
+		var err error
+		result, err = s.admitCommand(ctx, &Command{
+			commandType: commandtype.FirmwareUpdate,
+			deviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
+			}},
+			payload: dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID},
+		})
+		return err
+	})
+	if err != nil {
+		return nil, s.auditPreflightRejection(ctx, err)
 	}
 	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
 	return result, nil

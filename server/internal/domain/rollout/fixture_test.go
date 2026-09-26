@@ -101,6 +101,13 @@ func (f *fakeFirmwareFiles) FindCachedFirmwareFileIDByChecksum(sha256Hex string)
 	return f.FindFirmwareFileIDByChecksum(sha256Hex)
 }
 
+func (f *fakeFirmwareFiles) PinFirmwareArtifact(checksum string) (func(), error) {
+	if _, ok := f.FindFirmwareFileIDByChecksum(checksum); !ok {
+		return nil, fleeterror.NewNotFoundErrorf("firmware artifact not found: %s", checksum)
+	}
+	return func() {}, nil
+}
+
 // fakeActivity captures rollout lifecycle events.
 type fakeActivity struct {
 	events []activitymodels.Event

@@ -5,6 +5,7 @@ import { activeRigRollout, batchedRigRollout, gatedRigRollout, pausedRigRollout 
 import RolloutLiveView from "./RolloutLiveView";
 import {
   type Rollout,
+  RolloutCancelReason,
   RolloutStage,
   RolloutState,
   RolloutStatus,
@@ -75,6 +76,66 @@ it("keeps refresh failures, failed miners, and review hold reasons visible when 
   expect(screen.getByTestId("inline-view-rollout-continue-action")).not.toBeDisabled();
   expect(screen.queryByTestId("inline-rollout-evidence")).not.toBeInTheDocument();
 });
+
+it.each([
+  "The assigned firmware file is unavailable. Restore the file or choose another firmware version.",
+  "Waiting for space within the channel's offline limit.",
+])("keeps a dispatch blocker visible with details collapsed: %s", (holdReason) => {
+  const rollout = { ...activeRigRollout, evidence: { ...activeRigRollout.evidence!, holdReason } };
+  const props = propsFor(rollout);
+  const { rerender } = render(<RolloutLiveView {...props} />);
+  expect(screen.getByTestId("inline-rollout-dispatch-hold")).toHaveTextContent(holdReason);
+  expect(screen.queryByTestId("inline-rollout-details")).not.toBeInTheDocument();
+  expect(screen.getByTestId("inline-view-rollout-pause-action")).toBeEnabled();
+  rerender(<RolloutLiveView {...props} rollout={{ ...rollout, evidence: { ...rollout.evidence, holdReason: "" } }} />);
+  expect(screen.queryByTestId("inline-rollout-dispatch-hold")).not.toBeInTheDocument();
+});
+
+it.each([
+  { ...activeRigRollout, state: RolloutState.PAUSED },
+  { ...activeRigRollout, stage: RolloutStage.WAITING },
+  { ...gatedRigRollout },
+  { ...activeRigRollout, state: RolloutState.COMPLETED, status: RolloutStatus.COMPLETED },
+])("does not show a dispatch blocker outside dispatch states (%#)", (rollout) => {
+  render(
+    <RolloutLiveView
+      {...propsFor({ ...rollout, evidence: { ...rollout.evidence!, holdReason: "A retained hold reason" } })}
+    />,
+  );
+  expect(screen.queryByTestId("inline-rollout-dispatch-hold")).not.toBeInTheDocument();
+});
+
+it.each([RolloutCancelReason.CANCELED_REMAINING, RolloutCancelReason.SUPERSEDED, RolloutCancelReason.ROLLED_BACK])(
+  "shows unfinished canceled work neutrally while preserving completed and failed outcomes (%s)",
+  (cancelReason) => {
+    const rollout = {
+      ...activeRigRollout,
+      status: RolloutStatus.CANCELED,
+      state: RolloutState.CANCELED,
+      cancelReason,
+      deviceCount: 9,
+      deviceCounts: {
+        ...activeRigRollout.deviceCounts!,
+        done: 2,
+        queued: 1,
+        inProgress: 2,
+        retrying: 1,
+        failed: 1,
+        excluded: 1,
+        skipped: 1,
+      },
+    };
+    render(<RolloutLiveView {...propsFor(rollout)} presentation="fullscreen" />);
+    const progress = within(screen.getByTestId("rollout-detail-progress"));
+    expect(progress.getByText("Canceled (4)")).toBeInTheDocument();
+    expect(progress.getByText("Updated (2)")).toBeInTheDocument();
+    expect(progress.getByText("Failed (1)")).toBeInTheDocument();
+    expect(progress.queryByText("Remaining (4)")).not.toBeInTheDocument();
+    expect(progress.getByText(/Update commands already sent may still finish/)).toBeInTheDocument();
+    expect(progress.getByText("1 excluded")).toBeInTheDocument();
+    expect(progress.getByText("1 skipped")).toBeInTheDocument();
+  },
+);
 
 it("shows overall progress for a completed pilot and labels expanded evidence with its actual scope", () => {
   render(<RolloutLiveView {...propsFor(gatedRigRollout)} />);

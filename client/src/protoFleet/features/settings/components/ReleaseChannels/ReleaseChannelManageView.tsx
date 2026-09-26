@@ -636,6 +636,32 @@ const ReleaseChannelManageView = ({
     return group?.firmwareChecksum ? group.firmwareVersion || "Unknown version" : "No firmware";
   };
 
+  const firmwarePreviewRow = (assignment: AssignmentDraft) => {
+    let original = originalVersionLabel(assignment);
+    let target = versionLabel(assignment.firmwareFileId);
+    // Equal version labels can identify different payloads. Show the uploads
+    // being compared, falling back to the saved checksum if its file is gone.
+    if (original === target && assignment.firmwareFileId !== "") {
+      const key = pairKey(assignment);
+      const group = modelGroups.find((candidate) => pairKey(candidate) === key);
+      const originalId = acknowledgedAssignments[key]?.firmwareFileId ?? group?.firmwareFileId;
+      const originalFile = firmwareFiles.find((file) => file.id === originalId);
+      const targetFile = firmwareFiles.find((file) => file.id === assignment.firmwareFileId);
+      const duplicateName = originalFile && originalFile.filename === targetFile?.filename;
+      const originalDetail = originalFile
+        ? `${originalFile.filename}${duplicateName ? ` · ${originalFile.id}` : ""}`
+        : group?.firmwareChecksum
+          ? `Checksum ${group.firmwareChecksum.slice(0, 12)}`
+          : `File ${originalId}`;
+      const targetDetail = targetFile
+        ? `${targetFile.filename}${duplicateName ? ` · ${targetFile.id}` : ""}`
+        : `File ${assignment.firmwareFileId}`;
+      original = `${original}\n${originalDetail}`;
+      target = `${target}\n${targetDetail}`;
+    }
+    return { key: pairKey(assignment), label: pairLabel(assignment), original, target };
+  };
+
   const applyPreview: ApplyPreview = submittedPreview ?? {
     ...applyCopy,
     summary: applySummary,
@@ -643,12 +669,7 @@ const ReleaseChannelManageView = ({
     settingsChanges,
     behaviorChangedDuringUpdate: behaviorChanged && activeCount > 0,
     scopeChanged,
-    firmwareRows: dirtyAssignments.map((assignment) => ({
-      key: pairKey(assignment),
-      label: pairLabel(assignment),
-      original: originalVersionLabel(assignment),
-      target: versionLabel(assignment.firmwareFileId),
-    })),
+    firmwareRows: dirtyAssignments.map(firmwarePreviewRow),
   };
 
   const handleApply = async () => {
@@ -1058,7 +1079,7 @@ const ReleaseChannelManageView = ({
             <div className="mt-8">
               <Section
                 title="Delete this channel"
-                subtext="Miners keep their current firmware. Deleting this channel stops firmware enforcement and removes its update history."
+                subtext="Deleting this channel stops firmware enforcement and removes its update history. Cancel active updates and wait for any dispatched commands to finish first."
               >
                 <div className="flex flex-col items-start gap-3">
                   <Button

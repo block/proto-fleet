@@ -567,11 +567,24 @@ func start(config *Config) (result error) {
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
+	commandSvc.RegisterFilter(commandDomain.NewReleaseChannelFirmwareFilter(conn))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 
 	rolloutQueries := sqlstores.NewSQLConnectionManager(conn)
 	rolloutSvc := rolloutDomain.NewService(&rolloutQueries, transactor, commandSvc, filesService, activitySvc)
+	filesService.SetFirmwareDeletionGuard(func() (files.FirmwareDeletionCheck, func(), error) {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		check, release, err := rolloutDomain.PrepareFirmwareDeletion(checkCtx, conn)
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		return check, func() {
+			release()
+			cancel()
+		}, nil
+	})
 	rolloutEnforcement := newBackgroundLoop(func(ctx context.Context) {
 		const enforceInterval = 15 * time.Second
 		reportProgress := runtimejobs.TrackProgress(ctx, enforceInterval)

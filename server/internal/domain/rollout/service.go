@@ -51,6 +51,8 @@ type CommandDispatcher interface {
 // and finding which uploaded files still carry an assigned checksum.
 type FirmwareFiles interface {
 	ResolveFirmwareArtifact(fileID string) (files.FirmwareArtifact, error)
+	// Pins an available payload against deletion until its assignment commits.
+	PinFirmwareArtifact(checksum string) (release func(), err error)
 	// Strict verification is required before enforcement uses the artifact.
 	FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool)
 	// Read views report cached identity and presence without hashing payloads.
@@ -354,16 +356,36 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 	return s.GetChannel(ctx, orgID, channelID)
 }
 
-// DeleteChannel removes a channel with its assignments and rollout history.
+// DeleteChannel removes a channel only after its updates and queued commands
+// have settled, so deleting history cannot orphan work still in flight.
 func (s *Service) DeleteChannel(ctx context.Context, orgID, channelID int64) error {
-	n, err := s.store.GetQueries(ctx).DeleteReleaseChannel(ctx, sqlc.DeleteReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
-	if err != nil {
-		return fleeterror.NewInternalErrorf("delete channel: %w", err)
-	}
-	if n == 0 {
-		return fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
-	}
-	return nil
+	return s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		q := s.store.GetQueries(ctx)
+		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
+			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
+		}
+		// Assignment writers and dispatch take this lock before touching
+		// rollouts, so no new work can appear between this check and deletion.
+		if _, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: channelID, OrgID: orgID}); err != nil {
+			return channelLookupError(channelID, err)
+		}
+		state, err := q.GetReleaseChannelDeletionState(ctx, channelID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("check channel updates: %w", err)
+		}
+		if state.ActiveRollouts {
+			return fleeterror.NewFailedPreconditionError("This channel has an active firmware update. Finish or cancel it before deleting the channel.")
+		}
+		if state.PendingCommands {
+			return fleeterror.NewFailedPreconditionError("Firmware update commands for this channel are still running. Wait for them to finish before deleting the channel.")
+		}
+		// Terminal history deletion is explicit. A failed or canceled miner
+		// does not prevent cleanup once its command is no longer outstanding.
+		if _, err := q.DeleteReleaseChannel(ctx, sqlc.DeleteReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
+			return fleeterror.NewInternalErrorf("delete channel: %w", err)
+		}
+		return nil
+	})
 }
 
 func (spec *ChannelSpec) validate() error {
@@ -996,8 +1018,20 @@ type FirmwarePlan struct {
 // alone; their active rollout, if any, keeps running.
 func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, channelID int64, assignments []Assignment, override *Behavior) ([]Rollout, error) {
 	var started []Rollout
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
-		channel, err := s.store.GetQueries(ctx).GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: channelID, OrgID: orgID})
+		q := s.store.GetQueries(ctx)
+		// Ownership changes and manual command admission share the scope
+		// lock. Take it before channel rows, matching scope edits/deletion.
+		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
+			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
+		}
+		channel, err := q.GetReleaseChannelForUpdate(ctx, sqlc.GetReleaseChannelForUpdateParams{ChannelID: channelID, OrgID: orgID})
 		if err != nil {
 			return channelLookupError(channelID, err)
 		}
@@ -1005,7 +1039,23 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, c
 		if err != nil {
 			return err
 		}
-		started, err = s.applyAssignments(ctx, channel, actor, assignments, behavior, CancelReasonSuperseded)
+		resolved, err := s.resolveAssignments(ctx, channel, assignments)
+		if err != nil {
+			return err
+		}
+		for _, assignment := range resolved {
+			if assignment.artifact == nil {
+				continue
+			}
+			release, err := s.files.PinFirmwareArtifact(assignment.artifact.Checksum)
+			if err != nil {
+				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMissing},
+					"firmware file %q is not available: %v", assignment.artifact.FileID, err)
+			}
+			// Keep pins beyond the callback: RunInTx commits after it returns.
+			releases = append(releases, release)
+		}
+		started, err = s.applyResolved(ctx, channel, actor, resolved, behavior, CancelReasonSuperseded)
 		return err
 	})
 	return started, err
@@ -1099,8 +1149,17 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 		channelID int64
 		started   []Rollout
 	)
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
 		q := s.store.GetQueries(ctx)
+		if err := q.LockReleaseChannelScopes(ctx, orgID); err != nil {
+			return fleeterror.NewInternalErrorf("lock channel scopes: %w", err)
+		}
 		// Discover the channel without locking the rollout: assignment
 		// writers always lock the channel first, then its rollout rows.
 		row, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID})
@@ -1133,6 +1192,12 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model}}, allAtOnce, CancelReasonRolledBack)
 			return err
 		}
+		release, err := s.files.PinFirmwareArtifact(row.PreviousFirmwareChecksum)
+		if err != nil {
+			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMissing},
+				"Previous firmware %s is not available. Upload it again before rolling back: %v", row.PreviousFirmwareVersion, err)
+		}
+		releases = append(releases, release)
 		started, err = s.applyResolved(ctx, channel, m.Actor, []resolvedAssignment{{
 			pair:    pair,
 			current: &assignment,

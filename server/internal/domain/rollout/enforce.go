@@ -30,7 +30,7 @@ const (
 	holdStabilizing = "Stabilizing"
 	// holdArtifactMissing is the hold reason while no uploaded file carries
 	// the rollout's checksum.
-	holdArtifactMissing = "Firmware file not uploaded"
+	holdArtifactMissing = "Firmware file is unavailable. Upload the assigned firmware again to continue."
 )
 
 // EnforceTick runs one enforcement pass: it observes completed commands from
@@ -137,9 +137,9 @@ func (b *offlineBudget) reserve(deviceID int64) {
 	}
 }
 
-// refreshOfflineBudget runs under the channel lock before dispatch. It uses
-// durable command reservations and every historical target so concurrent ticks,
-// phase changes and membership changes cannot release a slot accidentally.
+// refreshOfflineBudget runs under the channel lock before dispatch. It counts
+// current member outages and durable reservations for unresolved dispatches, so
+// a departure releases only settled risk rather than an in-flight update.
 func (s *Service) refreshOfflineBudget(ctx context.Context, channelID int64, limit int32) (*offlineBudget, error) {
 	q := s.store.GetQueries(ctx)
 	if err := q.ObserveFirmwareRolloutReservationsOffline(ctx, sql.NullInt64{Int64: channelID, Valid: true}); err != nil {
@@ -159,10 +159,10 @@ func (s *Service) refreshOfflineBudget(ctx context.Context, channelID int64, lim
 	return budget, nil
 }
 
-// startNeededRollouts creates an all-at-once rollout for every assigned pair
-// that has at least one mismatched, unsuppressed member and no active
-// rollout: late joiners, re-entries and miners that drifted. No operator is
-// present to review a gate, so these never stage. The rollout carries the
+// startNeededRollouts creates a rollout using the channel's current behavior
+// for every assigned pair with mismatched, unsuppressed members and no active
+// rollout: late joiners, re-entries and miners that drifted. Automatic
+// enforcement preserves the channel's pacing and review policy. It carries the
 // pair's generation and its saved assignment lineage, including assignments
 // that originally needed no rollout because every member already matched.
 func (s *Service) startNeededRollouts(ctx context.Context) {
@@ -204,7 +204,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				OrgID: n.OrgID, ChannelID: n.ChannelID, ChannelName: channel.Name,
 				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model},
 				FirmwareChecksum: assignment.FirmwareChecksum, FirmwareVersion: assignment.FirmwareVersion,
-				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: allAtOnce,
+				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: behaviorFromChannel(channel),
 				PreviousFirmwareChecksum: assignment.PreviousFirmwareChecksum,
 				PreviousFirmwareVersion:  assignment.PreviousFirmwareVersion,
 			}
@@ -566,6 +566,48 @@ func countFailed(scope []target) int {
 	return n
 }
 
+// dispatchHoldReason exposes actionable reasons dispatch cannot start. It is a
+// read-only view of the same eligibility and live channel budget used by
+// dispatch; already-sent commands and retry cooldowns are normal progress.
+func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout, targets []target, firmwareAvailable bool) (string, error) {
+	if r.Status != StatusActive || r.PausedAt.Valid || (r.Stage != StageBatch && r.Stage != StageRest) {
+		return "", nil
+	}
+	cutoff := s.now().Add(-resendInterval)
+	due := false
+	for _, t := range reviewScope(r, targets) {
+		if t.settled(r) || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 ||
+			(t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)) ||
+			!t.InScope.Valid || !t.InScope.Bool || t.Attempts >= MaxAttempts {
+			continue
+		}
+		due = true
+		break
+	}
+	if !due {
+		return "", nil
+	}
+	if !firmwareAvailable {
+		return holdArtifactMissing, nil
+	}
+	q := s.store.GetQueries(ctx)
+	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: r.ChannelID, OrgID: r.OrgID})
+	if err != nil {
+		return "", channelLookupError(r.ChannelID, err)
+	}
+	if channel.MaxConcurrentOffline <= 0 {
+		return "", nil
+	}
+	slots, err := q.ListFirmwareRolloutOfflineSlots(ctx, r.ChannelID)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("load rollout offline slots: %w", err)
+	}
+	if len(slots) >= int(channel.MaxConcurrentOffline) {
+		return fmt.Sprintf("Waiting for offline capacity: %d of %d slots are in use. Wait for miners to recover or change the channel's offline limit.", len(slots), channel.MaxConcurrentOffline), nil
+	}
+	return "", nil
+}
+
 // dispatchUpdates sends the firmware update to every mismatched target in
 // scope that is due (never sent, or not re-sent within resendInterval),
 // failing miners whose attempts are exhausted first and honouring the
@@ -752,6 +794,7 @@ func (s *Service) enforcementContext(ctx context.Context, r sqlc.FirmwareRollout
 func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	ev := Evidence{DevicesTotal: int32(len(scope))} // #nosec G115 -- bounded by the member count
 	var hash, power, efficiency, temp metricAggregate
+	var offline, notHashing int
 	for _, t := range scope {
 		if t.excluded() {
 			ev.Excluded++
@@ -763,6 +806,13 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 		}
 		verified := t.verified(r)
 		if verified {
+			// DONE is historical progress. Releasing an automatic gate still
+			// requires live recovery, including baseline hashing expectations.
+			if !t.online() {
+				offline++
+			} else if !t.hashing() && (!t.BaselineAt.Valid || t.baselineHashing()) {
+				notHashing++
+			}
 			ev.Verified++
 			hash.add(t.BaselineHashRateHs, t.HashRateHs)
 			power.add(t.BaselinePowerW, t.PowerW)
@@ -806,7 +856,7 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	case r.PausedAt.Valid:
 		ev.HoldReason = "Paused"
 	case r.Stage == StageBatch:
-		ev.HoldReason = "Batch in progress"
+		ev.HoldReason = ""
 	case r.Stage == StageWaiting:
 		ev.HoldReason = "Waiting before the next batch"
 	case r.Stage == StageRest:
@@ -817,6 +867,10 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 		ev.HoldReason = fmt.Sprintf("%d miners failed to update", ev.Failed)
 	case ev.Verified+ev.Excluded+ev.Skipped < ev.DevicesTotal:
 		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, ev.DevicesTotal)
+	case offline > 0:
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to come back online", offline)
+	case notHashing > 0:
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to resume hashing", notHashing)
 	case th.MaxHashrateDropPercent != nil && !covered(ev.HashRateHs):
 		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified)
 	case th.MaxHashrateDropPercent != nil && ev.HashrateChangePercent == nil:

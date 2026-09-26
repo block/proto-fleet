@@ -173,8 +173,8 @@ type Behavior struct {
 	ControllerTimeoutSeconds int32
 }
 
-// allAtOnce is the behavior of drift-correction and rollback rollouts: no
-// operator is present to review a gate, so they never stage.
+// allAtOnce is the recovery behavior used by explicit retry and rollback.
+// Background reconciliation uses the channel's current behavior instead.
 var allAtOnce = Behavior{Method: MethodAllAtOnce, Order: OrderLeastEfficientFirst}
 
 // gatesAfterBatch reports whether a finished batch holds for review.

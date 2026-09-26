@@ -158,6 +158,7 @@ func TestAutoContinueWaitsForStabilizationAndHoldsOnDegradedHashrate(t *testing.
 	f.svc.EnforceTick(ctx)
 	f.finishUpdate(t, "miner-0", "2.0.0")
 	f.svc.EnforceTick(ctx)
+	f.reportHashrate(t, "miner-0", 100)
 	gated := f.rollout(t, started.ID)
 	require.Equal(t, StageAwaitingReview, gated.Stage)
 	assert.Equal(t, holdStabilizing, gated.Evidence.HoldReason)
@@ -189,8 +190,8 @@ func TestAutoContinueWaitsForStabilizationAndHoldsOnDegradedHashrate(t *testing.
 	// so the gate holds for a human even after the stabilization window.
 	f.svc.EnforceTick(ctx)
 	f.finishUpdate(t, "miner-1", "2.0.0")
-	f.reportHashrate(t, "miner-1", 50)
 	f.svc.EnforceTick(ctx)
+	f.reportHashrate(t, "miner-1", 50)
 	f.advanceClock(2 * time.Minute)
 	f.svc.EnforceTick(ctx)
 	held := f.rollout(t, started.ID)
@@ -247,9 +248,10 @@ func TestAutoContinueChecksEveryThreshold(t *testing.T) {
 	f.svc.EnforceTick(ctx)
 	f.finishUpdate(t, "miner-0", "2.0.0")
 
+	// Samples must follow verified recovery before they can judge the gate.
+	f.svc.EnforceTick(ctx)
 	// Efficiency worse by 10%: holds.
 	f.reportTelemetry(t, "miner-0", 100, 3300, 33, 60)
-	f.svc.EnforceTick(ctx)
 	f.svc.EnforceTick(ctx)
 	held := f.rollout(t, started.ID)
 	require.Equal(t, StageAwaitingReview, held.Stage)
@@ -533,8 +535,8 @@ func TestEvidenceAggregatesTelemetryAgainstBaseline(t *testing.T) {
 	started := f.apply(t, "fw-2")
 	f.svc.EnforceTick(ctx)
 	f.finishUpdate(t, "miner-0", "2.0.0")
-	f.reportTelemetry(t, "miner-0", 110, 3300, 30, 66)
 	f.svc.EnforceTick(ctx)
+	f.reportTelemetry(t, "miner-0", 110, 3300, 30, 66)
 
 	r := f.rollout(t, started.ID)
 	require.NotNil(t, r.Evidence)

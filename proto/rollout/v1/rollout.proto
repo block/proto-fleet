@@ -117,8 +117,10 @@ import "google/protobuf/timestamp.proto";
 // or filename. ApplyReleaseChannelFirmware takes a firmware_file_id only to
 // resolve that checksum and snapshot the file's target manufacturer, target
 // model and firmware version onto the assignment; after that the file may be
-// renamed, have its metadata edited, or be deleted without changing the
-// assignment or any rollout. While no uploaded file carries the assignment's
+// renamed or have its metadata edited without changing the assignment or any
+// rollout. Deletion is rejected while an assignment, active rollout, or pending
+// firmware command references it. Assignment admission protects the payload
+// through commit. If files are lost outside the application and no upload carries the assignment's
 // checksum, the pair reports firmware_available = false, dispatch for that
 // pair waits, and RPCs that would need the payload fail with
 // FAILED_PRECONDITION, reason ARTIFACT_MISSING. Uploading a file with that
@@ -185,8 +187,10 @@ service RolloutService {
     // RolloutBehavior.max_concurrent_offline budget takes effect immediately.
     rpc UpdateReleaseChannel(UpdateReleaseChannelRequest) returns (UpdateReleaseChannelResponse);
 
-    // Deletes a channel with its assignments and rollout history. Miners keep
-    // their running firmware; firmware files are not affected.
+    // Deletes a channel with its assignments and rollout history. Rejected
+    // while a rollout is active or its firmware commands are pending/in flight,
+    // including commands issued before cancellation. Firmware files are not
+    // affected; deleting settled history does not change miners' firmware.
     rpc DeleteReleaseChannel(DeleteReleaseChannelRequest) returns (DeleteReleaseChannelResponse);
 
     // Resolves a scope without saving it: how many miners it covers per
@@ -232,9 +236,8 @@ service RolloutService {
     // starts at most one all-at-once rollout for members mismatched under the
     // RolloutService mismatch rule, so a member whose superseded update is
     // still outstanding is included and receives the restored target behind
-    // that update. A restored artifact that is not currently
-    // uploaded is still assigned; enforcement waits under the RolloutService
-    // artifact identity rule. Commands already sent finish under existing
+    // that update. An unavailable restored artifact fails with ARTIFACT_MISSING
+    // before any assignment changes. Commands already sent finish under existing
     // cancellation semantics.
     rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
 
@@ -315,7 +318,7 @@ service RolloutService {
     // Re-queues the suppressed members of a rollout's manufacturer/model pair.
     // An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
     // and adds suppressed members from earlier rollouts of the generation as
-    // unbatched late joiners without baselines. A
+    // unbatched targets retaining their original recovery baselines. A
     // finished rollout, while it is current under the RolloutService
     // assignment-generation rule and its pair has no active rollout under the
     // single-active-rollout rule, starts one all-at-once rollout for every
@@ -326,7 +329,8 @@ service RolloutService {
     // reachable after later reconciliation rollouts for other miners, and
     // retrying any current finished rollout of the pair has the same effect.
     // The new rollout inherits the pair's assignment_generation and assignment
-    // lineage (previous_firmware_checksum and previous_firmware_version), so
+    // lineage (previous_firmware_checksum and previous_firmware_version), and
+    // each retried target retains its original recovery baseline, so
     // rolling it back reverses the original assignment. When nothing is
     // suppressed, no rollout starts and the response carries the referenced
     // rollout unchanged.
@@ -485,7 +489,8 @@ message RolloutBehavior {
     bool review_after_each_batch = 6;
     // Gated methods only (PILOT_THEN_CONTINUE, or BATCHED with review):
     // release a gate automatically once the DONE count and failed-device
-    // checks pass, every set threshold passes under the
+    // checks pass, reviewed miners are currently online and hashing if required
+    // by their original baseline, every set threshold passes under the
     // RolloutAutomationThresholds coverage rule, and stabilization_seconds
     // has elapsed.
     bool auto_continue_on_healthy_telemetry = 7;
@@ -497,13 +502,15 @@ message RolloutBehavior {
     // Channel-wide budget of miners mid-update, shared by every active rollout
     // in the channel whatever its method. Each distinct target holds at most
     // one slot: a reservation, taken just before its update command is
-    // dispatched, or an offline slot, taken whenever it is observed offline in
-    // any phase, whatever caused the outage. A reservation becomes an offline
+    // dispatched, or an offline slot for a current member previously targeted
+    // by the channel. Departed targets count only while their dispatch reservation
+    // remains unresolved. A reservation becomes an offline
     // slot when the target is observed offline and is released without one
-    // only when the command reaches a terminal state with the target never
-    // observed offline; online observations alone never release it, since a
+    // only when the command reaches a terminal state and the target is online;
+    // online observations alone never release it, since a
     // miner stays reachable while it downloads. An offline slot is released
-    // when the target is next observed online. Deleting the target from the
+    // when the target is next observed online. Once released, a later unrelated
+    // outage of a departed target does not consume capacity. Deleting the target from the
     // fleet releases either kind; becoming EXCLUDED, FAILED, or otherwise
     // terminal does not. Dispatch in every rollout of the channel waits while
     // a nonzero budget is full. Cancellation stops dispatch for the canceled
@@ -901,14 +908,15 @@ message RolloutEvidence {
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
     // Whether every reviewed miner is DONE, EXCLUDED, or SKIPPED with none
-    // FAILED, every set threshold passes under the RolloutAutomationThresholds
+    // FAILED, DONE miners meet their live online/hashing recovery requirements,
+    // every set threshold passes using samples taken after verification under the RolloutAutomationThresholds
     // coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
     // miners are neutral: they neither block readiness nor contribute samples.
     // The server derives this value and reports it false for rollouts without
     // auto-continue or outside the AWAITING_REVIEW stage.
     bool ready_to_advance = 11;
-    // Why the rollout is holding at the gate when it cannot auto-continue,
-    // including which metric lacks the required sample coverage.
+    // Why the rollout is holding: gate health/sample coverage, missing firmware,
+    // or unavailable offline capacity. Empty when no blocker is present.
     string hold_reason = 12 [(buf.validate.field).string.max_len = 1024];
     // Seconds of stabilization still required before auto-continue.
     int32 stabilization_remaining_seconds = 13 [(buf.validate.field).int32.gte = 0];

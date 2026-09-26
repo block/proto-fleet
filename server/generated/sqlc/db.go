@@ -156,6 +156,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cascadeRackDeviceSitesBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSitesBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSitesBulk: %w", err)
 	}
+	if q.checkFirmwareArtifactInUseStmt, err = db.PrepareContext(ctx, checkFirmwareArtifactInUse); err != nil {
+		return nil, fmt.Errorf("error preparing query CheckFirmwareArtifactInUse: %w", err)
+	}
 	if q.claimAllPairedPolicyTargetsStmt, err = db.PrepareContext(ctx, claimAllPairedPolicyTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimAllPairedPolicyTargets: %w", err)
 	}
@@ -930,6 +933,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getReleaseChannelStmt, err = db.PrepareContext(ctx, getReleaseChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query GetReleaseChannel: %w", err)
 	}
+	if q.getReleaseChannelDeletionStateStmt, err = db.PrepareContext(ctx, getReleaseChannelDeletionState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelDeletionState: %w", err)
+	}
 	if q.getReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, getReleaseChannelFirmware); err != nil {
 		return nil, fmt.Errorf("error preparing query GetReleaseChannelFirmware: %w", err)
 	}
@@ -1278,6 +1284,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listMaintenanceAssigneesStmt, err = db.PrepareContext(ctx, listMaintenanceAssignees); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMaintenanceAssignees: %w", err)
 	}
+	if q.listManagedFirmwareUpdateDevicesStmt, err = db.PrepareContext(ctx, listManagedFirmwareUpdateDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListManagedFirmwareUpdateDevices: %w", err)
+	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -1568,6 +1577,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pauseFirmwareRolloutStmt, err = db.PrepareContext(ctx, pauseFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseFirmwareRollout: %w", err)
+	}
+	if q.preserveFirmwareRolloutRetryBaselinesStmt, err = db.PrepareContext(ctx, preserveFirmwareRolloutRetryBaselines); err != nil {
+		return nil, fmt.Errorf("error preparing query PreserveFirmwareRolloutRetryBaselines: %w", err)
 	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
@@ -2308,6 +2320,11 @@ func (q *Queries) Close() error {
 	if q.cascadeRackDeviceSitesBulkStmt != nil {
 		if cerr := q.cascadeRackDeviceSitesBulkStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cascadeRackDeviceSitesBulkStmt: %w", cerr)
+		}
+	}
+	if q.checkFirmwareArtifactInUseStmt != nil {
+		if cerr := q.checkFirmwareArtifactInUseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing checkFirmwareArtifactInUseStmt: %w", cerr)
 		}
 	}
 	if q.claimAllPairedPolicyTargetsStmt != nil {
@@ -3600,6 +3617,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getReleaseChannelStmt: %w", cerr)
 		}
 	}
+	if q.getReleaseChannelDeletionStateStmt != nil {
+		if cerr := q.getReleaseChannelDeletionStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelDeletionStateStmt: %w", cerr)
+		}
+	}
 	if q.getReleaseChannelFirmwareStmt != nil {
 		if cerr := q.getReleaseChannelFirmwareStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getReleaseChannelFirmwareStmt: %w", cerr)
@@ -4180,6 +4202,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listMaintenanceAssigneesStmt: %w", cerr)
 		}
 	}
+	if q.listManagedFirmwareUpdateDevicesStmt != nil {
+		if cerr := q.listManagedFirmwareUpdateDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listManagedFirmwareUpdateDevicesStmt: %w", cerr)
+		}
+	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -4663,6 +4690,11 @@ func (q *Queries) Close() error {
 	if q.pauseFirmwareRolloutStmt != nil {
 		if cerr := q.pauseFirmwareRolloutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pauseFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.preserveFirmwareRolloutRetryBaselinesStmt != nil {
+		if cerr := q.preserveFirmwareRolloutRetryBaselinesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing preserveFirmwareRolloutRetryBaselinesStmt: %w", cerr)
 		}
 	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
@@ -5608,6 +5640,7 @@ type Queries struct {
 	cascadeRackDeviceBuildingsBulkStmt                           *sql.Stmt
 	cascadeRackDeviceSitesStmt                                   *sql.Stmt
 	cascadeRackDeviceSitesBulkStmt                               *sql.Stmt
+	checkFirmwareArtifactInUseStmt                               *sql.Stmt
 	claimAllPairedPolicyTargetsStmt                              *sql.Stmt
 	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                                *sql.Stmt
@@ -5866,6 +5899,7 @@ type Queries struct {
 	getRackInfoBatchStmt                                         *sql.Stmt
 	getRackSlotsStmt                                             *sql.Stmt
 	getReleaseChannelStmt                                        *sql.Stmt
+	getReleaseChannelDeletionStateStmt                           *sql.Stmt
 	getReleaseChannelFirmwareStmt                                *sql.Stmt
 	getReleaseChannelForUpdateStmt                               *sql.Stmt
 	getReleaseChannelSettingStmt                                 *sql.Stmt
@@ -5982,6 +6016,7 @@ type Queries struct {
 	listMQTTSourceStatesByOrgStmt                                *sql.Stmt
 	listMQTTSourcesWithActiveCurtailmentStmt                     *sql.Stmt
 	listMaintenanceAssigneesStmt                                 *sql.Stmt
+	listManagedFirmwareUpdateDevicesStmt                         *sql.Stmt
 	listMinerStateSnapshotsStmt                                  *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
 	listNotificationHistoryStmt                                  *sql.Stmt
@@ -6079,6 +6114,7 @@ type Queries struct {
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
 	pauseFirmwareRolloutStmt                                     *sql.Stmt
+	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
@@ -6301,6 +6337,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeRackDeviceBuildingsBulkStmt:                           q.cascadeRackDeviceBuildingsBulkStmt,
 		cascadeRackDeviceSitesStmt:                                   q.cascadeRackDeviceSitesStmt,
 		cascadeRackDeviceSitesBulkStmt:                               q.cascadeRackDeviceSitesBulkStmt,
+		checkFirmwareArtifactInUseStmt:                               q.checkFirmwareArtifactInUseStmt,
 		claimAllPairedPolicyTargetsStmt:                              q.claimAllPairedPolicyTargetsStmt,
 		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
@@ -6559,6 +6596,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoBatchStmt:                                         q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                             q.getRackSlotsStmt,
 		getReleaseChannelStmt:                                        q.getReleaseChannelStmt,
+		getReleaseChannelDeletionStateStmt:                           q.getReleaseChannelDeletionStateStmt,
 		getReleaseChannelFirmwareStmt:                                q.getReleaseChannelFirmwareStmt,
 		getReleaseChannelForUpdateStmt:                               q.getReleaseChannelForUpdateStmt,
 		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
@@ -6675,6 +6713,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMQTTSourceStatesByOrgStmt:                                q.listMQTTSourceStatesByOrgStmt,
 		listMQTTSourcesWithActiveCurtailmentStmt:                     q.listMQTTSourcesWithActiveCurtailmentStmt,
 		listMaintenanceAssigneesStmt:                                 q.listMaintenanceAssigneesStmt,
+		listManagedFirmwareUpdateDevicesStmt:                         q.listManagedFirmwareUpdateDevicesStmt,
 		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
@@ -6772,6 +6811,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
 		pauseFirmwareRolloutStmt:                                     q.pauseFirmwareRolloutStmt,
+		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,

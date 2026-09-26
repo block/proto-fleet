@@ -203,6 +203,37 @@ describe("pending firmware header actions", () => {
 });
 
 describe("firmware assignment confirmation", () => {
+  it.each(["different names", "same name", "missing original"])(
+    "identifies a same-version firmware replacement with %s",
+    (catalog) => {
+      const channel = channelFor();
+      channel.modelGroups[0].firmwareVersion = "1.4.3";
+      channel.modelGroups[0].firmwareChecksum = "aabbccddeeff00112233445566778899";
+      const { update } = renderManage(channel);
+      const originalFile = { ...file("old"), firmware_version: "1.4.3" };
+      const targetFile = {
+        ...file("next"),
+        firmware_version: "1.4.3",
+        filename: catalog === "same name" ? originalFile.filename : "next.swu",
+      };
+      update({ firmwareFiles: catalog === "missing original" ? [targetFile] : [originalFile, targetFile] });
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      const options = screen.getAllByRole("option", { name: /^1\.4\.3/ });
+      fireEvent.click(options[options.length - 1]);
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      const table = within(screen.getByTestId("apply-firmware-dialog")).getByRole("table", {
+        name: "Firmware changes",
+      });
+      const cells = within(within(table).getByRole("row", { name: /proto Rig/i })).getAllByRole("cell");
+      expect(cells.map((cell) => cell.textContent)).toEqual([
+        catalog === "missing original"
+          ? "1.4.3\nChecksum aabbccddeeff"
+          : `1.4.3\nold.swu${catalog === "same name" ? " · old" : ""}`,
+        `1.4.3\n${targetFile.filename}${catalog === "same name" ? " · next" : ""}`,
+      ]);
+    },
+  );
+
   it.each(["present", "missing"])(
     "compares the saved version with the target when its catalog entry is %s",
     (catalog) => {

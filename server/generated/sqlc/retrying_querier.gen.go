@@ -522,6 +522,18 @@ func (q *retryingQuerier) CascadeRackDeviceSitesBulk(ctx context.Context, arg Ca
 	return result, err
 }
 
+func (q *retryingQuerier) CheckFirmwareArtifactInUse(ctx context.Context, arg CheckFirmwareArtifactInUseParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "CheckFirmwareArtifactInUse", func() error {
+		callResult, callErr := q.next.CheckFirmwareArtifactInUse(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClaimAllPairedPolicyTargets(ctx context.Context, arg ClaimAllPairedPolicyTargetsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ClaimAllPairedPolicyTargets", func() error {
@@ -3474,6 +3486,18 @@ func (q *retryingQuerier) GetReleaseChannel(ctx context.Context, arg GetReleaseC
 	return result, err
 }
 
+func (q *retryingQuerier) GetReleaseChannelDeletionState(ctx context.Context, channelID int64) (GetReleaseChannelDeletionStateRow, error) {
+	var result GetReleaseChannelDeletionStateRow
+	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelDeletionState", func() error {
+		callResult, callErr := q.next.GetReleaseChannelDeletionState(ctx, channelID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error) {
 	var result ReleaseChannelFirmware
 	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelFirmware", func() error {
@@ -4806,6 +4830,18 @@ func (q *retryingQuerier) ListMaintenanceAssignees(ctx context.Context, orgID in
 	return result, err
 }
 
+func (q *retryingQuerier) ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error) {
+	var result []ListManagedFirmwareUpdateDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListManagedFirmwareUpdateDevices", func() error {
+		callResult, callErr := q.next.ListManagedFirmwareUpdateDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerStateSnapshotsRow, error) {
 	var result []ListMinerStateSnapshotsRow
 	err := q.retrier.RetryQuery(ctx, "ListMinerStateSnapshots", func() error {
@@ -5878,6 +5914,12 @@ func (q *retryingQuerier) PauseFirmwareRollout(ctx context.Context, arg PauseFir
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) PreserveFirmwareRolloutRetryBaselines(ctx context.Context, rolloutID int64) error {
+	return q.retrier.RetryQuery(ctx, "PreserveFirmwareRolloutRetryBaselines", func() error {
+		return q.next.PreserveFirmwareRolloutRetryBaselines(ctx, rolloutID)
+	})
 }
 
 func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error) {
