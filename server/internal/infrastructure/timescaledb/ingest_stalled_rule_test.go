@@ -100,10 +100,7 @@ func writeHeartbeat(t *testing.T, db *sql.DB, orgID int64, age time.Duration) {
 		VALUES ($1, 'fleet_telemetry_poll_total', $2, 1)`,
 		time.Now().Add(-age), fmt.Sprintf("%d", orgID))
 	require.NoError(t, err)
-	// NULL bounds refresh the whole eligible range; CALL must not run in a tx.
-	_, err = db.ExecContext(ctx,
-		`CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat', NULL, NULL)`)
-	require.NoError(t, err)
+	testutil.RefreshContinuousAggregate(t, db, "fleet_telemetry_poll_heartbeat", nil, nil)
 }
 
 // runRule executes the rule SQL and returns organization_id -> staleness_seconds.

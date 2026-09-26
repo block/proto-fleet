@@ -3,14 +3,12 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -533,21 +531,5 @@ func disableUptimeRollupPolicies(t *testing.T, db *sql.DB) {
 
 func refreshUptimeDeviceRollup(t *testing.T, db *sql.DB, view string, start, end time.Time) {
 	t.Helper()
-	const maxAttempts = 10
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := db.ExecContext(context.Background(),
-			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', $1::timestamptz, $2::timestamptz)", view),
-			start, end,
-		)
-		if err == nil {
-			return
-		}
-		// The test DB connects via the pgx driver (db.ConnectToDatabase), so
-		// lock-contention errors surface as *pgconn.PgError, not *pq.Error.
-		var pgErr *pgconn.PgError
-		if !errors.As(err, &pgErr) || pgErr.Code != "55P03" || attempt == maxAttempts {
-			require.NoError(t, err)
-		}
-		time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
-	}
+	testutil.RefreshContinuousAggregate(t, db, view, &start, &end)
 }
