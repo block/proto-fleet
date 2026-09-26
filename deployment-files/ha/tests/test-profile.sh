@@ -58,6 +58,10 @@ render_fleet_profile() {
         services+=(grafana)
     fi
     compose_files+=(--file "${release_dir}/ha/fleet-compose.yaml")
+    if [[ "$profile" == "external" ]]; then
+        environment+=(HA_ENDPOINT_MODE=external HA_PUBLIC_URL=https://fleet.example.com HA_ENDPOINT_NODE_IP=10.40.0.11 HA_VIRTUAL_IP= HA_NETWORK_INTERFACE=)
+        compose_files+=(--file "${release_dir}/ha/fleet-compose.external.yaml")
+    fi
     if [[ "$profile" != "disabled" ]]; then
         compose_files+=(--file "${release_dir}/ha/fleet-compose.alerts.yaml")
     fi
@@ -151,6 +155,7 @@ test_fleet_ha_contract() {
     cp "${HA_DIR}/../docker-compose.system-monitoring.yaml" "${release_dir}/docker-compose.system-monitoring.yaml"
     cp "${HA_DIR}/../docker-compose.tracing.yaml" "${release_dir}/docker-compose.tracing.yaml"
     cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
+    cp "${HA_DIR}/fleet-compose.external.yaml" "${release_dir}/ha/fleet-compose.external.yaml"
     cp "${HA_DIR}/fleet-compose.alerts.yaml" "${release_dir}/ha/fleet-compose.alerts.yaml"
     cp "${HA_DIR}/fleet-compose.system-monitoring.yaml" "${release_dir}/ha/fleet-compose.system-monitoring.yaml"
     cp "${HA_DIR}/fleet-compose.tracing.yaml" "${release_dir}/ha/fleet-compose.tracing.yaml"
@@ -244,6 +249,17 @@ test_fleet_ha_contract() {
     ' "$rendered" || fail "HA tracing collector must remain behind the systemd start gate"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
+
+    render_fleet_profile "$release_dir" external >"$rendered"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_MODE: external"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_NODE_IP: 10.40.0.11"
+    assert_contains "$rendered" 'FLEET_HA_ENDPOINT_IP: ""'
+    assert_contains "$rendered" 'FLEET_HA_ENDPOINT_INTERFACE: ""'
+    assert_contains "$rendered" "FLEET_PUBLIC_URL: https://fleet.example.com"
+    for artifact in firmware command-artifacts logs; do
+        assert_contains "$rendered" "source: /var/lib/proto-fleet/ha/artifacts/${artifact}"
+        assert_contains "$rendered" "target: /app/${artifact}"
+    done
 
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--connect-to "${virtual_ip}:443:127.0.0.1:443"'

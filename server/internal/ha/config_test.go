@@ -85,6 +85,21 @@ func TestHAConfigValidation(t *testing.T) {
 		EndpointInterface: "eth0",
 	}
 	require.NoError(t, valid.Validate())
+	external := valid
+	external.EndpointMode, external.EndpointNodeIP = "external", "10.0.1.10"
+	external.EndpointIP, external.EndpointInterface = "", ""
+	require.NoError(t, external.Validate())
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.EndpointIP = "10.0.1.100" },
+		func(c *Config) { c.EndpointInterface = "eth0" },
+		func(c *Config) { c.EndpointNodeIP = "127.0.0.1" },
+		func(c *Config) { c.EndpointNodeIP = "" },
+		func(c *Config) { c.EndpointMode = "typo" },
+	} {
+		bad := external
+		mutate(&bad)
+		require.Error(t, bad.Validate())
+	}
 
 	require.Error(t, (Config{Enabled: true}).Validate())
 

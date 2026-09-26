@@ -37,6 +37,9 @@ func RenderKeepalivedConfig(envPath, templatePath, outputPath string) error {
 }
 
 func renderKeepalivedConfig(template string, config NodeConfig) (string, error) {
+	if config.externalEndpoint() {
+		return "", errors.New("external endpoint mode does not use keepalived")
+	}
 	var peerIP string
 	switch config.NodeName {
 	case "ha-a":

@@ -34,6 +34,17 @@ func firewallReplacement(rules string) string {
 }
 
 func renderFirewall(template string, config NodeConfig) (string, error) {
+	if config.externalEndpoint() {
+		// External routing has no VRRP protocol or interface ownership.
+		lines := strings.Split(template, "\n")
+		filtered := lines[:0]
+		for _, line := range lines {
+			if !strings.Contains(line, "ip protocol vrrp") && !strings.Contains(line, "# Trust VRRP") {
+				filtered = append(filtered, line)
+			}
+		}
+		template = strings.Join(filtered, "\n")
+	}
 	rules := strings.NewReplacer(
 		"${HA_DB_A_IP}", config.DatabaseAIP,
 		"${HA_DB_B_IP}", config.DatabaseBIP,
@@ -48,6 +59,7 @@ func renderFirewall(template string, config NodeConfig) (string, error) {
 }
 
 func runWithInput(ctx context.Context, input, name string, args ...string) error {
+	name, args = withoutRedundantSudo(os.Geteuid(), name, args)
 	command := exec.CommandContext(ctx, name, args...)
 	command.Stdin = strings.NewReader(input)
 	output, err := command.CombinedOutput()

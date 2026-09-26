@@ -126,9 +126,19 @@ func TestComposeEnvironmentDerivesDatadogHostnameFromNodeIdentity(t *testing.T) 
 	if !slices.Contains(environment, "DD_HOSTNAME=ha-a") {
 		t.Fatalf("compose environment does not contain the derived Datadog hostname: %q", environment)
 	}
-	if len(environment) != 2 {
+	if len(environment) != 5 {
 		t.Fatalf("compose environment contains ambient values: %q", environment)
 	}
+}
+
+func TestExternalComposeEnvironmentNamespacesDatadogHostname(t *testing.T) {
+	config := externalTestConfig()
+	path := filepath.Join(t.TempDir(), "node.env")
+	require.NoError(t, os.WriteFile(path, []byte(renderNodeEnvironment(config)), 0o600))
+	environment, err := composeEnvironment([]string{"--env-file", path})
+	require.NoError(t, err)
+	require.Contains(t, environment, "DD_HOSTNAME=ha-a.fleet.example.com")
+	require.NotContains(t, environment, "DD_HOSTNAME=ha-a")
 }
 
 func TestFleetApplicationStartReconcilesOrphansAndReportsCollectorHealthFailure(t *testing.T) {

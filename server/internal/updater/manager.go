@@ -1537,8 +1537,10 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 				m.failPendingRecovery(operationID, errors.Join(err, restartErr), recovery)
 				return
 			}
-			takeoverCtx, cancelTakeover := context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
-			err := m.runHACommand(takeoverCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion)
+			// fleet-ha selects the deadline from the protected node configuration:
+			// 35 seconds for a VIP, up to 180 seconds for external target convergence.
+			takeoverCtx, cancelTakeover := context.WithTimeout(activationCtx, ha.UpdateExternalTakeoverTimeout)
+			err := m.runHACommand(takeoverCtx, ha.UpdateExternalTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion)
 			cancelTakeover()
 			if err != nil {
 				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
