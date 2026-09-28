@@ -1101,23 +1101,38 @@ func (t target) settled(r sqlc.FirmwareRollout) bool {
 // record: a miner failed in a completed-with-failures rollout stays failed
 // even after its halt was released for a retry.
 func (t target) phase(r sqlc.FirmwareRollout) string {
+	return persistedDevicePhase(r.Status, persistedPhase{
+		Excluded: t.excluded(), Halted: t.halted(), Verified: t.verified(r),
+		HaltReason: t.HaltReason, Attempts: t.Attempts,
+	})
+}
+
+// persistedPhase contains only saved progress, shared by live rollout views
+// and miner history so neither can reinterpret a finished target's outcome.
+type persistedPhase struct {
+	Excluded, Halted, Verified bool
+	HaltReason                 string
+	Attempts                   int32
+}
+
+func persistedDevicePhase(status string, p persistedPhase) string {
 	switch {
-	case t.excluded():
+	case p.Excluded:
 		return PhaseExcluded
-	case t.skipped():
+	case p.Halted && p.HaltReason == HaltReasonSkipped:
 		return PhaseSkipped
-	case t.verified(r):
+	case p.Verified:
 		return PhaseDone
-	case t.HaltReason == HaltReasonFailed && (t.halted() || r.Status != StatusActive):
+	case p.HaltReason == HaltReasonFailed && (p.Halted || status != StatusActive):
 		return PhaseFailed
-	case t.HaltReason == HaltReasonCanceled && r.Status != StatusActive:
-		if t.Attempts == 0 {
+	case p.HaltReason == HaltReasonCanceled && status != StatusActive:
+		if p.Attempts == 0 {
 			return PhaseQueued
 		}
 		return PhaseInProgress
-	case t.Attempts >= 2:
+	case p.Attempts >= 2:
 		return PhaseRetrying
-	case t.Attempts == 1:
+	case p.Attempts == 1:
 		return PhaseInProgress
 	}
 	return PhaseQueued

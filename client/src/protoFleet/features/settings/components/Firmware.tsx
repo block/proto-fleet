@@ -14,6 +14,7 @@ import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
+import { useLinkedRollout } from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -399,6 +400,8 @@ const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
+  const linkedRolloutId = searchParams.get("rollout");
+  const linkedRollout = useLinkedRollout(linkedRolloutId);
   const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -416,6 +419,29 @@ const Firmware = () => {
   const [manageRequest, setManageRequest] = useState<{ channelId: bigint } | null>(null);
   // Update detail / rollback the history modal asked the monitor to open.
   const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
+
+  const clearLinkedRollout = () => {
+    if (linkedRolloutId === null) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("rollout");
+        return next;
+      },
+      { replace: true },
+    );
+  };
+  const linkedChannelAvailable =
+    linkedRollout.data && channelsApi.channels.some((channel) => channel.id === linkedRollout.data?.channelId);
+  const linkedRequest = useMemo<MonitorRequest | null>(
+    () => (linkedChannelAvailable && linkedRollout.data ? { kind: "view", rollout: linkedRollout.data } : null),
+    [linkedChannelAvailable, linkedRollout.data],
+  );
+  const linkedError =
+    linkedRollout.error ??
+    (linkedRollout.data && channelsApi.hasLoaded && !channelsApi.error && !linkedChannelAvailable
+      ? "This firmware update's channel is no longer available."
+      : null);
 
   const showChannels = () => setSearchParams({ tab: RELEASE_CHANNELS_TAB_PARAM }, { replace: true });
   const manageChannel = (channelId: bigint) => {
@@ -457,13 +483,39 @@ const Firmware = () => {
         }
       }}
       monitor={
-        <ActiveUpdatesMonitor
-          api={channelsApi}
-          refreshWarning={refreshWarning}
-          request={monitorRequest}
-          onRequestHandled={() => setMonitorRequest(null)}
-          onManageChannel={manageChannel}
-        />
+        <>
+          {linkedRolloutId !== null && (linkedRollout.isLoading || (!channelsApi.hasLoaded && linkedRollout.data)) ? (
+            <p role="status" className="text-text-primary-50">
+              Loading firmware update...
+            </p>
+          ) : null}
+          {linkedError ? (
+            <div role="alert">
+              <Callout
+                intent={intents.warning}
+                prefixIcon={<Alert />}
+                title="Couldn't open firmware update"
+                subtitle={linkedError}
+                buttonText="Retry"
+                buttonOnClick={() => {
+                  linkedRollout.refresh();
+                  void channelsApi.refresh().catch(() => undefined);
+                }}
+              />
+              <Button text="Dismiss" variant={variants.textOnly} onClick={clearLinkedRollout} />
+            </div>
+          ) : null}
+          <ActiveUpdatesMonitor
+            api={channelsApi}
+            refreshWarning={refreshWarning}
+            request={linkedRequest ?? monitorRequest}
+            onRequestHandled={() => {
+              setMonitorRequest(null);
+              clearLinkedRollout();
+            }}
+            onManageChannel={manageChannel}
+          />
+        </>
       }
     >
       {activeTab === TAB_RELEASE_CHANNELS ? (
@@ -471,8 +523,14 @@ const Firmware = () => {
           api={channelsApi}
           actionContainer={actionContainer}
           manageRequest={manageRequest}
-          onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rollout })}
-          onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rollout })}
+          onViewRollout={(rollout) => {
+            clearLinkedRollout();
+            setMonitorRequest({ kind: "view", rollout });
+          }}
+          onRollbackRollout={(rollout) => {
+            clearLinkedRollout();
+            setMonitorRequest({ kind: "rollback", rollout });
+          }}
         />
       ) : (
         <FirmwareFilesSection
