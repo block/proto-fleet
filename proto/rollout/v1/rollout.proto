@@ -258,6 +258,13 @@ service RolloutService {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
+    // Lists saved firmware-update participation for the currently paired miner,
+    // newest rollout first, across all retained release channels. Deleting a
+    // channel removes its history. Re-pairing an identifier starts new history.
+    rpc ListMinerFirmwareHistory(ListMinerFirmwareHistoryRequest) returns (ListMinerFirmwareHistoryResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
     // Lists rollout lifecycle events oldest first, optionally for one rollout
     // or one channel, with bounded cursor pagination. Events are durable and
     // append-only, so a client that stores the last cursor sees every later
@@ -1243,7 +1250,50 @@ message RolloutDevice {
     string skip_note = 22 [(buf.validate.field).string.max_len = 1024];
 }
 
+// Saved participation of one miner in a rollout, without live telemetry.
+// Attempts describe the current saved rollout target, not an immutable
+// attempt ledger. The server derives phase using the same rules as RolloutDevice.
+message MinerFirmwareHistoryEntry {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    int64 channel_id = 2 [(buf.validate.field).int64.gt = 0];
+    string channel_name = 3 [(buf.validate.field).string.max_len = 255];
+    string manufacturer = 4 [(buf.validate.field).string.max_len = 255];
+    string model = 5 [(buf.validate.field).string.max_len = 255];
+    // Target version and artifact captured when the rollout started.
+    string firmware_version = 6 [(buf.validate.field).string.max_len = 255];
+    string firmware_checksum = 7 [(buf.validate.field).string = {max_len: 64, pattern: "^[0-9a-f]{64}$"}];
+    // Overall rollout outcome, distinct from this miner's phase.
+    RolloutStatus rollout_status = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    RolloutCancelReason cancel_reason = 9 [(buf.validate.field).enum.defined_only = true];
+    bool paused = 10;
+    RolloutDevicePhase phase = 11 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    int32 attempts = 12 [(buf.validate.field).int32.gte = 0];
+    string last_error = 13 [(buf.validate.field).string.max_len = 2048];
+    string skip_note = 14 [(buf.validate.field).string.max_len = 1024];
+    // Rollout start and finish, not individual dispatch timestamps.
+    google.protobuf.Timestamp created_at = 15 [(buf.validate.field).required = true];
+    google.protobuf.Timestamp finished_at = 16;
+    // Last dispatch attempt, including preflight skips.
+    google.protobuf.Timestamp last_sent_at = 17;
+    // When this miner first verified the target artifact and health criteria.
+    google.protobuf.Timestamp verified_at = 18;
+}
+
 // --- Requests / responses ---
+
+message ListMinerFirmwareHistoryRequest {
+    string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, not_contains: "\x00"}];
+    // Maximum entries to return. 0 uses the server default of 100.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Opaque continuation bound to the organization and current paired device.
+    string cursor = 3 [(buf.validate.field).string.max_len = 256];
+}
+
+message ListMinerFirmwareHistoryResponse {
+    repeated MinerFirmwareHistoryEntry entries = 1 [(buf.validate.field).repeated.max_items = 1000];
+    // Empty when there are no more entries.
+    string cursor = 2 [(buf.validate.field).string.max_len = 256];
+}
 
 message ListReleaseChannelsRequest {
     // Maximum channels to return. 0 uses the server default of 100.

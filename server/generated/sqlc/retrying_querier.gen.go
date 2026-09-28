@@ -3090,6 +3090,18 @@ func (q *retryingQuerier) GetMinerCredentialsByDeviceID(ctx context.Context, dev
 	return result, err
 }
 
+func (q *retryingQuerier) GetMinerFirmwareHistoryDeviceID(ctx context.Context, arg GetMinerFirmwareHistoryDeviceIDParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetMinerFirmwareHistoryDeviceID", func() error {
+		callResult, callErr := q.next.GetMinerFirmwareHistoryDeviceID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error) {
 	var result []GetMinerModelGroupsRow
 	err := q.retrier.RetryQuery(ctx, "GetMinerModelGroups", func() error {
@@ -4870,6 +4882,18 @@ func (q *retryingQuerier) ListManagedFirmwareUpdateDevices(ctx context.Context, 
 	var result []ListManagedFirmwareUpdateDevicesRow
 	err := q.retrier.RetryQuery(ctx, "ListManagedFirmwareUpdateDevices", func() error {
 		callResult, callErr := q.next.ListManagedFirmwareUpdateDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFirmwareHistoryParams) ([]ListMinerFirmwareHistoryRow, error) {
+	var result []ListMinerFirmwareHistoryRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerFirmwareHistory", func() error {
+		callResult, callErr := q.next.ListMinerFirmwareHistory(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
