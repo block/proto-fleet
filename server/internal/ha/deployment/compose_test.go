@@ -105,11 +105,12 @@ func TestComposeEnvironmentDropsParentOverrides(t *testing.T) {
 		t.Setenv(key, "parent-value")
 	}
 
-	environment, err := composeEnvironment([]string{"config"})
+	environment, external, err := composeEnvironment([]string{"config"})
 
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.False(t, external)
 	if len(environment) != 1 || !strings.HasPrefix(environment[0], "PATH=") {
 		t.Fatalf("compose environment = %q, want only PATH", environment)
 	}
@@ -118,11 +119,14 @@ func TestComposeEnvironmentDropsParentOverrides(t *testing.T) {
 func TestComposeEnvironmentDerivesDatadogHostnameFromNodeIdentity(t *testing.T) {
 	nodeEnvironment := testNodeEnv(t, t.TempDir(), t.TempDir(), t.TempDir())
 
-	environment, err := composeEnvironment([]string{"--env-file", nodeEnvironment})
+	environment, external, err := composeEnvironment([]string{"--env-file", nodeEnvironment})
 
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.False(t, external)
+	require.Contains(t, environment, "HA_ENDPOINT_MODE=vip")
+	require.Contains(t, environment, "HA_ENDPOINT_NODE_IP=")
 	if !slices.Contains(environment, "DD_HOSTNAME=ha-a") {
 		t.Fatalf("compose environment does not contain the derived Datadog hostname: %q", environment)
 	}
@@ -135,8 +139,11 @@ func TestExternalComposeEnvironmentNamespacesDatadogHostname(t *testing.T) {
 	config := externalTestConfig()
 	path := filepath.Join(t.TempDir(), "node.env")
 	require.NoError(t, os.WriteFile(path, []byte(renderNodeEnvironment(config)), 0o600))
-	environment, err := composeEnvironment([]string{"--env-file", path})
+	environment, external, err := composeEnvironment([]string{"--env-file", path})
 	require.NoError(t, err)
+	require.True(t, external)
+	require.Contains(t, environment, "HA_ENDPOINT_MODE=external")
+	require.Contains(t, environment, "HA_ENDPOINT_NODE_IP="+config.NodeIP)
 	require.Contains(t, environment, "DD_HOSTNAME=ha-a.fleet.example.com")
 	require.NotContains(t, environment, "DD_HOSTNAME=ha-a")
 }

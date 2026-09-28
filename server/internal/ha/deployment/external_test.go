@@ -32,8 +32,9 @@ HA_SECRETS_DIR=/etc/proto-fleet/ha
 	require.Equal(t, "https://fleet.example.com", config.publicURL())
 	require.Equal(t, config.NodeIP, config.hostCertificateIdentity(config.NodeIP))
 	require.Nil(t, config.publicTLS(nil).RootCAs, "public certificates must use system roots, not the private cluster CA")
-	environment, err := composeEnvironment([]string{"--env-file", path})
+	environment, external, err := composeEnvironment([]string{"--env-file", path})
 	require.NoError(t, err)
+	require.True(t, external)
 	require.Contains(t, environment, "HA_ENDPOINT_NODE_IP=10.0.1.10")
 	require.Contains(t, environment, "HA_ENDPOINT_MODE=external")
 	rendered := renderNodeEnvironment(config)
@@ -186,9 +187,23 @@ func TestExternalInstallPreservesProvisionedDockerStorageConfiguration(t *testin
 }
 
 func TestExternalComposeRetainsArtifactsAcrossUpdates(t *testing.T) {
-	args := []string{"--file", "/release/docker-compose.yaml", "--file", "/release/ha/fleet-compose.yaml", "up", "fleet-api"}
-	require.Equal(t, args, endpointComposeArgs(args, false))
-	require.Equal(t, []string{"--file", "/release/docker-compose.yaml", "--file", "/release/ha/fleet-compose.yaml", "--file", "/release/ha/fleet-compose.external.yaml", "up", "fleet-api"}, endpointComposeArgs(args, true))
+	for _, fileArgs := range [][]string{
+		{"--file", "/release/ha/fleet-compose.yaml"},
+		{"-f", "/release/ha/fleet-compose.yaml"},
+		{"--file=/release/ha/fleet-compose.yaml"},
+		{"-f=/release/ha/fleet-compose.yaml"},
+		{"-f/release/ha/fleet-compose.yaml"},
+	} {
+		t.Run(strings.Join(fileArgs, " "), func(t *testing.T) {
+			prefix := append([]string{"--file", "/release/docker-compose.yaml"}, fileArgs...)
+			suffix := []string{"--file", "/release/ha/fleet-compose.alerts.yaml", "up", "fleet-api"}
+			args := append(append([]string{}, prefix...), suffix...)
+			want := append(append([]string{}, prefix...), "--file", "/release/ha/fleet-compose.external.yaml")
+			want = append(want, suffix...)
+			require.Equal(t, args, endpointComposeArgs(args, false))
+			require.Equal(t, want, endpointComposeArgs(args, true))
+		})
+	}
 	infrastructure := []string{"--file", "/etc/proto-fleet/ha/compose.yaml", "up", "etcd"}
 	require.Equal(t, infrastructure, endpointComposeArgs(infrastructure, true))
 }

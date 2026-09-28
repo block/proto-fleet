@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -150,11 +151,11 @@ func RunCompose(ctx context.Context, args []string) error {
 }
 
 func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
-	environment, err := composeEnvironment(args)
+	environment, external, err := composeEnvironment(args)
 	if err != nil {
 		return err
 	}
-	args = endpointComposeArgs(args, slices.Contains(environment, "HA_ENDPOINT_MODE=external"))
+	args = endpointComposeArgs(args, external)
 
 	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
 	command := exec.CommandContext(ctx, "docker", commandArgs...)
@@ -175,14 +176,23 @@ func endpointComposeArgs(args []string, external bool) []string {
 	result := make([]string, 0, len(args)+2)
 	for i, arg := range args {
 		result = append(result, arg)
-		if i > 0 && args[i-1] == "--file" && filepath.Base(arg) == "fleet-compose.yaml" {
-			result = append(result, "--file", filepath.Join(filepath.Dir(arg), "fleet-compose.external.yaml"))
+		var file string
+		switch {
+		case i > 0 && (args[i-1] == "--file" || args[i-1] == "-f"):
+			file = arg
+		case strings.HasPrefix(arg, "--file="):
+			file = strings.TrimPrefix(arg, "--file=")
+		case strings.HasPrefix(arg, "-f"):
+			file = strings.TrimPrefix(strings.TrimPrefix(arg, "-f"), "=")
+		}
+		if filepath.Base(file) == "fleet-compose.yaml" {
+			result = append(result, "--file", filepath.Join(filepath.Dir(file), "fleet-compose.external.yaml"))
 		}
 	}
 	return result
 }
 
-func composeEnvironment(args []string) ([]string, error) {
+func composeEnvironment(args []string) ([]string, bool, error) {
 	// Docker needs PATH to find its Compose plugin. All Compose interpolation
 	// inputs come from the explicit, protected env files below.
 	environment := []string{"PATH=" + os.Getenv("PATH")}
@@ -192,29 +202,26 @@ func composeEnvironment(args []string) ([]string, error) {
 		}
 		config, err := loadNodeConfig(args[index+1])
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := validateNodeConfig(config); err != nil {
-			return nil, fmt.Errorf("HA node environment rejected: %w", err)
+			return nil, false, fmt.Errorf("HA node environment rejected: %w", err)
 		}
 		// The shared tracing overlay requires DD_HOSTNAME during interpolation.
 		// External deployments share a monitoring account, so qualify the host
 		// identity with the validated public hostname. Keep VIP names unchanged.
 		hostname := config.NodeName
-		if config.externalEndpoint() {
+		nodeIP := ""
+		mode := "vip"
+		external := config.externalEndpoint()
+		if external {
 			publicURL, _ := url.Parse(config.PublicURL) // validated above
 			hostname += "." + publicURL.Hostname()
-		}
-		environment = append(environment, "DD_HOSTNAME="+hostname, "HA_PUBLIC_URL="+config.publicURL())
-		nodeIP := ""
-		if config.externalEndpoint() {
 			nodeIP = config.NodeIP
-		}
-		mode := "vip"
-		if config.externalEndpoint() {
 			mode = endpointModeExternal
 		}
-		return append(environment, "HA_ENDPOINT_NODE_IP="+nodeIP, "HA_ENDPOINT_MODE="+mode), nil
+		environment = append(environment, "DD_HOSTNAME="+hostname, "HA_PUBLIC_URL="+config.publicURL())
+		return append(environment, "HA_ENDPOINT_NODE_IP="+nodeIP, "HA_ENDPOINT_MODE="+mode), external, nil
 	}
-	return environment, nil
+	return environment, false, nil
 }
