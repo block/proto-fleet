@@ -21,6 +21,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
+const endpointModeExternal = "external"
+
 // Config keeps HA opt-in so existing single-instance deployments remain
 // standalone and do not need etcd or Patroni credentials.
 type Config struct {
@@ -34,6 +36,8 @@ type Config struct {
 	RenewInterval     time.Duration `help:"Fleet active lease renewal interval." default:"3s" env:"RENEW_INTERVAL"`
 	RetryInterval     time.Duration `help:"Passive ownership retry interval." default:"1s" env:"RETRY_INTERVAL"`
 	DialTimeout       time.Duration `help:"etcd connection timeout." default:"5s" env:"DIAL_TIMEOUT"`
+	EndpointMode      string        `help:"Endpoint routing mode: vip or external." default:"vip" env:"ENDPOINT_MODE"`
+	EndpointNodeIP    string        `help:"Local nginx certificate IPv4 identity for external routing." env:"ENDPOINT_NODE_IP"`
 	EndpointIP        string        `help:"Stable endpoint IPv4 address owned by keepalived." env:"ENDPOINT_IP"`
 	EndpointInterface string        `help:"Network interface that owns the stable endpoint IPv4 address." env:"ENDPOINT_INTERFACE"`
 }
@@ -122,13 +126,9 @@ func NewConfiguredRuntime(
 		_ = cleanup()
 		return nil, nil, err
 	}
-	endpointIP := netip.MustParseAddr(config.EndpointIP)
-	endpointHealthy := newEndpointHealth(endpointIP, config.EndpointInterface, EndpointHeartbeatFile, endpointHeartbeatTimeout)
-	runtime := newRuntime(coordinator, group, healthy, RuntimeConfig{
-		EndpointHealthy: endpointHealthy,
-		EndpointOwned:   newEndpointOwned(endpointIP, config.EndpointInterface),
-	})
-	return runtime, cleanup, nil
+	endpoint, closeEndpoint := configuredEndpoint(config, tlsConfig)
+	runtime := newRuntime(coordinator, group, healthy, endpoint)
+	return runtime, func() error { closeEndpoint(); return cleanup() }, nil
 }
 
 func (config Config) Validate() error {
@@ -148,12 +148,28 @@ func (config Config) Validate() error {
 	if config.RenewInterval >= config.LeaseDuration {
 		return errors.New("HA renew interval must be less than the lease duration")
 	}
-	endpointIP, err := netip.ParseAddr(config.EndpointIP)
-	if err != nil || !endpointIP.Is4() || !endpointIP.IsGlobalUnicast() || endpointIP.As4()[0] == 0 {
-		return errors.New("HA endpoint IP must be a routable literal IPv4 address")
-	}
-	if config.EndpointInterface == "" {
-		return errors.New("HA endpoint interface is required")
+	switch config.EndpointMode {
+	case "", "vip":
+		endpointIP, err := netip.ParseAddr(config.EndpointIP)
+		if err != nil || !endpointIP.Is4() || !endpointIP.IsGlobalUnicast() || endpointIP.As4()[0] == 0 {
+			return errors.New("HA endpoint IP must be a routable literal IPv4 address")
+		}
+		if config.EndpointInterface == "" {
+			return errors.New("HA endpoint interface is required")
+		}
+		if config.EndpointNodeIP != "" {
+			return errors.New("HA endpoint node IP is only valid in external mode")
+		}
+	case endpointModeExternal:
+		if config.EndpointIP != "" || config.EndpointInterface != "" {
+			return errors.New("external HA endpoint mode must not configure a VIP or interface")
+		}
+		ip, err := netip.ParseAddr(config.EndpointNodeIP)
+		if err != nil || !ip.Is4() || !ip.IsGlobalUnicast() || ip.As4()[0] == 0 {
+			return errors.New("external HA endpoint requires a routable literal node IPv4 address")
+		}
+	default:
+		return errors.New("HA endpoint mode must be vip or external")
 	}
 	for _, endpoint := range config.EtcdEndpoints {
 		parsed, err := url.Parse(endpoint)

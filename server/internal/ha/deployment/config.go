@@ -2,7 +2,10 @@ package deployment
 
 import (
 	"bufio"
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -11,8 +14,12 @@ import (
 
 var envLine = regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+=?,&-]+)$`)
 
+const endpointModeExternal = "external"
+
 var allowedEnvKeys = map[string]func(*NodeConfig, string){
 	"HA_NODE_NAME":         func(c *NodeConfig, v string) { c.NodeName = v },
+	"HA_ENDPOINT_MODE":     func(c *NodeConfig, v string) { c.EndpointMode = v },
+	"HA_PUBLIC_URL":        func(c *NodeConfig, v string) { c.PublicURL = v },
 	"HA_NODE_IP":           func(c *NodeConfig, v string) { c.NodeIP = v },
 	"HA_DB_A_IP":           func(c *NodeConfig, v string) { c.DatabaseAIP = v },
 	"HA_DB_B_IP":           func(c *NodeConfig, v string) { c.DatabaseBIP = v },
@@ -25,6 +32,8 @@ var allowedEnvKeys = map[string]func(*NodeConfig, string){
 
 // NodeConfig is the fixed three-host HA identity read from node.env.
 type NodeConfig struct {
+	EndpointMode     string
+	PublicURL        string
 	NodeName         string
 	NodeIP           string
 	DatabaseAIP      string
@@ -34,6 +43,38 @@ type NodeConfig struct {
 	NetworkInterface string
 	DataDir          string
 	SecretsDir       string
+}
+
+func (c NodeConfig) externalEndpoint() bool { return c.EndpointMode == endpointModeExternal }
+func (c NodeConfig) usesVIP() bool          { return !c.externalEndpoint() && c.isDatabaseNode() }
+func (c NodeConfig) publicURL() string {
+	if c.externalEndpoint() {
+		return c.PublicURL
+	}
+	return "https://" + c.VirtualIP
+}
+func (c NodeConfig) hostCertificateIdentity(address string) string {
+	if c.externalEndpoint() {
+		return address
+	}
+	return c.VirtualIP
+}
+func (c NodeConfig) publicTLS(serviceTLS *tls.Config) *tls.Config {
+	if c.externalEndpoint() {
+		return &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	return serviceTLS
+}
+
+func validatePublicURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" || u.Opaque != "" {
+		return errors.New("HA_PUBLIC_URL must be an HTTPS origin without credentials, path, query, or fragment")
+	}
+	if u.Port() != "" && u.Port() != "443" {
+		return errors.New("HA_PUBLIC_URL must use port 443")
+	}
+	return nil
 }
 
 func (c NodeConfig) isDatabaseNode() bool {

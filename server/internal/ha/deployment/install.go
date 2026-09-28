@@ -127,10 +127,6 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err != nil {
 		return err
 	}
-	platform, installed, err := inspectInstallBase(ctx, source, deps)
-	if err != nil {
-		return err
-	}
 	metadata, err := deps.readFile(filepath.Join(source, "version.txt"))
 	if err != nil {
 		return err
@@ -146,16 +142,20 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err != nil {
 		return err
 	}
+	platform, installed, err := inspectInstallBase(ctx, source, deps, config.externalEndpoint())
+	if err != nil {
+		return err
+	}
 	if options.EtcdRootPasswordFile != "" {
 		if _, err := readPassword(options.EtcdRootPasswordFile); err != nil {
 			return fmt.Errorf("validate etcd root password file: %w", err)
 		}
 	}
 	fmt.Println("[package setup] Installing missing host dependencies...")
-	if err := installValidationPrerequisites(ctx, config.isDatabaseNode(), deps); err != nil {
+	if err := installValidationPrerequisites(ctx, config.usesVIP(), deps); err != nil {
 		return err
 	}
-	if config.isDatabaseNode() {
+	if config.usesVIP() {
 		if err := deps.verifyVIP(ctx, config); err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	}
 	source = installRoot
 
-	if err := installPackages(ctx, platform, installed, deps); err != nil {
+	if err := installPackages(ctx, platform, installed, deps, !config.externalEndpoint()); err != nil {
 		return err
 	}
 	fmt.Println("[configuration] Installing the release, secrets, firewall, and service units...")
@@ -178,7 +178,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := installFirewall(ctx, source, config, deps); err != nil {
 		return err
 	}
-	if config.isDatabaseNode() {
+	if config.usesVIP() {
 		if err := installKeepalived(ctx, source, config, deps); err != nil {
 			return err
 		}
@@ -209,7 +209,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	return startErr
 }
 
-func inspectInstallBase(ctx context.Context, source string, deps installDependencies) (installPlatform, installedDependencies, error) {
+func inspectInstallBase(ctx context.Context, source string, deps installDependencies, external bool) (installPlatform, installedDependencies, error) {
 	platform, err := validateInstallPlatform(deps)
 	if err != nil {
 		return installPlatform{}, installedDependencies{}, err
@@ -225,7 +225,7 @@ func inspectInstallBase(ctx context.Context, source string, deps installDependen
 	if err := validateRelease(source, deps.readFile); err != nil {
 		return installPlatform{}, installedDependencies{}, err
 	}
-	installed, err := inspectDedicatedHost(ctx, deps)
+	installed, err := inspectDedicatedHost(ctx, deps, external)
 	return platform, installed, err
 }
 
@@ -246,7 +246,7 @@ func copiedSecretFiles(config NodeConfig) []string {
 
 // inspectDedicatedHost is read-only so the guided installer can show whether
 // dependencies will be reused before asking for destructive confirmation.
-func inspectDedicatedHost(ctx context.Context, deps installDependencies) (installedDependencies, error) {
+func inspectDedicatedHost(ctx context.Context, deps installDependencies, external bool) (installedDependencies, error) {
 	var installed installedDependencies
 	for _, path := range []string{
 		installBase, configRoot, dataRoot, "/var/lib/proto-fleet-updater", "/run/proto-fleet-updater",
@@ -271,8 +271,12 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 			return installedDependencies{}, fmt.Errorf("inspect dedicated-host path %s: %w", path, err)
 		}
 	}
-	if err := rejectExistingPath(deps, "/etc/docker/daemon.json", "custom Docker daemon configuration"); err != nil {
-		return installedDependencies{}, err
+	// An external provisioner owns Docker storage and mount dependencies. Keep
+	// its configuration intact, while still rejecting Fleet state/containers.
+	if !external {
+		if err := rejectExistingPath(deps, "/etc/docker/daemon.json", "custom Docker daemon configuration"); err != nil {
+			return installedDependencies{}, err
+		}
 	}
 	if err := rejectExistingPath(deps, "/etc/systemd/system/docker.service", "foreign Docker systemd unit"); err != nil {
 		return installedDependencies{}, err
@@ -283,7 +287,11 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 	if err := rejectExistingPath(deps, "/etc/systemd/system/keepalived.service", "foreign keepalived systemd unit"); err != nil {
 		return installedDependencies{}, err
 	}
-	for _, path := range []string{"/etc/docker", "/etc/systemd/system/docker.service.d", "/etc/systemd/system/keepalived.service.d"} {
+	overridePaths := []string{"/etc/systemd/system/keepalived.service.d"}
+	if !external {
+		overridePaths = append(overridePaths, "/etc/docker", "/etc/systemd/system/docker.service.d")
+	}
+	for _, path := range overridePaths {
 		if err := deps.requireEmpty(path, "foreign service override"); err != nil {
 			return installedDependencies{}, fmt.Errorf("HA install failed: %w", err)
 		}
@@ -438,7 +446,7 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
 		"ha/updater-systemd.conf", "ha/ha-updater-systemd.conf",
-		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.alerts.yaml", "ha/fleet-compose.system-monitoring.yaml", "ha/fleet-compose.tracing.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/firewall-replace.nft",
+		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.alerts.yaml", "ha/fleet-compose.system-monitoring.yaml", "ha/fleet-compose.tracing.yaml", "ha/fleet-compose.yaml", "ha/fleet-compose.external.yaml", "ha/firewall.nft.tmpl", "ha/firewall-replace.nft",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
 		"ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 	}
@@ -495,7 +503,7 @@ func installValidationPrerequisites(ctx context.Context, needsARPing bool, deps 
 	return sudoStep(ctx, deps, "install HA validation prerequisites", append([]string{"apt-get", "install", "-y"}, packages...)...)
 }
 
-func installPackages(ctx context.Context, platform installPlatform, installed installedDependencies, deps installDependencies) error {
+func installPackages(ctx context.Context, platform installPlatform, installed installedDependencies, deps installDependencies, vip bool) error {
 	if err := sudoStep(ctx, deps, "install HA prerequisites", "apt-get", "install", "-y", "ca-certificates", "curl", "iproute2"); err != nil {
 		return err
 	}
@@ -527,7 +535,7 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 		services = append(services, "docker.service", "docker.socket")
 		packages = append(packages, "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin")
 	}
-	if !installed.keepalived {
+	if vip && !installed.keepalived {
 		services = append(services, "keepalived.service")
 		packages = append(packages, "keepalived")
 	}
@@ -546,7 +554,10 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 			return err
 		}
 	}
-	return sudoStep(ctx, deps, "disable keepalived until the database role is ready", "systemctl", "disable", "--now", "keepalived.service")
+	if vip {
+		return sudoStep(ctx, deps, "disable keepalived until the database role is ready", "systemctl", "disable", "--now", "keepalived.service")
+	}
+	return nil
 }
 
 func rejectIncompatibleNftablesInputChains(ctx context.Context, deps installDependencies) error {
@@ -701,6 +712,13 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		return err
 	}
 	if config.isDatabaseNode() {
+		if config.externalEndpoint() {
+			for _, name := range []string{"firmware", "command-artifacts", "logs"} {
+				if err := sudoStep(ctx, deps, "create retained artifact directory", "install", "-d", "-o", "root", "-g", "root", "-m", "0700", filepath.Join(config.DataDir, "artifacts", name)); err != nil {
+					return err
+				}
+			}
+		}
 		if err := sudoStep(ctx, deps, "install HA system monitoring mount point",
 			"install", "-d", "-o", "root", "-g", "root", "-m", "0755", haSystemMonitoringDir); err != nil {
 			return err
@@ -754,6 +772,10 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 }
 
 func renderNodeEnvironment(config NodeConfig) string {
+	if config.externalEndpoint() {
+		return fmt.Sprintf("HA_NODE_NAME=%s\nHA_NODE_IP=%s\nHA_DB_A_IP=%s\nHA_DB_B_IP=%s\nHA_DCS_C_IP=%s\nHA_ENDPOINT_MODE=external\nHA_PUBLIC_URL=%s\nHA_DATA_DIR=%s\nHA_SECRETS_DIR=%s\n",
+			config.NodeName, config.NodeIP, config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP, config.PublicURL, config.DataDir, config.SecretsDir)
+	}
 	return fmt.Sprintf("HA_NODE_NAME=%s\nHA_NODE_IP=%s\nHA_DB_A_IP=%s\nHA_DB_B_IP=%s\nHA_DCS_C_IP=%s\nHA_VIRTUAL_IP=%s\nHA_NETWORK_INTERFACE=%s\nHA_DATA_DIR=%s\nHA_SECRETS_DIR=%s\n",
 		config.NodeName, config.NodeIP, config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP,
 		config.VirtualIP, config.NetworkInterface, config.DataDir, config.SecretsDir)
@@ -930,7 +952,9 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		return stopIncompleteHA(ctx, deps, err, cleanupUpdater)
 	}
 	fmt.Println("[peer waiting] HA service is enabled and will keep converging while peers join")
-	if config.isDatabaseNode() {
+	// External ingress may deliberately remain closed until the first admin is
+	// initialized. Installation starts the services; status verifies ingress later.
+	if config.isDatabaseNode() || config.externalEndpoint() {
 		return nil
 	}
 	for {
@@ -939,8 +963,10 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
 		}
 		if state == "active" && deps.vipReady(ctx, config) {
-			fmt.Println("[final readiness] Fleet is reachable through the virtual IP")
-			printPublicCAInstructions(os.Stdout, config.VirtualIP)
+			fmt.Println("[final readiness] Fleet is reachable through the public endpoint")
+			if !config.externalEndpoint() {
+				printPublicCAInstructions(os.Stdout, config.VirtualIP)
+			}
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -971,9 +997,9 @@ func probeInstalledActiveVIP(ctx context.Context, config NodeConfig) bool {
 	if err != nil {
 		return false
 	}
-	client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+	client, cleanup := newProbeHTTPClient(config.publicTLS(tlsConfig), nil)
 	defer cleanup()
-	return endpointReadyWithClient(ctx, client, "https://"+config.VirtualIP+"/api-proxy/health/active")
+	return endpointReadyWithClient(ctx, client, config.publicURL()+"/api-proxy/health/active")
 }
 
 func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error, cleanupUpdater bool) error {

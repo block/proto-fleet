@@ -634,7 +634,7 @@ func TestInstallPackagesUsesUbuntuRepository(t *testing.T) {
 	}
 
 	// Act
-	err := installPackages(t.Context(), installPlatform{repository: "ubuntu", suite: "noble"}, installedDependencies{}, deps)
+	err := installPackages(t.Context(), installPlatform{repository: "ubuntu", suite: "noble"}, installedDependencies{}, deps, true)
 
 	// Assert
 	require.NoError(t, err)
@@ -845,7 +845,7 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 			tt.configure(&deps)
 
 			// Act
-			_, err := inspectDedicatedHost(t.Context(), deps)
+			_, err := inspectDedicatedHost(t.Context(), deps, false)
 
 			// Assert
 			require.ErrorContains(t, err, tt.wantError)
@@ -1039,6 +1039,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/fleet-ha":                                            "binary",
 		"ha/compose.yaml":                                        "services:\n  patroni:\n    image: proto-fleet-timescaledb-ha:test\n",
 		"ha/fleet-compose.yaml":                                  "services: {}\n",
+		"ha/fleet-compose.external.yaml":                         "services: {}\n",
 		"ha/fleet-compose.alerts.yaml":                           "services: {}\n",
 		"ha/fleet-compose.system-monitoring.yaml":                "services: {}\n",
 		"ha/fleet-compose.tracing.yaml":                          "services: {}\n",

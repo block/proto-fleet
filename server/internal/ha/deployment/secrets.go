@@ -44,6 +44,10 @@ type certificateAuthority struct {
 
 // GenerateSecrets creates the complete offline and per-host credential layout.
 func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err error) {
+	return generateSecrets(outputDir, hostIPs, virtualIP, false)
+}
+
+func generateSecrets(outputDir string, hostIPs [3]string, virtualIP string, external bool) (err error) {
 	seen := make(map[netip.Addr]struct{}, len(hostIPs))
 	addresses := make([]netip.Addr, len(hostIPs))
 	for i, rawIP := range hostIPs {
@@ -57,12 +61,16 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		seen[ip] = struct{}{}
 		addresses[i] = ip
 	}
-	vip, ok := parseRoutableIPv4(virtualIP)
-	if !ok {
-		return fmt.Errorf("invalid virtual IPv4 address: %s", virtualIP)
-	}
-	if _, duplicate := seen[vip]; duplicate {
-		return fmt.Errorf("virtual IPv4 address must differ from every host address")
+	var vip netip.Addr
+	if !external {
+		var ok bool
+		vip, ok = parseRoutableIPv4(virtualIP)
+		if !ok {
+			return fmt.Errorf("invalid virtual IPv4 address: %s", virtualIP)
+		}
+		if _, duplicate := seen[vip]; duplicate {
+			return fmt.Errorf("virtual IPv4 address must differ from every host address")
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputDir), 0o700); err != nil {
@@ -211,8 +219,13 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		if err := issueCertificate(nodeDir, "postgres", "postgres-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
-		// Each host gets its own keypair, but both certificates identify the VIP.
-		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, vip, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		// External endpoints terminate public TLS upstream. Direct probes verify
+		// this node's identity; VIP installations retain the shared identity.
+		identity := vip
+		if external {
+			identity = host.address
+		}
+		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, identity, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
 		if err := writeFile(filepath.Join(nodeDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {

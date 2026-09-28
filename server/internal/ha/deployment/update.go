@@ -47,7 +47,7 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 	if config.NodeIP == config.DatabaseAIP {
 		peerAddress = config.DatabaseBIP
 	}
-	peer := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
+	peer := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
 	if !peer.reachable || !peer.active || (peer.version != report.Runtime.Version && peer.version != targetVersion) {
 		return fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
 	}
@@ -86,7 +86,7 @@ func requireUpdatedPeer(ctx context.Context, envPath, targetVersion string) erro
 	if err != nil {
 		return err
 	}
-	status := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
+	status := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
 	if !updatedPassivePeerReady(status, targetVersion) {
 		return fmt.Errorf("HA completion update requires the passive peer to run %s", targetVersion)
 	}
@@ -199,7 +199,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 	if statusErr == nil {
 		ready, readinessErr := updatedApplicationReady(
 			localReport,
-			probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP),
+			probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(config.NodeIP), config.NodeIP),
 			targetVersion,
 			requirePassive,
 			requireFailoverReady,
@@ -220,7 +220,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 	for {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
-			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
+			publicStatus := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(config.NodeIP), config.NodeIP)
 			ready, readinessErr := updatedApplicationReady(report, publicStatus, targetVersion, requirePassive, requireFailoverReady)
 			if readinessErr != nil {
 				return readinessErr
@@ -305,16 +305,17 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 	if err != nil {
 		return err
 	}
-	transport := &http.Transport{TLSClientConfig: tlsConfig, Proxy: nil}
+	transport := &http.Transport{TLSClientConfig: config.publicTLS(tlsConfig), Proxy: nil}
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: transportguard.RejectRedirect}
 	defer transport.CloseIdleConnections()
-	deadline, cancel := context.WithTimeout(ctx, ha.UpdateTakeoverTimeout)
+	timeout := endpointTakeoverTimeout(config)
+	deadline, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	endpoint := "https://" + config.VirtualIP + "/api-proxy/health/active"
+	endpoint := config.publicURL() + "/api-proxy/health/active"
 	for {
 		request, requestErr := http.NewRequestWithContext(deadline, http.MethodGet, endpoint, nil)
 		if requestErr != nil {
-			return fmt.Errorf("create VIP takeover probe: %w", requestErr)
+			return fmt.Errorf("create endpoint takeover probe: %w", requestErr)
 		}
 		response, requestErr := client.Do(request)
 		if requestErr == nil {
@@ -333,10 +334,17 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 		}
 		select {
 		case <-deadline.Done():
-			return fmt.Errorf("updated peer did not serve the VIP within %s", ha.UpdateTakeoverTimeout)
+			return fmt.Errorf("updated peer did not serve the public endpoint within %s", timeout)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
+}
+
+func endpointTakeoverTimeout(config NodeConfig) time.Duration {
+	if config.externalEndpoint() {
+		return ha.UpdateExternalTakeoverTimeout
+	}
+	return ha.UpdateTakeoverTimeout
 }
 
 func acceptVIPVersion(status int, version, targetVersion string) (bool, error) {
