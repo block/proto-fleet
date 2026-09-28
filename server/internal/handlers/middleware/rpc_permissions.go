@@ -367,6 +367,7 @@ var ProcedurePermissions = map[string]string{
 	rolloutv1connect.RolloutServiceListRolloutsProcedure:                          authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceGetRolloutProcedure:                            authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListRolloutDevicesProcedure:                    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListMinerFirmwareHistoryProcedure:              authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceContinueRolloutProcedure:                       authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServicePauseRolloutProcedure:                          authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceResumeRolloutProcedure:                         authz.PermMinerFirmwareUpdate,
