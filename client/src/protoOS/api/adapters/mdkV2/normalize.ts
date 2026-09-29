@@ -20,6 +20,7 @@ import {
   V2ModuleNumberingOrder,
   V2PerformanceMode,
   V2PoolConnState,
+  V2Severity,
 } from "./generated/generatedApi";
 import { normalizeModulePsu } from "./modulePsu";
 import {
@@ -744,9 +745,14 @@ export const toCanonicalContainer = (
   return { hardware, telemetry };
 };
 
-/** Active health arrays are snapshots; lastShutdownError is latched history. */
-export const toCanonicalErrors = (wire: V2GetContainerMapResponse, deviceId: string): MinerError[] => {
-  const boards = flattenBoards(wire, ct1ContainerId(deviceId));
+/** Active health arrays and plant alarms are snapshots; lastShutdownError is latched history. */
+export const toCanonicalErrors = (
+  wire: V2GetContainerMapResponse,
+  deviceId: string,
+  health: V2GetContainerHealthResponse = {},
+): MinerError[] => {
+  const containerId = ct1ContainerId(deviceId);
+  const boards = flattenBoards(wire, containerId);
   const errors: MinerError[] = [];
   for (const entry of boards) {
     const owner = { kind: "module" as const, id: entry.moduleId };
@@ -786,6 +792,33 @@ export const toCanonicalErrors = (wire: V2GetContainerMapResponse, deviceId: str
       entries.map((entry) => entry.board),
     );
     if (psu) errors.push(...psu.errors);
+  }
+  for (const [index, alarm] of (health.alarms ?? []).entries()) {
+    const severity =
+      alarm.severity === V2Severity.SEVERITY_CRITICAL || alarm.severity === V2Severity.SEVERITY_ERROR
+        ? "critical"
+        : alarm.severity === V2Severity.SEVERITY_WARNING
+          ? "warning"
+          : "info";
+    const severityLabel =
+      alarm.severity === V2Severity.SEVERITY_CRITICAL
+        ? "Critical"
+        : alarm.severity === V2Severity.SEVERITY_ERROR
+          ? "Error"
+          : alarm.severity === V2Severity.SEVERITY_WARNING
+            ? "Warning"
+            : alarm.severity === V2Severity.SEVERITY_INFO
+              ? "Info"
+              : "Severity unknown";
+    const code = alarm.id || "PLANT_ALARM";
+    const name = alarm.name?.trim() || alarm.id || "Plant alarm";
+    errors.push({
+      id: `${containerId}:alarm:${alarm.id || `${alarm.componentId || name}:${index}`}`,
+      code,
+      message: `${severityLabel}: ${name}${alarm.componentId ? ` · Component ${alarm.componentId}` : ""}`,
+      owner: { kind: "container", id: containerId },
+      severity,
+    });
   }
   return errors;
 };

@@ -188,8 +188,18 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getErrors(params: AdapterRequestOptions = {}) {
-    const { data } = await this.client.hashboardServiceGetContainerMap(this.decorate(params));
-    return toCanonicalErrors(data, this.containerDeviceId());
+    const decorated = this.decorate(params);
+    const [map, health] = await Promise.all([
+      this.client.hashboardServiceGetContainerMap(decorated),
+      this.client.telemetryServiceGetContainerHealth(decorated).catch((error) => {
+        // A mixed-version CT1 deployment may not expose plant health yet.
+        // Preserve the existing board/PSU errors in that case.
+        const status = (error as { status?: number })?.status;
+        if (status === 404 || status === 405 || status === 501) return { data: {} };
+        throw error;
+      }),
+    ]);
+    return toCanonicalErrors(map.data, this.containerDeviceId(), health.data);
   }
 
   async getPools(params: AdapterRequestOptions = {}) {

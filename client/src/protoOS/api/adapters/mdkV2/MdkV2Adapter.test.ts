@@ -7,6 +7,7 @@ import {
   V2PerformanceMode,
   V2PLLAlgorithm,
   V2PoolConnState,
+  V2Severity,
 } from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
@@ -23,6 +24,7 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
     powerServiceSetContainerSetpoint: vi.fn(),
     runInServiceStartModuleRunIn: vi.fn(),
     telemetryServiceQueryTimeSeries: vi.fn(),
+    telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
     ...overrides,
   }) as unknown as MdkV2Client;
 
@@ -215,6 +217,66 @@ describe("MdkV2Adapter", () => {
       tank.modules![0].slots![0].hashboard!.health = { errors: [], warnings: [] };
     }
     expect(await adapter.getErrors()).toEqual([]);
+  });
+
+  test("shows active plant alarms with their reported severity and component, then clears them", async () => {
+    const getContainerHealth = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          alarms: [
+            {
+              id: "pump_overload",
+              name: "Coolant pump overload",
+              componentId: "coolant_pump",
+              severity: V2Severity.SEVERITY_CRITICAL,
+            },
+            {
+              id: "fan_warning",
+              name: "Cooling fan slow",
+              componentId: "fan-2",
+              severity: V2Severity.SEVERITY_WARNING,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({ data: { alarms: [] } });
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: { containerMap: { tanks: [] } } }),
+        telemetryServiceGetContainerHealth: getContainerHealth,
+      }),
+      { deviceId: "ct1-a" },
+    );
+
+    expect(await adapter.getErrors()).toEqual([
+      {
+        id: "container:ct1-a:alarm:pump_overload",
+        code: "pump_overload",
+        message: "Critical: Coolant pump overload · Component coolant_pump",
+        owner: { kind: "container", id: "container:ct1-a" },
+        severity: "critical",
+      },
+      {
+        id: "container:ct1-a:alarm:fan_warning",
+        code: "fan_warning",
+        message: "Warning: Cooling fan slow · Component fan-2",
+        owner: { kind: "container", id: "container:ct1-a" },
+        severity: "warning",
+      },
+    ]);
+    expect(await adapter.getErrors()).toEqual([]);
+    expect(getContainerHealth).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps board errors when an older CT1 lacks plant-health support", async () => {
+    const adapter = new MdkV2Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: { containerMap: { tanks: [] } } }),
+        telemetryServiceGetContainerHealth: vi.fn().mockRejectedValue({ status: 404 }),
+      }),
+    );
+    await expect(adapter.getErrors()).resolves.toEqual([]);
   });
 
   test.each([
