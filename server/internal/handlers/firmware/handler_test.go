@@ -27,6 +27,7 @@ import (
 	sessionMocks "github.com/block/proto-fleet/server/internal/domain/session/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -37,7 +38,8 @@ type testEnv struct {
 	fileSvc            *files.Service
 	sessionSvc         *session.Service
 	sessionID          string
-	permissionResolver effectivePermissionResolver
+	permissionResolver interceptors.EffectivePermissionResolver
+	userMgmtStoreMock  *storeMocks.MockUserManagementStore
 }
 
 type staticPermissionResolver struct {
@@ -91,20 +93,26 @@ func newTestEnv(t *testing.T) *testEnv {
 	userStore := storeMocks.NewMockUserStore(ctrl)
 
 	return &testEnv{
-		ctrl:             ctrl,
-		sessionStoreMock: sessionStore,
-		userStoreMock:    userStore,
-		fileSvc:          fileSvc,
-		sessionSvc:       sessionSvc,
-		sessionID:        "test-session-id",
+		ctrl:              ctrl,
+		sessionStoreMock:  sessionStore,
+		userStoreMock:     userStore,
+		userMgmtStoreMock: storeMocks.NewMockUserManagementStore(ctrl),
+		fileSvc:           fileSvc,
+		sessionSvc:        sessionSvc,
+		sessionID:         "test-session-id",
 		permissionResolver: staticPermissionResolver{
-			permissions: []string{authz.PermMinerFirmwareUpdate},
+			permissions: []string{authz.PermMinerFirmwareUpdate, authz.PermFleetRead},
 		},
 	}
 }
 
+func (e *testEnv) authenticator() RequestAuthenticator {
+	return interceptors.NewAuthInterceptor(e.sessionSvc, e.userStoreMock, e.userMgmtStoreMock, nil, e.permissionResolver, nil, nil, nil)
+}
+
 // expectAuth sets up expectations for a successful authentication flow.
 func (e *testEnv) expectAuth() {
+	e.userMgmtStoreMock.EXPECT().GetUserRoleName(gomock.Any(), int64(1), int64(1)).Return("Admin", nil)
 	testSession := &session.Session{
 		SessionID:      e.sessionID,
 		UserID:         1,
@@ -145,7 +153,8 @@ func TestAuthenticate_PopulatesSessionInfo(t *testing.T) {
 	cookie := env.sessionSvc.CreateCookie(env.sessionID)
 	req.AddCookie(cookie)
 
-	ctx, err := authenticate(req, env.sessionSvc, env.userStoreMock)
+	env.userMgmtStoreMock.EXPECT().GetUserRoleName(gomock.Any(), int64(1), int64(1)).Return("Admin", nil)
+	ctx, err := env.authenticator().AuthenticateRequest(req.Context(), req.Header)
 	require.NoError(t, err)
 
 	info, err := session.GetInfo(ctx)
@@ -158,36 +167,30 @@ func TestAuthenticate_PopulatesSessionInfo(t *testing.T) {
 
 func (e *testEnv) uploadHandler() *uploadHandler {
 	return &uploadHandler{
-		filesService:       e.fileSvc,
-		sessionService:     e.sessionSvc,
-		userStore:          e.userStoreMock,
-		permissionResolver: e.permissionResolver,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 
 func (e *testEnv) checkHandler() *checkHandler {
 	return &checkHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 
 func (e *testEnv) updateMetadataHandler() *updateMetadataHandler {
 	return &updateMetadataHandler{
-		filesService:       e.fileSvc,
-		sessionService:     e.sessionSvc,
-		userStore:          e.userStoreMock,
-		permissionResolver: e.permissionResolver,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 
 func (e *testEnv) configHandler() *configHandler {
 	return &configHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
-		cfg:            files.Config{ChunkSizeBytes: 32 * 1024 * 1024},
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
+		cfg:           files.Config{ChunkSizeBytes: 32 * 1024 * 1024},
 	}
 }
 
@@ -760,27 +763,22 @@ func TestConfigHandler_DefaultsChunkSizeWhenZero(t *testing.T) {
 
 func (e *testEnv) listFilesHandler() *listFilesHandler {
 	return &listFilesHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 
 func (e *testEnv) deleteFileHandler() *deleteFileHandler {
 	return &deleteFileHandler{
-		filesService:       e.fileSvc,
-		sessionService:     e.sessionSvc,
-		userStore:          e.userStoreMock,
-		permissionResolver: e.permissionResolver,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 
 func (e *testEnv) deleteAllFilesHandler() *deleteAllFilesHandler {
 	return &deleteAllFilesHandler{
-		filesService:       e.fileSvc,
-		sessionService:     e.sessionSvc,
-		userStore:          e.userStoreMock,
-		permissionResolver: e.permissionResolver,
+		filesService:  e.fileSvc,
+		authenticator: e.authenticator(),
 	}
 }
 

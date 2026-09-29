@@ -79,6 +79,21 @@ var (
 		rollout.ActorTypeAPIKey: pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY,
 		rollout.ActorTypeSystem: pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_SYSTEM,
 	}
+	eventTypeToProto = map[string]pb.RolloutEventType{
+		rollout.EventRolloutStarted:               pb.RolloutEventType_ROLLOUT_EVENT_TYPE_STARTED,
+		rollout.EventRolloutReviewReady:           pb.RolloutEventType_ROLLOUT_EVENT_TYPE_REVIEW_READY,
+		rollout.EventRolloutContinued:             pb.RolloutEventType_ROLLOUT_EVENT_TYPE_CONTINUED,
+		rollout.EventRolloutAdvanced:              pb.RolloutEventType_ROLLOUT_EVENT_TYPE_ADVANCED,
+		rollout.EventRolloutPaused:                pb.RolloutEventType_ROLLOUT_EVENT_TYPE_PAUSED,
+		rollout.EventRolloutResumed:               pb.RolloutEventType_ROLLOUT_EVENT_TYPE_RESUMED,
+		rollout.EventRolloutCanceled:              pb.RolloutEventType_ROLLOUT_EVENT_TYPE_CANCELED,
+		rollout.EventRolloutCompleted:             pb.RolloutEventType_ROLLOUT_EVENT_TYPE_COMPLETED,
+		rollout.EventRolloutCompletedWithFailures: pb.RolloutEventType_ROLLOUT_EVENT_TYPE_COMPLETED_WITH_FAILURES,
+		rollout.EventRolloutRetried:               pb.RolloutEventType_ROLLOUT_EVENT_TYPE_RETRIED,
+		rollout.EventRolloutDevicesSkipped:        pb.RolloutEventType_ROLLOUT_EVENT_TYPE_DEVICES_SKIPPED,
+		rollout.EventRolloutDeviceFailed:          pb.RolloutEventType_ROLLOUT_EVENT_TYPE_DEVICE_FAILED,
+		rollout.EventRolloutControllerTimedOut:    pb.RolloutEventType_ROLLOUT_EVENT_TYPE_CONTROLLER_TIMED_OUT,
+	}
 	resolutionToProto = map[string]pb.ReleaseChannelConflictResolution{
 		rollout.ResolutionWinner:      pb.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 		rollout.ResolutionLoser:       pb.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER,
@@ -293,6 +308,20 @@ func planToProto(p *rollout.FirmwarePlan) *pb.ReleaseChannelFirmwarePlan {
 
 func actorToProto(a rollout.Actor) *pb.RolloutActor {
 	return &pb.RolloutActor{Type: actorTypeToProto[a.Type], Id: a.ID, Name: a.Name}
+}
+
+func eventToProto(e *rollout.Event) *pb.RolloutEvent {
+	return &pb.RolloutEvent{
+		Id:                e.ID,
+		RolloutId:         e.RolloutID,
+		ChannelId:         e.ChannelID,
+		Type:              eventTypeToProto[e.Type],
+		OccurredAt:        timestamppb.New(e.OccurredAt),
+		Actor:             actorToProto(e.Actor),
+		RolloutRevision:   e.RolloutRevision,
+		Note:              e.Note,
+		DeviceIdentifiers: e.DeviceIdentifiers,
+	}
 }
 
 func errorInfoToProto(info *rollout.ErrorInfo) *pb.RolloutErrorInfo {

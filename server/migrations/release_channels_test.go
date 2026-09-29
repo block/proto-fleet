@@ -31,6 +31,14 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.up.sql")
 	require.NoError(t, err)
+	labelsDownSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.down.sql")
+	require.NoError(t, err)
+	labelsUpSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.up.sql")
+	require.NoError(t, err)
+	delegatedDownSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.down.sql")
+	require.NoError(t, err)
+	delegatedUpSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.up.sql")
+	require.NoError(t, err)
 
 	relations := []string{
 		"release_channel", "release_channel_target", "release_channel_firmware",
@@ -63,8 +71,12 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	}
 
 	requireObjects(true)
-	// The current schema includes reservations that reference release_channel.
-	// Roll back that dependent migration before exercising the shipped schema.
+	// Later event history and reservations reference the shipped tables.
+	// Unwind dependent migrations and their label wrappers in reverse order.
+	_, err = db.ExecContext(ctx, string(delegatedDownSQL))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(labelsDownSQL))
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(reservationDownSQL))
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(downSQL))
@@ -74,6 +86,10 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	requireObjects(true)
 	_, err = db.ExecContext(ctx, string(reservationUpSQL))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(labelsUpSQL))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(delegatedUpSQL))
 	require.NoError(t, err)
 
 	var members int

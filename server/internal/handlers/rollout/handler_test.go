@@ -26,8 +26,11 @@ type fakeService struct {
 	group   rollout.ModelGroup
 	rollout *rollout.Rollout
 	preview *rollout.ScopePreview
+	events  []rollout.Event
 
 	nextChannelCursor string
+	nextEventCursor   string
+	dispatched        []string
 
 	lastOrgID        int64
 	lastUserID       int64
@@ -39,6 +42,9 @@ type fakeService struct {
 	lastOverride     *rollout.Behavior
 	lastID           int64
 	lastFilter       rollout.RolloutFilter
+	lastEventFilter  rollout.EventFilter
+	lastSelection    rollout.DeviceSelection
+	lastIdentifiers  []string
 	lastManufacturer string
 	lastModel        string
 	lastPage         int32
@@ -131,6 +137,11 @@ func (f *fakeService) ListRolloutDevices(_ context.Context, orgID, rolloutID int
 	return f.rollout.Devices, "more-devices", nil
 }
 
+func (f *fakeService) ListRolloutEvents(_ context.Context, orgID int64, filter rollout.EventFilter) ([]rollout.Event, string, error) {
+	f.lastOrgID, f.lastEventFilter = orgID, filter
+	return f.events, f.nextEventCursor, f.err
+}
+
 func (f *fakeService) mutate(orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error) {
 	f.lastOrgID, f.lastID, f.lastMutation = orgID, rolloutID, m
 	if f.err != nil {
@@ -140,6 +151,21 @@ func (f *fakeService) mutate(orgID, rolloutID int64, m rollout.Mutation) (*rollo
 }
 
 func (f *fakeService) ContinueRollout(_ context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error) {
+	return f.mutate(orgID, rolloutID, m)
+}
+
+func (f *fakeService) AdvanceRollout(_ context.Context, orgID, rolloutID int64, selection rollout.DeviceSelection, m rollout.Mutation) (*rollout.Rollout, []string, error) {
+	f.lastSelection = selection
+	r, err := f.mutate(orgID, rolloutID, m)
+	return r, f.dispatched, err
+}
+
+func (f *fakeService) SkipRolloutDevices(_ context.Context, orgID, rolloutID int64, identifiers []string, m rollout.Mutation) (*rollout.Rollout, error) {
+	f.lastIdentifiers = identifiers
+	return f.mutate(orgID, rolloutID, m)
+}
+
+func (f *fakeService) CompleteRollout(_ context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error) {
 	return f.mutate(orgID, rolloutID, m)
 }
 
@@ -242,6 +268,22 @@ func TestHandlerGatesEveryRPC(t *testing.T) {
 		}},
 		{"ListRolloutDevices", func() error {
 			_, err := h.ListRolloutDevices(ctx, connect.NewRequest(&pb.ListRolloutDevicesRequest{}))
+			return err
+		}},
+		{"ListRolloutEvents", func() error {
+			_, err := h.ListRolloutEvents(ctx, connect.NewRequest(&pb.ListRolloutEventsRequest{}))
+			return err
+		}},
+		{"AdvanceRollout", func() error {
+			_, err := h.AdvanceRollout(ctx, connect.NewRequest(&pb.AdvanceRolloutRequest{}))
+			return err
+		}},
+		{"SkipRolloutDevices", func() error {
+			_, err := h.SkipRolloutDevices(ctx, connect.NewRequest(&pb.SkipRolloutDevicesRequest{}))
+			return err
+		}},
+		{"CompleteRollout", func() error {
+			_, err := h.CompleteRollout(ctx, connect.NewRequest(&pb.CompleteRolloutRequest{}))
 			return err
 		}},
 		{"ContinueRollout", func() error {
@@ -384,13 +426,6 @@ func TestCreateReleaseChannelTranslatesSpecAndView(t *testing.T) {
 	require.Len(t, list.Msg.Channels, 1)
 	assert.Equal(t, int32(1), list.Msg.Channels[0].ModelGroupCount)
 
-	// The delegated method is refused until its slice lands.
-	_, err = h.CreateReleaseChannel(ctx, connect.NewRequest(&pb.CreateReleaseChannelRequest{
-		Name: "Controlled", Behavior: &pb.RolloutBehavior{Method: pb.RolloutMethod_ROLLOUT_METHOD_DELEGATED},
-	}))
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
 }
 
 func TestListReleaseChannelsForwardsPagination(t *testing.T) {
@@ -708,21 +743,4 @@ func TestListReleaseChannelMinersTranslatesPage(t *testing.T) {
 	assert.Equal(t, "miner-0", resp.Msg.Miners[0].DeviceIdentifier)
 	assert.True(t, resp.Msg.Miners[0].Conflicted)
 	assert.Equal(t, checksum, resp.Msg.Miners[0].LastDeployedFirmwareChecksum)
-}
-
-// The contract's remaining RPCs are declared but answer Unimplemented until
-// the delegated-control and events slices land.
-func TestDelegatedControlAndEventsAreUnimplemented(t *testing.T) {
-	t.Parallel()
-	h := NewHandler(newFakeService())
-	ctx := ctxWithPermissions(t, authz.PermMinerFirmwareUpdate)
-
-	_, err := h.AdvanceRollout(ctx, connect.NewRequest(&pb.AdvanceRolloutRequest{RolloutId: 9}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
-	_, err = h.SkipRolloutDevices(ctx, connect.NewRequest(&pb.SkipRolloutDevicesRequest{RolloutId: 9}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
-	_, err = h.CompleteRollout(ctx, connect.NewRequest(&pb.CompleteRolloutRequest{RolloutId: 9}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
-	_, err = h.ListRolloutEvents(ctx, connect.NewRequest(&pb.ListRolloutEventsRequest{}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
 }

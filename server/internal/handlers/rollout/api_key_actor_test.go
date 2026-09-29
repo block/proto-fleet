@@ -65,5 +65,32 @@ func TestAuthenticatedAPIKeysKeepDistinctRolloutActors(t *testing.T) {
 		_, err = client.PauseRollout(t.Context(), pause)
 		require.NoError(t, err)
 		assert.Equal(t, expected, svc.lastMutation.Actor)
+
+		advance := connect.NewRequest(&pb.AdvanceRolloutRequest{
+			RolloutId: 9, ExpectedRevision: 4, Note: "canary healthy",
+			Selection: &pb.AdvanceRolloutRequest_Count{Count: 1},
+		})
+		advance.Header().Set("Authorization", "Bearer "+rawKey)
+		_, err = client.AdvanceRollout(t.Context(), advance)
+		require.NoError(t, err)
+		assert.Equal(t, expected, svc.lastMutation.Actor)
+		assert.Equal(t, "canary healthy", svc.lastMutation.Note)
+
+		skip := connect.NewRequest(&pb.SkipRolloutDevicesRequest{
+			RolloutId: 9, ExpectedRevision: 4, Note: "maintenance window",
+			Devices: &pb.RolloutDeviceSelection{DeviceIdentifiers: []string{"miner-0"}},
+		})
+		skip.Header().Set("Authorization", "Bearer "+rawKey)
+		_, err = client.SkipRolloutDevices(t.Context(), skip)
+		require.NoError(t, err)
+		assert.Equal(t, expected, svc.lastMutation.Actor)
+		assert.Equal(t, "maintenance window", svc.lastMutation.Note)
+
+		complete := connect.NewRequest(&pb.CompleteRolloutRequest{RolloutId: 9, ExpectedRevision: 4, Note: "controller finished"})
+		complete.Header().Set("Authorization", "Bearer "+rawKey)
+		_, err = client.CompleteRollout(t.Context(), complete)
+		require.NoError(t, err)
+		assert.Equal(t, expected, svc.lastMutation.Actor)
+		assert.Equal(t, "controller finished", svc.lastMutation.Note)
 	}
 }

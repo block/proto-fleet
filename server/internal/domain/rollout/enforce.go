@@ -173,6 +173,9 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 	}
 	for _, n := range needed {
 		err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+			if err := s.lockEventStream(ctx, n.OrgID); err != nil {
+				return err
+			}
 			q := s.store.GetQueries(ctx)
 			// The scan only discovers candidates. Serialize with assignment
 			// writers, then reload the assignment and need before creating a
@@ -212,7 +215,9 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 			if err != nil || r == nil {
 				return err
 			}
-			s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, true, map[string]any{"reconciliation": true})
+			if err := s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, true, map[string]any{"reconciliation": true}); err != nil {
+				return err
+			}
 			return nil
 		})
 		if err != nil {
@@ -230,6 +235,9 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, channelName string, targets []target) error {
 	if r.PausedAt.Valid {
 		return nil
+	}
+	if r.BehaviorSnapshot.Method == MethodDelegated {
+		return s.enforceDelegated(ctx, r)
 	}
 	// Dispatch owns its non-retryable transaction and refreshes targets under
 	// lock. Preparation is only a hint about whether a send may be needed.
@@ -260,6 +268,9 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 func (s *Service) advanceRolloutProgress(ctx context.Context, observed sqlc.FirmwareRollout, channelName string) (*sqlc.FirmwareRollout, error) {
 	var reopened *sqlc.FirmwareRollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.lockEventStream(ctx, observed.OrgID); err != nil {
+			return err
+		}
 		reopened = nil
 		r, _, err := s.lockRollout(ctx, observed.OrgID, observed.ID, 0)
 		if err != nil {
@@ -290,10 +301,11 @@ func (s *Service) advanceRolloutProgress(ctx context.Context, observed sqlc.Firm
 		switch r.Stage {
 		case StageBatch:
 			if behavior.gatesAfterBatch() {
-				return s.transition(ctx, &r, StageBatch, StageAwaitingReview, func() {
-					s.logRolloutEvent(ctx, r, channelName, EventRolloutReviewReady, true, map[string]any{
-						"batch": r.CurrentBatch + 1, "batch_count": r.BatchCount,
-					})
+				if err := s.transition(ctx, &r, StageBatch, StageAwaitingReview, nil); err != nil {
+					return err
+				}
+				return s.logRolloutEvent(ctx, r, channelName, EventRolloutReviewReady, true, map[string]any{
+					"batch": r.CurrentBatch + 1, "batch_count": r.BatchCount,
 				})
 			}
 			if behavior.WaitBetweenBatchesSeconds > 0 {
@@ -316,7 +328,9 @@ func (s *Service) advanceRolloutProgress(ctx context.Context, observed sqlc.Firm
 			if ev.HashrateChangePercent != nil {
 				extra["hashrate_change_percent"] = *ev.HashrateChangePercent
 			}
-			s.logRolloutEvent(ctx, r, channelName, EventRolloutContinued, true, extra)
+			if err := s.logRolloutEvent(ctx, r, channelName, EventRolloutContinued, true, extra); err != nil {
+				return err
+			}
 			return nil
 
 		case StageWaiting:
@@ -337,7 +351,9 @@ func (s *Service) advanceRolloutProgress(ctx context.Context, observed sqlc.Firm
 			}
 			if n > 0 {
 				r.Status = status
-				s.logRolloutEvent(ctx, r, channelName, event, true, map[string]any{"failed": countFailed(scope)})
+				if err := s.logRolloutEvent(ctx, r, channelName, event, true, map[string]any{"failed": countFailed(scope)}); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
@@ -396,6 +412,9 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 	targets, err = s.excludeDepartedTargets(ctx, r, targets)
 	if err != nil {
 		return nil, err
+	}
+	if r.BehaviorSnapshot.Method == MethodDelegated {
+		return targets, nil
 	}
 	var returners []int64
 	for _, t := range targets {
@@ -517,7 +536,7 @@ func (s *Service) recordDeploymentProvenance(ctx context.Context, r sqlc.Firmwar
 func (s *Service) recordConvergence(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var verified, drifted []int64
 	for _, t := range targets {
-		if t.excluded() || t.halted() {
+		if t.excluded() || t.halted() || (r.BehaviorSnapshot.Method == MethodDelegated && (t.Attempts == 0 || t.VerifiedAt.Valid)) {
 			continue
 		}
 		if t.VerifiedAt.Valid {
@@ -616,6 +635,9 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout) (int, error) {
 	var halted int
 	err := s.tx.RunInTxNoRetry(ctx, func(ctx context.Context) error {
+		if err := s.lockEventStream(ctx, r.OrgID); err != nil {
+			return err
+		}
 		q := s.store.GetQueries(ctx)
 		// Match assignment and rollback lock ordering. Holding both locks
 		// through enqueue serializes dispatch with assignment changes,
@@ -634,7 +656,7 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout) (
 		if err != nil {
 			return err
 		}
-		if current.Status != StatusActive || current.PausedAt.Valid ||
+		if current.Status != StatusActive || current.PausedAt.Valid || current.BehaviorSnapshot.Method == MethodDelegated ||
 			current.Stage != r.Stage || current.CurrentBatch != r.CurrentBatch || !current.StageChangedAt.Equal(r.StageChangedAt) ||
 			(current.Stage != StageBatch && current.Stage != StageRest) {
 			return nil
@@ -660,6 +682,12 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout) (
 // dispatchLockedUpdates runs with the channel and rollout locked until the
 // command service has queued the batch and its dispatch evidence is saved.
 func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRollout, scope []target, budget *offlineBudget) (int, error) {
+	halted, _, err := s.dispatchLockedBatch(ctx, r, scope, budget)
+	return halted, err
+}
+
+// dispatchLockedBatch is shared by autonomous pacing and controller advances.
+func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollout, scope []target, budget *offlineBudget) (int, []string, error) {
 	q := s.store.GetQueries(ctx)
 	now := s.now()
 	cutoff := now.Add(-resendInterval)
@@ -688,7 +716,7 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 			RolloutID: r.ID, DeviceIds: incompatible, HaltReason: HaltReasonFailed,
 			LastError: "Reported manufacturer or model changed before the update verified; no further update was sent. Review this miner's identity and firmware compatibility before retrying.",
 		}); err != nil {
-			return 0, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %w", err)
+			return 0, nil, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %w", err)
 		}
 	}
 	halted := len(toHalt) + len(incompatible)
@@ -697,9 +725,31 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 			RolloutID: r.ID, DeviceIds: toHalt, HaltReason: HaltReasonFailed,
 			LastError: fmt.Sprintf("Did not report %s after %d update attempts", r.FirmwareVersion, MaxAttempts),
 		}); err != nil {
-			return 0, fleeterror.NewInternalErrorf("fail rollout devices: %w", err)
+			return 0, nil, fleeterror.NewInternalErrorf("fail rollout devices: %w", err)
 		}
 		slog.Warn("rollout enforcement failed devices", "rollout_id", r.ID, "devices", len(toHalt))
+	}
+	if halted > 0 {
+		var failed []string
+		failedSet := make(map[int64]bool, halted)
+		for _, id := range toHalt {
+			failedSet[id] = true
+		}
+		for _, id := range incompatible {
+			failedSet[id] = true
+		}
+		for _, target := range scope {
+			if failedSet[target.DeviceID] {
+				failed = append(failed, target.DeviceIdentifier)
+			}
+		}
+		channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: r.ChannelID, OrgID: r.OrgID})
+		if err != nil {
+			return halted, nil, channelLookupError(r.ChannelID, err)
+		}
+		if err := s.logRolloutEvent(ctx, r, channel.Name, EventRolloutDeviceFailed, true, map[string]any{"device_identifiers": failed}); err != nil {
+			return halted, nil, err
+		}
 	}
 	if room := budget.room(); room >= 0 {
 		// Bound this dispatch by the channel's current free capacity.
@@ -708,21 +758,21 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 		}
 	}
 	if len(due) == 0 {
-		return halted, nil
+		return halted, nil, nil
 	}
 	_, ok := s.files.FindFirmwareFileIDByChecksum(r.FirmwareChecksum)
 	if !ok {
 		slog.Warn("rollout enforcement: firmware artifact not uploaded", "rollout_id", r.ID, "checksum", r.FirmwareChecksum)
-		return halted, nil
+		return halted, nil, nil
 	}
 	assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
 		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
 	})
 	if err != nil {
-		return halted, fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
+		return halted, nil, fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
 	}
 	if assignment.AssignmentGeneration != r.AssignmentGeneration || assignment.FirmwareChecksum != r.FirmwareChecksum || assignment.FirmwareVersion != r.FirmwareVersion {
-		return halted, nil // a concurrent assignment change superseded this rollout
+		return halted, nil, nil // a concurrent assignment change superseded this rollout
 	}
 
 	identifiers := make([]string, 0, len(due))
@@ -744,7 +794,7 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 		FirmwareVersion:    assignment.FirmwareVersion,
 	})
 	if err != nil {
-		return halted, fleeterror.NewInternalErrorf("dispatch firmware update: %w", err)
+		return halted, nil, fleeterror.NewInternalErrorf("dispatch firmware update: %w", err)
 	}
 	for _, id := range due {
 		budget.reserve(id)
@@ -761,17 +811,22 @@ func (s *Service) dispatchLockedUpdates(ctx context.Context, r sqlc.FirmwareRoll
 		dispatchedIdentifiers[identifier] = true
 	}
 	var dispatched []int64
+	var sent []string
 	for _, id := range due {
 		if dispatchedIdentifiers[byID[id]] {
 			dispatched = append(dispatched, id)
+			sent = append(sent, byID[id])
 		}
+	}
+	if r.BehaviorSnapshot.Method == MethodDelegated {
+		due = dispatched
 	}
 	if err := q.MarkFirmwareRolloutDevicesSent(ctx, sqlc.MarkFirmwareRolloutDevicesSentParams{
 		RolloutID: r.ID, DeviceIds: due, DispatchedDeviceIds: dispatched, BatchUuid: result.BatchIdentifier,
 	}); err != nil {
-		return halted, fleeterror.NewInternalErrorf("mark rollout devices sent: %w", err)
+		return halted, nil, fleeterror.NewInternalErrorf("mark rollout devices sent: %w", err)
 	}
-	return halted, nil
+	return halted, sent, nil
 }
 
 // enforcementContext supplies the assignment's persisted user owner for the

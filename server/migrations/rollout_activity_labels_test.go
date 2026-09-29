@@ -20,6 +20,12 @@ func TestRolloutActivityLabelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	upSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.up.sql")
 	require.NoError(t, err)
+	delegatedDownSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.down.sql")
+	require.NoError(t, err)
+	delegatedUpSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.up.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(delegatedDownSQL))
+	require.NoError(t, err)
 
 	const query = `SELECT activity_display_label('rollout_completed_with_failures', CAST(NULL AS TEXT), NULL,
 		'{"channel_name":"Canary","manufacturer":"Proto","model":"Rig","firmware_version":"2.0.0"}'::jsonb, '')`
@@ -38,6 +44,9 @@ func TestRolloutActivityLabelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.QueryRowContext(ctx, query).Scan(&label))
 	require.Equal(t, "Completed firmware update with failures: Canary Proto Rig → 2.0.0", label)
+
+	_, err = db.ExecContext(ctx, string(delegatedUpSQL))
+	require.NoError(t, err)
 
 	// Earlier labels still resolve through the preserved helper chain.
 	require.NoError(t, db.QueryRowContext(ctx,

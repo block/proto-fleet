@@ -328,7 +328,7 @@ VALUES (
     $13, $14, $15,
     $13, $14, $15
 )
-RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at
+RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since
 `
 
 type CreateFirmwareRolloutParams struct {
@@ -402,6 +402,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.LastActionByName,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.ControllerWaitingSince,
 	)
 	return i, err
 }
@@ -617,7 +618,7 @@ func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareR
 }
 
 const getActiveFirmwareRolloutForPair = `-- name: GetActiveFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -664,12 +665,13 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 		&i.LastActionByName,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.ControllerWaitingSince,
 	)
 	return i, err
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 `
 
@@ -712,12 +714,13 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.LastActionByName,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.ControllerWaitingSince,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutForUpdate = `-- name: GetFirmwareRolloutForUpdate :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
 `
@@ -763,6 +766,7 @@ func (q *Queries) GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwa
 		&i.LastActionByName,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.ControllerWaitingSince,
 	)
 	return i, err
 }
@@ -781,7 +785,7 @@ func (q *Queries) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, e
 }
 
 const getFirmwareRolloutWithChannel = `-- name: GetFirmwareRolloutWithChannel :one
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.id = $1 AND r.org_id = $2
@@ -831,13 +835,14 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 		&i.FirmwareRollout.LastActionByName,
 		&i.FirmwareRollout.CreatedAt,
 		&i.FirmwareRollout.FinishedAt,
+		&i.FirmwareRollout.ControllerWaitingSince,
 		&i.ChannelName,
 	)
 	return i, err
 }
 
 const getLatestFirmwareRolloutForPair = `-- name: GetLatestFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
@@ -895,6 +900,7 @@ func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLa
 		&i.LastActionByName,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.ControllerWaitingSince,
 	)
 	return i, err
 }
@@ -1130,7 +1136,7 @@ func (q *Queries) InsertReleaseChannelTargets(ctx context.Context, arg InsertRel
 }
 
 const listActiveFirmwareRollouts = `-- name: ListActiveFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.status = 'active'
@@ -1185,6 +1191,7 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 			&i.FirmwareRollout.LastActionByName,
 			&i.FirmwareRollout.CreatedAt,
 			&i.FirmwareRollout.FinishedAt,
+			&i.FirmwareRollout.ControllerWaitingSince,
 			&i.ChannelName,
 			&i.ChannelMaxConcurrentOffline,
 		); err != nil {
@@ -1531,7 +1538,7 @@ func (q *Queries) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.org_id = $1
@@ -1616,6 +1623,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.FirmwareRollout.LastActionByName,
 			&i.FirmwareRollout.CreatedAt,
 			&i.FirmwareRollout.FinishedAt,
+			&i.FirmwareRollout.ControllerWaitingSince,
 			&i.ChannelName,
 		); err != nil {
 			return nil, err

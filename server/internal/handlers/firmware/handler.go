@@ -1,7 +1,6 @@
 package firmware
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,11 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	"connectrpc.com/authn"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -56,26 +53,22 @@ type configResponse struct {
 // NewConfigHandler returns an http.Handler that serves firmware upload configuration.
 // Clients use this to get allowed extensions, max file size, and chunked upload settings,
 // keeping validation rules in sync with the server.
-func NewConfigHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore, cfg files.Config) http.Handler {
+func NewConfigHandler(filesService *files.Service, authenticator RequestAuthenticator, cfg files.Config) http.Handler {
 	return &configHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
-		cfg:            cfg,
+		filesService:  filesService,
+		authenticator: authenticator,
+		cfg:           cfg,
 	}
 }
 
 type configHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
-	cfg            files.Config
+	filesService  *files.Service
+	authenticator RequestAuthenticator
+	cfg           files.Config
 }
 
 func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware config authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireReadPermission(w, r, h.authenticator, "config"); !ok {
 		return
 	}
 
@@ -103,35 +96,29 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // oversized uploads early.
 func NewUploadHandler(
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
 	activitySvc *activityDomain.Service,
-	permissionResolver effectivePermissionResolver,
 ) http.Handler {
 	return &uploadHandler{
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		activitySvc:        activitySvc,
-		permissionResolver: permissionResolver,
+		filesService:  filesService,
+		authenticator: authenticator,
+		activitySvc:   activitySvc,
 	}
 }
 
 // NewCheckHandler returns an http.Handler for the pre-upload checksum check endpoint.
 // Clients send a SHA-256 hex digest; the server returns whether a file with that
 // checksum already exists, allowing the client to skip a redundant upload.
-func NewCheckHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+func NewCheckHandler(filesService *files.Service, authenticator RequestAuthenticator) http.Handler {
 	return &checkHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
+		filesService:  filesService,
+		authenticator: authenticator,
 	}
 }
 
 type checkHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -141,9 +128,7 @@ func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware check authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireReadPermission(w, r, h.authenticator, "check"); !ok {
 		return
 	}
 
@@ -187,11 +172,9 @@ func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type uploadHandler struct {
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	activitySvc        *activityDomain.Service
-	permissionResolver effectivePermissionResolver
+	filesService  *files.Service
+	authenticator RequestAuthenticator
+	activitySvc   *activityDomain.Service
 }
 
 func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -204,9 +187,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"upload",
 	)
 	if !ok {
@@ -365,35 +346,6 @@ func readPartValue(part *multipart.Part, limit int64, name string) (string, erro
 	return string(value), nil
 }
 
-// authenticate extracts and validates the session cookie from the HTTP request,
-// reusing the same session/cookie logic as the Connect-RPC AuthInterceptor.
-func authenticate(r *http.Request, sessionService *session.Service, userStore interfaces.UserStore) (context.Context, error) {
-	cookie, err := r.Cookie(sessionService.CookieName())
-	if err != nil || cookie.Value == "" {
-		return r.Context(), fleeterror.NewUnauthenticatedError("session cookie required")
-	}
-
-	sess, err := sessionService.Validate(r.Context(), cookie.Value)
-	if err != nil {
-		return r.Context(), err
-	}
-
-	user, err := userStore.GetUserByID(r.Context(), sess.UserID)
-	if err != nil {
-		return r.Context(), fleeterror.NewUnauthenticatedErrorf("user with id %d not found", sess.UserID)
-	}
-
-	info := &session.Info{
-		SessionID:      sess.SessionID,
-		UserID:         sess.UserID,
-		OrganizationID: sess.OrganizationID,
-		ExternalUserID: user.UserID,
-		Username:       user.Username,
-	}
-
-	return authn.SetInfo(r.Context(), info), nil
-}
-
 // isClientError returns true for errors caused by bad client input,
 // including fleeterror.InvalidArgument and http.MaxBytesError (body too large).
 func isClientError(err error) bool {
@@ -420,24 +372,20 @@ type deleteAllFilesResponse struct {
 }
 
 // NewListFilesHandler returns an http.Handler that lists all uploaded firmware files.
-func NewListFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+func NewListFilesHandler(filesService *files.Service, authenticator RequestAuthenticator) http.Handler {
 	return &listFilesHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
+		filesService:  filesService,
+		authenticator: authenticator,
 	}
 }
 
 type listFilesHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *listFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware list authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireReadPermission(w, r, h.authenticator, "list"); !ok {
 		return
 	}
 
@@ -463,35 +411,27 @@ func (h *listFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // firmware file's deployment metadata.
 func NewUpdateMetadataHandler(
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
 	activitySvc *activityDomain.Service,
-	permissionResolver effectivePermissionResolver,
 ) http.Handler {
 	return &updateMetadataHandler{
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		activitySvc:        activitySvc,
-		permissionResolver: permissionResolver,
+		filesService:  filesService,
+		authenticator: authenticator,
+		activitySvc:   activitySvc,
 	}
 }
 
 type updateMetadataHandler struct {
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	activitySvc        *activityDomain.Service
-	permissionResolver effectivePermissionResolver
+	filesService  *files.Service
+	authenticator RequestAuthenticator
+	activitySvc   *activityDomain.Service
 }
 
 func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"update metadata",
 	)
 	if !ok {
@@ -540,32 +480,24 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 // NewDeleteFileHandler returns an http.Handler that deletes a single firmware file by ID.
 func NewDeleteFileHandler(
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
-	permissionResolver effectivePermissionResolver,
+	authenticator RequestAuthenticator,
 ) http.Handler {
 	return &deleteFileHandler{
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		permissionResolver: permissionResolver,
+		filesService:  filesService,
+		authenticator: authenticator,
 	}
 }
 
 type deleteFileHandler struct {
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	permissionResolver effectivePermissionResolver
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"delete file",
 	); !ok {
 		return
@@ -601,32 +533,24 @@ func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewDeleteAllFilesHandler returns an http.Handler that deletes all firmware files.
 func NewDeleteAllFilesHandler(
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
-	permissionResolver effectivePermissionResolver,
+	authenticator RequestAuthenticator,
 ) http.Handler {
 	return &deleteAllFilesHandler{
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		permissionResolver: permissionResolver,
+		filesService:  filesService,
+		authenticator: authenticator,
 	}
 }
 
 type deleteAllFilesHandler struct {
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	permissionResolver effectivePermissionResolver
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"delete all files",
 	); !ok {
 		return

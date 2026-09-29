@@ -807,13 +807,15 @@ func start(config *Config) (result error) {
 
 	validateInterceptor := validate.NewInterceptor()
 
+	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewActiveInterceptor(fleetRuntime),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
 		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
+		requestAuth,
 		validateInterceptor,
 	)
 
@@ -833,16 +835,16 @@ func start(config *Config) (result error) {
 		orgQueries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
 		mux.Handle("POST "+alertmanagerwebhook.Path, activeHTTP.Wrap(alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer)))
 	}
-	mux.Handle("/api/v1/firmware/upload", activeHTTP.Wrap(firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
-	mux.Handle("/api/v1/firmware/check", activeHTTP.Wrap(firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore)))
-	mux.Handle("GET /api/v1/firmware/config", activeHTTP.Wrap(firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files)))
-	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore, permissionResolver)))
-	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver)))
-	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
-	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore)))
-	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver)))
-	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("/api/v1/firmware/upload", activeHTTP.Wrap(firmwareHandler.NewUploadHandler(filesService, requestAuth, activitySvc)))
+	mux.Handle("/api/v1/firmware/check", activeHTTP.Wrap(firmwareHandler.NewCheckHandler(filesService, requestAuth)))
+	mux.Handle("GET /api/v1/firmware/config", activeHTTP.Wrap(firmwareHandler.NewConfigHandler(filesService, requestAuth, config.Files)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, requestAuth)))
+	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, requestAuth)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, requestAuth, activitySvc)))
+	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, requestAuth)))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
+	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, requestAuth)))
 	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
 
 	if len(reflectEnabledServices) != 0 {
@@ -862,7 +864,9 @@ func start(config *Config) (result error) {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li))
+	rolloutPath, rolloutHTTP := rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li)
+	mux.Handle(rolloutPath, rolloutHTTP)
+	rolloutHandler.RegisterRESTRoutes(mux, rolloutHTTP)
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
 		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
 		li,

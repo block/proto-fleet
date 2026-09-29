@@ -42,6 +42,7 @@ type RolloutService interface {
 	ListRollouts(ctx context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, string, error)
 	GetRollout(ctx context.Context, orgID, rolloutID int64) (*rollout.Rollout, error)
 	ListRolloutDevices(ctx context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]rollout.RolloutDevice, string, error)
+	ListRolloutEvents(ctx context.Context, orgID int64, filter rollout.EventFilter) ([]rollout.Event, string, error)
 	ContinueRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
 	PauseRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
 	ResumeRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
@@ -49,17 +50,22 @@ type RolloutService interface {
 	RetryFailedDevices(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
 }
 
+// ControllerService lets callers dispatch and settle a rollout's queued work.
+type ControllerService interface {
+	AdvanceRollout(ctx context.Context, orgID, rolloutID int64, selection rollout.DeviceSelection, m rollout.Mutation) (*rollout.Rollout, []string, error)
+	SkipRolloutDevices(ctx context.Context, orgID, rolloutID int64, identifiers []string, m rollout.Mutation) (*rollout.Rollout, error)
+	CompleteRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
+}
+
 // Service is the slice of the rollout domain the handler uses.
 type Service interface {
 	ChannelService
 	AssignmentService
 	RolloutService
+	ControllerService
 }
 
-// Handler serves RolloutService. Delegated control (AdvanceRollout,
-// SkipRolloutDevices, CompleteRollout) and the events feed are defined by the
-// contract but land in later slices; until then they answer Unimplemented
-// through the embedded default handler, and DELEGATED behavior is refused.
+// Handler serves the release channel, rollout lifecycle, and controller APIs.
 type Handler struct {
 	rolloutv1connect.UnimplementedRolloutServiceHandler
 	svc Service
@@ -111,16 +117,6 @@ func withReason(err error) error {
 		ce.AddDetail(detail)
 	}
 	return ce
-}
-
-// refuseDelegated keeps the DELEGATED method out until the delegated-control
-// slice implements it; the proto accepts the value, so the refusal must be
-// explicit rather than a silent default.
-func refuseDelegated(b *pb.RolloutBehavior) error {
-	if b != nil && b.Method == pb.RolloutMethod_ROLLOUT_METHOD_DELEGATED {
-		return fleeterror.NewUnimplementedError("delegated rollouts are not available yet")
-	}
-	return nil
 }
 
 func (h *Handler) ListReleaseChannels(ctx context.Context, r *connect.Request[pb.ListReleaseChannelsRequest]) (*connect.Response[pb.ListReleaseChannelsResponse], error) {
@@ -204,9 +200,6 @@ func (h *Handler) CreateReleaseChannel(ctx context.Context, r *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseDelegated(r.Msg.Behavior); err != nil {
-		return nil, err
-	}
 	channel, err := h.svc.CreateChannel(ctx, info.OrganizationID, info.UserID, rollout.ChannelSpec{
 		Name:        r.Msg.Name,
 		Description: r.Msg.Description,
@@ -222,9 +215,6 @@ func (h *Handler) CreateReleaseChannel(ctx context.Context, r *connect.Request[p
 func (h *Handler) UpdateReleaseChannel(ctx context.Context, r *connect.Request[pb.UpdateReleaseChannelRequest]) (*connect.Response[pb.UpdateReleaseChannelResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
-		return nil, err
-	}
-	if err := refuseDelegated(r.Msg.Behavior); err != nil {
 		return nil, err
 	}
 	channel, err := h.svc.UpdateChannel(ctx, info.OrganizationID, r.Msg.ChannelId, rollout.ChannelSpec{
@@ -278,9 +268,6 @@ func (h *Handler) PreviewReleaseChannelFirmware(ctx context.Context, r *connect.
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseDelegated(r.Msg.BehaviorOverride); err != nil {
-		return nil, err
-	}
 	plans, err := h.svc.PreviewFirmware(ctx, info.OrganizationID, r.Msg.ChannelId, assignmentsFromProto(r.Msg.Assignments), overrideFromProto(r.Msg.BehaviorOverride))
 	if err != nil {
 		return nil, withReason(err)
@@ -295,9 +282,6 @@ func (h *Handler) PreviewReleaseChannelFirmware(ctx context.Context, r *connect.
 func (h *Handler) ApplyReleaseChannelFirmware(ctx context.Context, r *connect.Request[pb.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[pb.ApplyReleaseChannelFirmwareResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
-		return nil, err
-	}
-	if err := refuseDelegated(r.Msg.BehaviorOverride); err != nil {
 		return nil, err
 	}
 	started, err := h.svc.ApplyFirmware(ctx, info.OrganizationID, actorOf(info), r.Msg.ChannelId, assignmentsFromProto(r.Msg.Assignments), overrideFromProto(r.Msg.BehaviorOverride))
@@ -396,6 +380,27 @@ func (h *Handler) ListRolloutDevices(ctx context.Context, r *connect.Request[pb.
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) ListRolloutEvents(ctx context.Context, r *connect.Request[pb.ListRolloutEventsRequest]) (*connect.Response[pb.ListRolloutEventsResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events, cursor, err := h.svc.ListRolloutEvents(ctx, info.OrganizationID, rollout.EventFilter{
+		RolloutID: r.Msg.RolloutId,
+		ChannelID: r.Msg.ChannelId,
+		PageSize:  r.Msg.PageSize,
+		Cursor:    r.Msg.Cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListRolloutEventsResponse{Cursor: cursor}
+	for i := range events {
+		resp.Events = append(resp.Events, eventToProto(&events[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) ContinueRollout(ctx context.Context, r *connect.Request[pb.ContinueRolloutRequest]) (*connect.Response[pb.ContinueRolloutResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
@@ -406,6 +411,43 @@ func (h *Handler) ContinueRollout(ctx context.Context, r *connect.Request[pb.Con
 		return nil, withReason(err)
 	}
 	return connect.NewResponse(&pb.ContinueRolloutResponse{Rollout: rolloutToProto(view)}), nil
+}
+
+func (h *Handler) AdvanceRollout(ctx context.Context, r *connect.Request[pb.AdvanceRolloutRequest]) (*connect.Response[pb.AdvanceRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	selection := rollout.DeviceSelection{DeviceIdentifiers: r.Msg.GetDevices().GetDeviceIdentifiers(), Count: r.Msg.GetCount()}
+	view, identifiers, err := h.svc.AdvanceRollout(ctx, info.OrganizationID, r.Msg.RolloutId, selection, mutation(info, r.Msg.ExpectedRevision, r.Msg.Note))
+	if err != nil {
+		return nil, withReason(err)
+	}
+	return connect.NewResponse(&pb.AdvanceRolloutResponse{Rollout: rolloutToProto(view), DeviceIdentifiers: identifiers}), nil
+}
+
+func (h *Handler) SkipRolloutDevices(ctx context.Context, r *connect.Request[pb.SkipRolloutDevicesRequest]) (*connect.Response[pb.SkipRolloutDevicesResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.svc.SkipRolloutDevices(ctx, info.OrganizationID, r.Msg.RolloutId, r.Msg.GetDevices().GetDeviceIdentifiers(), mutation(info, r.Msg.ExpectedRevision, r.Msg.Note))
+	if err != nil {
+		return nil, withReason(err)
+	}
+	return connect.NewResponse(&pb.SkipRolloutDevicesResponse{Rollout: rolloutToProto(view)}), nil
+}
+
+func (h *Handler) CompleteRollout(ctx context.Context, r *connect.Request[pb.CompleteRolloutRequest]) (*connect.Response[pb.CompleteRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.svc.CompleteRollout(ctx, info.OrganizationID, r.Msg.RolloutId, mutation(info, r.Msg.ExpectedRevision, r.Msg.Note))
+	if err != nil {
+		return nil, withReason(err)
+	}
+	return connect.NewResponse(&pb.CompleteRolloutResponse{Rollout: rolloutToProto(view)}), nil
 }
 
 func (h *Handler) PauseRollout(ctx context.Context, r *connect.Request[pb.PauseRolloutRequest]) (*connect.Response[pb.PauseRolloutResponse], error) {

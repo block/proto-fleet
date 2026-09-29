@@ -976,6 +976,7 @@ type FirmwareRollout struct {
 	LastActionByName         string
 	CreatedAt                time.Time
 	FinishedAt               sql.NullTime
+	ControllerWaitingSince   sql.NullTime
 }
 
 type FirmwareRolloutDevice struct {
@@ -1002,6 +1003,21 @@ type FirmwareRolloutDevice struct {
 	BaselineOpenErrors      sql.NullInt32
 	BaselineAt              sql.NullTime
 	AddedAt                 time.Time
+}
+
+type FirmwareRolloutEvent struct {
+	ID                int64
+	OrgID             int64
+	RolloutID         int64
+	ChannelID         int64
+	Type              string
+	OccurredAt        time.Time
+	ActorType         string
+	ActorID           int64
+	ActorName         string
+	RolloutRevision   int64
+	Note              string
+	DeviceIdentifiers []string
 }
 
 type FirmwareRolloutReservation struct {
