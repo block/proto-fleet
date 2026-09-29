@@ -54,7 +54,8 @@ type effectivePermissionResolver interface {
 }
 
 type Service struct {
-	passwordAttempts    passwordAttempts
+	loginAttempts       passwordAttempts
+	stepUpAttempts      passwordAttempts
 	userStore           stores.UserStore
 	userManagementStore stores.UserManagementStore
 	transactor          stores.Transactor
@@ -134,8 +135,8 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		s.logLoginFailed(ctx, req.Username, nil, nil)
 		return nil, nil, newAuthenticationFailedError()
 	}
-	if err := s.checkPasswordAttempt(user.ID); err != nil {
-		return nil, nil, err
+	if err := s.loginAttempts.check(user.ID); err != nil {
+		return nil, nil, newAuthenticationFailedError()
 	}
 
 	orgs, err := s.userStore.GetOrganizationsForUser(ctx, user.ID)
@@ -413,8 +414,8 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	if err != nil {
 		return fleeterror.NewForbiddenErrorf("invalid credentials")
 	}
-	if err := s.checkPasswordAttempt(user.ID); err != nil {
-		return err
+	if err := s.loginAttempts.check(user.ID); err != nil {
+		return fleeterror.NewForbiddenErrorf("invalid credentials")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -436,7 +437,7 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
-	if err := s.checkPasswordAttempt(info.UserID); err != nil {
+	if err := s.stepUpAttempts.check(info.UserID); err != nil {
 		return err
 	}
 
@@ -485,7 +486,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 	if err := ValidatePassword(r.NewPassword); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	if err := s.checkPasswordAttempt(info.UserID); err != nil {
+	if err := s.stepUpAttempts.check(info.UserID); err != nil {
 		return nil, err
 	}
 

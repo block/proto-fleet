@@ -1,12 +1,14 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Code } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import AuthenticationSettings from "./Auth";
+import { authClient } from "@/protoFleet/api/clients";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { useUsername } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/useAuth");
+vi.mock("@/protoFleet/api/clients", () => ({ authClient: { verifyCredentials: vi.fn() } }));
 vi.mock("@/protoFleet/api/useLogin");
 vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
@@ -28,6 +30,7 @@ beforeEach(() => {
   vi.mocked(useUsername).mockReturnValue("testuser");
 
   vi.clearAllMocks();
+  vi.mocked(authClient.verifyCredentials).mockResolvedValue({ $typeName: "auth.v1.VerifyCredentialsResponse" });
 });
 
 describe("AuthenticationSettings", () => {
@@ -39,7 +42,7 @@ describe("AuthenticationSettings", () => {
     ],
     [Code.Internal, "internal database error", "Authentication failed. Please check your password and try again."],
   ])("shows retry guidance only for throttled reauthentication (%s)", async (code, message, expected) => {
-    mockLogin.mockImplementation(({ onError }) => onError(message, code));
+    vi.mocked(authClient.verifyCredentials).mockRejectedValue(new ConnectError(message, code));
     const { getByTestId, getByLabelText, getByText } = render(<AuthenticationSettings />);
     fireEvent.click(getByTestId("password-row").querySelector("button")!);
     fireEvent.change(getByLabelText("Password"), { target: { value: "currentpass" } });
@@ -65,10 +68,6 @@ describe("AuthenticationSettings", () => {
     });
 
     it("autofocuses the new password field in update password step", async () => {
-      mockLogin.mockImplementation(({ onSuccess }) => {
-        onSuccess(false);
-      });
-
       const { getByTestId, getByLabelText, getByText } = render(<AuthenticationSettings />);
 
       // Click Update button for password
@@ -92,14 +91,11 @@ describe("AuthenticationSettings", () => {
         const newPasswordInput = getByLabelText("New password");
         expect(newPasswordInput).toHaveFocus();
       });
+      expect(authClient.verifyCredentials).toHaveBeenCalledWith({ username: "testuser", password: "currentpass" });
+      expect(mockLogin).not.toHaveBeenCalled();
     });
 
     it("refocuses the new password field when the user chooses to create a stronger password", async () => {
-      mockLogin.mockImplementation(({ onSuccess, onFinally }) => {
-        onSuccess(false);
-        onFinally?.();
-      });
-
       const { getByTestId, getByLabelText, getByText, findByText, queryByText } = render(<AuthenticationSettings />);
 
       // Click Update button for password
@@ -131,10 +127,6 @@ describe("AuthenticationSettings", () => {
     });
 
     it("autofocuses the new username field in update username step", async () => {
-      mockLogin.mockImplementation(({ onSuccess }) => {
-        onSuccess(false);
-      });
-
       const { getByTestId, getByLabelText, getByText } = render(<AuthenticationSettings />);
 
       // Click Update button for username (first row)

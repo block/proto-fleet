@@ -10,7 +10,11 @@ import (
 
 	"connectrpc.com/connect"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -41,7 +45,56 @@ func TestPasswordAttemptsBoundary(t *testing.T) {
 	}
 }
 
-func TestPasswordLimitSurvivesRenameAcrossEveryVerificationPath(t *testing.T) {
+func TestLoginThrottleDoesNotRevealAccountExistence(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{userStore: &mockUserStoreForVerify{
+		users: map[string]interfaces.User{"admin": {ID: 1, Username: "admin", PasswordHash: string(hash)}},
+		orgs:  []interfaces.Organization{{ID: 1}},
+	}}
+	for range 11 {
+		for _, username := range []string{"admin", "unknown"} {
+			_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: username, Password: "wrong"}, "", "")
+			require.Equal(t, newAuthenticationFailedError(), err, "login for %q exposed a different failure", username)
+		}
+	}
+}
+
+func TestPublicLoginExhaustionDoesNotBlockSessionOperations(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	management := mocks.NewMockUserManagementStore(gomock.NewController(t))
+	management.EXPECT().UpdateUserPasswordAndClearPasswordChangeFlag(gomock.Any(), int64(1), gomock.Any()).Return(nil)
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users: map[string]interfaces.User{"admin": {ID: 1, Username: "admin", PasswordHash: string(hash)}},
+			orgs:  []interfaces.Organization{{ID: 1}},
+		},
+		userManagementStore: management,
+		transactor:          noopTransactor{},
+		sessionSvc: session.NewService(session.Config{
+			Duration: time.Hour, IDBytes: 16, CookieName: "fleet_session",
+		}, fakeSessionStore{}),
+	}
+	for range 10 {
+		_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "admin", Password: "wrong"}, "", "")
+		require.Equal(t, newAuthenticationFailedError(), err)
+	}
+	ctx := ctxWithSession("user-1", "admin", 1)
+	if err := service.VerifySessionCredentials(ctx, "admin", "password"); err != nil {
+		t.Fatalf("public login abuse blocked step-up: %v", err)
+	}
+	cookie, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "password", NewPassword: "NewPassword123!"}, "", "")
+	if err != nil || cookie == nil {
+		t.Fatalf("public login abuse blocked password rotation: cookie=%v, err=%v", cookie, err)
+	}
+}
+
+func TestPasswordBudgetsSurviveRenameAcrossVerificationPaths(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
@@ -50,22 +103,33 @@ func TestPasswordLimitSurvivesRenameAcrossEveryVerificationPath(t *testing.T) {
 		"admin": {ID: 1, Username: "admin", PasswordHash: string(hash)},
 	}}
 	service := &Service{userStore: store}
-	for range 10 {
-		if err := service.VerifyCredentials(context.Background(), "admin", "password"); err != nil {
+	ctx := ctxWithSession("user-1", "admin", 1)
+	for range 5 {
+		if err := service.VerifySessionCredentials(ctx, "admin", "password"); err != nil {
 			t.Fatal(err)
 		}
+		_, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "wrong", NewPassword: "NewPassword123!"}, "", "")
+		if err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
+			t.Fatalf("password update did not consume its available step-up attempt: %v", err)
+		}
 	}
-	ctx := ctxWithSession("user-1", "admin", 1)
+	for range 10 {
+		if err := service.VerifyCredentials(context.Background(), "admin", "password"); err != nil {
+			t.Fatalf("step-up exhaustion blocked the public budget: %v", err)
+		}
+	}
 	if err := service.UpdateUsername(ctx, "renamed"); err != nil {
 		t.Fatal(err)
 	}
 	ctx = ctxWithSession("user-1", "renamed", 1)
 	_, _, loginErr := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "renamed", Password: "password"}, "", "")
 	verifyErr := service.VerifyCredentials(ctx, "renamed", "password")
+	require.Equal(t, newAuthenticationFailedError(), loginErr, "rename reset the public login budget")
+	require.Error(t, verifyErr, "rename reset the public verification budget")
 	// A different submitted username must not bypass the session user's limit.
 	stepUpErr := service.VerifySessionCredentials(ctx, "someone-else", "password")
 	_, updateErr := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "old", NewPassword: "NewPassword123!"}, "", "")
-	for _, err := range []error{loginErr, verifyErr, stepUpErr, updateErr} {
+	for _, err := range []error{stepUpErr, updateErr} {
 		if connect.CodeOf(err) != connect.CodeResourceExhausted {
 			t.Fatalf("got %v, want resource exhausted", err)
 		}

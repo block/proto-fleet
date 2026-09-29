@@ -1,7 +1,8 @@
 import { RefObject, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
-import { Code } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { authClient } from "@/protoFleet/api/clients";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
@@ -127,30 +128,26 @@ const AuthenticationSettings = () => {
     setUsernameUpdateApiError(null);
   };
 
-  function authenticate() {
+  async function authenticate() {
     setIsSubmitting(true);
     setAuthApiError(null); // Clear any previous error
-    login({
-      loginRequest: create(AuthenticateRequestSchema, { username, password }),
-      skipLogoutOnError: true,
-      onSuccess: () => {
-        if (updatingState === "password") {
-          setStep("updatePassword");
-        } else if (updatingState === "username") {
-          setStep("updateUsername");
-        }
-      },
-      onError: (message, code) => {
-        setAuthApiError(
-          code === Code.ResourceExhausted
-            ? message
-            : "Authentication failed. Please check your password and try again.",
-        );
-      },
-      onFinally: () => {
-        setIsSubmitting(false);
-      },
-    });
+    try {
+      await authClient.verifyCredentials({ username, password });
+      if (updatingState === "password") {
+        setStep("updatePassword");
+      } else if (updatingState === "username") {
+        setStep("updateUsername");
+      }
+    } catch (error) {
+      const rpcError = ConnectError.from(error);
+      setAuthApiError(
+        rpcError.code === Code.ResourceExhausted
+          ? rpcError.rawMessage
+          : "Authentication failed. Please check your password and try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const submitPasswordUpdate = useCallback(

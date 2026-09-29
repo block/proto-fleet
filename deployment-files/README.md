@@ -17,15 +17,17 @@ peer. `X-Real-IP` is ignored. Restrict backend access to those proxies and do no
 configure them to preserve arbitrary client-supplied forwarding headers without
 appending the actual peer address.
 
-Password verification allows 10 attempts per account per minute, shared
-across login and password-confirmation operations. Successful checks count too;
-checks use immutable account IDs, so renames preserve the budget and nonexistent
-usernames do not consume it. Throttling returns
-`ResourceExhausted` with a retry-later message and emits
+Password verification has separate budgets for public login and authenticated
+password confirmation, each allowing 10 attempts per account per minute.
+Public attempts cannot exhaust the budget used by an existing session. Successful
+checks count too; immutable account IDs preserve budgets across renames, and
+nonexistent usernames allocate no entries. Public login throttling returns the
+same authentication failure as invalid credentials; authenticated confirmation
+returns `ResourceExhausted` with retry guidance. Both emit
 `event=auth_password_throttled` without credentials. Limits are process-local and
-reset on restart or HA failover. At 10,000 tracked accounts, new accounts are
-rejected until entries expire. This is not a persistent account lockout or a
-replacement for edge-level IP rate limits.
+reset on restart or HA failover. Each budget tracks at most 10,000 accounts;
+new accounts wait for expiry when that budget is full. This is not a persistent
+account lockout or a replacement for edge-level IP rate limits.
 
 ## Prerequisites
 

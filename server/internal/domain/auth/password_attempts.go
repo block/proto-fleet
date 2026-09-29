@@ -16,7 +16,8 @@ type passwordAttemptWindowState struct {
 	count   int
 }
 
-// passwordAttempts is shared by every password-verification operation in a Service.
+// passwordAttempts bounds checks per immutable account ID. Public login and
+// session-bound verification use separate budgets so login abuse cannot block step-up.
 // Fixed windows count successes too, reset on process restart, and never evict live entries.
 type passwordAttempts struct {
 	mu         sync.Mutex
@@ -63,8 +64,8 @@ func (l *passwordAttempts) allow(userID int64, now time.Time) bool {
 	return true
 }
 
-func (s *Service) checkPasswordAttempt(userID int64) error {
-	if s.passwordAttempts.allow(userID, time.Now()) {
+func (l *passwordAttempts) check(userID int64) error {
+	if l.allow(userID, time.Now()) {
 		return nil
 	}
 	slog.Warn("password verification throttled", "event", "auth_password_throttled")
