@@ -2,6 +2,34 @@
 
 This document provides instructions for installing Proto Fleet.
 
+## HTTP ingress security
+
+Fleet records client IPs from the socket unless `HTTP_TRUSTED_PROXY_CIDRS`
+explicitly trusts the upstream proxy. Packaged nginx installs default to
+`127.0.0.1/32,::1/128`; bare `fleetd` trusts no proxies. For an additional load
+balancer, set this comma-separated value in `.env` to loopback plus its exact
+subnet CIDRs, not the entire VPC. The setting identifies proxies, not allowed
+users or Fleet Nodes. Invalid CIDRs prevent server startup.
+
+nginx appends its observed peer to `X-Forwarded-For`. Fleet walks the chain
+right-to-left through trusted proxies, stopping at the first untrusted address.
+Earlier entries are ignored; malformed entries within the trusted suffix fall
+back to the socket peer. `X-Real-IP` is ignored. Restrict backend access to those proxies and do not
+configure them to preserve arbitrary client-supplied forwarding headers without
+appending the actual peer address.
+
+Password verification has separate budgets for public login and authenticated
+password confirmation, each allowing 10 attempts per account per minute.
+Public attempts cannot exhaust the budget used by an existing session. Successful
+checks count too; immutable account IDs preserve budgets across renames, and
+nonexistent usernames allocate no entries. Public login throttling returns the
+same authentication failure as invalid credentials; authenticated confirmation
+returns `ResourceExhausted` with retry guidance. Both emit
+`event=auth_password_throttled` without credentials. Limits are process-local and
+reset on restart or HA failover. Each budget tracks at most 10,000 accounts;
+new accounts wait for expiry when that budget is full. This is not a persistent
+account lockout or a replacement for edge-level IP rate limits.
+
 ## Prerequisites
 
 Before running the install script:

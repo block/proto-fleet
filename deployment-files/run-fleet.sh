@@ -495,6 +495,7 @@ validate_runner_env_values() {
         AUTH_CLIENT_SECRET_KEY
         ENCRYPT_SERVICE_MASTER_KEY
         SESSION_COOKIE_SECURE
+        HTTP_TRUSTED_PROXY_CIDRS
     )
 
     [ -e "$ENV_FILE" ] || return 0

@@ -98,6 +98,7 @@ func TestFleetApplicationProfileRejectsInvalidFeatureCombinations(t *testing.T) 
 func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) {
 	values, err := fleetApplicationEnvironment(func(key string) (string, bool) {
 		value, ok := map[string]string{
+			"HTTP_TRUSTED_PROXY_CIDRS":              "127.0.0.1/32,::1/128,10.0.0.0/24",
 			"DD_API_KEY":                            "test-key",
 			"ENABLE_TRACING":                        "TRUE",
 			"ENABLE_BETA_ALERTS":                    "true",
@@ -110,7 +111,55 @@ func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) 
 	require.NoError(t, err)
 
 	environment := renderFleetDeploymentEnvironment(values)
-	require.Equal(t, "DD_API_KEY=test-key\nENABLE_BETA_ALERTS=true\nENABLE_SYSTEM_MONITORING=true\nENABLE_TRACING=true\nFLEET_TELEMETRY_SAMPLE_RATE=0.25\nFLEET_TELEMETRY_TRUST_INCOMING_TRACES=true\n", string(environment))
+	require.Equal(t, "HTTP_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,10.0.0.0/24\nDD_API_KEY=test-key\nENABLE_BETA_ALERTS=true\nENABLE_SYSTEM_MONITORING=true\nENABLE_TRACING=true\nFLEET_TELEMETRY_SAMPLE_RATE=0.25\nFLEET_TELEMETRY_TRUST_INCOMING_TRACES=true\n", string(environment))
+	reloaded, err := parseFleetDeploymentEnvironment(environment)
+	require.NoError(t, err)
+	require.Equal(t, values["HTTP_TRUSTED_PROXY_CIDRS"], reloaded["HTTP_TRUSTED_PROXY_CIDRS"])
+}
+
+func TestFleetApplicationProfileValidatesTrustedProxyCIDRs(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		cidrs string
+		valid bool
+	}{
+		{name: "unset", valid: true},
+		{name: "IPv4 and IPv6", cidrs: "127.0.0.1/32,::1/128,10.0.0.0/24", valid: true},
+		{name: "bare IP", cidrs: "10.0.0.1"},
+		{name: "invalid prefix length", cidrs: "10.0.0.0/33"},
+		{name: "malformed later entry", cidrs: "127.0.0.1/32,invalid"},
+		{name: "empty entry", cidrs: "127.0.0.1/32,"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const key = "HTTP_TRUSTED_PROXY_CIDRS"
+			path := filepath.Join(t.TempDir(), fleetEnvironmentFile)
+			var contents string
+			if test.cidrs != "" {
+				contents = key + "=" + test.cidrs + "\n"
+			}
+			require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+			for name, load := range map[string]func() (fleetApplicationProfile, error){
+				"capture": func() (fleetApplicationProfile, error) {
+					return fleetApplicationEnvironment(func(name string) (string, bool) {
+						return test.cidrs, name == key && test.cidrs != ""
+					})
+				},
+				"reload": func() (fleetApplicationProfile, error) {
+					return loadFleetApplicationProfileFile(path, true)
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					profile, err := load()
+					if !test.valid {
+						require.ErrorContains(t, err, key)
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, test.cidrs, profile[key])
+				})
+			}
+		})
+	}
 }
 
 func TestFleetDeploymentEnvironmentOmitsDatadogAPIKeyWhenTracingIsDisabled(t *testing.T) {

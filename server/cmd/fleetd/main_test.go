@@ -52,6 +52,7 @@ encrypt:
   service-master-key: "test-master-key"
 http:
   address: "0.0.0.0:9090"
+  trusted-proxy-cidrs: "127.0.0.1/32,::1/128"
   write-byte-timeout: "45s"
   suppress-cors: true
 logging:
@@ -69,6 +70,7 @@ logging:
 	_, err = parser.Parse(nil)
 	require.NoError(t, err)
 	require.Equal(t, "0.0.0.0:9090", config.HTTP.Address)
+	require.Equal(t, "127.0.0.1/32,::1/128", config.HTTP.TrustedProxyCIDRs)
 	require.Equal(t, 45*time.Second, config.HTTP.WriteByteTimeout)
 	require.True(t, config.HTTP.SuppressCors)
 	require.Equal(t, "db.internal:5432", config.DB.Address)
@@ -76,6 +78,11 @@ logging:
 	require.Equal(t, "test-client-secret", config.Auth.ClientToken.SecretKey)
 	require.Equal(t, time.Hour, config.Auth.ClientToken.ExpirationPeriod)
 	require.Equal(t, "test-master-key", config.Encrypt.ServiceMasterKey)
+}
+
+func TestFleetdRejectsInvalidTrustedProxiesBeforeStartingServices(t *testing.T) {
+	err := start(&Config{HTTP: HTTPConfig{TrustedProxyCIDRs: "not-a-cidr"}})
+	require.ErrorContains(t, err, "HTTP_TRUSTED_PROXY_CIDRS")
 }
 
 func TestFleetdFlagsOverrideYAMLConfig(t *testing.T) {

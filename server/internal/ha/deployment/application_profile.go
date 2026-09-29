@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 )
 
 var fleetDeploymentEnvironmentKeys = []string{
+	"HTTP_TRUSTED_PROXY_CIDRS",
 	"DD_API_KEY",
 	"DD_ENV",
 	"DD_SITE",
@@ -70,6 +72,13 @@ func fleetApplicationProfileFromValues(values map[string]string, defaultBetaAler
 	for _, key := range fleetDeploymentEnvironmentKeys {
 		if value, ok := values[key]; ok {
 			profile[key] = value
+		}
+	}
+	if cidrs := profile["HTTP_TRUSTED_PROXY_CIDRS"]; cidrs != "" {
+		for _, value := range strings.Split(cidrs, ",") {
+			if _, err := netip.ParsePrefix(strings.TrimSpace(value)); err != nil {
+				return nil, fmt.Errorf("HTTP_TRUSTED_PROXY_CIDRS: %w", err)
+			}
 		}
 	}
 	betaAlerts, err := fleetFeatureFlagOrDefault(profile, "ENABLE_BETA_ALERTS", defaultBetaAlerts)

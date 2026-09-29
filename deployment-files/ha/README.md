@@ -106,6 +106,16 @@ them in the protected `/etc/proto-fleet/ha/fleet.env`. Host updates reuse that
 file, so every stop, preflight, and restart uses the same overlays. Setting
 `ENABLE_BETA_ALERTS=false` also disables the HA readiness
 Grafana sidecar; `fleet-ha status` remains the authoritative readiness check.
+
+`HTTP_TRUSTED_PROXY_CIDRS` is also captured by HA installation and
+`prepare-external`, persisted in `fleet.env`, and preserved by updates. Omit it
+for packaged nginx's loopback-only default; behind a load balancer include
+loopback and the exact load-balancer subnet CIDRs. See
+[HTTP ingress security](../README.md#http-ingress-security). Upgrade both hosts
+to a release supporting this key before adding it to existing `fleet.env` files:
+older HA tools reject unknown keys. Setting the process environment on
+`fleet-ha update` does not change installed configuration.
+
 System monitoring is configured on both database hosts, but its runtime job
 runs only on the host that currently owns Fleet. This keeps the shared metric
 series single-writer while preserving monitoring across failover. Its disk

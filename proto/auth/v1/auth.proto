@@ -88,8 +88,9 @@ message UpdatePasswordRequest {
 }
 
 message UpdatePasswordResponse {
-    // Empty response as success/failure is indicated by gRPC status
-    // A successful response indicates the password was changed
+    // Unix timestamp (seconds) when the replacement session expires.
+    // The replacement session cookie is set on the same successful response.
+    int64 session_expiry = 1;
 }
 
 message UpdateUsernameRequest {

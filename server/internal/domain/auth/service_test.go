@@ -90,7 +90,18 @@ func (m *mockUserStoreForVerify) UpdateUserPassword(ctx context.Context, userID 
 	return nil
 }
 func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
-	return m.updateUserErr
+	if m.updateUserErr != nil {
+		return m.updateUserErr
+	}
+	for oldName, user := range m.users {
+		if user.ID == userID {
+			delete(m.users, oldName)
+			user.Username = username
+			m.users[username] = user
+			break
+		}
+	}
+	return nil
 }
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return m.orgs, nil
@@ -561,7 +572,7 @@ func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.
 		transactor: mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: "wrongpass",
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")
@@ -577,7 +588,7 @@ func TestService_UpdatePasswordRejectsInvalidNewPasswordBeforeLookup(t *testing.
 		transactor: mocks.NewMockTransactor(ctrl),
 	}
 
-	_, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: "current-password",
 		NewPassword:     "short",
 	}, "test-agent", "127.0.0.1")
@@ -632,7 +643,7 @@ func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) 
 		transactor:          mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: currentPassword,
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")
