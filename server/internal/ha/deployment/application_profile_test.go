@@ -117,6 +117,51 @@ func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) 
 	require.Equal(t, values["HTTP_TRUSTED_PROXY_CIDRS"], reloaded["HTTP_TRUSTED_PROXY_CIDRS"])
 }
 
+func TestFleetApplicationProfileValidatesTrustedProxyCIDRs(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		cidrs string
+		valid bool
+	}{
+		{name: "unset", valid: true},
+		{name: "IPv4 and IPv6", cidrs: "127.0.0.1/32,::1/128,10.0.0.0/24", valid: true},
+		{name: "bare IP", cidrs: "10.0.0.1"},
+		{name: "invalid prefix length", cidrs: "10.0.0.0/33"},
+		{name: "malformed later entry", cidrs: "127.0.0.1/32,invalid"},
+		{name: "empty entry", cidrs: "127.0.0.1/32,"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const key = "HTTP_TRUSTED_PROXY_CIDRS"
+			path := filepath.Join(t.TempDir(), fleetEnvironmentFile)
+			var contents string
+			if test.cidrs != "" {
+				contents = key + "=" + test.cidrs + "\n"
+			}
+			require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+			for name, load := range map[string]func() (fleetApplicationProfile, error){
+				"capture": func() (fleetApplicationProfile, error) {
+					return fleetApplicationEnvironment(func(name string) (string, bool) {
+						return test.cidrs, name == key && test.cidrs != ""
+					})
+				},
+				"reload": func() (fleetApplicationProfile, error) {
+					return loadFleetApplicationProfileFile(path, true)
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					profile, err := load()
+					if !test.valid {
+						require.ErrorContains(t, err, key)
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, test.cidrs, profile[key])
+				})
+			}
+		})
+	}
+}
+
 func TestFleetDeploymentEnvironmentOmitsDatadogAPIKeyWhenTracingIsDisabled(t *testing.T) {
 	profile, err := fleetApplicationEnvironment(func(key string) (string, bool) {
 		value, ok := map[string]string{
