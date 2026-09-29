@@ -1215,6 +1215,9 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
+	// When each target's latest dispatched FirmwareUpdate reached a terminal
+	// status. Targets whose command is still queued or unrecorded are omitted.
+	ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error)
 	ListFirmwareRolloutEvents(ctx context.Context, arg ListFirmwareRolloutEventsParams) ([]FirmwareRolloutEvent, error)
 	// Offline current members that have been targeted hold capacity. Departed
 	// targets count only while a durable dispatch reservation remains unresolved:

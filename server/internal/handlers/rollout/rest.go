@@ -123,6 +123,12 @@ func decodeRESTRequest(w http.ResponseWriter, r *http.Request, message *dynamicp
 		if len(query) != 0 {
 			return fmt.Errorf("use a JSON body for this operation")
 		}
+		// Browsers send form and text requests cross-origin without a CORS
+		// preflight. Requiring JSON even for an empty body keeps them away from
+		// cookie-authenticated mutations, matching the Connect endpoint.
+		if mediaType, _, e := mime.ParseMediaType(r.Header.Get("Content-Type")); e != nil || mediaType != "application/json" {
+			return fmt.Errorf("Content-Type must be application/json")
+		}
 		if r.Header.Get("Content-Encoding") != "" {
 			return fmt.Errorf("compressed request bodies are not supported")
 		}
@@ -133,8 +139,6 @@ func decodeRESTRequest(w http.ResponseWriter, r *http.Request, message *dynamicp
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
 			body = []byte("{}")
-		} else if mediaType, _, e := mime.ParseMediaType(r.Header.Get("Content-Type")); e != nil || mediaType != "application/json" {
-			return fmt.Errorf("Content-Type must be application/json")
 		}
 	}
 	if err != nil {

@@ -84,19 +84,20 @@ func TestDelegatedAdvanceRollsBackRealCommandPreflightPartialDispatch(t *testing
 		RolloutId: rollout.Id, ExpectedRevision: rollout.Revision,
 		Selection: &pb.AdvanceRolloutRequest_Devices{Devices: &pb.RolloutDeviceSelection{DeviceIdentifiers: identifiers}},
 	}))
-	require.ErrorContains(t, err, "selected targets failed command preflight")
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	var rpcError *connect.Error
 	require.ErrorAs(t, err, &rpcError)
-	var rejected []string
+	var info *pb.RolloutErrorInfo
 	for _, detail := range rpcError.Details() {
 		message, err := detail.Value()
 		require.NoError(t, err)
 		if reason, ok := message.(*pb.RolloutErrorInfo); ok {
-			rejected = reason.DeviceIdentifiers
+			info = reason
 		}
 	}
-	require.Equal(t, []string{curtailed.ID}, rejected, "the command service admitted the available miner before the enclosing transaction rolled back")
+	require.NotNil(t, info, "preflight rejection must carry a typed reason")
+	assert.Equal(t, pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_DEVICE_NOT_DISPATCHABLE, info.Reason)
+	require.Equal(t, []string{curtailed.ID}, info.DeviceIdentifiers, "the command service admitted the available miner before the enclosing transaction rolled back")
 	var batches, messages, attempts, reservations int
 	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM command_batch_log),

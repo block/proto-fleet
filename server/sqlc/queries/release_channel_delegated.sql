@@ -26,6 +26,18 @@ SET halted_at = clock_timestamp(), halt_reason = 'skipped', skip_note = sqlc.arg
 WHERE rollout_id = sqlc.arg('rollout_id') AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
   AND attempts = 0 AND halted_at IS NULL AND verified_at IS NULL AND excluded_at IS NULL;
 
+-- name: ListFirmwareRolloutDispatchCompletions :many
+-- When each target's latest dispatched FirmwareUpdate reached a terminal
+-- status. Targets whose command is still queued or unrecorded are omitted.
+SELECT rd.device_id, max(qm.updated_at)::timestamptz AS finished_at
+FROM firmware_rollout_device rd
+JOIN queue_message qm ON qm.device_id = rd.device_id
+    AND qm.command_batch_log_uuid = rd.last_dispatched_batch_uuid
+WHERE rd.rollout_id = sqlc.arg('rollout_id')
+  AND qm.command_type = 'FirmwareUpdate'
+  AND qm.status IN ('SUCCESS', 'FAILED')
+GROUP BY rd.device_id;
+
 -- name: CompleteDelegatedFirmwareRollout :exec
 UPDATE firmware_rollout
 SET status = sqlc.arg('status'),

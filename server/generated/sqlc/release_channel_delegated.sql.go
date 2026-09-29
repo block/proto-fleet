@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -72,6 +73,47 @@ func (q *Queries) CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirm
 		arg.RolloutID,
 	)
 	return err
+}
+
+const listFirmwareRolloutDispatchCompletions = `-- name: ListFirmwareRolloutDispatchCompletions :many
+SELECT rd.device_id, max(qm.updated_at)::timestamptz AS finished_at
+FROM firmware_rollout_device rd
+JOIN queue_message qm ON qm.device_id = rd.device_id
+    AND qm.command_batch_log_uuid = rd.last_dispatched_batch_uuid
+WHERE rd.rollout_id = $1
+  AND qm.command_type = 'FirmwareUpdate'
+  AND qm.status IN ('SUCCESS', 'FAILED')
+GROUP BY rd.device_id
+`
+
+type ListFirmwareRolloutDispatchCompletionsRow struct {
+	DeviceID   int64
+	FinishedAt time.Time
+}
+
+// When each target's latest dispatched FirmwareUpdate reached a terminal
+// status. Targets whose command is still queued or unrecorded are omitted.
+func (q *Queries) ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutDispatchCompletionsStmt, listFirmwareRolloutDispatchCompletions, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFirmwareRolloutDispatchCompletionsRow
+	for rows.Next() {
+		var i ListFirmwareRolloutDispatchCompletionsRow
+		if err := rows.Scan(&i.DeviceID, &i.FinishedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFirmwareRolloutEvents = `-- name: ListFirmwareRolloutEvents :many

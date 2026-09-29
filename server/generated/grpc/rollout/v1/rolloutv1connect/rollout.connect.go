@@ -202,10 +202,13 @@ type RolloutServiceClient interface {
 	// Dispatches the next update commands of a DELEGATED rollout: either the
 	// named QUEUED targets or the next count QUEUED targets in the rollout's
 	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
-	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
-	// rollout is not delegated, not ACTIVE, paused, a named target is not
-	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
-	// every requested target. Honors the RolloutService revision rule.
+	// STALE_GENERATION, DEVICE_NOT_QUEUED, DEVICE_NOT_DISPATCHABLE,
+	// OFFLINE_BUDGET_FULL, or ARTIFACT_MISSING) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, or no longer current, a
+	// named target is not QUEUED in it, a selected target cannot be dispatched
+	// now, RolloutBehavior.max_concurrent_offline cannot admit every requested
+	// target, or no uploaded file carries the rollout's checksum. Honors the
+	// RolloutService revision rule.
 	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
 	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
 	// them: no command is sent, they stay on their current firmware, and they
@@ -653,10 +656,13 @@ type RolloutServiceHandler interface {
 	// Dispatches the next update commands of a DELEGATED rollout: either the
 	// named QUEUED targets or the next count QUEUED targets in the rollout's
 	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
-	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
-	// rollout is not delegated, not ACTIVE, paused, a named target is not
-	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
-	// every requested target. Honors the RolloutService revision rule.
+	// STALE_GENERATION, DEVICE_NOT_QUEUED, DEVICE_NOT_DISPATCHABLE,
+	// OFFLINE_BUDGET_FULL, or ARTIFACT_MISSING) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, or no longer current, a
+	// named target is not QUEUED in it, a selected target cannot be dispatched
+	// now, RolloutBehavior.max_concurrent_offline cannot admit every requested
+	// target, or no uploaded file carries the rollout's checksum. Honors the
+	// RolloutService revision rule.
 	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
 	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
 	// them: no command is sent, they stay on their current firmware, and they

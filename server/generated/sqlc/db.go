@@ -1254,6 +1254,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDevices: %w", err)
 	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDispatchCompletions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDispatchCompletions: %w", err)
+	}
 	if q.listFirmwareRolloutEventsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvents: %w", err)
 	}
@@ -4167,6 +4170,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt != nil {
+		if cerr := q.listFirmwareRolloutDispatchCompletionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutDispatchCompletionsStmt: %w", cerr)
+		}
+	}
 	if q.listFirmwareRolloutEventsStmt != nil {
 		if cerr := q.listFirmwareRolloutEventsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFirmwareRolloutEventsStmt: %w", cerr)
@@ -6046,6 +6054,7 @@ type Queries struct {
 	listEnabledMQTTSourcesStmt                                   *sql.Stmt
 	listExistingDeviceIdentifiersStmt                            *sql.Stmt
 	listFirmwareRolloutDevicesStmt                               *sql.Stmt
+	listFirmwareRolloutDispatchCompletionsStmt                   *sql.Stmt
 	listFirmwareRolloutEventsStmt                                *sql.Stmt
 	listFirmwareRolloutOfflineSlotsStmt                          *sql.Stmt
 	listFirmwareRolloutsStmt                                     *sql.Stmt
@@ -6748,6 +6757,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEnabledMQTTSourcesStmt:                                   q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,
 		listFirmwareRolloutDevicesStmt:                               q.listFirmwareRolloutDevicesStmt,
+		listFirmwareRolloutDispatchCompletionsStmt:                   q.listFirmwareRolloutDispatchCompletionsStmt,
 		listFirmwareRolloutEventsStmt:                                q.listFirmwareRolloutEventsStmt,
 		listFirmwareRolloutOfflineSlotsStmt:                          q.listFirmwareRolloutOfflineSlotsStmt,
 		listFirmwareRolloutsStmt:                                     q.listFirmwareRolloutsStmt,

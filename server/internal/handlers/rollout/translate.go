@@ -100,19 +100,20 @@ var (
 		rollout.ResolutionExcludedTie: pb.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE,
 	}
 	reasonToProto = map[string]pb.RolloutErrorReason{
-		rollout.ReasonStaleRevision:     pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_REVISION,
-		rollout.ReasonStaleGeneration:   pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_GENERATION,
-		rollout.ReasonNotActive:         pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_ACTIVE,
-		rollout.ReasonNotAtGate:         pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_AT_GATE,
-		rollout.ReasonNotDelegated:      pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_DELEGATED,
-		rollout.ReasonPaused:            pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_PAUSED,
-		rollout.ReasonOfflineBudgetFull: pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_OFFLINE_BUDGET_FULL,
-		rollout.ReasonDeviceNotQueued:   pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_DEVICE_NOT_QUEUED,
-		rollout.ReasonScopeOverlap:      pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_SCOPE_OVERLAP,
-		rollout.ReasonArtifactMissing:   pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ARTIFACT_MISSING,
-		rollout.ReasonRolloutActive:     pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ROLLOUT_ACTIVE,
-		rollout.ReasonUpdatesInFlight:   pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT,
-		rollout.ReasonArtifactMismatch:  pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ARTIFACT_MISMATCH,
+		rollout.ReasonStaleRevision:         pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_REVISION,
+		rollout.ReasonStaleGeneration:       pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_GENERATION,
+		rollout.ReasonNotActive:             pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_ACTIVE,
+		rollout.ReasonNotAtGate:             pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_AT_GATE,
+		rollout.ReasonNotDelegated:          pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_NOT_DELEGATED,
+		rollout.ReasonPaused:                pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_PAUSED,
+		rollout.ReasonOfflineBudgetFull:     pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_OFFLINE_BUDGET_FULL,
+		rollout.ReasonDeviceNotQueued:       pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_DEVICE_NOT_QUEUED,
+		rollout.ReasonScopeOverlap:          pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_SCOPE_OVERLAP,
+		rollout.ReasonArtifactMissing:       pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ARTIFACT_MISSING,
+		rollout.ReasonRolloutActive:         pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ROLLOUT_ACTIVE,
+		rollout.ReasonUpdatesInFlight:       pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT,
+		rollout.ReasonArtifactMismatch:      pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_ARTIFACT_MISMATCH,
+		rollout.ReasonDeviceNotDispatchable: pb.RolloutErrorReason_ROLLOUT_ERROR_REASON_DEVICE_NOT_DISPATCHABLE,
 	}
 )
 

@@ -143,10 +143,10 @@ func (s *Service) AdvanceRollout(ctx context.Context, orgID, rolloutID int64, se
 		// Reject before any target is changed or any new command is queued.
 		for _, t := range selected {
 			if !t.InScope.Valid || !t.InScope.Bool {
-				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s no longer matches the assigned firmware", t.DeviceIdentifier)
+				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s no longer matches the assigned firmware", t.DeviceIdentifier)
 			}
 			if len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 {
-				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonUpdatesInFlight, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s has a pending firmware command", t.DeviceIdentifier)
+				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s has a pending firmware command", t.DeviceIdentifier)
 			}
 		}
 		budget, err := s.refreshOfflineBudget(ctx, r.ChannelID, channel.MaxConcurrentOffline)
@@ -182,7 +182,7 @@ func (s *Service) AdvanceRollout(ctx context.Context, orgID, rolloutID int64, se
 				// The production dispatcher queues commands and defers publish
 				// until this transaction commits. Roll back its complete batch
 				// when a preflight filter rejected any selected target.
-				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotQueued, DeviceIdentifiers: rejected}, "selected targets failed command preflight; no updates were queued")
+				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: rejected}, "selected targets failed command preflight; no updates were queued")
 			}
 		}
 		if err := q.RecordFirmwareRolloutAction(ctx, sqlc.RecordFirmwareRolloutActionParams{RolloutID: r.ID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name}); err != nil {
@@ -345,10 +345,28 @@ func (s *Service) enforceDelegated(ctx context.Context, observed sqlc.FirmwareRo
 		if err != nil {
 			return err
 		}
+		completions, err := s.store.GetQueries(ctx).ListFirmwareRolloutDispatchCompletions(ctx, r.ID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("load delegated command completions: %w", err)
+		}
+		finishedAt := make(map[int64]time.Time, len(completions))
+		for _, c := range completions {
+			finishedAt[c.DeviceID] = c.FinishedAt
+		}
 		var failedIDs []int64
 		var failedNames []string
 		for _, t := range activeTargets(targets) {
-			if t.settled(r) || t.Attempts == 0 || !t.LastSentAt.Valid || s.now().Sub(t.LastSentAt.Time) < resendInterval || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 {
+			if t.settled(r) || t.Attempts == 0 || !t.LastSentAt.Valid || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 {
+				continue
+			}
+			// The worker may install for longer than the verification interval
+			// and reboots the miner as its command finishes. Measure from then,
+			// so a slow but successful update is not failed while rebooting.
+			attemptEnded := t.LastSentAt.Time
+			if finished, ok := finishedAt[t.DeviceID]; ok && finished.After(attemptEnded) {
+				attemptEnded = finished
+			}
+			if s.now().Sub(attemptEnded) < resendInterval {
 				continue
 			}
 			failedIDs = append(failedIDs, t.DeviceID)

@@ -103,10 +103,18 @@ func (s *Service) prepareRollout(ctx context.Context, r sqlc.FirmwareRollout) ([
 			return err
 		}
 		targets, err = s.recordConvergence(ctx, current, targets)
-		if err == nil && targets == nil {
+		if err != nil {
+			return err
+		}
+		if targets == nil {
 			targets = []target{}
 		}
-		return err
+		// Start the controller wait clock in the transaction that settles the
+		// last in-flight update, so that change advances the revision once.
+		if current.BehaviorSnapshot.Method == MethodDelegated && !current.PausedAt.Valid && !current.ControllerWaitingSince.Valid && !hasUpdatesInFlight(current, targets) {
+			return s.setControllerWait(ctx, current.ID, sql.NullTime{Time: s.now(), Valid: true})
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

@@ -85,19 +85,20 @@ const (
 
 	// Error reasons, mirroring rollout.v1.RolloutErrorReason; carried by
 	// ErrorInfo inside FAILED_PRECONDITION and INVALID_ARGUMENT errors.
-	ReasonStaleRevision     = "stale_revision"
-	ReasonStaleGeneration   = "stale_generation"
-	ReasonNotActive         = "not_active"
-	ReasonNotAtGate         = "not_at_gate"
-	ReasonNotDelegated      = "not_delegated"
-	ReasonPaused            = "paused"
-	ReasonOfflineBudgetFull = "offline_budget_full"
-	ReasonDeviceNotQueued   = "device_not_queued"
-	ReasonScopeOverlap      = "scope_overlap"
-	ReasonArtifactMissing   = "artifact_missing"
-	ReasonRolloutActive     = "rollout_active"
-	ReasonUpdatesInFlight   = "updates_in_flight"
-	ReasonArtifactMismatch  = "artifact_mismatch"
+	ReasonStaleRevision         = "stale_revision"
+	ReasonStaleGeneration       = "stale_generation"
+	ReasonNotActive             = "not_active"
+	ReasonNotAtGate             = "not_at_gate"
+	ReasonNotDelegated          = "not_delegated"
+	ReasonPaused                = "paused"
+	ReasonOfflineBudgetFull     = "offline_budget_full"
+	ReasonDeviceNotQueued       = "device_not_queued"
+	ReasonScopeOverlap          = "scope_overlap"
+	ReasonArtifactMissing       = "artifact_missing"
+	ReasonRolloutActive         = "rollout_active"
+	ReasonUpdatesInFlight       = "updates_in_flight"
+	ReasonArtifactMismatch      = "artifact_mismatch"
+	ReasonDeviceNotDispatchable = "device_not_dispatchable"
 
 	// Activity event types.
 	EventRolloutStarted               = "rollout_started"

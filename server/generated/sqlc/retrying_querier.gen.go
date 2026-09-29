@@ -4698,6 +4698,18 @@ func (q *retryingQuerier) ListFirmwareRolloutDevices(ctx context.Context, rollou
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error) {
+	var result []ListFirmwareRolloutDispatchCompletionsRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutDispatchCompletions", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutDispatchCompletions(ctx, rolloutID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutEvents(ctx context.Context, arg ListFirmwareRolloutEventsParams) ([]FirmwareRolloutEvent, error) {
 	var result []FirmwareRolloutEvent
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvents", func() error {

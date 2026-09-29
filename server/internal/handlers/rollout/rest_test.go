@@ -80,6 +80,45 @@ func TestRESTRejectsAmbiguousOrInvalidRequestsBeforeDispatch(t *testing.T) {
 	}
 }
 
+func TestRESTMutationsRequireJSONEvenWithoutBody(t *testing.T) {
+	for _, tc := range []struct{ name, contentType string }{
+		{"missing", ""},
+		{"form", "application/x-www-form-urlencoded"},
+		{"text", "text/plain"},
+		{"multipart", "multipart/form-data; boundary=fleet"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			RegisterRESTRoutes(mux, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("non-JSON mutation reached RPC") }))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/rollouts/7/rollback", nil)
+			if tc.contentType != "" {
+				req.Header.Set("Content-Type", tc.contentType)
+			}
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, req)
+			assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			assert.Equal(t, "invalid_argument", body["code"])
+		})
+	}
+
+	mux := http.NewServeMux()
+	RegisterRESTRoutes(mux, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		var request pb.PauseRolloutRequest
+		require.NoError(t, protojson.Unmarshal(body, &request))
+		assert.Equal(t, int64(7), request.RolloutId)
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rollouts/7/pause", nil)
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, req)
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+}
+
 func TestRESTPollingAcceptsEnumTimestampAndProtoFieldNames(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRESTRoutes(mux, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -28,8 +28,9 @@ permission checks.
 
 For channel and rollout endpoints:
 
-- Use `Content-Type: application/json` for request bodies. GET filters go in
-  the query string; mutations take JSON, including DELETE when needed.
+- Send `Content-Type: application/json` with every POST, PUT, and DELETE,
+  even for an action without parameters (send `{}` or an empty body). Other
+  content types are rejected. GET filters go in the query string.
 - Responses use protobuf JSON: camelCase fields, string-valued 64-bit IDs and
   revisions, enum names such as `ROLLOUT_METHOD_DELEGATED`, and RFC 3339 times.
   Default values may be omitted. Snake_case protobuf field names are accepted
@@ -177,8 +178,12 @@ fewer remain. The returned `deviceIdentifiers` identify dispatched targets.
 Dispatch admission rejects
 stale revisions, paused/finished rollouts, nonqueued named targets, and a
 selection exceeding the channel's available offline capacity without starting
-any of that selection. A command-level preflight rejection also rolls back the
-selection. An accepted update is asynchronous, not proof that the
+any of that selection. A queued target that cannot be dispatched now also
+rejects the whole selection with `DEVICE_NOT_DISPATCHABLE` and its identifier:
+a command preflight filter such as curtailment rejected it, another firmware
+command is pending for it, or it no longer reports the rollout's manufacturer
+and model. Count selection picks the same target again, so skip it or name
+other targets. An accepted update is asynchronous, not proof that the
 miner has installed the firmware.
 
 Poll `/devices` for phases and `/events` for lifecycle changes. Wait for your
@@ -204,9 +209,10 @@ was updated successfully.
   A nonzero `controllerTimeoutSeconds` pauses it after that idle interval and
   emits `CONTROLLER_TIMED_OUT`. Reads do not reset the timer. Resume explicitly
   after investigating; it does not dispatch queued delegated work.
-- Fleet never automatically resends a delegated attempt. Once no command is
-  pending, an unverified attempt fails after the existing 10-minute update
-  verification interval. The controller must explicitly request recovery.
+- Fleet never automatically resends a delegated attempt. An unverified attempt
+  fails 10 minutes (the existing update verification interval) after its
+  update command finishes, so the miner has time to reboot and report. The
+  controller must explicitly request recovery.
 - Retry on an **active** delegated rollout requeues recoverable targets, which
   still require Advance. Retry on a **finished** rollout follows the existing
   recovery contract: it may start an **all-at-once** recovery rollout for the
@@ -242,7 +248,8 @@ archive events externally if you need them after deletion.
 Use `code` and the typed `rollout.v1.RolloutErrorInfo` detail rather than parsing
 human-readable messages. For example, `failed_precondition` maps to HTTP 400 and
 may include `STALE_REVISION` with `currentRevision`, `PAUSED`,
-`OFFLINE_BUDGET_FULL`, `DEVICE_NOT_QUEUED`, or `UPDATES_IN_FLIGHT`. Authentication
+`OFFLINE_BUDGET_FULL`, `DEVICE_NOT_QUEUED`, `DEVICE_NOT_DISPATCHABLE`, or
+`UPDATES_IN_FLIGHT`. Authentication
 and authorization failures use HTTP 401/403; missing resources use 404. A
 temporary server/leadership error is not proof that a previous mutation failed
 to commit: reconcile state before retrying it.

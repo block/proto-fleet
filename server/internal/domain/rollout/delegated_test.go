@@ -106,11 +106,19 @@ func TestDelegatedAdvanceRejectsWholeSelectionBeforeDispatch(t *testing.T) {
 	requireReason(t, err, ReasonDeviceNotQueued)
 	f.queueFirmwareCommand(t, "miner-1", "fw-1", "PENDING")
 	_, _, err = f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{DeviceIdentifiers: []string{"miner-0", "miner-1"}}, byOperator)
-	requireReason(t, err, ReasonUpdatesInFlight)
+	requireReason(t, err, ReasonDeviceNotDispatchable)
+	info, _ := ReasonOf(err)
+	require.Equal(t, []string{"miner-1"}, info.DeviceIdentifiers)
 	require.Empty(t, f.dispatcher.sent)
 	f.files.deleted["fw-2"] = true
 	_, _, err = f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{DeviceIdentifiers: []string{"miner-0"}}, byOperator)
 	requireReason(t, err, ReasonArtifactMissing)
+	require.Empty(t, f.dispatcher.sent)
+	setModelTransition(t, f, "Proto", "Proto Rig")
+	_, _, err = f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{DeviceIdentifiers: []string{"miner-0"}}, byOperator)
+	requireReason(t, err, ReasonDeviceNotDispatchable)
+	info, _ = ReasonOf(err)
+	require.Equal(t, []string{"miner-0"}, info.DeviceIdentifiers)
 	require.Empty(t, f.dispatcher.sent)
 	require.Equal(t, r.Revision, f.rollout(t, r.ID).Revision)
 }
@@ -183,6 +191,76 @@ func TestDelegatedFailedAttemptRequiresControllerRetryAndCompletes(t *testing.T)
 	require.Equal(t, EventRolloutDeviceFailed, events[len(events)-2].Type)
 	require.Equal(t, []string{"miner-0"}, events[len(events)-2].DeviceIdentifiers)
 	require.Equal(t, EventRolloutCompletedWithFailures, events[len(events)-1].Type)
+}
+
+// processDispatchedUpdate leaves the target's dispatched FirmwareUpdate
+// processing on its queue, as a long install would.
+func (f *fixture) processDispatchedUpdate(t *testing.T, rolloutID int64, identifier string) {
+	t.Helper()
+	result, err := f.conn.ExecContext(t.Context(), `
+		INSERT INTO queue_message (command_batch_log_uuid, device_id, command_type, status, retry_count, payload)
+		SELECT rd.last_dispatched_batch_uuid, rd.device_id, 'FirmwareUpdate', 'PROCESSING', 0,
+		       jsonb_build_object('firmware_checksum', r.firmware_checksum)
+		FROM firmware_rollout_device rd
+		JOIN firmware_rollout r ON r.id = rd.rollout_id
+		WHERE rd.rollout_id = $1 AND rd.device_id = $2 AND rd.last_dispatched_batch_uuid IS NOT NULL
+	`, rolloutID, f.deviceIDs[identifier])
+	require.NoError(t, err)
+	inserted, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, inserted)
+}
+
+func TestDelegatedAttemptFailsOnlyAfterItsCommandFinishes(t *testing.T) {
+	f := newFixture(t, 2)
+	f.channel(t, delegated(), f.allMiners()...)
+	r := f.apply(t, "fw-2")
+	_, sent, err := f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{Count: 2}, byOperator)
+	require.NoError(t, err)
+	require.Len(t, sent, 2)
+	for _, identifier := range sent {
+		f.processDispatchedUpdate(t, r.ID, identifier)
+	}
+	// Both installs outlast the verification interval measured from dispatch.
+	f.backdateSends(t)
+	f.svc.EnforceTick(t.Context())
+	current := f.rollout(t, r.ID)
+	require.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
+	require.Equal(t, PhaseInProgress, phaseOf(current, "miner-1"))
+	for _, identifier := range sent {
+		f.finishQueuedBudgetCommand(t, identifier, "SUCCESS")
+	}
+	f.svc.EnforceTick(t.Context())
+	current = f.rollout(t, r.ID)
+	require.Equal(t, StatusActive, current.Status)
+	require.Equal(t, PhaseInProgress, phaseOf(current, "miner-0"))
+	require.Equal(t, PhaseInProgress, phaseOf(current, "miner-1"))
+	f.finishUpdate(t, "miner-0", "2.0.0")
+	f.svc.EnforceTick(t.Context())
+	require.Equal(t, PhaseDone, phaseOf(f.rollout(t, r.ID), "miner-0"))
+	f.advanceClock(resendInterval + time.Minute)
+	f.svc.EnforceTick(t.Context())
+	finished := f.rollout(t, r.ID)
+	require.Equal(t, PhaseFailed, phaseOf(finished, "miner-1"))
+	require.Equal(t, StatusCompletedWithFailures, finished.Status)
+}
+
+func TestDelegatedSettlementAdvancesRevisionOnce(t *testing.T) {
+	f := newFixture(t, 2)
+	f.channel(t, delegated(), f.allMiners()...)
+	r := f.apply(t, "fw-2")
+	advanced, sent, err := f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{Count: 1}, byOperator)
+	require.NoError(t, err)
+	f.finishUpdate(t, sent[0], "2.0.0")
+	f.svc.EnforceTick(t.Context())
+	settled := f.rollout(t, r.ID)
+	require.Equal(t, StateWaitingForController, settled.State)
+	require.Equal(t, advanced.Revision+1, settled.Revision)
+	f.svc.EnforceTick(t.Context())
+	require.Equal(t, settled.Revision, f.rollout(t, r.ID).Revision)
+	_, next, err := f.svc.AdvanceRollout(t.Context(), f.orgID, r.ID, DeviceSelection{Count: 1}, Mutation{Actor: testActor, ExpectedRevision: settled.Revision})
+	require.NoError(t, err)
+	require.Len(t, next, 1)
 }
 
 func TestRolloutEventsPaginatePollBindScopeAndRecordCancellation(t *testing.T) {
