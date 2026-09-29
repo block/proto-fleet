@@ -90,7 +90,18 @@ func (m *mockUserStoreForVerify) UpdateUserPassword(ctx context.Context, userID 
 	return nil
 }
 func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
-	return m.updateUserErr
+	if m.updateUserErr != nil {
+		return m.updateUserErr
+	}
+	for oldName, user := range m.users {
+		if user.ID == userID {
+			delete(m.users, oldName)
+			user.Username = username
+			m.users[username] = user
+			break
+		}
+	}
+	return nil
 }
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return m.orgs, nil

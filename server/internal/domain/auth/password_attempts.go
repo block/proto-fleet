@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"sync"
@@ -21,25 +20,23 @@ type passwordAttemptWindowState struct {
 // Fixed windows count successes too, reset on process restart, and never evict live entries.
 type passwordAttempts struct {
 	mu         sync.Mutex
-	entries    map[[sha256.Size]byte]passwordAttemptWindowState
+	entries    map[int64]passwordAttemptWindowState
 	nextExpiry time.Time
 }
 
-func (l *passwordAttempts) allow(username string, now time.Time) bool {
-	// Fixed-size keys bound memory even for oversized names from internal callers.
-	key := sha256.Sum256([]byte(username))
+func (l *passwordAttempts) allow(userID int64, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.entries == nil {
-		l.entries = make(map[[sha256.Size]byte]passwordAttemptWindowState)
+		l.entries = make(map[int64]passwordAttemptWindowState)
 	}
-	entry, exists := l.entries[key]
+	entry, exists := l.entries[userID]
 	if exists && now.Before(entry.started.Add(passwordAttemptWindow)) {
 		if entry.count >= 10 {
 			return false
 		}
 		entry.count++
-		l.entries[key] = entry
+		l.entries[userID] = entry
 		return true
 	}
 	if !exists && len(l.entries) >= 10000 {
@@ -59,15 +56,15 @@ func (l *passwordAttempts) allow(username string, now time.Time) bool {
 			return false
 		}
 	}
-	l.entries[key] = passwordAttemptWindowState{started: now, count: 1}
+	l.entries[userID] = passwordAttemptWindowState{started: now, count: 1}
 	if expires := now.Add(passwordAttemptWindow); l.nextExpiry.IsZero() || expires.Before(l.nextExpiry) {
 		l.nextExpiry = expires
 	}
 	return true
 }
 
-func (s *Service) checkPasswordAttempt(username string) error {
-	if s.passwordAttempts.allow(username, time.Now()) {
+func (s *Service) checkPasswordAttempt(userID int64) error {
+	if s.passwordAttempts.allow(userID, time.Now()) {
 		return nil
 	}
 	slog.Warn("password verification throttled", "event", "auth_password_throttled")

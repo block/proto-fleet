@@ -21,7 +21,7 @@ func TestPasswordAttemptsBoundary(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 40 {
 		wg.Go(func() {
-			if limiter.allow("user", now) {
+			if limiter.allow(1, now) {
 				allowed.Add(1)
 			}
 		})
@@ -30,28 +30,38 @@ func TestPasswordAttemptsBoundary(t *testing.T) {
 	if got := allowed.Load(); got != 10 {
 		t.Fatalf("allowed %d, want 10", got)
 	}
-	if !limiter.allow("User", now) {
-		t.Fatal("must preserve exact username semantics")
+	if !limiter.allow(2, now) {
+		t.Fatal("must preserve independent account budgets")
 	}
-	if limiter.allow("user", now.Add(time.Minute-time.Nanosecond)) {
+	if limiter.allow(1, now.Add(time.Minute-time.Nanosecond)) {
 		t.Fatal("expired early")
 	}
-	if !limiter.allow("user", now.Add(time.Minute)) {
+	if !limiter.allow(1, now.Add(time.Minute)) {
 		t.Fatal("did not expire")
 	}
 }
 
-func TestPasswordLimitCoversEveryVerificationPath(t *testing.T) {
-	// No stores are needed: an exhausted limit must reject before any lookup.
-	service := &Service{}
+func TestPasswordLimitSurvivesRenameAcrossEveryVerificationPath(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &mockUserStoreForVerify{users: map[string]interfaces.User{
+		"admin": {ID: 1, Username: "admin", PasswordHash: string(hash)},
+	}}
+	service := &Service{userStore: store}
 	for range 10 {
-		if err := service.checkPasswordAttempt("admin"); err != nil {
+		if err := service.VerifyCredentials(context.Background(), "admin", "password"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	ctx := ctxWithSession("user-1", "admin", 1)
-	_, _, loginErr := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "admin", Password: "password"}, "", "")
-	verifyErr := service.VerifyCredentials(ctx, "admin", "password")
+	if err := service.UpdateUsername(ctx, "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	ctx = ctxWithSession("user-1", "renamed", 1)
+	_, _, loginErr := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "renamed", Password: "password"}, "", "")
+	verifyErr := service.VerifyCredentials(ctx, "renamed", "password")
 	// A different submitted username must not bypass the session user's limit.
 	stepUpErr := service.VerifySessionCredentials(ctx, "someone-else", "password")
 	_, updateErr := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "old", NewPassword: "NewPassword123!"}, "", "")
@@ -62,27 +72,26 @@ func TestPasswordLimitCoversEveryVerificationPath(t *testing.T) {
 	}
 }
 
-func TestPasswordLimitCountsSuccessesAndUnknownUsers(t *testing.T) {
+func TestUnknownUserFloodCannotConsumeAccountBudget(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{userStore: &mockUserStoreForVerify{users: map[string]interfaces.User{
-		"known": {Username: "known", PasswordHash: string(hash)},
+		"known": {ID: 1, Username: "known", PasswordHash: string(hash)},
 	}}}
-	for range 10 {
-		if err := service.VerifyCredentials(context.Background(), "known", "password"); err != nil {
-			t.Fatal(err)
-		}
-		_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "unknown", Password: "password"}, "", "")
+	for i := range 10001 {
+		username := fmt.Sprintf("unknown-%d", i)
+		_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: username, Password: "password"}, "", "")
 		if err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
-			t.Fatalf("unexpected early limit: %v", err)
+			t.Fatalf("unexpected unknown-user response: %v", err)
+		}
+		if err := service.VerifyCredentials(context.Background(), username, "password"); err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
+			t.Fatalf("unexpected unknown-user verification: %v", err)
 		}
 	}
-	for _, username := range []string{"known", "unknown"} {
-		if err := service.VerifyCredentials(context.Background(), username, "password"); connect.CodeOf(err) != connect.CodeResourceExhausted {
-			t.Fatalf("%s: %v", username, err)
-		}
+	if err := service.VerifyCredentials(context.Background(), "known", "password"); err != nil {
+		t.Fatalf("unknown-user flood blocked known account: %v", err)
 	}
 }
 
@@ -90,17 +99,17 @@ func TestPasswordAttemptsCapacity(t *testing.T) {
 	var limiter passwordAttempts
 	now := time.Unix(1000, 0)
 	for i := range 10000 {
-		if !limiter.allow(fmt.Sprint(i), now) {
+		if !limiter.allow(int64(i), now) {
 			t.Fatal(i)
 		}
 	}
-	if limiter.allow("overflow", now) {
+	if limiter.allow(10000, now) {
 		t.Fatal("evicted a live entry")
 	}
-	if !limiter.allow("0", now) {
+	if !limiter.allow(0, now) {
 		t.Fatal("full cache blocked existing identity")
 	}
-	if !limiter.allow("overflow", now.Add(time.Minute)) {
+	if !limiter.allow(10000, now.Add(time.Minute)) {
 		t.Fatal("did not reclaim expired entries")
 	}
 }

@@ -122,9 +122,6 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 	if req.Username == "" || utf8.RuneCountInString(req.Username) > 255 {
 		return nil, nil, newAuthenticationFailedError()
 	}
-	if err := s.checkPasswordAttempt(req.Username); err != nil {
-		return nil, nil, err
-	}
 
 	// --- Step 1: Optimistic read (no lock) ---
 
@@ -136,6 +133,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		}
 		s.logLoginFailed(ctx, req.Username, nil, nil)
 		return nil, nil, newAuthenticationFailedError()
+	}
+	if err := s.checkPasswordAttempt(user.ID); err != nil {
+		return nil, nil, err
 	}
 
 	orgs, err := s.userStore.GetOrganizationsForUser(ctx, user.ID)
@@ -408,13 +408,13 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	if username == "" || password == "" {
 		return fleeterror.NewInvalidArgumentError("username and password are required")
 	}
-	if err := s.checkPasswordAttempt(username); err != nil {
-		return err
-	}
 
 	user, err := s.userStore.GetUserByUsername(ctx, username)
 	if err != nil {
 		return fleeterror.NewForbiddenErrorf("invalid credentials")
+	}
+	if err := s.checkPasswordAttempt(user.ID); err != nil {
+		return err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -436,7 +436,7 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
-	if err := s.checkPasswordAttempt(info.Username); err != nil {
+	if err := s.checkPasswordAttempt(info.UserID); err != nil {
 		return err
 	}
 
@@ -485,7 +485,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 	if err := ValidatePassword(r.NewPassword); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	if err := s.checkPasswordAttempt(info.Username); err != nil {
+	if err := s.checkPasswordAttempt(info.UserID); err != nil {
 		return nil, err
 	}
 
