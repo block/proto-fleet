@@ -98,6 +98,7 @@ func TestFleetApplicationProfileRejectsInvalidFeatureCombinations(t *testing.T) 
 func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) {
 	values, err := fleetApplicationEnvironment(func(key string) (string, bool) {
 		value, ok := map[string]string{
+			"HTTP_TRUSTED_PROXY_CIDRS":              "127.0.0.1/32,::1/128,10.0.0.0/24",
 			"DD_API_KEY":                            "test-key",
 			"ENABLE_TRACING":                        "TRUE",
 			"ENABLE_BETA_ALERTS":                    "true",
@@ -110,7 +111,10 @@ func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) 
 	require.NoError(t, err)
 
 	environment := renderFleetDeploymentEnvironment(values)
-	require.Equal(t, "DD_API_KEY=test-key\nENABLE_BETA_ALERTS=true\nENABLE_SYSTEM_MONITORING=true\nENABLE_TRACING=true\nFLEET_TELEMETRY_SAMPLE_RATE=0.25\nFLEET_TELEMETRY_TRUST_INCOMING_TRACES=true\n", string(environment))
+	require.Equal(t, "HTTP_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,10.0.0.0/24\nDD_API_KEY=test-key\nENABLE_BETA_ALERTS=true\nENABLE_SYSTEM_MONITORING=true\nENABLE_TRACING=true\nFLEET_TELEMETRY_SAMPLE_RATE=0.25\nFLEET_TELEMETRY_TRUST_INCOMING_TRACES=true\n", string(environment))
+	reloaded, err := parseFleetDeploymentEnvironment(environment)
+	require.NoError(t, err)
+	require.Equal(t, values["HTTP_TRUSTED_PROXY_CIDRS"], reloaded["HTTP_TRUSTED_PROXY_CIDRS"])
 }
 
 func TestFleetDeploymentEnvironmentOmitsDatadogAPIKeyWhenTracingIsDisabled(t *testing.T) {

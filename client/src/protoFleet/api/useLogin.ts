@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { authClient } from "@/protoFleet/api/clients";
@@ -15,7 +16,7 @@ import {
 import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
 
 interface LoginProps {
-  onError?: (message: string) => void;
+  onError?: (message: string, code?: Code) => void;
   onFinally?: () => void;
   onSuccess?: (requiresPasswordChange: boolean) => void;
   loginRequest: AuthenticateRequest;
@@ -63,14 +64,14 @@ const useLogin = () => {
         })
         .catch((err) => {
           if (skipLogoutOnError) {
-            onError?.(getErrorMessage(err));
+            onError?.(getErrorMessage(err), ConnectError.from(err).code);
             return;
           }
 
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(getErrorMessage(err));
+              onError?.(getErrorMessage(err), ConnectError.from(err).code);
             },
           });
         })

@@ -210,6 +210,10 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) (result error) {
+	clientIP, err := middleware.NewClientIPMiddleware(config.HTTP.TrustedProxyCIDRs)
+	if err != nil {
+		return err
+	}
 	if err := config.HA.Validate(); err != nil {
 		return fmt.Errorf("invalid HA configuration: %w", err)
 	}
@@ -795,6 +799,7 @@ func start(config *Config) (result error) {
 	}()
 
 	middlewares := []server.Middleware{
+		clientIP,
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
 	}

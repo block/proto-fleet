@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
+import { Code } from "@connectrpc/connect";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { ids, initValues, type Values } from "@/protoFleet/features/auth/components/LoginModal";
@@ -52,7 +53,8 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
         }
         onSuccess(requiresPasswordChange);
       },
-      onError: () => setApiError("Invalid credentials entered."),
+      onError: (message, code) =>
+        setApiError(code === Code.ResourceExhausted ? message : "Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
   }, [login, values.username, values.password, onSuccess, setTemporaryPassword]);
@@ -84,7 +86,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
               })}
               data-testid="error"
             >
-              <Callout intent="danger" prefixIcon={<Alert />} title="Invalid credentials entered." />
+              <Callout intent="danger" prefixIcon={<Alert />} title={apiError || "Invalid credentials entered."} />
             </div>
 
             <Input

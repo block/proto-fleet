@@ -10,6 +10,7 @@ import (
 )
 
 var fleetDeploymentEnvironmentKeys = []string{
+	"HTTP_TRUSTED_PROXY_CIDRS",
 	"DD_API_KEY",
 	"DD_ENV",
 	"DD_SITE",

@@ -2,8 +2,6 @@ package auth
 
 import (
 	"context"
-	"net/http"
-	"strings"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
@@ -29,7 +27,7 @@ func NewHandler(authSvc *auth.Service) *Handler {
 // The session cookie is set in the response headers.
 func (s *Handler) Authenticate(ctx context.Context, req *connect.Request[pb.AuthenticateRequest]) (*connect.Response[pb.AuthenticateResponse], error) {
 	userAgent := req.Header().Get("User-Agent")
-	ipAddress := extractIPAddress(req.Header())
+	ipAddress := middleware.ClientIP(ctx)
 
 	resp, cookie, err := s.authSvc.AuthenticateUser(ctx, req.Msg, userAgent, ipAddress)
 	if err != nil {
@@ -55,31 +53,11 @@ func (s *Handler) Logout(ctx context.Context, _ *connect.Request[pb.LogoutReques
 	return response, nil
 }
 
-// extractIPAddress extracts the client IP from request headers.
-// Returns empty string if no proxy headers are present (e.g., direct connections).
-// Note: We don't use RemoteAddr because Connect RPC doesn't expose it directly,
-// and the server may be behind a reverse proxy anyway.
-func extractIPAddress(header http.Header) string {
-	// Check X-Forwarded-For first (for reverse proxy setups)
-	if xff := header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain (original client IP)
-		if idx := strings.Index(xff, ","); idx > 0 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return strings.TrimSpace(xff)
-	}
-	// Fall back to X-Real-IP
-	if xri := header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	return ""
-}
-
 // UpdatePassword updates the password of the currently logged-in user.
 // All existing sessions are revoked and a fresh session cookie is returned.
 func (s *Handler) UpdatePassword(ctx context.Context, r *connect.Request[pb.UpdatePasswordRequest]) (*connect.Response[pb.UpdatePasswordResponse], error) {
 	userAgent := r.Header().Get("User-Agent")
-	ipAddress := extractIPAddress(r.Header())
+	ipAddress := middleware.ClientIP(ctx)
 
 	cookie, err := s.authSvc.UpdatePassword(ctx, r.Msg, userAgent, ipAddress)
 	if err != nil {

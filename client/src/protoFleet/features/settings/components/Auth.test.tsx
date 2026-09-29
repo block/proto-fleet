@@ -1,5 +1,6 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Code } from "@connectrpc/connect";
 import AuthenticationSettings from "./Auth";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
@@ -30,6 +31,22 @@ beforeEach(() => {
 });
 
 describe("AuthenticationSettings", () => {
+  it.each([
+    [
+      Code.ResourceExhausted,
+      "Too many password attempts. Try again in one minute.",
+      "Too many password attempts. Try again in one minute.",
+    ],
+    [Code.Internal, "internal database error", "Authentication failed. Please check your password and try again."],
+  ])("shows retry guidance only for throttled reauthentication (%s)", async (code, message, expected) => {
+    mockLogin.mockImplementation(({ onError }) => onError(message, code));
+    const { getByTestId, getByLabelText, getByText } = render(<AuthenticationSettings />);
+    fireEvent.click(getByTestId("password-row").querySelector("button")!);
+    fireEvent.change(getByLabelText("Password"), { target: { value: "currentpass" } });
+    fireEvent.click(getByText("Confirm"));
+    await waitFor(() => expect(getByText(expected)).toBeVisible());
+  });
+
   describe("autofocus behavior", () => {
     it("autofocuses the current password field in authenticate step", async () => {
       const { getByTestId, getByLabelText } = render(<AuthenticationSettings />);

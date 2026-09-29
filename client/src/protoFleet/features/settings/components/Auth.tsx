@@ -1,6 +1,7 @@
 import { RefObject, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
+import { Code } from "@connectrpc/connect";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
@@ -139,8 +140,12 @@ const AuthenticationSettings = () => {
           setStep("updateUsername");
         }
       },
-      onError: () => {
-        setAuthApiError("Authentication failed. Please check your password and try again.");
+      onError: (message, code) => {
+        setAuthApiError(
+          code === Code.ResourceExhausted
+            ? message
+            : "Authentication failed. Please check your password and try again.",
+        );
       },
       onFinally: () => {
         setIsSubmitting(false);

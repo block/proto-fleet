@@ -54,6 +54,7 @@ type effectivePermissionResolver interface {
 }
 
 type Service struct {
+	passwordAttempts    passwordAttempts
 	userStore           stores.UserStore
 	userManagementStore stores.UserManagementStore
 	transactor          stores.Transactor
@@ -120,6 +121,9 @@ func (s *Service) logLoginFailed(ctx context.Context, username string, userID *s
 func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest, userAgent, ipAddress string) (*authv1.AuthenticateResponse, *http.Cookie, error) {
 	if req.Username == "" || utf8.RuneCountInString(req.Username) > 255 {
 		return nil, nil, newAuthenticationFailedError()
+	}
+	if err := s.checkPasswordAttempt(req.Username); err != nil {
+		return nil, nil, err
 	}
 
 	// --- Step 1: Optimistic read (no lock) ---
@@ -404,6 +408,9 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	if username == "" || password == "" {
 		return fleeterror.NewInvalidArgumentError("username and password are required")
 	}
+	if err := s.checkPasswordAttempt(username); err != nil {
+		return err
+	}
 
 	user, err := s.userStore.GetUserByUsername(ctx, username)
 	if err != nil {
@@ -428,6 +435,9 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+	if err := s.checkPasswordAttempt(info.Username); err != nil {
+		return err
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
@@ -474,6 +484,9 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 	}
 	if err := ValidatePassword(r.NewPassword); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	if err := s.checkPasswordAttempt(info.Username); err != nil {
+		return nil, err
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)

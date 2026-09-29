@@ -55,7 +55,7 @@ type PluginCapabilitiesProvider interface {
 
 // UserCredentialsVerifier provides interface for verifying user credentials
 type UserCredentialsVerifier interface {
-	VerifyCredentials(ctx context.Context, username, password string) error
+	VerifySessionCredentials(ctx context.Context, username, password string) error
 }
 
 // Service handles miner command operations
@@ -2014,7 +2014,7 @@ func (s *Service) verifyUserCredentials(ctx context.Context, username string, pa
 	}
 
 	// Use auth service to verify credentials are valid
-	if err := s.credentialsVerifier.VerifyCredentials(ctx, username, password); err != nil {
+	if err := s.credentialsVerifier.VerifySessionCredentials(ctx, username, password); err != nil {
 		return err
 	}
 
