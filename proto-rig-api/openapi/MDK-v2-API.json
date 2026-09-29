@@ -2233,6 +2233,15 @@
         },
         "tags": [
           "Pools"
+        ],
+        "parameters": [
+          {
+            "name": "includeLastRecordedShares",
+            "description": "Opt in to a bounded share-log lookup. The default false preserves the\ndatabase cost of existing high-frequency diagnostics consumers.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
         ]
       }
     },
@@ -6628,6 +6637,14 @@
         },
         "weightedMode": {
           "type": "boolean"
+        },
+        "lastRecordedShares": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2PoolRecordedShareResult"
+          },
+          "description": "Populated only when requested. Includes configured disabled pools with a\nretained result even though they have no live PoolConnectionDiagnostics.\nEmpty means no result within the last 30 days, or an older server that\ndoes not support this opt-in field."
         }
       },
       "description": "GetPoolDiagnosticsResponse contains per-configured-enabled-pool runtime\nconnection diagnostics reflecting this node's live pool connections. Only\nenabled pools are tracked, so disabled pools are absent."
@@ -9316,6 +9333,31 @@
         }
       },
       "description": "PoolConnectionDiagnostics contains runtime connection diagnostics for one pool."
+    },
+    "v2PoolRecordedShareResult": {
+      "type": "object",
+      "properties": {
+        "poolId": {
+          "type": "string",
+          "format": "int64"
+        },
+        "resultAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "assignedDifficulty": {
+          "type": "string",
+          "format": "int64"
+        },
+        "rejectReason": {
+          "type": "string",
+          "description": "reject_reason is empty for accepted shares or older rows without a reason.\n\"submit_error\" identifies a transport/submit failure."
+        }
+      },
+      "description": "PoolRecordedShareResult is the latest retained result for one configured\npool. The timestamp is recorded after the pool submission returns, not when\nsubmission began. The difficulty is the assigned work target, not the\ndifficulty achieved by the submitted nonce. Rejected and failed submissions\nare included. Missing optional values reflect legacy rows with no outcome or\ntarget difficulty."
     },
     "v2PowerFeed": {
       "type": "object",

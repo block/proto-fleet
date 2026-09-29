@@ -9,6 +9,24 @@ import Stat from "@/shared/components/Stat";
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const format = (value: number | undefined) => (value === undefined ? "—" : compact.format(value));
+const formatAssignedDifficulty = (value: string | undefined) => {
+  if (value === undefined) return "—";
+  try {
+    return compact.format(BigInt(value));
+  } catch {
+    return "—";
+  }
+};
+const formatResultTime = (value: number | undefined) =>
+  value === undefined || !Number.isFinite(value)
+    ? "—"
+    : new Date(value).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+const resultOutcome = {
+  accepted: "Accepted",
+  rejected: "Rejected",
+  submitError: "Submission failed",
+  unknown: "Outcome unavailable",
+} as const;
 
 interface Props {
   pools?: PoolInfo[];
@@ -116,13 +134,24 @@ function PoolSection({
           />
           <Stat preformatted label="Accepted" value={format(statistics?.accepted)} size={active ? "large" : "small"} />
           <Stat preformatted label="Rejected" value={format(statistics?.rejected)} size={active ? "large" : "small"} />
-          <Stat preformatted label="Last share time" value="—" size={active ? "large" : "small"} />
+          <Stat
+            preformatted
+            label="Last result time"
+            value={formatResultTime(pool.lastShareAtMs)}
+            text={pool.lastShareOutcome ? resultOutcome[pool.lastShareOutcome] : undefined}
+            size={active ? "large" : "small"}
+          />
         </div>
         {active ? <ShareBar statistics={statistics} /> : null}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-6 desktop:grid-cols-4">
         <Stat preformatted label="Difficulty" value={format(pool.difficulty)} size="small" />
-        <Stat preformatted label="Last share" value="—" size="small" />
+        <Stat
+          preformatted
+          label="Last assigned difficulty"
+          value={formatAssignedDifficulty(pool.lastAssignedDifficulty)}
+          size="small"
+        />
         <Stat preformatted label="Best share" value="—" size="small" />
         <Stat preformatted label="Blocks" value="—" size="small" />
       </div>

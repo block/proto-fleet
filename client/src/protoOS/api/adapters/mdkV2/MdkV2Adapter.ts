@@ -39,6 +39,7 @@ import {
   toCanonicalMiningTarget,
   toCanonicalNetworkInfo,
   toCanonicalOperationalStatus,
+  toCanonicalPoolRecordedShares,
   toCanonicalPools,
   toCanonicalSystemInfo,
 } from "./normalize";
@@ -196,9 +197,25 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [pools, diagnostics] = await Promise.all([
       this.client.poolServiceListPools(decorated),
-      this.client.poolServiceGetPoolDiagnostics(decorated),
+      this.client.poolServiceGetPoolDiagnostics({}, decorated),
     ]);
     return toCanonicalPools(pools.data, diagnostics.data);
+  }
+
+  async getPoolRecordedShares(params: AdapterRequestOptions = {}) {
+    try {
+      const { data } = await this.client.poolServiceGetPoolDiagnostics(
+        { includeLastRecordedShares: true },
+        this.decorate(params),
+      );
+      return toCanonicalPoolRecordedShares(data);
+    } catch (error) {
+      // Older Frigate versions reject the unknown query field at the REST
+      // gateway. Keep the supplemental result absent during a rolling upgrade.
+      const status = (error as { status?: number })?.status;
+      if (status === 400 || status === 404 || status === 405 || status === 501) return {};
+      throw error;
+    }
   }
 
   getPoolHistory(request: PoolHistoryRequest, params: AdapterRequestOptions = {}) {

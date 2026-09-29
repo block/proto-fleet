@@ -19,3 +19,12 @@ export interface PoolHistoryResult {
   byPool: Partial<Record<PoolId, PoolShareStatistics>>;
   unavailable: PoolId[];
 }
+
+/** The latest retained result, independent of the selected history period. */
+export interface PoolRecordedShare {
+  resultAtMs?: number;
+  assignedDifficulty?: string;
+  outcome: "accepted" | "rejected" | "submitError" | "unknown";
+}
+
+export type PoolRecordedShares = Partial<Record<PoolId, PoolRecordedShare>>;

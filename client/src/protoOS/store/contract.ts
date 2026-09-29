@@ -545,6 +545,8 @@ export interface PoolInfo {
   invalidShares?: number;
   difficulty?: number;
   lastShareAtMs?: number;
+  lastAssignedDifficulty?: string;
+  lastShareOutcome?: "accepted" | "rejected" | "submitError" | "unknown";
   bestShare?: number;
   blocks?: number;
 }

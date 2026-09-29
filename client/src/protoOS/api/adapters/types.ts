@@ -1,6 +1,6 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ChangePasswordRequest } from "./mdkV1";
-import type { PoolHistoryRequest, PoolHistoryResult } from "./poolHistory";
+import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
 import type {
   CoolingMode,
   FanTelemetry,
@@ -197,6 +197,7 @@ export interface MinerAdapter {
   getErrors(params?: AdapterRequestOptions): Promise<MinerError[]>;
   getPools(params?: AdapterRequestOptions): Promise<PoolInfo[]>;
   getPoolHistory?(request: PoolHistoryRequest, params?: AdapterRequestOptions): Promise<PoolHistoryResult>;
+  getPoolRecordedShares?(params?: AdapterRequestOptions): Promise<PoolRecordedShares>;
   getPoolSettings?(params?: AdapterRequestOptions): Promise<SavedPoolSettings[]>;
   savePoolSettings?(pool: PoolFormInput, id?: string, params?: AdapterRequestOptions): Promise<void>;
   deletePoolSettings?(id: string, params?: AdapterRequestOptions): Promise<void>;
