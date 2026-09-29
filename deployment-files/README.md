@@ -12,8 +12,9 @@ subnet CIDRs, not the entire VPC. The setting identifies proxies, not allowed
 users or Fleet Nodes. Invalid CIDRs prevent server startup.
 
 nginx appends its observed peer to `X-Forwarded-For`. Fleet walks the chain
-right-to-left through trusted proxies; malformed chains fall back to the socket
-peer. `X-Real-IP` is ignored. Restrict backend access to those proxies and do not
+right-to-left through trusted proxies, stopping at the first untrusted address.
+Earlier entries are ignored; malformed entries within the trusted suffix fall
+back to the socket peer. `X-Real-IP` is ignored. Restrict backend access to those proxies and do not
 configure them to preserve arbitrary client-supplied forwarding headers without
 appending the actual peer address.
 

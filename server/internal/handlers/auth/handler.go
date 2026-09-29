@@ -59,12 +59,12 @@ func (s *Handler) UpdatePassword(ctx context.Context, r *connect.Request[pb.Upda
 	userAgent := r.Header().Get("User-Agent")
 	ipAddress := middleware.ClientIP(ctx)
 
-	cookie, err := s.authSvc.UpdatePassword(ctx, r.Msg, userAgent, ipAddress)
+	resp, cookie, err := s.authSvc.UpdatePassword(ctx, r.Msg, userAgent, ipAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	response := connect.NewResponse(&pb.UpdatePasswordResponse{})
+	response := connect.NewResponse(resp)
 	response.Header().Set("Set-Cookie", cookie.String())
 	return response, nil
 }

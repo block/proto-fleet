@@ -61,17 +61,14 @@ func (m *ClientIPMiddleware) resolve(r *http.Request) string {
 	if forwarded == "" {
 		return peer.String()
 	}
-	var chain []netip.Addr
-	for _, value := range strings.Split(forwarded, ",") {
-		ip, err := netip.ParseAddr(strings.TrimSpace(value))
+	chain := strings.Split(forwarded, ",")
+	client := peer
+	for i := len(chain) - 1; i >= 0 && m.trusts(client); i-- {
+		ip, err := netip.ParseAddr(strings.TrimSpace(chain[i]))
 		if err != nil || ip.Zone() != "" {
 			return peer.String()
 		}
-		chain = append(chain, ip.Unmap())
-	}
-	client := peer
-	for i := len(chain) - 1; i >= 0 && m.trusts(client); i-- {
-		client = chain[i]
+		client = ip.Unmap()
 	}
 	return client.String()
 }

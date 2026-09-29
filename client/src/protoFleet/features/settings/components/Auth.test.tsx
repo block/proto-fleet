@@ -5,10 +5,13 @@ import AuthenticationSettings from "./Auth";
 import { authClient } from "@/protoFleet/api/clients";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import { useUsername } from "@/protoFleet/store";
+import { useAuthErrors, useSetSessionExpiry, useUsername } from "@/protoFleet/store";
+import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/api/useAuth");
-vi.mock("@/protoFleet/api/clients", () => ({ authClient: { verifyCredentials: vi.fn() } }));
+vi.mock("@/protoFleet/api/clients", () => ({
+  authClient: { verifyCredentials: vi.fn(), updatePassword: vi.fn(), getUserAuditInfo: vi.fn() },
+}));
 vi.mock("@/protoFleet/api/useLogin");
 vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
@@ -34,6 +37,43 @@ beforeEach(() => {
 });
 
 describe("AuthenticationSettings", () => {
+  it("keeps the replacement session after rotation when public login is throttled", async () => {
+    const { useAuth: realUseAuth } =
+      await vi.importActual<typeof import("@/protoFleet/api/useAuth")>("@/protoFleet/api/useAuth");
+    vi.mocked(useAuth).mockImplementation(realUseAuth);
+    const setSessionExpiry = vi.fn();
+    const handleAuthErrors = vi.fn();
+    vi.mocked(useSetSessionExpiry).mockReturnValue(setSessionExpiry);
+    vi.mocked(useAuthErrors).mockReturnValue({ handleAuthErrors });
+    vi.mocked(authClient.getUserAuditInfo).mockResolvedValue({ $typeName: "auth.v1.GetUserAuditInfoResponse" });
+    const sessionExpiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    vi.mocked(authClient.updatePassword).mockResolvedValue({
+      $typeName: "auth.v1.UpdatePasswordResponse",
+      sessionExpiry,
+    });
+    mockLogin.mockImplementation(({ onError }) => onError("Invalid credentials entered.", Code.Unauthenticated));
+
+    const { getByTestId, getByLabelText, getByText, findByLabelText, findByText, queryByText } = render(
+      <AuthenticationSettings />,
+    );
+    fireEvent.click(getByTestId("password-row").querySelector("button")!);
+    fireEvent.change(getByLabelText("Password"), { target: { value: "currentpass" } });
+    fireEvent.click(getByText("Confirm"));
+    fireEvent.change(await findByLabelText("New password"), { target: { value: "aaaaaaaa" } });
+    fireEvent.change(getByLabelText("Confirm password"), { target: { value: "aaaaaaaa" } });
+    fireEvent.click(getByText("Confirm"));
+    fireEvent.click(await findByText("Continue anyway"));
+
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ message: "Password updated" })),
+    );
+    expect(authClient.updatePassword).toHaveBeenCalledWith({ currentPassword: "currentpass", newPassword: "aaaaaaaa" });
+    expect(setSessionExpiry).toHaveBeenCalledWith(new Date(Number(sessionExpiry) * 1000));
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(handleAuthErrors).not.toHaveBeenCalled();
+    await waitFor(() => expect(queryByText("Account password required")).not.toBeInTheDocument());
+  });
+
   it.each([
     [
       Code.ResourceExhausted,

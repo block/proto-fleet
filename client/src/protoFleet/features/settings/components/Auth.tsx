@@ -1,11 +1,8 @@
 import { RefObject, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
-import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { authClient } from "@/protoFleet/api/clients";
-import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
-import { useLogin } from "@/protoFleet/api/useLogin";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useUsername } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
@@ -61,7 +58,6 @@ const AuthenticationSettings = () => {
   const username = useUsername();
 
   const { updatePassword, updateUsername, passwordLastUpdatedAt } = useAuth();
-  const login = useLogin();
 
   const [showModal, setShowModal] = useState(false);
   const [updatingState, setUpdatingState] = useState<"password" | "username">();
@@ -179,25 +175,12 @@ const AuthenticationSettings = () => {
         currentPassword: password,
         newPassword: newPassword,
         onSuccess: () => {
-          login({
-            loginRequest: create(AuthenticateRequestSchema, {
-              username,
-              password: newPassword,
-            }),
-            onSuccess: () => {
-              pushToast({
-                message: "Password updated",
-                status: TOAST_STATUSES.success,
-              });
-              setShowModal(false);
-            },
-            onError: () => {
-              setPasswordUpdateApiError("Password updated but re-login failed. Please log in again.");
-            },
-            onFinally: () => {
-              setIsSubmitting(false);
-            },
+          pushToast({
+            message: "Password updated",
+            status: TOAST_STATUSES.success,
           });
+          setShowModal(false);
+          setIsSubmitting(false);
         },
         onError: (error: string) => {
           setPasswordUpdateApiError(error || "Failed to update password. Please try again.");
@@ -205,7 +188,7 @@ const AuthenticationSettings = () => {
         },
       });
     },
-    [newPassword, confirmPassword, score, password, username, updatePassword, login],
+    [newPassword, confirmPassword, score, password, updatePassword],
   );
 
   function submitUsernameUpdate() {

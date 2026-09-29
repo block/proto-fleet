@@ -572,7 +572,7 @@ func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.
 		transactor: mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: "wrongpass",
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")
@@ -588,7 +588,7 @@ func TestService_UpdatePasswordRejectsInvalidNewPasswordBeforeLookup(t *testing.
 		transactor: mocks.NewMockTransactor(ctrl),
 	}
 
-	_, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: "current-password",
 		NewPassword:     "short",
 	}, "test-agent", "127.0.0.1")
@@ -643,7 +643,7 @@ func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) 
 		transactor:          mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: currentPassword,
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")

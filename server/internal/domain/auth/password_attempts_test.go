@@ -88,10 +88,11 @@ func TestPublicLoginExhaustionDoesNotBlockSessionOperations(t *testing.T) {
 	if err := service.VerifySessionCredentials(ctx, "admin", "password"); err != nil {
 		t.Fatalf("public login abuse blocked step-up: %v", err)
 	}
-	cookie, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "password", NewPassword: "NewPassword123!"}, "", "")
+	response, cookie, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "password", NewPassword: "NewPassword123!"}, "", "")
 	if err != nil || cookie == nil {
 		t.Fatalf("public login abuse blocked password rotation: cookie=%v, err=%v", cookie, err)
 	}
+	require.WithinDuration(t, time.Now().Add(time.Hour), time.Unix(response.SessionExpiry, 0), 2*time.Second)
 }
 
 func TestPasswordBudgetsSurviveRenameAcrossVerificationPaths(t *testing.T) {
@@ -108,7 +109,7 @@ func TestPasswordBudgetsSurviveRenameAcrossVerificationPaths(t *testing.T) {
 		if err := service.VerifySessionCredentials(ctx, "admin", "password"); err != nil {
 			t.Fatal(err)
 		}
-		_, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "wrong", NewPassword: "NewPassword123!"}, "", "")
+		_, _, err := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "wrong", NewPassword: "NewPassword123!"}, "", "")
 		if err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
 			t.Fatalf("password update did not consume its available step-up attempt: %v", err)
 		}
@@ -128,7 +129,7 @@ func TestPasswordBudgetsSurviveRenameAcrossVerificationPaths(t *testing.T) {
 	require.Error(t, verifyErr, "rename reset the public verification budget")
 	// A different submitted username must not bypass the session user's limit.
 	stepUpErr := service.VerifySessionCredentials(ctx, "someone-else", "password")
-	_, updateErr := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "old", NewPassword: "NewPassword123!"}, "", "")
+	_, _, updateErr := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "old", NewPassword: "NewPassword123!"}, "", "")
 	for _, err := range []error{stepUpErr, updateErr} {
 		if connect.CodeOf(err) != connect.CodeResourceExhausted {
 			t.Fatalf("got %v, want resource exhausted", err)

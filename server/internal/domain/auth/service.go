@@ -470,33 +470,33 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 // and creates a replacement session — all in one transaction. Returns a fresh
 // session cookie so the caller stays logged in while every other session is
 // invalidated.
-func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest, userAgent, ipAddress string) (*http.Cookie, error) {
+func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest, userAgent, ipAddress string) (*authv1.UpdatePasswordResponse, *http.Cookie, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if r.CurrentPassword == r.NewPassword {
-		return nil, fleeterror.NewErrorWithEndpointCode(
+		return nil, nil, fleeterror.NewErrorWithEndpointCode(
 			"New password cannot be the same as current password.",
 			connect.CodeInvalidArgument,
 			int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
 		)
 	}
 	if err := ValidatePassword(r.NewPassword); err != nil {
-		return nil, fleeterror.NewInvalidArgumentError(err.Error())
+		return nil, nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
 	if err := s.stepUpAttempts.check(info.UserID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
+		return nil, nil, fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
-		return nil, newInvalidCurrentPasswordError()
+		return nil, nil, newInvalidCurrentPasswordError()
 	}
 
 	// Snapshot the password version before starting the transaction so we can
@@ -507,7 +507,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 	// holds the lock for the update/revoke/create sequence.
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
+		return nil, nil, fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
 	}
 
 	var sess *session.Session
@@ -539,7 +539,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
@@ -553,7 +553,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		OrganizationID: &info.OrganizationID,
 	})
 
-	return cookie, nil
+	return &authv1.UpdatePasswordResponse{SessionExpiry: sess.ExpiresAt.Unix()}, cookie, nil
 }
 
 func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
