@@ -1055,7 +1055,7 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, c
 			// Keep pins beyond the callback: RunInTx commits after it returns.
 			releases = append(releases, release)
 		}
-		started, err = s.applyResolved(ctx, channel, actor, resolved, behavior, CancelReasonSuperseded)
+		started, err = s.applyResolved(ctx, channel, actor, resolved, behavior, CancelReasonSuperseded, "")
 		return err
 	})
 	return started, err
@@ -1189,7 +1189,7 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channel.Name)
 		}
 		if row.PreviousFirmwareChecksum == "" {
-			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model}}, allAtOnce, CancelReasonRolledBack)
+			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model}}, allAtOnce, CancelReasonRolledBack, m.Note)
 			return err
 		}
 		release, err := s.files.PinFirmwareArtifact(row.PreviousFirmwareChecksum)
@@ -1205,7 +1205,7 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 				Checksum: row.PreviousFirmwareChecksum,
 				Metadata: files.FirmwareMetadata{TargetManufacturer: pair.Manufacturer, TargetModel: pair.Model, FirmwareVersion: row.PreviousFirmwareVersion},
 			},
-		}}, allAtOnce, CancelReasonRolledBack)
+		}}, allAtOnce, CancelReasonRolledBack, m.Note)
 		return err
 	})
 	return channelID, started, err
@@ -1277,15 +1277,15 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 // cancelReason is recorded on any active rollout a changed assignment
 // replaces. Must run inside a transaction holding the channel row lock so
 // current assignment comparisons and rollback lineage survive concurrent writes.
-func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, assignments []Assignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, assignments []Assignment, behavior Behavior, cancelReason, note string) ([]Rollout, error) {
 	resolved, err := s.resolveAssignments(ctx, channel, assignments)
 	if err != nil {
 		return nil, err
 	}
-	return s.applyResolved(ctx, channel, actor, resolved, behavior, cancelReason)
+	return s.applyResolved(ctx, channel, actor, resolved, behavior, cancelReason, note)
 }
 
-func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, resolved []resolvedAssignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, resolved []resolvedAssignment, behavior Behavior, cancelReason, note string) ([]Rollout, error) {
 	ownerUserID := actor.ownerUserID()
 	if ownerUserID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("firmware assignment requires an owning user")
@@ -1294,10 +1294,22 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 	var started []Rollout
 	for _, a := range resolved {
 		cancel := func(why string) error {
-			return q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+			old, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
 				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, CancelReason: why,
 				ActorType: actor.Type, ActorID: actor.ID, ActorName: actor.Name,
-			})
+			}); err != nil {
+				return err
+			}
+			return s.logRolloutEvent(ctx, old, channel.Name, EventRolloutCanceled, false, map[string]any{"cancel_reason": why, "_actor": actor, "note": note})
 		}
 		if a.artifact == nil {
 			if a.current == nil || a.current.FirmwareChecksum == "" {
@@ -1355,11 +1367,13 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 		if r == nil {
 			continue // every member already matches
 		}
-		extra := map[string]any{}
+		extra := map[string]any{"note": note}
 		if cancelReason == CancelReasonRolledBack {
 			extra["rollback"] = true
 		}
-		s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, false, extra)
+		if err := s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, false, extra); err != nil {
+			return nil, err
+		}
 		view, err := s.refreshView(ctx, channel.OrgID, r.ID)
 		if err != nil {
 			return nil, err

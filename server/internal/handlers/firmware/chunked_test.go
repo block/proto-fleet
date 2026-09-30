@@ -74,12 +74,10 @@ func TestChunkedUpload_FullLifecycle(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	initHandler := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	chunkH := &chunkHandler{
-		mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock,
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, authenticator: env.authenticator(),
 	}
 	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
 	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -90,9 +88,7 @@ func TestChunkedUpload_FullLifecycle(t *testing.T) {
 		},
 	)
 	completeH := &completeHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, activitySvc: activityDomain.NewService(activityStore),
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(), activitySvc: activityDomain.NewService(activityStore),
 	}
 
 	content := "abcdefghij" // 10 bytes, 2 chunks of 5
@@ -153,8 +149,7 @@ func TestChunkedUpload_InitiateRejectsInvalidExtension(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("bad.bin", 100)))
 	req.Header.Set("Content-Type", "application/json")
@@ -183,8 +178,7 @@ func TestChunkedUpload_InitiateRejectsMissingTargetMetadata(t *testing.T) {
 			env := newTestEnv(t)
 			mgr := NewChunkedUploadManager()
 			h := &initiateHandler{
-				mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-				userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+				mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 			}
 
 			env.expectAuth()
@@ -211,8 +205,7 @@ func TestChunkedUpload_InitiateRejectsOversizedFile(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 200)))
 	req.Header.Set("Content-Type", "application/json")
@@ -229,8 +222,7 @@ func TestChunkedUpload_InitiateRejectsAuth(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 100)))
 	req.Header.Set("Content-Type", "application/json")
@@ -246,8 +238,7 @@ func TestChunkedUpload_ChunkRejectsUnknownSession(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &chunkHandler{
-		mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock,
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, authenticator: env.authenticator(),
 	}
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/firmware/upload/chunked/nonexistent", strings.NewReader("data"))
 	req.Header.Set("Content-Range", "bytes 0-3/10")
@@ -264,12 +255,10 @@ func TestChunkedUpload_ChunkRejectsOutOfOrder(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	initHandler := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	chunkH := &chunkHandler{
-		mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock,
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, authenticator: env.authenticator(),
 	}
 
 	// Initiate
@@ -302,16 +291,13 @@ func TestChunkedUpload_CompleteRejectsSizeMismatch(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	initHandler := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	chunkH := &chunkHandler{
-		mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock,
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, authenticator: env.authenticator(),
 	}
 	completeH := &completeHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 
 	// Initiate with file_size=10
@@ -353,12 +339,10 @@ func TestChunkedUpload_DuplicateChunkRejected(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	initHandler := &initiateHandler{
-		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
-		userStore: env.userStoreMock, permissionResolver: env.permissionResolver,
+		mgr: mgr, filesService: env.fileSvc, authenticator: env.authenticator(),
 	}
 	chunkH := &chunkHandler{
-		mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock,
-		permissionResolver: env.permissionResolver,
+		mgr: mgr, authenticator: env.authenticator(),
 	}
 
 	// Initiate

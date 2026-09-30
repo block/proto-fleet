@@ -161,6 +161,7 @@ Configuration is in `cmd/fleetd/config.go` with options for plugin directories, 
 - **Protocol**: [Connect RPC](https://connectrpc.com/) supporting both gRPC and Connect protocols over HTTP/1.1 and HTTP/2.
 - **Interceptors**: Authentication, error mapping, logging, and validation in `internal/handlers/interceptors/`.
 - **API definitions**: Fleet Connect RPC contracts live in `../proto/`. The miner-hosted ProtoOS REST contract is vendored at `../proto-rig-api/openapi/MDK-API.json`.
+- **Firmware integrations**: The [firmware rollout REST API guide](../docs/development/firmware-rollout-api.md) covers API keys, file uploads, channels, delegated control, and event polling.
 
 ## Running via Docker
 

@@ -10,7 +10,7 @@ import (
 )
 
 const listTerminalFirmwareRolloutsNeedingProvenance = `-- name: ListTerminalFirmwareRolloutsNeedingProvenance :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since
 FROM firmware_rollout r
 WHERE r.status <> 'active'
   AND EXISTS (
@@ -90,6 +90,7 @@ func (q *Queries) ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Cont
 			&i.LastActionByName,
 			&i.CreatedAt,
 			&i.FinishedAt,
+			&i.ControllerWaitingSince,
 		); err != nil {
 			return nil, err
 		}

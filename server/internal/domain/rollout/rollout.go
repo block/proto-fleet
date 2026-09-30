@@ -59,7 +59,7 @@ const (
 	StateCompleted             = "completed"
 	StateCompletedWithFailures = "completed_with_failures"
 	StateCanceled              = "canceled"
-	// StateWaitingForController is reserved for delegated rollouts.
+	// StateWaitingForController marks a delegated rollout with no updates in flight.
 	StateWaitingForController = "waiting_for_controller"
 
 	// Per-miner phases.
@@ -85,19 +85,20 @@ const (
 
 	// Error reasons, mirroring rollout.v1.RolloutErrorReason; carried by
 	// ErrorInfo inside FAILED_PRECONDITION and INVALID_ARGUMENT errors.
-	ReasonStaleRevision     = "stale_revision"
-	ReasonStaleGeneration   = "stale_generation"
-	ReasonNotActive         = "not_active"
-	ReasonNotAtGate         = "not_at_gate"
-	ReasonNotDelegated      = "not_delegated"
-	ReasonPaused            = "paused"
-	ReasonOfflineBudgetFull = "offline_budget_full"
-	ReasonDeviceNotQueued   = "device_not_queued"
-	ReasonScopeOverlap      = "scope_overlap"
-	ReasonArtifactMissing   = "artifact_missing"
-	ReasonRolloutActive     = "rollout_active"
-	ReasonUpdatesInFlight   = "updates_in_flight"
-	ReasonArtifactMismatch  = "artifact_mismatch"
+	ReasonStaleRevision         = "stale_revision"
+	ReasonStaleGeneration       = "stale_generation"
+	ReasonNotActive             = "not_active"
+	ReasonNotAtGate             = "not_at_gate"
+	ReasonNotDelegated          = "not_delegated"
+	ReasonPaused                = "paused"
+	ReasonOfflineBudgetFull     = "offline_budget_full"
+	ReasonDeviceNotQueued       = "device_not_queued"
+	ReasonScopeOverlap          = "scope_overlap"
+	ReasonArtifactMissing       = "artifact_missing"
+	ReasonRolloutActive         = "rollout_active"
+	ReasonUpdatesInFlight       = "updates_in_flight"
+	ReasonArtifactMismatch      = "artifact_mismatch"
+	ReasonDeviceNotDispatchable = "device_not_dispatchable"
 
 	// Activity event types.
 	EventRolloutStarted               = "rollout_started"
@@ -109,6 +110,10 @@ const (
 	EventRolloutCompleted             = "rollout_completed"
 	EventRolloutCompletedWithFailures = "rollout_completed_with_failures"
 	EventRolloutRetried               = "rollout_retried"
+	EventRolloutAdvanced              = "rollout_advanced"
+	EventRolloutDevicesSkipped        = "rollout_devices_skipped"
+	EventRolloutDeviceFailed          = "rollout_device_failed"
+	EventRolloutControllerTimedOut    = "rollout_controller_timed_out"
 
 	// MaxAttempts is how many update commands a miner gets before it is
 	// failed. With resendInterval that is roughly half an hour.
@@ -434,6 +439,11 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 			return nil, err
 		}
 	}
+	if b.Method == MethodDelegated {
+		if err := s.setControllerWait(ctx, r.ID, sql.NullTime{Time: s.now(), Valid: true}); err != nil {
+			return nil, err
+		}
+	}
 	return &r, nil
 }
 
@@ -502,7 +512,9 @@ func (s *Service) ContinueRollout(ctx context.Context, orgID, rolloutID int64, m
 		if err := s.advance(ctx, row, StageAwaitingReview, &m); err != nil {
 			return err
 		}
-		s.logRolloutEvent(ctx, *row, channelName, EventRolloutContinued, false, m.extra(nil))
+		if err := s.logRolloutEvent(ctx, *row, channelName, EventRolloutContinued, false, m.extra(nil)); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -520,7 +532,9 @@ func (s *Service) PauseRollout(ctx context.Context, orgID, rolloutID int64, m Mu
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonPaused}, "rollout %d is already paused", rolloutID)
 		}
 		row.PausedAt = sql.NullTime{Time: s.now(), Valid: true}
-		s.logRolloutEvent(ctx, *row, channelName, EventRolloutPaused, false, m.extra(nil))
+		if err := s.logRolloutEvent(ctx, *row, channelName, EventRolloutPaused, false, m.extra(nil)); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -538,7 +552,22 @@ func (s *Service) ResumeRollout(ctx context.Context, orgID, rolloutID int64, m M
 			return fleeterror.NewFailedPreconditionErrorf("rollout %d is not paused", rolloutID)
 		}
 		row.PausedAt = sql.NullTime{}
-		s.logRolloutEvent(ctx, *row, channelName, EventRolloutResumed, false, m.extra(nil))
+		if row.BehaviorSnapshot.Method == MethodDelegated {
+			targets, err := s.listTargets(ctx, *row)
+			if err != nil {
+				return err
+			}
+			waiting := sql.NullTime{}
+			if !hasUpdatesInFlight(*row, targets) {
+				waiting = sql.NullTime{Time: s.now(), Valid: true}
+			}
+			if err := s.setControllerWait(ctx, row.ID, waiting); err != nil {
+				return err
+			}
+		}
+		if err := s.logRolloutEvent(ctx, *row, channelName, EventRolloutResumed, false, m.extra(nil)); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -549,6 +578,9 @@ func (s *Service) ResumeRollout(ctx context.Context, orgID, rolloutID int64, m M
 func (s *Service) mutateActive(ctx context.Context, orgID, rolloutID int64, m Mutation, change func(ctx context.Context, row *sqlc.FirmwareRollout, channelName string) error) (*Rollout, error) {
 	var view *Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.lockEventStream(ctx, orgID); err != nil {
+			return err
+		}
 		row, channelName, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
 		if err != nil {
 			return err
@@ -609,10 +641,7 @@ func rolloutLookupError(rolloutID int64, err error) error {
 
 // extra merges the mutation's note into event metadata.
 func (m Mutation) extra(extra map[string]any) map[string]any {
-	if m.Note == "" {
-		return extra
-	}
-	out := map[string]any{"note": m.Note}
+	out := map[string]any{"note": m.Note, "_actor": m.Actor}
 	for k, v := range extra {
 		out[k] = v
 	}
@@ -688,7 +717,9 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 				return fleeterror.NewInternalErrorf("halt remaining devices: %w", err)
 			}
 		}
-		s.logRolloutEvent(ctx, *row, channelName, EventRolloutCanceled, false, m.extra(map[string]any{"remaining": len(remaining)}))
+		if err := s.logRolloutEvent(ctx, *row, channelName, EventRolloutCanceled, false, m.extra(map[string]any{"remaining": len(remaining)})); err != nil {
+			return err
+		}
 		channel, err = s.GetChannel(ctx, orgID, row.ChannelID)
 		return err
 	})
@@ -710,6 +741,9 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64, m Mutation) (*Rollout, error) {
 	var view *Rollout
 	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.lockEventStream(ctx, orgID); err != nil {
+			return err
+		}
 		q := s.store.GetQueries(ctx)
 		// A finished retry creates a rollout for the current assignment.
 		// Discover its channel without taking the rollout lock, then follow
@@ -743,12 +777,27 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 				return fleeterror.NewInternalErrorf("requeue devices: %w", err)
 			}
 			if len(requeued) > 0 {
+				if row.BehaviorSnapshot.Method == MethodDelegated {
+					targets, err := s.listTargets(ctx, row)
+					if err != nil {
+						return err
+					}
+					waiting := sql.NullTime{}
+					if !hasUpdatesInFlight(row, targets) {
+						waiting = sql.NullTime{Time: s.now(), Valid: true}
+					}
+					if err := s.setControllerWait(ctx, row.ID, waiting); err != nil {
+						return err
+					}
+				}
 				if err := q.RecordFirmwareRolloutAction(ctx, sqlc.RecordFirmwareRolloutActionParams{
 					RolloutID: rolloutID, ActorType: m.Actor.Type, ActorID: m.Actor.ID, ActorName: m.Actor.Name,
 				}); err != nil {
 					return fleeterror.NewInternalErrorf("record retry: %w", err)
 				}
-				s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(requeued)}))
+				if err := s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(requeued), "device_identifiers": requeuedNames(suppressed, requeued)})); err != nil {
+					return err
+				}
 			}
 			view, err = s.refreshView(ctx, orgID, rolloutID)
 			return err
@@ -803,8 +852,12 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		if err := q.PreserveFirmwareRolloutRetryBaselines(ctx, started.ID); err != nil {
 			return fleeterror.NewInternalErrorf("preserve retry baselines: %w", err)
 		}
-		s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(suppressed)}))
-		s.logRolloutEvent(ctx, *started, channelName, EventRolloutStarted, false, map[string]any{"retry_of": rolloutID})
+		if err := s.logRolloutEvent(ctx, row, channelName, EventRolloutRetried, false, m.extra(map[string]any{"retried": len(suppressed), "device_identifiers": requeuedNames(suppressed, nil)})); err != nil {
+			return err
+		}
+		if err := s.logRolloutEvent(ctx, *started, channelName, EventRolloutStarted, false, map[string]any{"retry_of": rolloutID}); err != nil {
+			return err
+		}
 		view, err = s.refreshView(ctx, orgID, started.ID)
 		return err
 	})
@@ -1231,6 +1284,9 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 		view.Evidence = ev
 	}
 	view.State = deriveState(r, ev)
+	if r.Status == StatusActive && !r.PausedAt.Valid && r.BehaviorSnapshot.Method == MethodDelegated && view.DeviceCounts.InProgress == 0 && view.DeviceCounts.Retrying == 0 {
+		view.State = StateWaitingForController
+	}
 	return view, nil
 }
 
@@ -1262,9 +1318,12 @@ func deriveState(r sqlc.FirmwareRollout, ev *Evidence) string {
 // logRolloutEvent records a rollout lifecycle event. system marks events
 // raised by the enforcement loop rather than an operator; operator events
 // take their actor from the request session.
-func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, channelName, eventType string, system bool, extra map[string]any) {
+func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, channelName, eventType string, system bool, extra map[string]any) error {
+	if err := s.persistRolloutEvent(ctx, r, eventType, system, extra); err != nil {
+		return err
+	}
 	if s.activity == nil {
-		return
+		return nil
 	}
 	orgID := r.OrgID
 	metadata := map[string]any{
@@ -1278,7 +1337,9 @@ func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, c
 		"stage":            r.Stage,
 	}
 	for k, v := range extra {
-		metadata[k] = v
+		if k != "_actor" {
+			metadata[k] = v
+		}
 	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
@@ -1293,9 +1354,14 @@ func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, c
 		activity.StampActor(ctx, &event)
 	}
 	s.activity.Log(ctx, event)
+	return nil
 }
 
 var eventDescriptions = map[string]string{
+	EventRolloutAdvanced:              "Advanced firmware update",
+	EventRolloutDevicesSkipped:        "Skipped firmware update targets",
+	EventRolloutDeviceFailed:          "Firmware update target failed",
+	EventRolloutControllerTimedOut:    "Firmware update controller timed out",
 	EventRolloutStarted:               "Started firmware update",
 	EventRolloutReviewReady:           "Firmware update ready for review",
 	EventRolloutContinued:             "Continued firmware update",

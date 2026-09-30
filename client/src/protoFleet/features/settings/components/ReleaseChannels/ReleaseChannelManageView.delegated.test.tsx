@@ -86,7 +86,7 @@ describe("existing delegated release channels", () => {
     [RolloutOrder.LEAST_EFFICIENT_FIRST, "Least efficient first", RolloutOrder.RANDOM, "Random"],
     [RolloutOrder.UNSPECIFIED, "Least efficient first", RolloutOrder.RANDOM, "Random"],
   ] as const)(
-    "shows order %s and requires a supported method before saving the changed order",
+    "saves changed order %s while preserving external control and timeout",
     async (order, label, nextOrder, nextLabel) => {
       const channel = delegatedChannel(order);
       const onSave = renderManage(channel);
@@ -96,27 +96,22 @@ describe("existing delegated release channels", () => {
       expect(screen.getByRole("option", { name: label })).toHaveAttribute("aria-selected", "true");
       fireEvent.click(screen.getByRole("option", { name: nextLabel }));
       expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
-      expect(screen.getByTestId("save-channel")).toBeDisabled();
-      await applyChannelSettings();
-      expect(onSave).not.toHaveBeenCalled();
-      expect(screen.getByTestId("delegated-save-unavailable")).toHaveTextContent("Choose another update method");
-      chooseMethod("Single batch");
-      expect(screen.queryByTestId("delegated-save-unavailable")).not.toBeInTheDocument();
-      expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
       await applyChannelSettings();
       expect(onSave).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
           behavior: create(RolloutBehaviorSchema, {
-            method: RolloutMethod.ALL_AT_ONCE,
+            method: RolloutMethod.DELEGATED,
             order: nextOrder,
             maxConcurrentOffline: 7,
+            controllerTimeoutSeconds: 120,
           }),
         }),
       );
     },
   );
 
-  it("keeps the saved method visible and blocks unrelated edits until the operator changes it", async () => {
+  it("saves unrelated edits without changing external control or its timeout", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
@@ -133,25 +128,21 @@ describe("existing delegated release channels", () => {
     await applyChannelSettings();
 
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
-    chooseMethod("Multiple batches");
-    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
-    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         name: "Renamed delegated channel",
         behavior: create(RolloutBehaviorSchema, {
-          method: RolloutMethod.BATCHED,
+          method: RolloutMethod.DELEGATED,
           order: RolloutOrder.RANDOM,
-          batchSize: 5,
           maxConcurrentOffline: 7,
+          controllerTimeoutSeconds: 120,
         }),
       }),
     );
   });
 
-  it("keeps Save blocked after reverting an unsaved switch to external control", async () => {
+  it("preserves external control after reverting an unsaved method switch", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
@@ -169,8 +160,17 @@ describe("existing delegated release channels", () => {
     await applyChannelSettings();
 
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    await waitFor(() => expect(screen.getByTestId("delegated-save-unavailable")).toBeVisible());
-    expect(onSave).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        name: "Renamed after reverting",
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.DELEGATED,
+          order: RolloutOrder.RANDOM,
+          maxConcurrentOffline: 7,
+          controllerTimeoutSeconds: 120,
+        }),
+      }),
+    );
   });
 
   it.each(["new", "existing nondelegated"] as const)(

@@ -274,10 +274,13 @@ service RolloutService {
     // Dispatches the next update commands of a DELEGATED rollout: either the
     // named QUEUED targets or the next count QUEUED targets in the rollout's
     // order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
-    // DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
-    // rollout is not delegated, not ACTIVE, paused, a named target is not
-    // QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
-    // every requested target. Honors the RolloutService revision rule.
+    // STALE_GENERATION, DEVICE_NOT_QUEUED, DEVICE_NOT_DISPATCHABLE,
+    // OFFLINE_BUDGET_FULL, or ARTIFACT_MISSING) and changes nothing when the
+    // rollout is not delegated, not ACTIVE, paused, or no longer current, a
+    // named target is not QUEUED in it, a selected target cannot be dispatched
+    // now, RolloutBehavior.max_concurrent_offline cannot admit every requested
+    // target, or no uploaded file carries the rollout's checksum. Honors the
+    // RolloutService revision rule.
     rpc AdvanceRollout(AdvanceRolloutRequest) returns (AdvanceRolloutResponse);
 
     // Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
@@ -1037,6 +1040,11 @@ enum RolloutErrorReason {
     ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT = 12;
     // The referenced file's target metadata does not match the assignment.
     ROLLOUT_ERROR_REASON_ARTIFACT_MISMATCH = 13;
+    // A selected target is QUEUED but cannot be dispatched now: a command
+    // preflight filter rejected it (for example, the miner is curtailed),
+    // another firmware command is outstanding for it, or it no longer reports
+    // the rollout's manufacturer and model.
+    ROLLOUT_ERROR_REASON_DEVICE_NOT_DISPATCHABLE = 14;
 }
 
 // Error detail attached to RolloutService failures.

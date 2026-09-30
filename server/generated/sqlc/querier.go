@@ -284,6 +284,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
@@ -382,6 +383,7 @@ type Querier interface {
 	// Creation follows assignment/scope locks; start the initial stage at this
 	// write rather than at the beginning of a transaction that may have waited.
 	CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareRolloutParams) (FirmwareRollout, error)
+	CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirmwareRolloutEventParams) error
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
 	// Name is unique per (site_id, name) among live rows; the partial
@@ -1213,6 +1215,10 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
+	// When each target's latest dispatched FirmwareUpdate reached a terminal
+	// status. Targets whose command is still queued or unrecorded are omitted.
+	ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error)
+	ListFirmwareRolloutEvents(ctx context.Context, arg ListFirmwareRolloutEventsParams) ([]FirmwareRolloutEvent, error)
 	// Offline current members that have been targeted hold capacity. Departed
 	// targets count only while a durable dispatch reservation remains unresolved:
 	// a pending command before an offline cycle, or an offline miner not yet
@@ -1799,6 +1805,7 @@ type Querier interface {
 	// caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
 	// Zero rows means paired-like won.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
+	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
@@ -1835,6 +1842,7 @@ type Querier interface {
 	// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
 	// bulk-validate rack-list site_ids filter references in one round trip.
 	SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error)
+	SkipFirmwareRolloutDevices(ctx context.Context, arg SkipFirmwareRolloutDevicesParams) error
 	// Adds a rollout's initial targets with their batch (NULL for the unbatched
 	// rest), their order (position_offset + index in device_ids) and a baseline
 	// of their health, so post-update evidence is compared with each miner's own

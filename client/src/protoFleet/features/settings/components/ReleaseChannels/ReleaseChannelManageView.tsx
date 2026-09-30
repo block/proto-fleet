@@ -66,8 +66,6 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const MAX_FIRMWARE_ASSIGNMENTS = 100;
 const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
-const delegatedApplyMessage =
-  "Firmware updates for externally controlled channels are not available yet. Choose another update method in Channel settings before applying changes.";
 const scopeAndFirmwareMessage =
   "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
 const unsupportedTargetMessage =
@@ -426,9 +424,7 @@ const ReleaseChannelManageView = ({
   const isWriting = isSaving || isApplying || (writeLock?.isLocked ?? false);
   const nameError = trimMinerTarget(name) === "" ? "Enter a name." : channelTextError(name, "Name", 100);
   const descriptionError = channelTextError(description, "Description", 1000);
-  const isDelegated = behavior.method === RolloutMethod.DELEGATED;
   const settingsValid =
-    !isDelegated &&
     !nameError &&
     !descriptionError &&
     scopeValidationErrors(scope).length === 0 &&
@@ -578,7 +574,6 @@ const ReleaseChannelManageView = ({
   const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
   const effectiveSettings = dirty ? settingsDraft : savedSettings;
-  const delegatedApplyBlocked = effectiveSettings?.behavior?.method === RolloutMethod.DELEGATED && assignmentCount > 0;
   // Settings and assignments use separate RPCs. Until they can be committed
   // atomically, never expose a changed scope with an assignment being replaced.
   const scopeAndFirmwareBlocked =
@@ -591,7 +586,6 @@ const ReleaseChannelManageView = ({
   const canApply =
     hasUnsavedChanges &&
     (!dirty || settingsValid) &&
-    !delegatedApplyBlocked &&
     !scopeAndFirmwareBlocked &&
     !exceedsAssignmentLimit &&
     invalidSelections.size === 0 &&
@@ -815,11 +809,6 @@ const ReleaseChannelManageView = ({
         title="Update behavior"
         subtext="Batch and pilot sizes apply separately to each model. The offline limit is shared across the channel."
       >
-        {isDelegated ? (
-          <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-save-unavailable">
-            Saving externally controlled channels is not available yet. Choose another update method to save changes.
-          </p>
-        ) : null}
         <RolloutControls
           behavior={behavior}
           onChange={setBehavior}
@@ -949,11 +938,6 @@ const ReleaseChannelManageView = ({
         {exceedsAssignmentLimit ? (
           <p role="alert" className="text-200 text-intent-critical-fill">
             {assignmentLimitMessage}
-          </p>
-        ) : null}
-        {delegatedApplyBlocked ? (
-          <p role="alert" className="text-200 text-intent-critical-fill" data-testid="delegated-apply-unavailable">
-            {delegatedApplyMessage}
           </p>
         ) : null}
         {modelGroups.length === 0 ? (
@@ -1154,11 +1138,6 @@ const ReleaseChannelManageView = ({
         {dirty && !settingsValid ? (
           <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
             Correct the channel settings before applying changes.
-          </p>
-        ) : null}
-        {delegatedApplyBlocked ? (
-          <p role="alert" className="mb-3 text-200 text-intent-critical-fill">
-            {delegatedApplyMessage}
           </p>
         ) : null}
         {invalidSelections.size > 0 ? (

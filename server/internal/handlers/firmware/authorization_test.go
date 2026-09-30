@@ -34,11 +34,9 @@ func TestFirmwareMutationHandlers_RejectUserWithoutFirmwareUpdatePermission(t *t
 			path:   "/api/v1/firmware/upload/chunked",
 			handler: func(env *testEnv) http.Handler {
 				return &initiateHandler{
-					mgr:                NewChunkedUploadManager(),
-					filesService:       env.fileSvc,
-					sessionService:     env.sessionSvc,
-					userStore:          env.userStoreMock,
-					permissionResolver: env.permissionResolver,
+					mgr:           NewChunkedUploadManager(),
+					filesService:  env.fileSvc,
+					authenticator: env.authenticator(),
 				}
 			},
 		},
@@ -48,10 +46,8 @@ func TestFirmwareMutationHandlers_RejectUserWithoutFirmwareUpdatePermission(t *t
 			path:   "/api/v1/firmware/upload/chunked/upload-id",
 			handler: func(env *testEnv) http.Handler {
 				return &chunkHandler{
-					mgr:                NewChunkedUploadManager(),
-					sessionService:     env.sessionSvc,
-					userStore:          env.userStoreMock,
-					permissionResolver: env.permissionResolver,
+					mgr:           NewChunkedUploadManager(),
+					authenticator: env.authenticator(),
 				}
 			},
 		},
@@ -61,11 +57,9 @@ func TestFirmwareMutationHandlers_RejectUserWithoutFirmwareUpdatePermission(t *t
 			path:   "/api/v1/firmware/upload/chunked/upload-id/complete",
 			handler: func(env *testEnv) http.Handler {
 				return &completeHandler{
-					mgr:                NewChunkedUploadManager(),
-					filesService:       env.fileSvc,
-					sessionService:     env.sessionSvc,
-					userStore:          env.userStoreMock,
-					permissionResolver: env.permissionResolver,
+					mgr:           NewChunkedUploadManager(),
+					filesService:  env.fileSvc,
+					authenticator: env.authenticator(),
 				}
 			},
 		},

@@ -19,6 +19,7 @@ func TestReturnedBehaviorWithoutThresholdsCanBeSaved(t *testing.T) {
 	}{
 		{"unspecified defaults", rollout.Behavior{}},
 		{"all at once", rollout.Behavior{Method: rollout.MethodAllAtOnce}},
+		{"delegated", rollout.Behavior{Method: rollout.MethodDelegated, Order: rollout.OrderRandom, MaxConcurrentOffline: 10, ControllerTimeoutSeconds: 300}},
 		{"batched without review", rollout.Behavior{Method: rollout.MethodBatched, BatchSize: 5, WaitBetweenBatchesSeconds: 30}},
 		{"batched with manual review", rollout.Behavior{Method: rollout.MethodBatched, BatchSize: 5, ReviewAfterEachBatch: true}},
 		{"pilot with manual review", rollout.Behavior{Method: rollout.MethodPilotThenContinue, PilotSize: 1}},

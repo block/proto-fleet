@@ -357,10 +357,25 @@ describe("unavailable assigned firmware", () => {
 });
 
 describe("firmware Apply with saved delegated behavior", () => {
-  it("applies a supported draft method before starting firmware, including after a failed refresh", async () => {
+  it("applies firmware without changing external control, including after a failed refresh", async () => {
+    const channel = channelFor(RolloutMethod.DELEGATED);
+    channel.behavior!.controllerTimeoutSeconds = 120;
+    const { onApply, onSave } = renderManage(channel, true);
+    chooseFile("next");
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    await startApply();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
+    ]);
+    openChannelSettings();
+    expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
+  });
+
+  it("saves a draft method before applying firmware", async () => {
     const { onApply, onSave } = renderManage(channelFor(RolloutMethod.DELEGATED), true);
     chooseFile("next");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     chooseMethod("Single batch");
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     expect(onSave).not.toHaveBeenCalled();
@@ -372,37 +387,38 @@ describe("firmware Apply with saved delegated behavior", () => {
     ]);
   });
 
-  it("blocks a mixed set and clear but allows clearing all delegated assignments, including unavailable files", async () => {
+  it.each(["next", ""])("applies firmware selection %s alongside clearing an unavailable assignment", async (id) => {
     const channel = channelFor(RolloutMethod.DELEGATED);
     channel.modelGroups.push({ ...group("Other", "second-old"), firmwareFileId: "", firmwareAvailable: false });
-    const { onApply } = renderManage(channel);
-    chooseFile("next");
+    const { onApply, onSave } = renderManage(channel);
+    chooseFile(id);
     chooseFile("", "Other");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
-    chooseFile("");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
-    expect(screen.queryByTestId("delegated-apply-unavailable")).not.toBeInTheDocument();
-    await startApply("Clear assignments");
+    await startApply(id === "" ? "Clear assignments" : "Apply changes");
+    expect(onSave).not.toHaveBeenCalled();
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
-      { manufacturer: "Proto", model: "Rig", firmwareFileId: "" },
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: id },
       { manufacturer: "Proto", model: "Other", firmwareFileId: "" },
     ]);
   });
 
-  it("disables an open confirmation if the saved method becomes delegated, then allows correction", async () => {
+  it("keeps an open confirmation usable when the saved method becomes delegated", async () => {
     const channel = channelFor();
     const { update, onApply, onSave } = renderManage(channel);
     chooseFile("next");
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    update({ channel: { ...channel, behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }) } });
-    expect(screen.getByRole("button", { name: "Start update" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Start update" }));
-    expect(onApply).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Cancel" }));
-    chooseMethod("Single batch");
-    await startApply("Apply changes");
-    expect(onSave).toHaveBeenCalledOnce();
-    expect(onApply).toHaveBeenCalledOnce();
+    update({
+      channel: {
+        ...channel,
+        behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED, controllerTimeoutSeconds: 120 }),
+      },
+    });
+    expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
+    ]);
   });
 });
 

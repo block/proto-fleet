@@ -204,6 +204,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
 	}
+	if q.completeDelegatedFirmwareRolloutStmt, err = db.PrepareContext(ctx, completeDelegatedFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteDelegatedFirmwareRollout: %w", err)
+	}
 	if q.completeRigConfigReconciliationStmt, err = db.PrepareContext(ctx, completeRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteRigConfigReconciliation: %w", err)
 	}
@@ -326,6 +329,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createFirmwareRolloutStmt, err = db.PrepareContext(ctx, createFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFirmwareRollout: %w", err)
+	}
+	if q.createFirmwareRolloutEventStmt, err = db.PrepareContext(ctx, createFirmwareRolloutEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutEvent: %w", err)
 	}
 	if q.createFleetNodeStmt, err = db.PrepareContext(ctx, createFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFleetNode: %w", err)
@@ -1248,6 +1254,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDevices: %w", err)
 	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDispatchCompletions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDispatchCompletions: %w", err)
+	}
+	if q.listFirmwareRolloutEventsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvents: %w", err)
+	}
 	if q.listFirmwareRolloutOfflineSlotsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutOfflineSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutOfflineSlots: %w", err)
 	}
@@ -1740,6 +1752,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setDevicePairingAuthNeededIfNotPairedStmt, err = db.PrepareContext(ctx, setDevicePairingAuthNeededIfNotPaired); err != nil {
 		return nil, fmt.Errorf("error preparing query SetDevicePairingAuthNeededIfNotPaired: %w", err)
 	}
+	if q.setFirmwareRolloutControllerWaitStmt, err = db.PrepareContext(ctx, setFirmwareRolloutControllerWait); err != nil {
+		return nil, fmt.Errorf("error preparing query SetFirmwareRolloutControllerWait: %w", err)
+	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
 	}
@@ -1775,6 +1790,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.sitesByIDsStmt, err = db.PrepareContext(ctx, sitesByIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query SitesByIDs: %w", err)
+	}
+	if q.skipFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, skipFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query SkipFirmwareRolloutDevices: %w", err)
 	}
 	if q.snapshotFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, snapshotFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query SnapshotFirmwareRolloutDevices: %w", err)
@@ -2402,6 +2420,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
 		}
 	}
+	if q.completeDelegatedFirmwareRolloutStmt != nil {
+		if cerr := q.completeDelegatedFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeDelegatedFirmwareRolloutStmt: %w", cerr)
+		}
+	}
 	if q.completeRigConfigReconciliationStmt != nil {
 		if cerr := q.completeRigConfigReconciliationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing completeRigConfigReconciliationStmt: %w", cerr)
@@ -2605,6 +2628,11 @@ func (q *Queries) Close() error {
 	if q.createFirmwareRolloutStmt != nil {
 		if cerr := q.createFirmwareRolloutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutEventStmt != nil {
+		if cerr := q.createFirmwareRolloutEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutEventStmt: %w", cerr)
 		}
 	}
 	if q.createFleetNodeStmt != nil {
@@ -4142,6 +4170,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt != nil {
+		if cerr := q.listFirmwareRolloutDispatchCompletionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutDispatchCompletionsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutEventsStmt != nil {
+		if cerr := q.listFirmwareRolloutEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutEventsStmt: %w", cerr)
+		}
+	}
 	if q.listFirmwareRolloutOfflineSlotsStmt != nil {
 		if cerr := q.listFirmwareRolloutOfflineSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFirmwareRolloutOfflineSlotsStmt: %w", cerr)
@@ -4962,6 +5000,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setDevicePairingAuthNeededIfNotPairedStmt: %w", cerr)
 		}
 	}
+	if q.setFirmwareRolloutControllerWaitStmt != nil {
+		if cerr := q.setFirmwareRolloutControllerWaitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setFirmwareRolloutControllerWaitStmt: %w", cerr)
+		}
+	}
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
 		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
@@ -5020,6 +5063,11 @@ func (q *Queries) Close() error {
 	if q.sitesByIDsStmt != nil {
 		if cerr := q.sitesByIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sitesByIDsStmt: %w", cerr)
+		}
+	}
+	if q.skipFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.skipFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing skipFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
 	if q.snapshotFirmwareRolloutDevicesStmt != nil {
@@ -5656,6 +5704,7 @@ type Queries struct {
 	clearReleaseChannelFirmwareStmt                              *sql.Stmt
 	clearRolePermissionsStmt                                     *sql.Stmt
 	closeStaleErrorsStmt                                         *sql.Stmt
+	completeDelegatedFirmwareRolloutStmt                         *sql.Stmt
 	completeRigConfigReconciliationStmt                          *sql.Stmt
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
@@ -5697,6 +5746,7 @@ type Queries struct {
 	createCustomRoleStmt                                         *sql.Stmt
 	createDeviceSetStmt                                          *sql.Stmt
 	createFirmwareRolloutStmt                                    *sql.Stmt
+	createFirmwareRolloutEventStmt                               *sql.Stmt
 	createFleetNodeStmt                                          *sql.Stmt
 	createFleetNodeApiKeyStmt                                    *sql.Stmt
 	createInfrastructureDeviceStmt                               *sql.Stmt
@@ -6004,6 +6054,8 @@ type Queries struct {
 	listEnabledMQTTSourcesStmt                                   *sql.Stmt
 	listExistingDeviceIdentifiersStmt                            *sql.Stmt
 	listFirmwareRolloutDevicesStmt                               *sql.Stmt
+	listFirmwareRolloutDispatchCompletionsStmt                   *sql.Stmt
+	listFirmwareRolloutEventsStmt                                *sql.Stmt
 	listFirmwareRolloutOfflineSlotsStmt                          *sql.Stmt
 	listFirmwareRolloutsStmt                                     *sql.Stmt
 	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
@@ -6168,6 +6220,7 @@ type Queries struct {
 	setCurtailmentAutomationRestoreStartedStmt                   *sql.Stmt
 	setCurtailmentAutomationRuleEnabledStmt                      *sql.Stmt
 	setDevicePairingAuthNeededIfNotPairedStmt                    *sql.Stmt
+	setFirmwareRolloutControllerWaitStmt                         *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
 	setInfrastructureControlSubnetsStmt                          *sql.Stmt
 	setLocalTransactionTimeoutStmt                               *sql.Stmt
@@ -6180,6 +6233,7 @@ type Queries struct {
 	setScheduleRunningStmt                                       *sql.Stmt
 	siteBelongsToOrgStmt                                         *sql.Stmt
 	sitesByIDsStmt                                               *sql.Stmt
+	skipFirmwareRolloutDevicesStmt                               *sql.Stmt
 	snapshotFirmwareRolloutDevicesStmt                           *sql.Stmt
 	softDeleteAlertChannelStmt                                   *sql.Stmt
 	softDeleteBuildingStmt                                       *sql.Stmt
@@ -6353,6 +6407,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearReleaseChannelFirmwareStmt:                              q.clearReleaseChannelFirmwareStmt,
 		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
+		completeDelegatedFirmwareRolloutStmt:                         q.completeDelegatedFirmwareRolloutStmt,
 		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
@@ -6394,6 +6449,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createCustomRoleStmt:                                         q.createCustomRoleStmt,
 		createDeviceSetStmt:                                          q.createDeviceSetStmt,
 		createFirmwareRolloutStmt:                                    q.createFirmwareRolloutStmt,
+		createFirmwareRolloutEventStmt:                               q.createFirmwareRolloutEventStmt,
 		createFleetNodeStmt:                                          q.createFleetNodeStmt,
 		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
 		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
@@ -6701,6 +6757,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEnabledMQTTSourcesStmt:                                   q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,
 		listFirmwareRolloutDevicesStmt:                               q.listFirmwareRolloutDevicesStmt,
+		listFirmwareRolloutDispatchCompletionsStmt:                   q.listFirmwareRolloutDispatchCompletionsStmt,
+		listFirmwareRolloutEventsStmt:                                q.listFirmwareRolloutEventsStmt,
 		listFirmwareRolloutOfflineSlotsStmt:                          q.listFirmwareRolloutOfflineSlotsStmt,
 		listFirmwareRolloutsStmt:                                     q.listFirmwareRolloutsStmt,
 		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
@@ -6865,6 +6923,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setCurtailmentAutomationRestoreStartedStmt:                   q.setCurtailmentAutomationRestoreStartedStmt,
 		setCurtailmentAutomationRuleEnabledStmt:                      q.setCurtailmentAutomationRuleEnabledStmt,
 		setDevicePairingAuthNeededIfNotPairedStmt:                    q.setDevicePairingAuthNeededIfNotPairedStmt,
+		setFirmwareRolloutControllerWaitStmt:                         q.setFirmwareRolloutControllerWaitStmt,
 		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
 		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
 		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,
@@ -6877,6 +6936,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setScheduleRunningStmt:                                       q.setScheduleRunningStmt,
 		siteBelongsToOrgStmt:                                         q.siteBelongsToOrgStmt,
 		sitesByIDsStmt:                                               q.sitesByIDsStmt,
+		skipFirmwareRolloutDevicesStmt:                               q.skipFirmwareRolloutDevicesStmt,
 		snapshotFirmwareRolloutDevicesStmt:                           q.snapshotFirmwareRolloutDevicesStmt,
 		softDeleteAlertChannelStmt:                                   q.softDeleteAlertChannelStmt,
 		softDeleteBuildingStmt:                                       q.softDeleteBuildingStmt,

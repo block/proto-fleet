@@ -690,6 +690,12 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 	return result, err
 }
 
+func (q *retryingQuerier) CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error {
+	return q.retrier.RetryQuery(ctx, "CompleteDelegatedFirmwareRollout", func() error {
+		return q.next.CompleteDelegatedFirmwareRollout(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error {
 	return q.retrier.RetryQuery(ctx, "CompleteRigConfigReconciliation", func() error {
 		return q.next.CompleteRigConfigReconciliation(ctx, arg)
@@ -1168,6 +1174,12 @@ func (q *retryingQuerier) CreateFirmwareRollout(ctx context.Context, arg CreateF
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirmwareRolloutEventParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateFirmwareRolloutEvent", func() error {
+		return q.next.CreateFirmwareRolloutEvent(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error) {
@@ -4686,6 +4698,30 @@ func (q *retryingQuerier) ListFirmwareRolloutDevices(ctx context.Context, rollou
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error) {
+	var result []ListFirmwareRolloutDispatchCompletionsRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutDispatchCompletions", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutDispatchCompletions(ctx, rolloutID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutEvents(ctx context.Context, arg ListFirmwareRolloutEventsParams) ([]FirmwareRolloutEvent, error) {
+	var result []FirmwareRolloutEvent
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvents", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutEvents(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutOfflineSlots", func() error {
@@ -6462,6 +6498,12 @@ func (q *retryingQuerier) SetDevicePairingAuthNeededIfNotPaired(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error {
+	return q.retrier.RetryQuery(ctx, "SetFirmwareRolloutControllerWait", func() error {
+		return q.next.SetFirmwareRolloutControllerWait(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "SetFleetNodeEnrollmentStatus", func() error {
@@ -6568,6 +6610,12 @@ func (q *retryingQuerier) SitesByIDs(ctx context.Context, arg SitesByIDsParams) 
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) SkipFirmwareRolloutDevices(ctx context.Context, arg SkipFirmwareRolloutDevicesParams) error {
+	return q.retrier.RetryQuery(ctx, "SkipFirmwareRolloutDevices", func() error {
+		return q.next.SkipFirmwareRolloutDevices(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error {
