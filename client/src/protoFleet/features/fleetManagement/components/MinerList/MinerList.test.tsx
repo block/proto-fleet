@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import MinerList from "./MinerList";
 import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
@@ -214,6 +215,43 @@ describe("MinerList", () => {
         username: "",
       },
     }));
+  });
+
+  it("keeps modules in server order but selects only actual miners", () => {
+    const miner = createMinerSnapshot("A miner");
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: ["A miner"],
+      miners: { "A miner": miner },
+      totalMiners: 2,
+      inventoryMinerCount: 1,
+      inventoryItems: [
+        create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Z module", hashrateThs: 300 }),
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 1n },
+          deviceIdentifier: "A miner",
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    const body = screen.getByTestId("list-body");
+    expect(body.textContent!.indexOf("Z module")).toBeLessThan(body.textContent!.indexOf("A miner"));
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(1);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(1);
+    fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("A miner");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
+  });
+
+  it.each(["tank=7", "container=9"])("preserves ancestor scope when applying filters (%s)", async (ancestor) => {
+    const user = userEvent.setup();
+    renderMinerList({ minerIds: ["miner"], totalMiners: 1, onAddMiners: vi.fn() }, [`/?${ancestor}`]);
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("Offline", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
+    expect(screen.getByTestId("path-display")).toHaveTextContent(ancestor);
   });
 
   const getColumnHeaders = () =>

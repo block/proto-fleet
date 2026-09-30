@@ -765,6 +765,7 @@ message ContainerSnapshot {
   google.protobuf.Timestamp observed_at = 1;
   repeated ContainerTank tanks = 2;
   ContainerPlant plant = 3;
+  bool topology_complete = 4;
 }
 message ContainerTank {
   int32 position = 1;
@@ -776,6 +777,15 @@ message ContainerModule {
   // unknown, hashing, attention, offline, sleeping, isolated.
   string state = 3;
   google.protobuf.Timestamp observed_at = 4;
+  ContainerModuleMetrics metrics = 5;
+}
+
+// SI units; absent values are unavailable. Power is module PSU input power.
+message ContainerModuleMetrics {
+  google.protobuf.Timestamp observed_at = 1;
+  optional double hashrate_hs = 2;
+  optional double power_w = 3;
+  optional double temperature_c = 4;
 }
 
 message ContainerPlant {

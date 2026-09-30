@@ -33,6 +33,7 @@ LEFT JOIN LATERAL (
 ) dm ON TRUE
 WHERE d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
+  AND (cardinality(COALESCE(sqlc.arg('device_identifiers')::text[], '{}'))=0 OR d.device_identifier=ANY(sqlc.arg('device_identifiers')::text[]))
   AND (
        (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0 AND NOT sqlc.arg('include_unassigned')::boolean)
        OR d.site_id = ANY(sqlc.arg('site_ids')::bigint[])

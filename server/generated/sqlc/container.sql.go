@@ -58,16 +58,18 @@ LEFT JOIN LATERAL (
 ) dm ON TRUE
 WHERE d.org_id = $1 AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
+  AND (cardinality(COALESCE($2::text[], '{}'))=0 OR d.device_identifier=ANY($2::text[]))
   AND (
-       (cardinality(COALESCE($2::bigint[], '{}')) = 0 AND NOT $3::boolean)
-       OR d.site_id = ANY($2::bigint[])
-       OR ($3::boolean AND d.site_id IS NULL)
+       (cardinality(COALESCE($3::bigint[], '{}')) = 0 AND NOT $4::boolean)
+       OR d.site_id = ANY($3::bigint[])
+       OR ($4::boolean AND d.site_id IS NULL)
   )
 ORDER BY d.id
 `
 
 type ListContainersParams struct {
 	OrgID             int64
+	DeviceIdentifiers []string
 	SiteIds           []int64
 	IncludeUnassigned bool
 }
@@ -93,7 +95,12 @@ type ListContainersRow struct {
 }
 
 func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error) {
-	rows, err := q.query(ctx, q.listContainersStmt, listContainers, arg.OrgID, pq.Array(arg.SiteIds), arg.IncludeUnassigned)
+	rows, err := q.query(ctx, q.listContainersStmt, listContainers,
+		arg.OrgID,
+		pq.Array(arg.DeviceIdentifiers),
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -393,6 +393,9 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 
 	for _, metrics := range data {
 		if metrics.Container != nil {
+			if err := storeContainerInventory(ctx, qtx, metrics.DeviceIdentifier, metrics.Container); err != nil {
+				return fmt.Errorf("store container inventory: %w", err)
+			}
 			if plant := metrics.Container.Plant; plant != nil {
 				encoded, err := json.Marshal(plant)
 				if err != nil {

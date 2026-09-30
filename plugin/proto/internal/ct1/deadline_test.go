@@ -44,3 +44,26 @@ func TestOptionalPlantTimeoutPreservesCoreMetrics(t *testing.T) {
 	_, err = client.Collect(ctx, "ct1")
 	require.Error(t, err, "parent cancellation still aborts collection")
 }
+
+func TestMissingContainerTotalsPreservesModuleObservation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/container/map" {
+			_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[]}]}]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	u, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(u.Port(), 10, 32)
+	require.NoError(t, err)
+	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+	require.NoError(t, err)
+	m, err := client.Collect(t.Context(), "ct1")
+	require.NoError(t, err)
+	require.True(t, m.Container.TopologyComplete)
+	require.Len(t, m.Container.Tanks[0].Modules, 1)
+	require.Nil(t, m.HashrateHS)
+	require.Nil(t, m.PowerW)
+}

@@ -50,6 +50,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
@@ -82,6 +83,7 @@ import (
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	fleetInventoryDomain "github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -122,6 +124,7 @@ import (
 	devicesetHandler "github.com/block/proto-fleet/server/internal/handlers/deviceset"
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
+	fleetInventoryHandler "github.com/block/proto-fleet/server/internal/handlers/fleetinventory"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
@@ -202,6 +205,7 @@ var reflectEnabledServices = []string{
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
 	containersv1connect.ContainerServiceName,
+	fleetinventoryv1connect.FleetInventoryServiceName,
 	infrastructurev1connect.InfrastructureServiceName,
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
@@ -849,6 +853,7 @@ func start(config *Config) (result error) {
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))), li))
+	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
 		sitemapHandler.NewHandler(sitemapSvc),

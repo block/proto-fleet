@@ -31,13 +31,16 @@ type PSUThermal struct {
 	OverTemperatureWarning bool     `json:"overTemperatureWarning"`
 }
 type Health struct {
-	HashrailOK        *bool       `json:"hashrailOk"`
-	RefclksOK         *bool       `json:"refclksOk"`
-	Timestamp         time.Time   `json:"timestamp"`
-	Errors            []Issue     `json:"errors"`
-	Warnings          []Issue     `json:"warnings"`
-	LastShutdownError *Issue      `json:"lastShutdownError"`
-	PSUThermal        *PSUThermal `json:"psuThermal"`
+	Hashrate                *float64       `json:"hashrate"`
+	AverageAsicTemperatureC *float64       `json:"averageAsicTemperatureC"`
+	PSUElectrical           *PSUElectrical `json:"psuElectrical"`
+	HashrailOK              *bool          `json:"hashrailOk"`
+	RefclksOK               *bool          `json:"refclksOk"`
+	Timestamp               time.Time      `json:"timestamp"`
+	Errors                  []Issue        `json:"errors"`
+	Warnings                []Issue        `json:"warnings"`
+	LastShutdownError       *Issue         `json:"lastShutdownError"`
+	PSUThermal              *PSUThermal    `json:"psuThermal"`
 }
 type Board struct {
 	MACAddress  string  `json:"macAddress"`
@@ -130,7 +133,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	if wire.ContainerMap == nil {
 		return nil, fmt.Errorf("container map missing")
 	}
-	result := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{}}
+	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
 	boardIDs := map[string]bool{}
 	for _, tank := range wire.ContainerMap.Tanks {
@@ -170,7 +173,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				reportedID = ""
 				state = sdk.ModuleUnknown
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now)})
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.Tanks = append(result.Tanks, out)

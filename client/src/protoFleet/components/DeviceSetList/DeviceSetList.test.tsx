@@ -7,6 +7,7 @@ import DeviceSetList from "./DeviceSetList";
 import type { DeviceSetListItem } from "./DeviceSetList";
 import { DeviceSetSchema, DeviceSetStatsSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 
 vi.mock("recharts", () => ({
@@ -57,6 +58,62 @@ const defaultProps = {
 };
 
 describe("DeviceSetList", () => {
+  it("keeps mixed server order and excludes tanks from rack selection", () => {
+    const rack = createMockDeviceSet(1n, "A rack");
+    const tank = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.TANK, id: 1n },
+      name: "Z tank",
+      assetCount: 3n,
+    });
+    const onSelectedIdsChange = vi.fn();
+    const onTankClick = vi.fn();
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[rack]}
+        statsMap={new Map()}
+        inventoryItems={[
+          tank,
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.RACK, id: 1n },
+            details: { case: "rack", value: rack },
+          }),
+        ]}
+        selectedIds={[]}
+        onSelectedIdsChange={onSelectedIdsChange}
+        onTankClick={onTankClick}
+      />,
+    );
+    const body = screen.getByTestId("list-body");
+    expect(body.textContent!.indexOf("Z tank")).toBeLessThan(body.textContent!.indexOf("A rack"));
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(1);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(1);
+    fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["1"]);
+    fireEvent.click(screen.getByText("Z tank"));
+    expect(onTankClick).toHaveBeenCalledWith(tank);
+  });
+
+  it("includes tanks in the pagination range", () => {
+    const tanks = Array.from({ length: 10 }, (_, i) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.TANK, id: BigInt(i + 1) },
+        name: `Tank ${i + 1}`,
+      }),
+    );
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[]}
+        inventoryItems={tanks}
+        statsMap={new Map()}
+        total={10}
+        itemName={{ singular: "equipment group", plural: "equipment groups" }}
+      />,
+    );
+    expect(screen.getByText("Showing 1–10 of 10 equipment groups")).toBeInTheDocument();
+  });
+
   it("uses descending sort when the issues header is selected", () => {
     const deviceSet = createMockDeviceSet(1n, "Group A");
     const stats = createMockStats(1n);

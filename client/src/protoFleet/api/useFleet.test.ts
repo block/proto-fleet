@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { fleetManagementClient } from "./clients";
+import { fleetInventoryClient, fleetManagementClient } from "./clients";
+import { EntityKind, ListInventoryResponseSchema } from "./generated/fleetinventory/v1/fleetinventory_pb";
 import useFleet from "./useFleet";
 import {
   ListMinerStateSnapshotsResponseSchema,
@@ -10,6 +11,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 vi.mock("./clients", () => ({
+  fleetInventoryClient: { listInventory: vi.fn() },
   fleetManagementClient: {
     listMinerStateSnapshots: vi.fn(),
   },
@@ -54,6 +56,37 @@ const makeListResponse = (miners: ReturnType<typeof makeMiner>[]) =>
 describe("useFleet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("clears the inventory miner count and ignores in-flight results when disabled", async () => {
+    const response = create(ListInventoryResponseSchema, {
+      items: [{ ref: { kind: EntityKind.MINER, id: 1n }, details: { case: "miner", value: makeMiner("miner-1") } }],
+      totalCount: 12n,
+      minerCount: 9n,
+    });
+    vi.mocked(fleetInventoryClient.listInventory).mockResolvedValueOnce(response);
+    const { result, rerender } = renderHook(({ enabled }) => useFleet({ inventory: true, enabled }), {
+      initialProps: { enabled: true },
+    });
+    await waitFor(() => expect(result.current.inventoryMinerCount).toBe(9));
+    let resolve!: (value: typeof response) => void;
+    vi.mocked(fleetInventoryClient.listInventory).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    act(() => result.current.refreshCurrentPage());
+    rerender({ enabled: false });
+    expect(result.current.inventoryMinerCount).toBe(0);
+    await act(async () => resolve(response));
+    expect(result.current.inventoryMinerCount).toBe(0);
+    expect(result.current.inventoryItems).toBeUndefined();
+    vi.mocked(fleetInventoryClient.listInventory).mockResolvedValueOnce(
+      create(ListInventoryResponseSchema, { minerCount: 2n }),
+    );
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.inventoryMinerCount).toBe(2));
   });
 
   it("queues a refetch requested while a fetch is already in flight", async () => {

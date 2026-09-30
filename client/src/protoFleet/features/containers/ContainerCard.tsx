@@ -1,12 +1,14 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { containerHealth } from "./containerHealth";
+import { InventoryCell } from "./InventoryCell";
 import { containerViewTarget } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { rememberContainerMetadata } from "@/protoFleet/components/SingleMinerWrapper/routeState";
 import { HEAT_CLASS } from "@/protoFleet/features/buildings/components/cardHealth";
 
-export default function ContainerCard({ container }: { container: Container }) {
+export default function ContainerCard({ container, inventory }: { container: Container; inventory?: InventoryItem }) {
   const { tanks: states, total, affected, incomplete } = containerHealth(container);
   const target = containerViewTarget(container);
   const className = "flex h-full flex-col rounded-2xl bg-surface-overlay p-5";
@@ -49,14 +51,22 @@ export default function ContainerCard({ container }: { container: Container }) {
       </div>
       <div className="mt-3 flex justify-between gap-2 border-t border-border-5 pt-3 text-200">
         <span>
-          {!container.stale && container.hashrateHs !== undefined
-            ? `${(container.hashrateHs / 1e12).toLocaleString(undefined, { maximumFractionDigits: 1 })} TH/s`
-            : "—"}
+          {inventory ? (
+            <InventoryCell item={inventory} column="hashrate" />
+          ) : !container.stale && container.hashrateHs !== undefined ? (
+            `${(container.hashrateHs / 1e12).toLocaleString(undefined, { maximumFractionDigits: 1 })} TH/s`
+          ) : (
+            "—"
+          )}
         </span>
         <span>
-          {!container.stale && container.powerW !== undefined
-            ? `${(container.powerW / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`
-            : "—"}
+          {inventory ? (
+            <InventoryCell item={inventory} column="power" />
+          ) : !container.stale && container.powerW !== undefined ? (
+            `${(container.powerW / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`
+          ) : (
+            "—"
+          )}
         </span>
       </div>
       {!target ? <p className="mt-3 text-200 text-text-primary-70">Web view unavailable</p> : null}

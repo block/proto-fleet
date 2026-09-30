@@ -18,9 +18,12 @@ const (
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
-	Plant      *ContainerPlant `json:"plant,omitempty"`
-	ObservedAt time.Time       `json:"observed_at"`
-	Tanks      []ContainerTank `json:"tanks"`
+	// TopologyComplete permits reconciliation of missing members. Partial or
+	// telemetry-only observations never remove inventory.
+	TopologyComplete bool            `json:"topology_complete"`
+	Plant            *ContainerPlant `json:"plant,omitempty"`
+	ObservedAt       time.Time       `json:"observed_at"`
+	Tanks            []ContainerTank `json:"tanks"`
 }
 
 type ContainerTank struct {
@@ -29,11 +32,22 @@ type ContainerTank struct {
 }
 
 type ContainerModule struct {
-	Position   int32       `json:"position"`
-	ReportedID string      `json:"reported_id,omitempty"`
-	State      ModuleState `json:"state"`
+	Metrics    *ContainerModuleMetrics `json:"metrics,omitempty"`
+	Position   int32                   `json:"position"`
+	ReportedID string                  `json:"reported_id,omitempty"`
+	State      ModuleState             `json:"state"`
 	// ObservedAt is the source evidence time, not the collection time.
 	ObservedAt time.Time `json:"observed_at"`
+}
+
+// ContainerModuleMetrics uses SI units. Power is module PSU input power, not
+// board power or a share of facility power. Temperature is mean ASIC temperature.
+// A nil value means unavailable, never zero. ObservedAt is source evidence time.
+type ContainerModuleMetrics struct {
+	ObservedAt   time.Time `json:"observed_at"`
+	HashrateHS   *float64  `json:"hashrate_hs,omitempty"`
+	PowerW       *float64  `json:"power_w,omitempty"`
+	TemperatureC *float64  `json:"temperature_c,omitempty"`
 }
 
 // ContainerPlant retains the firmware's own plant aggregate, independently

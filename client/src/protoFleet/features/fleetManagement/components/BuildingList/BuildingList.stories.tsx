@@ -4,6 +4,7 @@ import BuildingList from "./BuildingList";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { FleetListStatsSchema } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { ContainerSchema, TankHealthSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
 const meta = {
@@ -52,3 +53,34 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const BuildingsAndContainers: Story = {};
+
+export const UnifiedInventory: Story = {
+  args: {
+    inventoryItems: [
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.CONTAINER, id: 1n },
+        deviceIdentifier: "ct1-demo",
+        assetCount: 96n,
+        hashrateThs: 38000,
+        powerKw: 880,
+        efficiencyJth: 23.2,
+      }),
+      create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: 1n } }),
+      create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: 2n } }),
+    ],
+    total: 3,
+  },
+};
+
+export const LastInventoryPage: Story = {
+  args: {
+    buildings: [create(BuildingWithCountsSchema, { building: { id: 101n, name: "Building 101" } })],
+    containers: [],
+    inventoryItems: [create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: 101n } })],
+    total: 101,
+    currentPage: 1,
+    hasPreviousPage: true,
+    hasNextPage: false,
+    onPrevPage: () => undefined,
+  },
+};

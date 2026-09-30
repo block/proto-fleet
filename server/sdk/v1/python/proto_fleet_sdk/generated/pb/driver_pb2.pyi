@@ -883,14 +883,16 @@ class DeviceErrors(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("observed_at", "tanks", "plant")
+    __slots__ = ("observed_at", "tanks", "plant", "topology_complete")
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
     observed_at: _timestamp_pb2.Timestamp
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
-    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ...) -> None: ...
+    topology_complete: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("position", "modules")
@@ -901,16 +903,30 @@ class ContainerTank(_message.Message):
     def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
-    __slots__ = ("position", "reported_id", "state", "observed_at")
+    __slots__ = ("position", "reported_id", "state", "observed_at", "metrics")
     POSITION_FIELD_NUMBER: _ClassVar[int]
     REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    METRICS_FIELD_NUMBER: _ClassVar[int]
     position: int
     reported_id: str
     state: str
     observed_at: _timestamp_pb2.Timestamp
-    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    metrics: ContainerModuleMetrics
+    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ...) -> None: ...
+
+class ContainerModuleMetrics(_message.Message):
+    __slots__ = ("observed_at", "hashrate_hs", "power_w", "temperature_c")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    hashrate_hs: float
+    power_w: float
+    temperature_c: float
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., temperature_c: _Optional[float] = ...) -> None: ...
 
 class ContainerPlant(_message.Message):
     __slots__ = ("observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active")

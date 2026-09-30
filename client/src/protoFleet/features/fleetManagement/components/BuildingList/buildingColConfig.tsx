@@ -5,6 +5,7 @@ import { buildingTabHref } from "../../utils/fleetTabLinks";
 import type { BuildingColumn, BuildingListItem } from "./BuildingList";
 import StatCell from "@/protoFleet/components/DeviceSetList/StatCell";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
+import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 import { type ColConfig } from "@/shared/components/List/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -57,7 +58,12 @@ export const createBuildingColConfig = (
   },
   miners: {
     component: (item) => {
-      if (item.kind === "container") return <span>{item.moduleCount || INACTIVE_PLACEHOLDER}</span>;
+      if (item.kind === "container")
+        return item.inventory ? (
+          countLink(`/fleet/miners?container=${item.inventory.ref?.id}`, item.inventory.assetCount.toString())
+        ) : (
+          <span>{item.moduleCount || INACTIVE_PLACEHOLDER}</span>
+        );
       const id = item.building.building?.id;
       const count = item.stats?.deviceCount.toString() ?? item.building.deviceCount.toString();
       return id ? countLink(buildingTabHref("miners", id, activeSite), count) : <span>{count}</span>;
@@ -76,24 +82,32 @@ export const createBuildingColConfig = (
     width: "min-w-20",
   },
   hashrate: {
-    component: (item) => (
-      <span>
-        {formatHashrateOrDash(
-          item.kind === "container"
-            ? !item.container.stale && item.container.hashrateHs !== undefined
-              ? item.container.hashrateHs / 1e12
-              : null
-            : item.stats && item.stats.hashrateReportingCount > 0
-              ? item.stats.totalHashrateThs
-              : null,
-        )}
-      </span>
-    ),
+    component: (item) =>
+      item.kind === "container" && item.inventory ? (
+        <InventoryCell item={item.inventory} column="hashrate" />
+      ) : (
+        <span>
+          {formatHashrateOrDash(
+            item.kind === "container"
+              ? !item.container.stale && item.container.hashrateHs !== undefined
+                ? item.container.hashrateHs / 1e12
+                : null
+              : item.stats && item.stats.hashrateReportingCount > 0
+                ? item.stats.totalHashrateThs
+                : null,
+          )}
+        </span>
+      ),
     width: "min-w-28",
   },
   efficiency: {
     component: (item) => {
-      if (item.kind === "container") return <span>{INACTIVE_PLACEHOLDER}</span>;
+      if (item.kind === "container")
+        return item.inventory ? (
+          <InventoryCell item={item.inventory} column="efficiency" />
+        ) : (
+          <span>{INACTIVE_PLACEHOLDER}</span>
+        );
       if (!item.stats || item.stats.efficiencyReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return (
         <StatCell metricReportingCount={item.stats.efficiencyReportingCount} deviceCount={item.stats.deviceCount}>
@@ -104,24 +118,28 @@ export const createBuildingColConfig = (
     width: "min-w-28",
   },
   power: {
-    component: (item) => (
-      <span>
-        {formatPowerMwOrDash(
-          item.kind === "container"
-            ? !item.container.stale && item.container.powerW !== undefined
-              ? item.container.powerW / 1000
-              : null
-            : item.stats && item.stats.powerReportingCount > 0
-              ? item.stats.totalPowerKw
-              : null,
-        )}
-      </span>
-    ),
+    component: (item) =>
+      item.kind === "container" && item.inventory ? (
+        <InventoryCell item={item.inventory} column="power" />
+      ) : (
+        <span>
+          {formatPowerMwOrDash(
+            item.kind === "container"
+              ? !item.container.stale && item.container.powerW !== undefined
+                ? item.container.powerW / 1000
+                : null
+              : item.stats && item.stats.powerReportingCount > 0
+                ? item.stats.totalPowerKw
+                : null,
+          )}
+        </span>
+      ),
     width: "min-w-24",
   },
   temperature: {
     component: (item) => {
       if (item.kind === "container") {
+        if (item.inventory) return <InventoryCell item={item.inventory} column="temperature" />;
         const value = item.container.temperatureC;
         return (
           <span>

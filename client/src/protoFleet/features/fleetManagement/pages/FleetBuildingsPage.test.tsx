@@ -5,11 +5,17 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import FleetBuildingsPage from "./FleetBuildingsPage";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
+const inventoryMock = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/api/useFleetInventory", () => ({ useFleetInventory: inventoryMock }));
 const containersMock = vi.hoisted(() => vi.fn());
 vi.mock("@/protoFleet/api/useContainers", () => ({ useContainers: containersMock }));
 
@@ -94,9 +100,36 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useQrScanner", () => ({
 }));
 
 const buildings = [
-  { building: { id: 1n, name: "Building 1" } },
-  { building: { id: 2n, name: "Building 2" } },
-] as unknown as BuildingWithCounts[];
+  create(BuildingWithCountsSchema, { building: { id: 1n, name: "Building 1" } }),
+  create(BuildingWithCountsSchema, { building: { id: 2n, name: "Building 2" } }),
+];
+
+const inventoryResult = (containers: ReturnType<typeof create<typeof ContainerSchema>>[] = []) => ({
+  items: [
+    ...buildings.map((building) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.BUILDING, id: building.building!.id },
+        details: { case: "building", value: building },
+      }),
+    ),
+    ...containers.map((container) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.CONTAINER, id: 3n },
+        deviceIdentifier: container.deviceIdentifier,
+        details: { case: "container", value: container },
+      }),
+    ),
+  ],
+  total: buildings.length + containers.length,
+  loading: false,
+  currentPage: 0,
+  hasNextPage: false,
+  hasPreviousPage: false,
+  refresh: vi.fn(),
+  reset: vi.fn(),
+  nextPage: vi.fn(),
+  previousPage: vi.fn(),
+});
 
 const fleetContext = {
   sites: [{ site: { id: 8n, name: "Austin" } }],
@@ -120,6 +153,7 @@ const renderPage = (initialEntry = "/fleet/buildings", outletContext: FleetOutle
 describe("FleetBuildingsPage view toggle", () => {
   beforeEach(() => {
     containersMock.mockReturnValue({ containers: [], loading: false });
+    inventoryMock.mockReturnValue(inventoryResult());
     listBuildingsMock.mockReset();
     // Resolve the list synchronously so the page leaves its loading state.
     listBuildingsMock.mockImplementation(({ onSuccess }: { onSuccess?: (rows: BuildingWithCounts[]) => void }) => {
@@ -141,15 +175,19 @@ describe("FleetBuildingsPage view toggle", () => {
       containers: [create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1", stale: true })],
       loading: false,
     });
+    inventoryMock.mockReturnValue(
+      inventoryResult([create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1", stale: true })]),
+    );
     renderPage("/fleet/buildings?display=grid");
     expect(screen.getByTestId("container-card-ct1")).toBeInTheDocument();
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
-    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("1 container · 2 buildings");
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("3 facilities");
   });
 
   test("passes containers into the same list instead of rendering a separate table", () => {
     const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
     containersMock.mockReturnValue({ containers: [container], loading: false });
+    inventoryMock.mockReturnValue(inventoryResult([container]));
     renderPage();
     expect(buildingListSpy).toHaveBeenLastCalledWith(expect.objectContaining({ buildings, containers: [container] }));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
@@ -172,7 +210,7 @@ describe("FleetBuildingsPage view toggle", () => {
 
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
     expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
-    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 buildings");
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 facilities");
     expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
   });
 

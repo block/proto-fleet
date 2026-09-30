@@ -3,9 +3,12 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
+import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
+import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 
 const {
   mockMinerList,
+  mockExportCsv,
   mockRefetchAuthNeededMiners,
   mockRefetchErrors,
   mockListAllBuildings,
@@ -13,6 +16,7 @@ const {
   mockNotifyMinersChanged,
   mockFleetOutletContext,
 } = vi.hoisted(() => ({
+  mockExportCsv: vi.fn(),
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
   mockRefetchAuthNeededMiners: vi.fn(),
   mockRefetchErrors: vi.fn(),
@@ -30,6 +34,10 @@ const {
     minersChangedAt: 0,
     publishViewFilterContext: vi.fn(),
   },
+}));
+
+vi.mock("@/protoFleet/api/useExportMinerListCsv", () => ({
+  default: vi.fn(() => ({ exportCsv: mockExportCsv, isExportingCsv: false })),
 }));
 
 // Mock all dependencies
@@ -159,6 +167,35 @@ describe("Fleet - Polling", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("zeros the export count and blocks CSV when path and filter sites do not intersect", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        inventoryItems: [],
+        inventoryMinerCount: 25,
+        totalMiners: 25,
+        hasInitialLoadCompleted: true,
+      }),
+    );
+    mockFleetOutletContext.siteCatalogAccessGranted = false;
+    render(
+      <MemoryRouter initialEntries={["/north/fleet/miners?site=2"]}>
+        <SiteScopeProvider value={{ kind: "site", id: "1", slug: "north" }}>
+          <Fleet />
+        </SiteScopeProvider>
+      </MemoryRouter>,
+    );
+    const calls = mockMinerList.mock.calls as unknown as Array<
+      [{ inventoryMinerCount: number; totalMiners: number; onExportCsv: () => void }]
+    >;
+    const props = calls[calls.length - 1][0];
+    expect(props.inventoryMinerCount).toBe(0);
+    expect(props.totalMiners).toBe(0);
+    props.onExportCsv();
+    expect(mockExportCsv).not.toHaveBeenCalled();
+    expect(useExportMinerListCsv).toHaveBeenLastCalledWith({ filter: undefined, enabled: false });
   });
 
   it("should setup polling interval after initial load completes", async () => {

@@ -472,6 +472,41 @@ type ConnectedPostgresIdentity struct {
 	Timeline      int64
 }
 
+type ContainerInventory struct {
+	DeviceID   int64
+	ObservedAt time.Time
+}
+
+type ContainerModule struct {
+	ID              int64
+	TankID          int64
+	Position        int32
+	ReportedID      string
+	FirstSeenAt     time.Time
+	LastSeenAt      time.Time
+	RetiredAt       sql.NullTime
+	State           string
+	StateObservedAt sql.NullTime
+}
+
+type ContainerModuleLatestMetric struct {
+	ModuleID     int64
+	Time         time.Time
+	CollectedAt  time.Time
+	HashrateHs   sql.NullFloat64
+	PowerW       sql.NullFloat64
+	TemperatureC sql.NullFloat64
+}
+
+type ContainerModuleMetric struct {
+	ModuleID     int64
+	Time         time.Time
+	CollectedAt  time.Time
+	HashrateHs   sql.NullFloat64
+	PowerW       sql.NullFloat64
+	TemperatureC sql.NullFloat64
+}
+
 type ContainerPlantMetric struct {
 	DeviceID int64
 	Time     time.Time
@@ -482,6 +517,15 @@ type ContainerSnapshot struct {
 	DeviceID   int64
 	ObservedAt time.Time
 	Snapshot   json.RawMessage
+}
+
+type ContainerTank struct {
+	ID          int64
+	DeviceID    int64
+	Position    int32
+	Present     bool
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
 }
 
 type CurtailmentAutomationRule struct {
@@ -1078,6 +1122,27 @@ type FleetMetricRollupProgress struct {
 	EarliestBucket time.Time
 	LatestBucket   time.Time
 	UpdatedAt      time.Time
+}
+
+type FleetMiningAsset struct {
+	Kind               int32
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	Name               string
+	DeviceIdentifier   string
+	Position           int32
+	ReportedID         string
+	FacilityKind       int32
+	FacilityID         sql.NullInt64
+	GroupKind          int32
+	GroupID            int64
+	State              string
+	ObservedAt         time.Time
+	HashrateHs         sql.NullFloat64
+	PowerW             sql.NullFloat64
+	TemperatureC       sql.NullFloat64
+	MinerEfficiencyJth float64
 }
 
 type FleetNode struct {

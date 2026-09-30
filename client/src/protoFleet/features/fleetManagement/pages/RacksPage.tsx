@@ -5,9 +5,16 @@ import clsx from "clsx";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  EntityKind,
+  type InventoryItem,
+  InventoryView,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { type NewRackInput, useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import { useFleetInventory } from "@/protoFleet/api/useFleetInventory";
+import { useInventoryRacks } from "@/protoFleet/api/useInventoryRacks";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -26,6 +33,7 @@ import {
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -126,6 +134,10 @@ const RacksPage = () => {
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadInventoryFleet = useHasPermission("fleet:read");
+  const canReadInventoryMiners = useHasPermission("miner:read");
+  const useInventory = canReadSiteCatalog && canReadInventoryFleet && canReadInventoryMiners;
+  const openTank = useCallback((item: InventoryItem) => navigate(`/fleet/miners?tank=${item.ref?.id}`), [navigate]);
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
   const canManageSitePlacement = useHasPermission("site:manage");
@@ -238,6 +250,7 @@ const RacksPage = () => {
       includeUnassigned: selectedSiteFilter.includeUnassigned,
     });
   }, [activeSiteFilter, selectedSiteIds, selectedSiteFilter.includeUnassigned]);
+  const inventory = useInventoryRacks(useInventory && !effectiveSiteFilter.matchNone);
   const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
   useEffect(() => {
     effectiveSiteFilterRef.current = effectiveSiteFilter;
@@ -297,7 +310,7 @@ const RacksPage = () => {
     resetAndFetch,
     refreshCurrentPage,
   } = useDeviceSetListState(
-    listRacks,
+    useInventory ? inventory.listRacks : listRacks,
     DEFAULT_PAGE_SIZE,
     getErrorComponentTypes,
     getZones,
@@ -308,6 +321,7 @@ const RacksPage = () => {
     getIncludeUnassigned,
     getIncludeNoBuilding,
     getTelemetryRanges,
+    !useInventory,
   );
 
   // Propagate external URL sort changes (saved view activation, deep-link
@@ -781,12 +795,21 @@ const RacksPage = () => {
   // zone/building/issue/`?site=`/telemetry filters) so the count line can show
   // a denominator, mirroring the Miners tab. Only fetched while filters are
   // active — otherwise the displayed count already is the total.
+  const unfilteredInventory = useFleetInventory(
+    {
+      view: InventoryView.EQUIPMENT_GROUPS,
+      pageSize: 1,
+      siteIds: activeSiteFilter.siteIds,
+      includeUnassigned: activeSiteFilter.includeUnassigned,
+    },
+    useInventory && hasActiveFilters,
+  );
   const [totalUnfilteredRacks, setTotalUnfilteredRacks] = useState<number | undefined>(undefined);
   useEffect(() => {
     // Only consumed while filters are active (the count line otherwise shows
     // `totalCount`). Skip the fetch when filters are off and leave the last
     // value — it's ignored, and a scope change re-runs this effect.
-    if (!hasActiveFilters) return;
+    if (!hasActiveFilters || useInventory) return;
     let cancelled = false;
     // `racks` is in the deps as the list-refresh signal: its reference changes
     // whenever the rack list refetches (poll, resetAndFetch, create/delete/move),
@@ -807,7 +830,7 @@ const RacksPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveFilters, activeSiteFilter, listRacks, racks]);
+  }, [hasActiveFilters, activeSiteFilter, listRacks, racks, useInventory]);
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {
@@ -1124,7 +1147,9 @@ const RacksPage = () => {
 
   // Grid pagination
   const firstItemIndex = currentPage * DEFAULT_PAGE_SIZE + 1;
-  const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + racks.length;
+  const gridItems = useInventory ? inventory.items : undefined;
+  const displayedCount = gridItems?.length ?? racks.length;
+  const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + displayedCount;
   const shouldRenderGridPagination = !isLoading && totalCount > 0;
 
   // Both guards carry `!isModalOpen` for the same reason: a refetch fired from
@@ -1317,10 +1342,10 @@ const RacksPage = () => {
           data-testid="racks-count-label"
         >
           {formatListCountLabel(totalCount, {
-            unfilteredTotal: totalUnfilteredRacks,
+            unfilteredTotal: useInventory ? unfilteredInventory.total : totalUnfilteredRacks,
             hasActiveFilters,
-            singular: "rack",
-            plural: "racks",
+            singular: useInventory ? "equipment group" : "rack",
+            plural: useInventory ? "equipment groups" : "racks",
           })}
         </div>
         {error ? (
@@ -1334,8 +1359,10 @@ const RacksPage = () => {
           // scroll container.
           <div className="pb-6 laptop:pb-10">
             <DeviceSetList
+              inventoryItems={useInventory ? inventory.items : undefined}
+              onTankClick={openTank}
               deviceSets={racks}
-              statsMap={statsMap}
+              statsMap={useInventory ? inventory.statsMap : statsMap}
               renderName={renderName}
               renderMiners={renderMiners}
               renderSite={renderSite}
@@ -1343,7 +1370,11 @@ const RacksPage = () => {
               columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
               currentSort={currentSort}
               onSort={handleRackSort}
-              itemName={{ singular: "rack", plural: "racks" }}
+              itemName={
+                useInventory
+                  ? { singular: "equipment group", plural: "equipment groups" }
+                  : { singular: "rack", plural: "racks" }
+              }
               total={totalCount}
               loading={isLoading}
               pageSize={DEFAULT_PAGE_SIZE}
@@ -1361,17 +1392,37 @@ const RacksPage = () => {
           </div>
         ) : (
           <div className="px-6 laptop:px-10">
-            {isLoading && racks.length === 0 ? (
+            {isLoading && displayedCount === 0 ? (
               <div className="flex items-center justify-center py-20">
                 <ProgressCircular indeterminate />
               </div>
-            ) : racks.length === 0 ? (
+            ) : displayedCount === 0 ? (
               <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
             ) : (
               <div ref={measureRef}>
                 <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                  {racks.map((rack) => {
-                    const stats = statsMap.get(rack.id);
+                  {(gridItems ?? racks).map((entry) => {
+                    if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
+                      return (
+                        <button
+                          type="button"
+                          key={`tank:${entry.ref.id}`}
+                          className="rounded-xl border border-border-5 bg-surface-base p-6 text-left"
+                          onClick={() => openTank(entry)}
+                        >
+                          <InventoryCell item={entry} column="name" />
+                          <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
+                          <InventoryCell item={entry} column="health" />
+                          <div className="grid grid-cols-2 gap-3 pt-4">
+                            <InventoryCell item={entry} column="hashrate" />
+                            <InventoryCell item={entry} column="power" />
+                          </div>
+                        </button>
+                      );
+                    const rack =
+                      "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;
+                    if (!rack) return null;
+                    const stats = (useInventory ? inventory.statsMap : statsMap).get(rack.id);
                     const {
                       zone,
                       rows,
@@ -1408,7 +1459,7 @@ const RacksPage = () => {
             {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (
               <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
                 <span className="text-300 text-text-primary">
-                  Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
+                  Showing {firstItemIndex}–{lastItemIndex} of {totalCount} {useInventory ? "equipment groups" : "racks"}
                 </span>
                 <div className="flex gap-3">
                   <Button

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
 import { useBuildings } from "@/protoFleet/api/buildings";
+import { miningInventoryRequest } from "@/protoFleet/api/fleetInventory";
 import {
   type SortConfig,
   SortConfigSchema,
@@ -10,6 +11,7 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { EntityKind, EntityRefSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
@@ -87,6 +89,9 @@ const Fleet = () => {
   const navigate = useNavigate();
   // ListDeviceSets (racks + groups) is rack:read-gated; skip those fetches
   // without it so the miner list opens cleanly (filters just degrade to empty).
+  const canReadInventorySites = useHasPermission("site:read");
+  const canReadInventoryFleet = useHasPermission("fleet:read");
+  const useInventory = canReadInventorySites && canReadInventoryFleet;
   const canReadRacks = useHasPermission("rack:read");
   const { listGroups, listRacks } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
@@ -151,7 +156,20 @@ const Fleet = () => {
   const insideFleetShell = isPathScopable(pathname);
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inventoryAncestors = useMemo(
+    () =>
+      [
+        ["container", EntityKind.CONTAINER],
+        ["tank", EntityKind.TANK],
+      ].flatMap(([key, kind]) => {
+        const value = searchParams.get(String(key));
+        return value && /^[1-9][0-9]*$/.test(value)
+          ? [create(EntityRefSchema, { kind: kind as EntityKind, id: BigInt(value) })]
+          : [];
+      }),
+    [searchParams],
+  );
   const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
   // currentFilter folds the SitePicker's active site into the URL filter so
   // every downstream query (list, count, auth-needed, CSV) is scoped.
@@ -193,6 +211,7 @@ const Fleet = () => {
   const totalAuthNeededMinersFresh = totalAuthNeededMinersInitialLoadCompleted && !totalAuthNeededMinersLoading;
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({
     filter: currentFilter,
+    enabled: !siteScopeMatchesNoRows,
   });
 
   // Fetch unfiltered total count for the "X of Y miners" header display.
@@ -211,6 +230,8 @@ const Fleet = () => {
     return applySiteScopeToMinerFilter(urlSiteFilter, activeSiteIds, activeIncludeUnassigned).filter;
   }, [urlFilter, activeSiteIds, activeIncludeUnassigned]);
   const { totalMiners: totalUnfilteredMiners, refreshCurrentPage: refreshUnfilteredCount } = useFleet({
+    inventory: useInventory,
+    ancestors: inventoryAncestors,
     pageSize: 1,
     filter: siteScopedTotalFilter,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
@@ -219,6 +240,8 @@ const Fleet = () => {
 
   // Fetch all devices (both paired and unpaired) with a single API call
   const {
+    inventoryItems,
+    inventoryMinerCount,
     minerIds,
     miners,
     totalMiners,
@@ -235,6 +258,8 @@ const Fleet = () => {
     goToNextPage,
     goToPrevPage,
   } = useFleet({
+    inventory: useInventory,
+    ancestors: inventoryAncestors,
     pageSize: MINERS_PAGE_SIZE,
     filter: currentFilter,
     sort: currentSortConfig,
@@ -363,8 +388,34 @@ const Fleet = () => {
 
   return (
     <>
+      {inventoryAncestors.length > 0 ? (
+        <div className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
+          Showing modules in the selected {searchParams.has("tank") ? "tank" : "container"}.
+          <button
+            type="button"
+            className="ml-3 underline"
+            onClick={() =>
+              setSearchParams((params) => {
+                const next = new URLSearchParams(params);
+                next.delete("container");
+                next.delete("tank");
+                return next;
+              })
+            }
+          >
+            Show all mining assets
+          </button>
+        </div>
+      ) : null}
+      {useInventory && miningInventoryRequest(currentFilter).minerFilter ? (
+        <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
+          These filters apply to miners. Clear them to include modules.
+        </p>
+      ) : null}
       <ErrorBoundary>
         <MinerList
+          inventoryItems={siteScopeMatchesNoRows ? [] : inventoryItems}
+          inventoryMinerCount={siteScopeMatchesNoRows ? 0 : inventoryMinerCount}
           title={insideFleetShell ? undefined : "Miners"}
           minerIds={siteScopeMatchesNoRows ? [] : minerIds}
           miners={siteScopeMatchesNoRows ? {} : miners}

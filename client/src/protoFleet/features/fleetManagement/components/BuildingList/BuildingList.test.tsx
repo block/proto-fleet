@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -14,8 +14,16 @@ import {
   ContainerSchema,
   TankHealthSchema,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
+
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+});
+afterAll(() => {
+  Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+});
 
 vi.mock("@/shared/components/Popover", () => ({
   PopoverProvider: ({ children }: { children: ReactNode }) => <Fragment>{children}</Fragment>,
@@ -292,4 +300,52 @@ it("does not navigate a container with no available view", () => {
   expect(open).not.toHaveBeenCalled();
   expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
   open.mockRestore();
+});
+
+it.each([false, true])("pages mixed facilities beyond 100 rows (selection enabled: %s)", (selectable) => {
+  const onNextPage = vi.fn();
+  const onPrevPage = vi.fn();
+  const buildings = Array.from({ length: 99 }, (_, i) => makeBuilding(i + 1, `Building ${i + 1}`, 7));
+  const lastBuilding = makeBuilding(100, "Last building", 7);
+  const firstItems = [
+    create(InventoryItemSchema, {
+      ref: { kind: EntityKind.CONTAINER, id: 42n },
+      deviceIdentifier: container.deviceIdentifier,
+    }),
+    ...buildings.map((row) =>
+      create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: row.building!.id } }),
+    ),
+  ];
+  const page = (currentPage: number) => (
+    <MemoryRouter>
+      <BuildingList
+        buildings={currentPage ? [lastBuilding] : buildings}
+        containers={currentPage ? [] : [container]}
+        inventoryItems={
+          currentPage ? [create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: 100n } })] : firstItems
+        }
+        sites={[]}
+        total={101}
+        currentPage={currentPage}
+        hasNextPage={currentPage === 0}
+        hasPreviousPage={currentPage > 0}
+        onNextPage={onNextPage}
+        onPrevPage={onPrevPage}
+        selectedIds={selectable ? [] : undefined}
+        onSelectedIdsChange={selectable ? () => undefined : undefined}
+      />
+    </MemoryRouter>
+  );
+  const { rerender } = render(page(0));
+  expect(screen.getAllByTestId("list-row")).toHaveLength(100);
+  expect(screen.getByText("Showing 1–100 of 101 facilities")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(onNextPage).toHaveBeenCalledOnce();
+  rerender(page(1));
+  expect(screen.getByText("Last building")).toBeVisible();
+  expect(screen.getByText("Showing 101–101 of 101 facilities")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+  expect(onPrevPage).toHaveBeenCalledOnce();
 });

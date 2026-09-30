@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
@@ -126,7 +127,9 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
 	// Container lists filter each row by current-site permissions. The handler
 	// also checks fleet:read and miner:read before exposing telemetry.
-	containersv1connect.ContainerServiceListContainersProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceListContainersProcedure:             authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListInventoryProcedure:     authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure: authz.PermSiteRead,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline

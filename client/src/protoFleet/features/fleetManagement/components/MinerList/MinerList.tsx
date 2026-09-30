@@ -21,6 +21,7 @@ import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   IpRangeSchema,
   type MinerListFilter,
@@ -37,6 +38,8 @@ import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
+import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
@@ -73,10 +76,15 @@ import {
   type TextareaListFilterItem,
 } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
+import type { ColConfig } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
+
+type MiningListItem = { deviceIdentifier: string } & (
+  { kind: "miner"; row: DeviceListItem } | { kind: "module"; row: InventoryItem }
+);
 
 type FleetCredentials = { username: string; password: string };
 
@@ -93,6 +101,8 @@ type MinerModalFlow =
   | { kind: "status-modal"; deviceIdentifier: string };
 
 type MinerListProps = {
+  inventoryItems?: InventoryItem[];
+  inventoryMinerCount?: number;
   // Optional — when omitted, the heading is suppressed entirely. The Fleet
   // shell uses this on /fleet/miners since the tab nav already labels the
   // view; the standalone /miners route keeps its heading.
@@ -229,9 +239,10 @@ type MinerListProps = {
 };
 
 // Module-level so the `List`'s memoized helpers keep a stable identity.
-const ALL_ROWS_SELECTABLE = () => true;
 
 type ScopedMinerListBodyProps = {
+  inventoryItems?: InventoryItem[];
+  inventoryMinerCount?: number;
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
    * Replaces the previous key-based remount strategy so children (e.g., the meta-dropdown
@@ -287,6 +298,8 @@ type ScopedMinerListBodyProps = {
 };
 
 const ScopedMinerListBody = ({
+  inventoryItems,
+  inventoryMinerCount,
   selectionScopeKey,
   activeCols,
   deviceItems,
@@ -342,6 +355,35 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
+  const [openModule, setOpenModule] = useState<InventoryItem>();
+  const listItems = useMemo<MiningListItem[]>(() => {
+    const minersById = new Map(deviceItems.map((row) => [row.deviceIdentifier, row]));
+    if (!inventoryItems)
+      return deviceItems.map((row) => ({ kind: "miner", row, deviceIdentifier: row.deviceIdentifier }));
+    return inventoryItems.flatMap<MiningListItem>((item) => {
+      if (item.ref?.kind === EntityKind.MODULE)
+        return [{ kind: "module", row: item, deviceIdentifier: `module:${item.ref.id}` }];
+      const row = minersById.get(item.deviceIdentifier);
+      return row ? [{ kind: "miner", row, deviceIdentifier: row.deviceIdentifier }] : [];
+    });
+  }, [deviceItems, inventoryItems]);
+  const listColumns = useMemo<ColConfig<MiningListItem, string, MinerColumn>>(() => {
+    const result: ColConfig<MiningListItem, string, MinerColumn> = {};
+    for (const column of Object.keys(minerColConfig) as MinerColumn[]) {
+      const config = minerColConfig[column];
+      if (!config) continue;
+      result[column] = {
+        ...config,
+        component: (item, selected) =>
+          item.kind === "miner" ? (
+            config.component?.(item.row, selected)
+          ) : (
+            <InventoryCell item={item.row} column={column} />
+          ),
+      };
+    }
+    return result;
+  }, [minerColConfig]);
   const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
@@ -355,10 +397,10 @@ const ScopedMinerListBody = ({
         variant: variants.secondary,
       },
       {
-        disabled: totalMiners === 0,
+        disabled: (inventoryMinerCount ?? totalMiners) === 0,
         loading: exportCsvLoading,
         onClick: onExportCsv,
-        text: "Export CSV",
+        text: inventoryItems ? "Export miners CSV" : "Export CSV",
         variant: variants.secondary,
       },
       {
@@ -367,7 +409,7 @@ const ScopedMinerListBody = ({
         variant: variants.secondary,
       },
     ],
-    [exportCsvLoading, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
+    [exportCsvLoading, inventoryItems, inventoryMinerCount, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
   );
 
   const handleSelectAllMiners = useCallback(() => {
@@ -408,13 +450,13 @@ const ScopedMinerListBody = ({
 
   return (
     <>
-      <List<DeviceListItem, string, MinerColumn>
+      <List<MiningListItem, string, MinerColumn>
         activeCols={activeCols}
         colTitles={minerColTitles}
-        colConfig={minerColConfig}
+        colConfig={listColumns}
         filters={filters}
         onServerFilter={handleServerFilter}
-        items={deviceItems}
+        items={listItems}
         itemKey={"deviceIdentifier"}
         customSelectedItems={selectedMinerIds}
         customSetSelectedItems={setSelectedMinerIds}
@@ -459,12 +501,12 @@ const ScopedMinerListBody = ({
                 testId="manage-columns-button"
               />
               <Button
-                text="Export CSV"
+                text={inventoryItems ? "Export miners CSV" : "Export CSV"}
                 variant={variants.secondary}
                 size={sizes.compact}
                 onClick={onExportCsv}
                 loading={exportCsvLoading}
-                disabled={totalMiners === 0}
+                disabled={(inventoryMinerCount ?? totalMiners) === 0}
               />
               <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
             </div>
@@ -512,23 +554,26 @@ const ScopedMinerListBody = ({
         applyColumnWidthsToCells
         total={totalMiners}
         totalUnfiltered={totalUnfilteredMiners}
-        // Every row is selectable; `totalSelectable = totalMiners` so action-bar
-        // copy and confirmation counts cover both paired and auth-needed miners.
-        totalDisabled={0}
-        itemName={{ singular: "miner", plural: "miners" }}
+        // Bulk miner actions exclude module rows from their selection count.
+        totalDisabled={inventoryMinerCount === undefined ? 0 : (totalMiners ?? 0) - inventoryMinerCount}
+        itemName={
+          inventoryItems
+            ? { singular: "mining asset", plural: "mining assets" }
+            : { singular: "miner", plural: "miners" }
+        }
         itemRef={itemRef}
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
-        isRowDisabled={isRowDisabled}
-        isRowSelectable={ALL_ROWS_SELECTABLE}
+        isRowDisabled={(item) => item.kind === "miner" && isRowDisabled(item.row)}
+        isRowSelectable={(item) => item.kind === "miner"}
         columnsExemptFromDisabledStyling={new Set([minerCols.name, minerCols.status, minerCols.issues])}
         sortableColumns={sortableColumnsSet}
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
-        onRowClick={onRowClick}
+        onRowClick={(item, index) => (item.kind === "miner" ? onRowClick(item.row, index) : setOpenModule(item.row))}
         emptyStateRow={
-          totalMiners === 0 || deviceItems.length === 0 ? (
+          totalMiners === 0 || listItems.length === 0 ? (
             <NoFilterResultsEmptyState
               className="sticky left-0 !w-screen tablet:!w-[calc(100vw-theme(spacing.1)*16)] desktop:!w-[calc(100vw-theme(spacing.1)*50)]"
               hasActiveFilters={hasActiveFilters}
@@ -554,7 +599,7 @@ const ScopedMinerListBody = ({
           data-testid="miners-pagination"
         >
           <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} miners
+            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} {inventoryItems ? "mining assets" : "miners"}
           </span>
           <div className="flex gap-3">
             <Button
@@ -576,12 +621,21 @@ const ScopedMinerListBody = ({
           </div>
         </div>
       ) : null}
+      {openModule ? (
+        <ModuleHistoryDialog
+          key={openModule.ref?.id.toString()}
+          item={openModule}
+          onDismiss={() => setOpenModule(undefined)}
+        />
+      ) : null}
     </>
   );
 };
 
 const MinerList = ({
   title,
+  inventoryItems,
+  inventoryMinerCount,
   minerIds = [],
   miners,
   errorsByDevice,
@@ -828,9 +882,10 @@ const MinerList = ({
     () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
     [currentFilter],
   );
+  const ancestorScopeKey = `${searchParams.get("container") ?? ""}:${searchParams.get("tank") ?? ""}`;
   const selectionScopeKey = useMemo(
-    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}`,
-    [currentPage, selectionFilterKey, siteScopeKey],
+    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}:${ancestorScopeKey}`,
+    [currentPage, selectionFilterKey, siteScopeKey, ancestorScopeKey],
   );
 
   const handleClearFilters = useCallback(() => {
@@ -1189,6 +1244,10 @@ const MinerList = ({
       // Start fresh with filter params, then preserve existing sort + active
       // view so dirtying a view doesn't lose its identity.
       const params = encodeFilterToURL(minerFilter);
+      for (const key of ["tank", "container"]) {
+        const ancestor = searchParams.get(key);
+        if (ancestor) params.set(key, ancestor);
+      }
       const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
       if (searchQuery) params.set(MINER_SEARCH_URL_PARAM, searchQuery);
       const sortParam = searchParams.get("sort");
@@ -1259,9 +1318,12 @@ const MinerList = ({
   }
 
   const firstItemIndex = currentPage * pageSize + 1;
-  const lastItemIndex = currentPage * pageSize + minerIds.length;
+  const lastItemIndex = currentPage * pageSize + (inventoryItems?.length ?? minerIds.length);
   const shouldRenderPagination =
-    !loading && totalMiners !== undefined && totalMiners > 0 && (minerIds.length > 0 || currentPage > 0);
+    !loading &&
+    totalMiners !== undefined &&
+    totalMiners > 0 &&
+    ((inventoryItems?.length ?? minerIds.length) > 0 || currentPage > 0);
 
   return (
     <>
@@ -1287,6 +1349,8 @@ const MinerList = ({
         </div>
       ) : (
         <ScopedMinerListBody
+          inventoryItems={inventoryItems}
+          inventoryMinerCount={inventoryMinerCount}
           selectionScopeKey={selectionScopeKey}
           activeCols={activeCols}
           deviceItems={deviceItems}

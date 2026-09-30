@@ -347,7 +347,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 			snapshotCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersSnapshotTimeout)
 			defer cancel()
 
-			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
+			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID}, nil)
 			if err != nil {
 				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
@@ -387,7 +387,7 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 		return nil, err
 	}
 
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs)
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
 	}
@@ -510,7 +510,7 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 
 	// Reuse the shared hydration path so the returned snapshot matches
 	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -687,7 +687,16 @@ func (s *Service) buildSnapshot(
 	}, nil
 }
 
-func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string) ([]*pb.MinerStateSnapshot, error) {
+// InventorySnapshots reauthorizes current placement before enriching a bounded
+// inventory page: devices can move sites after the original page was selected.
+func (s *Service) InventorySnapshots(ctx context.Context, orgID int64, deviceIDs []string, canReadSite func(*int64) bool) ([]*pb.MinerStateSnapshot, error) {
+	if canReadSite == nil {
+		return nil, fleeterror.NewInternalError("inventory enrichment requires site authorization")
+	}
+	return s.getMinerStateSnapshotsByIDs(ctx, orgID, deviceIDs, canReadSite)
+}
+
+func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string, canReadSite func(*int64) bool) ([]*pb.MinerStateSnapshot, error) {
 	if len(deviceIDs) == 0 {
 		return nil, nil
 	}
@@ -700,6 +709,20 @@ func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, 
 	}, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if canReadSite != nil {
+		authorized := snapshots[:0]
+		for _, snapshot := range snapshots {
+			var siteID *int64
+			if site := snapshot.GetPlacement().GetSite(); site != nil {
+				siteID = &site.Id
+			}
+			if canReadSite(siteID) {
+				authorized = append(authorized, snapshot)
+			}
+		}
+		snapshots = authorized
 	}
 
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
@@ -1058,6 +1081,12 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 		}
 	}
 	return false
+}
+
+// ParseListFilter validates and normalizes the miner-list contract for read APIs
+// that reuse the same filter semantics.
+func ParseListFilter(ctx context.Context, orgID int64, filter *pb.MinerListFilter, buildings interfaces.BuildingStore) (*interfaces.MinerFilter, error) {
+	return parseFilter(ctx, orgID, filter, buildings)
 }
 
 func parseFilter(

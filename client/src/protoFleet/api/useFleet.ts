@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
-import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { miningInventoryRequest } from "./fleetInventory";
+import type { EntityRef, InventoryItem } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import { fleetInventoryClient, fleetManagementClient } from "@/protoFleet/api/clients";
 import { SortConfig, SortConfigSchema } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   MinerListFilter,
@@ -13,6 +15,8 @@ import { useAuthErrors } from "@/protoFleet/store";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type UseFleetOptions = {
+  inventory?: boolean;
+  ancestors?: EntityRef[];
   /**
    * Enables data fetching and streaming.
    * When false, this hook stays idle.
@@ -81,12 +85,17 @@ const snapshotIsStrictlyNewer = (a: MinerStateSnapshot, b: MinerStateSnapshot): 
 const useFleet = (options: UseFleetOptions = {}) => {
   const {
     enabled = true,
+    inventory = false,
+    ancestors,
     filter,
     sort,
     pageSize = 20,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
   } = options;
   const { handleAuthErrors } = useAuthErrors();
+
+  const [inventoryMinerCount, setInventoryMinerCount] = useState(0);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[] | undefined>();
 
   // All state is local to this hook instance
   const [minerIds, setMinerIds] = useState<string[]>([]);
@@ -129,18 +138,37 @@ const useFleet = (options: UseFleetOptions = {}) => {
         // Merge pairing statuses into the filter
         const filterWithPairingStatuses = filter ? { ...filter, pairingStatuses } : { pairingStatuses };
 
-        const response = await fleetManagementClient.listMinerStateSnapshots({
-          pageSize,
-          cursor: pageCursor,
-          filter: filterWithPairingStatuses,
-          sort: sort ? [sort] : undefined,
-        });
+        const mixed = inventory
+          ? await fleetInventoryClient.listInventory({
+              ...miningInventoryRequest(filter, sort),
+              ancestors: ancestors ?? [],
+              pageSize,
+              pageToken: pageCursor ?? "",
+            })
+          : undefined;
+        const response = mixed
+          ? {
+              miners: mixed.items.flatMap((item) => (item.details.case === "miner" ? [item.details.value] : [])),
+              cursor: mixed.nextPageToken,
+              totalMiners: Number(mixed.totalCount),
+              models: mixed.models,
+              firmwareVersions: mixed.firmwareVersions,
+            }
+          : await fleetManagementClient.listMinerStateSnapshots({
+              pageSize,
+              cursor: pageCursor,
+              filter: filterWithPairingStatuses,
+              sort: sort ? [sort] : undefined,
+            });
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, models, firmwareVersions } = response;
 
         if (requestId !== latestRequestIdRef.current) {
           return;
         }
+
+        setInventoryItems(mixed?.items);
+        setInventoryMinerCount(Number(mixed?.minerCount ?? response.totalMiners));
 
         // Always replace (never append) for page-based pagination
         const ids = miners.map((miner) => miner.deviceIdentifier);
@@ -244,7 +272,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         }
       }
     },
-    [enabled, pairingStatuses, pageSize, handleAuthErrors],
+    [enabled, pairingStatuses, pageSize, handleAuthErrors, inventory, ancestors],
   );
 
   // Store fetchMinerList in a ref to avoid dependency issues
@@ -407,6 +435,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
   // Track if this is the initial load and previous filter/sort
   const hasLoadedRef = useRef(false);
   const wasEnabledRef = useRef(enabled);
+  const previousInventoryScopeRef = useRef("");
+  const inventoryScope = `${inventory}:${ancestors?.map((ref) => `${ref.kind}:${ref.id}`).join(",") ?? ""}`;
   const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
   const previousSortRef = useRef<SortConfig | undefined>(undefined);
 
@@ -414,6 +444,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   useEffect(() => {
     if (!enabled) {
       wasEnabledRef.current = false;
+      latestRequestIdRef.current++;
       return;
     }
 
@@ -433,7 +464,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
         sort !== undefined &&
         equals(SortConfigSchema, previousSortRef.current, sort));
 
-    const filterChanged = !filtersEqual;
+    const inventoryScopeChanged = previousInventoryScopeRef.current !== inventoryScope;
+    previousInventoryScopeRef.current = inventoryScope;
+    const filterChanged = !filtersEqual || inventoryScopeChanged;
     const sortChanged = !sortsEqual;
 
     if (hasLoadedRef.current && !filterChanged && !sortChanged && !wasDisabled) {
@@ -455,9 +488,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
     // Fetch with filter and sort
     void fetchMinerListRef.current(filter, sort, undefined, 0);
-  }, [enabled, filter, sort]);
+  }, [enabled, filter, sort, inventoryScope]);
 
   return {
+    ...(inventory
+      ? { inventoryItems: enabled ? inventoryItems : undefined, inventoryMinerCount: enabled ? inventoryMinerCount : 0 }
+      : {}),
     minerIds,
     miners,
     totalMiners,

@@ -12,20 +12,21 @@ import { downloadBlob, getFileName } from "@/shared/utils/utility";
 
 type UseExportMinerListCsvOptions = {
   filter?: MinerListFilter;
+  enabled?: boolean;
 };
 
 const MIN_EXPORT_LOADING_MS = 400;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-const useExportMinerListCsv = ({ filter }: UseExportMinerListCsvOptions) => {
+const useExportMinerListCsv = ({ filter, enabled = true }: UseExportMinerListCsvOptions) => {
   const [isExporting, setIsExporting] = useState(false);
   const isExportingRef = useRef(false);
   const temperatureUnit = useTemperatureUnit();
   const { handleAuthErrors } = useAuthErrors();
 
   const handleExportCsv = useCallback(async () => {
-    if (isExportingRef.current) {
+    if (!enabled || isExportingRef.current) {
       return;
     }
 
@@ -67,7 +68,7 @@ const useExportMinerListCsv = ({ filter }: UseExportMinerListCsvOptions) => {
       isExportingRef.current = false;
       setIsExporting(false);
     }
-  }, [filter, handleAuthErrors, temperatureUnit]);
+  }, [enabled, filter, handleAuthErrors, temperatureUnit]);
 
   return {
     exportCsv: handleExportCsv,

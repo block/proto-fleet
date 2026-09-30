@@ -1,11 +1,13 @@
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import { expect, userEvent, within } from "storybook/test";
 
 import MinerListComponent from "../MinerList";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import {
@@ -210,4 +212,45 @@ export const EmptyMinerList: Story = {
       />
     </div>
   ),
+};
+
+export const MinersAndModules: Story = {
+  args: {
+    title: "Mining assets",
+    minerIds: [miners[0].deviceIdentifier],
+    miners: buildMinersRecord([miners[0]]),
+    errorsByDevice: {},
+    errorsLoaded: true,
+    getActiveBatches: () => [],
+    totalMiners: 3,
+    inventoryMinerCount: 1,
+    inventoryItems: [
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.MODULE, id: 1n },
+        name: "Container 1 T1 M1",
+        facilityName: "Container 1",
+        groupName: "Tank 1",
+        state: "hashing",
+        hashrateThs: 300,
+        powerKw: 3.6,
+        efficiencyJth: 12,
+        minTemperatureC: 62,
+        maxTemperatureC: 62,
+      }),
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.MINER, id: 1n },
+        deviceIdentifier: miners[0].deviceIdentifier,
+        details: { case: "miner", value: miners[0] },
+      }),
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.MODULE, id: 2n },
+        name: "Container 1 T1 M2",
+        facilityName: "Container 1",
+        groupName: "Tank 1",
+        state: "unknown",
+      }),
+    ],
+    paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+    overflowContainer: false,
+  },
 };

@@ -31,6 +31,11 @@ func (s *Service) List(ctx context.Context, orgID int64, siteIDs []int64, unassi
 	if err != nil {
 		return nil, err
 	}
+	return Project(rows, canRead)
+}
+
+// Project builds container cards from an authorized, bounded set of observations.
+func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) ([]*pb.Container, error) {
 	result := make([]*pb.Container, 0, len(rows))
 	now := time.Now()
 	for _, r := range rows {

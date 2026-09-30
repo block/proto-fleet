@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
@@ -77,6 +78,7 @@ var registeredServices = []struct {
 	{buildingsv1connect.BuildingServiceName, reflect.TypeOf((*buildingsv1connect.BuildingServiceHandler)(nil)).Elem()},
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
 	{containersv1connect.ContainerServiceName, reflect.TypeOf((*containersv1connect.ContainerServiceHandler)(nil)).Elem()},
+	{fleetinventoryv1connect.FleetInventoryServiceName, reflect.TypeOf((*fleetinventoryv1connect.FleetInventoryServiceHandler)(nil)).Elem()},
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},
 	{device_setv1connect.DeviceSetServiceName, reflect.TypeOf((*device_setv1connect.DeviceSetServiceHandler)(nil)).Elem()},
 	{errorsv1connect.ErrorQueryServiceName, reflect.TypeOf((*errorsv1connect.ErrorQueryServiceHandler)(nil)).Elem()},

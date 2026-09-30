@@ -1,18 +1,21 @@
-import { type ReactNode, useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { containerHealth } from "@/protoFleet/features/containers/containerHealth";
 import { containerViewTarget, useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
-import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
+import { ArrowRight, ChevronDown, Edit, Plus } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColTitles } from "@/shared/components/List/types";
 import { type RowAction } from "@/shared/components/RowActionsMenu";
@@ -33,6 +36,7 @@ type ContainerRow = {
   container: Container;
   siteName: string;
   moduleCount: number;
+  inventory?: InventoryItem;
   incomplete: boolean;
   health: { healthy: number; needsAttention: number; offline: number; sleeping: number };
 };
@@ -71,6 +75,13 @@ const ACTIVE_COLS: BuildingColumn[] = [
 ];
 
 interface BuildingListProps {
+  inventoryItems?: InventoryItem[];
+  total?: number;
+  currentPage?: number;
+  hasNextPage?: boolean;
+  hasPreviousPage?: boolean;
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
   buildings: BuildingWithCounts[];
   containers?: Container[];
   sites: SiteWithCounts[];
@@ -90,6 +101,13 @@ const EMPTY_CONTAINERS: Container[] = [];
 
 const BuildingList = ({
   buildings,
+  inventoryItems,
+  total,
+  currentPage = 0,
+  hasNextPage,
+  hasPreviousPage,
+  onNextPage,
+  onPrevPage,
   containers = EMPTY_CONTAINERS,
   sites,
   emptyStateRow,
@@ -104,6 +122,7 @@ const BuildingList = ({
   const navigate = useNavigate();
   const openContainerView = useOpenContainerView();
   const temperatureUnit = useTemperatureUnit();
+  const topRef = useRef<HTMLDivElement>(null);
 
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -148,8 +167,17 @@ const BuildingList = ({
         ),
       });
     }
+    if (inventoryItems) {
+      const byKey = new Map(rows.map((row) => [row.id, row]));
+      return inventoryItems.flatMap((item) => {
+        const key =
+          item.ref?.kind === EntityKind.CONTAINER ? `container:${item.deviceIdentifier}` : item.ref?.id.toString();
+        const row = key ? byKey.get(key) : undefined;
+        return row ? [row.kind === "container" ? { ...row, inventory: item } : row] : [];
+      });
+    }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
-  }, [buildings, containers, siteNameById]);
+  }, [buildings, containers, inventoryItems, siteNameById]);
 
   const buildExtraActions = useCallback(
     (item: BuildingRow): RowAction[] => {
@@ -229,17 +257,53 @@ const BuildingList = ({
     return buildingId !== undefined && buildingId !== 0n;
   }, []);
   const handleSelectionModeChange = useCallback(() => undefined, []);
+  const pagination =
+    total !== undefined && (total > 0 || hasPreviousPage || hasNextPage) ? (
+      <div className={`sticky left-0 flex flex-col items-center gap-4 py-6 ${PAGE_SCROLL_CHROME_WIDTH}`}>
+        <span className="text-300 text-text-primary">
+          Showing {items.length ? currentPage * 100 + 1 : 0}–{items.length ? currentPage * 100 + items.length : 0} of{" "}
+          {total} {inventoryItems ? "facilities" : "buildings"}
+        </span>
+        <div className="flex gap-3">
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            ariaLabel="Previous page"
+            prefixIcon={<ChevronDown className="rotate-90" />}
+            disabled={!hasPreviousPage}
+            onClick={() => {
+              onPrevPage?.();
+              topRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            ariaLabel="Next page"
+            prefixIcon={<ChevronDown className="rotate-270" />}
+            disabled={!hasNextPage}
+            onClick={() => {
+              onNextPage?.();
+              topRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+        </div>
+      </div>
+    ) : null;
   const commonProps = {
     activeCols: ACTIVE_COLS,
     colTitles: containers.length ? { ...COL_TITLES, racks: "Racks / tanks", miners: "Miners / modules" } : COL_TITLES,
     colConfig,
     items,
     itemKey: "id" as const,
-    total: items.length,
+    total: total ?? items.length,
+    footerContent: pagination,
     // The building-only denominator cannot describe a mixed filtered list.
-    totalUnfiltered: containers.length ? undefined : totalUnfiltered,
+    totalUnfiltered: inventoryItems ? totalUnfiltered : containers.length ? undefined : totalUnfiltered,
     hasActiveFilters,
-    itemName: { singular: "building", plural: "buildings" },
+    itemName: inventoryItems
+      ? { singular: "facility", plural: "facilities" }
+      : { singular: "building", plural: "buildings" },
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
@@ -251,20 +315,26 @@ const BuildingList = ({
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
     const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
     return (
-      <List<BuildingListItem, string, BuildingColumn>
-        {...commonProps}
-        itemSelectable
-        customSelectedItems={selectedIds}
-        customSetSelectedItems={onSelectedIdsChange}
-        customSelectionMode={selectionMode}
-        onSelectionModeChange={handleSelectionModeChange}
-        pageScopedSelection
-        isRowSelectable={isSelectableBuilding}
-      />
+      <div ref={topRef}>
+        <List<BuildingListItem, string, BuildingColumn>
+          {...commonProps}
+          itemSelectable
+          customSelectedItems={selectedIds}
+          customSetSelectedItems={onSelectedIdsChange}
+          customSelectionMode={selectionMode}
+          onSelectionModeChange={handleSelectionModeChange}
+          pageScopedSelection
+          isRowSelectable={isSelectableBuilding}
+        />
+      </div>
     );
   }
 
-  return <List<BuildingListItem, string, BuildingColumn> {...commonProps} />;
+  return (
+    <div ref={topRef}>
+      <List<BuildingListItem, string, BuildingColumn> {...commonProps} />
+    </div>
+  );
 };
 
 export default BuildingList;

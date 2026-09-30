@@ -138,12 +138,17 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 		Power    *float64 `json:"power"`
 		Mining   bool     `json:"mining"`
 	}
-	if err := c.get(ctx, "/api/v2/mining/status", &mining); err != nil {
-		return sdk.DeviceMetrics{}, err
-	}
-	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthHealthyInactive}
-	if mining.Mining {
-		result.Health = sdk.HealthHealthyActive
+	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
+	if err := c.collectSupplement(ctx, "/api/v2/mining/status", &mining); err != nil {
+		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)
+	} else {
+		result.Health = sdk.HealthHealthyInactive
+		if mining.Mining {
+			result.Health = sdk.HealthHealthyActive
+		}
+		// MDK v2 hashrate is TH/s; the SDK and Timescale use H/s.
+		result.HashrateHS = metric(mining.Hashrate, 1e12)
+		result.PowerW = metric(mining.Power, 1)
 	}
 	for _, tank := range topology.Tanks {
 		for _, m := range tank.Modules {
@@ -152,11 +157,8 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			}
 		}
 	}
-	// MDK v2 hashrate is TH/s; the SDK and Timescale use H/s.
-	result.HashrateHS = metric(mining.Hashrate, 1e12)
-	result.PowerW = metric(mining.Power, 1)
 	var plant plantResponse
-	if err := c.collectPlant(ctx, &plant); err != nil {
+	if err := c.collectSupplement(ctx, "/api/v2/telemetry/container", &plant); err != nil {
 		slog.WarnContext(ctx, "CT1 plant observation unavailable", "device_id", id, "error", err)
 	} else if topology.Plant = plant.observation(time.Now().UTC()); topology.Plant != nil {
 		// Prefer metered facility power over the mining-only estimate when present.
@@ -177,19 +179,19 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	return result, nil
 }
 
-// Plant is optional. Bound its entire request/login/retry sequence and leave
+// Supplementary totals are optional. Bound request/login/retry and leave
 // time for the core result to cross the plugin RPC before the caller expires.
-func (c *Client) collectPlant(ctx context.Context, out *plantResponse) error {
+func (c *Client) collectSupplement(ctx context.Context, path string, out any) error {
 	budget := time.Second
 	if deadline, ok := ctx.Deadline(); ok {
 		budget = min(budget, time.Until(deadline)-500*time.Millisecond)
 	}
 	if budget <= 0 {
-		return fmt.Errorf("insufficient collection time for optional plant observation")
+		return fmt.Errorf("insufficient collection time for supplementary observation")
 	}
 	plantCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	return c.get(plantCtx, "/api/v2/telemetry/container", out)
+	return c.get(plantCtx, path, out)
 }
 
 func metric(value *float64, multiplier float64) *sdk.MetricValue {

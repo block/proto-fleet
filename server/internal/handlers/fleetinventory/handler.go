@@ -1,0 +1,63 @@
+package fleetinventory
+
+import (
+	"context"
+
+	"connectrpc.com/connect"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+)
+
+type Handler struct{ service *fleetinventory.Service }
+
+func NewHandler(service *fleetinventory.Service) *Handler { return &Handler{service: service} }
+
+func readScopes(ctx context.Context) (int64, []fleetinventory.Scope, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	scopes := make([]fleetinventory.Scope, 0, 3)
+	for _, permission := range []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead} {
+		orgWide, sites, err := middleware.SiteScopeForPermission(ctx, permission)
+		if err != nil {
+			return 0, nil, err
+		}
+		scopes = append(scopes, fleetinventory.Scope{OrgWide: orgWide, Sites: sites, TelemetryOnly: permission != authz.PermSiteRead})
+	}
+	return info.OrganizationID, scopes, nil
+}
+
+func (h *Handler) ListInventory(ctx context.Context, req *connect.Request[pb.ListInventoryRequest]) (*connect.Response[pb.ListInventoryResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.View == pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS {
+		orgWide, sites, scopeErr := middleware.SiteScopeForPermission(ctx, authz.PermRackRead)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		scopes = append(scopes, fleetinventory.Scope{OrgWide: orgWide, Sites: sites})
+	}
+	result, err := h.service.List(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) ListModuleHistory(ctx context.Context, req *connect.Request[pb.ListModuleHistoryRequest]) (*connect.Response[pb.ListModuleHistoryResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.History(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}

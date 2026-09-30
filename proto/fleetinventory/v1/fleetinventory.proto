@@ -1,0 +1,153 @@
+syntax = "proto3";
+package fleetinventory.v1;
+
+import "buf/validate/validate.proto";
+import "common/v1/fleet_list_stats.proto";
+import "common/v1/zone.proto";
+import "errors/v1/errors.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
+import "buildings/v1/buildings.proto";
+import "device_set/v1/device_set.proto";
+import "containers/v1/containers.proto";
+import "google/protobuf/timestamp.proto";
+
+// Read-only mixed inventory. Physical entities retain their own lifecycle.
+service FleetInventoryService {
+  rpc ListInventory(ListInventoryRequest) returns (ListInventoryResponse);
+  rpc ListModuleHistory(ListModuleHistoryRequest) returns (ListModuleHistoryResponse);
+}
+
+enum InventoryView {
+  INVENTORY_VIEW_UNSPECIFIED = 0;
+  INVENTORY_VIEW_FACILITIES = 1; // Buildings and containers.
+  INVENTORY_VIEW_EQUIPMENT_GROUPS = 2; // Racks and tanks.
+  INVENTORY_VIEW_MINING_ASSETS = 3; // Paired miners and modules.
+}
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_BUILDING = 1;
+  ENTITY_KIND_CONTAINER = 2;
+  ENTITY_KIND_RACK = 3;
+  ENTITY_KIND_TANK = 4;
+  ENTITY_KIND_MINER = 5;
+  ENTITY_KIND_MODULE = 6;
+}
+
+message EntityRef {
+  EntityKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+enum InventorySort {
+  INVENTORY_SORT_UNSPECIFIED = 0;
+  INVENTORY_SORT_NAME = 1;
+  INVENTORY_SORT_HASHRATE = 2;
+  INVENTORY_SORT_POWER = 3;
+  INVENTORY_SORT_TEMPERATURE = 4;
+  INVENTORY_SORT_EFFICIENCY = 5;
+  INVENTORY_SORT_ASSET_COUNT = 6;
+  INVENTORY_SORT_ISSUE_COUNT = 7;
+  INVENTORY_SORT_MODEL = 8;
+  INVENTORY_SORT_FIRMWARE = 9;
+  INVENTORY_SORT_IP_ADDRESS = 10;
+  INVENTORY_SORT_MAC_ADDRESS = 11;
+  INVENTORY_SORT_WORKER_NAME = 12;
+  INVENTORY_SORT_ZONE = 13;
+}
+
+message ListInventoryRequest {
+  InventoryView view = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 4096];
+  InventorySort sort = 4 [(buf.validate.field).enum.defined_only = true];
+  bool descending = 5;
+  repeated int64 site_ids = 6 [(buf.validate.field).repeated = {max_items: 1024, items: {int64: {gt: 0}}}];
+  bool include_unassigned = 7;
+  // Match any selected ancestor; a tank/rack selection is valid only for assets.
+  repeated EntityRef ancestors = 8 [(buf.validate.field).repeated.max_items = 1024];
+  repeated EntityKind kinds = 9 [(buf.validate.field).repeated = {max_items: 6, items: {enum: {defined_only: true, not_in: [0]}}}];
+  string search_query = 10 [(buf.validate.field).string.max_len = 255];
+  // Range values use display units (TH/s, kW, J/TH, C). Missing/stale values
+  // do not match. Power is mining equipment input power; plant power is separate.
+  repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 11 [(buf.validate.field).repeated.max_items = 16];
+  // Component issues are recorded for conventional miners. This filter matches
+  // miners or their building/rack ancestors; module state is not an issue record.
+  repeated errors.v1.ComponentType error_component_types = 12;
+  // Rack placement filters also apply to miner rows. They exclude tanks/modules.
+  repeated int64 building_ids = 13;
+  bool include_no_building = 14;
+  repeated common.v1.ZoneKey zone_keys = 15;
+  bool include_no_rack = 16;
+  // Explicitly restricts the mining-assets view to miners, preserving the
+  // existing miner filter contract. Common outer filters still compose with AND.
+  fleetmanagement.v1.MinerListFilter miner_filter = 17;
+  // Current module/miner health buckets. Valid only in the mining-assets view.
+  repeated string states = 18;
+}
+
+message InventoryItem {
+  EntityRef ref = 1;
+  string name = 2;
+  optional int64 site_id = 3;
+  repeated EntityRef ancestors = 4;
+  // Paired endpoint identifier for a miner or container; for a child, its controller.
+  string device_identifier = 5;
+  int32 position = 6;
+  string reported_id = 7;
+  string state = 8;
+  int64 asset_count = 9;
+  int64 hashrate_reporting_count = 10;
+  int64 power_reporting_count = 11;
+  optional double hashrate_ths = 12;
+  optional double power_kw = 13;
+  optional double efficiency_jth = 14;
+  optional double min_temperature_c = 15;
+  optional double max_temperature_c = 16;
+  google.protobuf.Timestamp observed_at = 17;
+  // Whole-container reported values are not substituted for module summaries.
+  optional double reported_hashrate_ths = 18;
+  optional double reported_power_kw = 19;
+  // Existing entity payloads keep their management UI contracts. Tanks/modules
+  // use the inventory fields directly and never masquerade as racks/miners.
+  oneof details {
+    buildings.v1.BuildingWithCounts building = 20;
+    device_set.v1.DeviceSet rack = 21;
+    fleetmanagement.v1.MinerStateSnapshot miner = 22;
+    containers.v1.Container container = 23;
+  }
+  common.v1.FleetListStats list_stats = 24;
+  string site_name = 25;
+  string facility_name = 26;
+  string group_name = 27;
+}
+
+message ListInventoryResponse {
+  repeated InventoryItem items = 1;
+  string next_page_token = 2;
+  int64 total_count = 3;
+  int64 miner_count = 4;
+  repeated string models = 5;
+  repeated string firmware_versions = 6;
+}
+
+message ListModuleHistoryRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 3 [(buf.validate.field).required = true];
+  int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 5 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ModuleSample {
+  google.protobuf.Timestamp observed_at = 1;
+  google.protobuf.Timestamp collected_at = 2;
+  optional double hashrate_hs = 3;
+  optional double power_w = 4;
+  optional double temperature_c = 5;
+}
+
+message ListModuleHistoryResponse {
+  repeated ModuleSample samples = 1;
+  string next_page_token = 2;
+}

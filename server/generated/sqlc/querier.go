@@ -33,6 +33,9 @@ type Querier interface {
 	// forced termination. Zero-row return lets the caller route active,
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
+	// Serializes reconciliation for each controller. A delayed response cannot
+	// change placement, retire inventory, or overwrite a newer status observation.
+	AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error)
 	// Stage transitions of an active rollout, attributed to an actor when one
 	// drove them. Reject paused rows and stale timer observations so an enforcement
 	// tick loaded before a pause/resume cannot advance on its old elapsed time.
@@ -577,6 +580,7 @@ type Querier interface {
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
+	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
@@ -895,6 +899,12 @@ type Querier interface {
 	InsertAlertMaintenanceWindow(ctx context.Context, arg InsertAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
 	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
 	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
+	// Samples resolve only to current matching hardware. Late samples for replaced
+	// hardware cannot contaminate its replacement. Retried observations are no-ops.
+	// Collection time disambiguates aggregates sharing an oldest-source timestamp.
+	// A reconciled poll may explicitly clear unavailable metrics without identity
+	// evidence. Never use that exception for measurements or delayed inventory.
+	InsertContainerModuleMetrics(ctx context.Context, arg InsertContainerModuleMetricsParams) error
 	InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
@@ -1046,6 +1056,7 @@ type Querier interface {
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
 	ListCompletedTicketAssignees(ctx context.Context, arg ListCompletedTicketAssigneesParams) ([]ListCompletedTicketAssigneesRow, error)
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
+	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
 	ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)
@@ -1201,6 +1212,15 @@ type Querier interface {
 	// include the previous cycle's xmin and all later transaction IDs, allowing
 	// replay while retaining late commits. updated_after is only a date filter.
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
+	// Equipment groups: scope, filter, count, and paginate the two entity types together.
+	ListFleetEquipmentGroups(ctx context.Context, arg ListFleetEquipmentGroupsParams) (ListFleetEquipmentGroupsRow, error)
+	// Facilities: scope, filter, count, and paginate the two entity types together.
+	ListFleetFacilities(ctx context.Context, arg ListFleetFacilitiesParams) (ListFleetFacilitiesRow, error)
+	// Filter choices are metadata about readable miners, not organization-wide data.
+	ListFleetInventoryOptions(ctx context.Context, arg ListFleetInventoryOptionsParams) (ListFleetInventoryOptionsRow, error)
+	// Mining assets: filter and paginate miners/modules without parent aggregation.
+	// Each authority scope uses org-wide/denylist or site-allowlist semantics.
+	ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
 	// Fleet-node-discovered devices not yet paired to their node. A discovered
@@ -1534,6 +1554,7 @@ type Querier interface {
 	// between the existence check and the cascade write. Returns the
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
+	MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentContainerTanksParams) error
 	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
@@ -1615,6 +1636,8 @@ type Querier interface {
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
 	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	ReconcileContainerModules(ctx context.Context, arg ReconcileContainerModulesParams) error
+	ReconcileContainerTanks(ctx context.Context, arg ReconcileContainerTanksParams) error
 	// Telemetry reconciles only the paired-like factory-password state machine.
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
@@ -1730,6 +1753,9 @@ type Querier interface {
 	// exclude the pause; commands already sent continue while paused.
 	ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareRolloutParams) (int64, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
+	// A full map may retire missing slots. A known identity change also retires
+	// the old hardware so its history is never attached to the replacement.
+	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
