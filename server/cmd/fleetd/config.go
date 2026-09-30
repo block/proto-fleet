@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
+	"github.com/block/proto-fleet/server/internal/domain/marketdata"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -70,6 +71,7 @@ type Config struct {
 	IPScanner      ipscanner.Config             `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
 	Diagnostics    diagnostics.Config           `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
 	Updates        updates.Config               `embed:"" prefix:"updates-" envprefix:"UPDATES_"`
+	MarketData     marketdata.Config            `embed:"" prefix:"market-data-" envprefix:"MARKET_DATA_"`
 	Infrastructure infrastructureDomain.Config  `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`

@@ -332,6 +332,16 @@ Application allowlists do not replace OT network controls. Before enabling a
 site, restrict Modbus TCP routing with default-deny firewall rules so only the
 Proto Fleet server can reach the commissioned drive/PLC addresses and port.
 
+## Market Data (Opt-In)
+
+Dashboard bitcoin price, estimated hashprice, and network hashrate are hidden by
+default. To test the feature in a dev deployment, set `MARKET_DATA_ENABLED=true`
+in the operator `.env`, apply it with `./run-fleet.sh`, and reload the dashboard.
+The single server-side flag enables both the panel and outbound public feed
+requests; no client rebuild is required. Removing it or setting it to `false`
+disables both. See [market data](../docs/market-data.md) for sources, estimates,
+refresh behavior, and rollout caveats.
+
 ## Host Profiles
 
 The installer tunes the database and poller for the host hardware via a

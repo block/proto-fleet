@@ -330,8 +330,19 @@ else
     pass "release packaging removes shared latest runtime image references"
 fi
 
+render_compose() { # compose args...
+    env -u MARKET_DATA_ENABLED -u MARKET_DATA_REFRESH_INTERVAL \
+        -u MARKET_DATA_COINBASE_URL -u MARKET_DATA_MEMPOOL_URL \
+        docker compose "$@" config 2>"$STAGE/render.err"
+}
+
 render() { # env-file args...
-    (cd "$STAGE" && docker compose "$@" -f docker-compose.yaml config 2>"$STAGE/render.err")
+    (cd "$STAGE" && render_compose "$@" -f docker-compose.yaml)
+}
+
+render_dev() { # env-file args...
+    render_compose --env-file "$STAGE/base-secrets.env" "$@" \
+        -f "$REPO_ROOT/server/docker-compose.yaml"
 }
 
 assert_rendered() { # description rendered_output expected...
@@ -360,7 +371,37 @@ assert_rendered "no-profile render keeps defaults" "$out" \
     "pg_stat_statements.track_utility=off" \
     "track_io_timing=on" "log_min_duration_statement=5000" \
     "log_parameter_max_length=0" "log_parameter_max_length_on_error=0" \
+    'MARKET_DATA_ENABLED: "false"' \
+    'MARKET_DATA_REFRESH_INTERVAL: 1m' \
+    'MARKET_DATA_COINBASE_URL: https://api.coinbase.com' \
+    'MARKET_DATA_MEMPOOL_URL: https://mempool.space' \
     'shm_size: "268435456"'
+
+out=$(render_dev)
+assert_rendered "local dev render keeps market-data defaults" "$out" \
+    'MARKET_DATA_ENABLED: "false"' \
+    'MARKET_DATA_REFRESH_INTERVAL: 1m' \
+    'MARKET_DATA_COINBASE_URL: https://api.coinbase.com' \
+    'MARKET_DATA_MEMPOOL_URL: https://mempool.space'
+
+for enabled in false true; do
+    printf '%s\n' "MARKET_DATA_ENABLED=$enabled" \
+        'MARKET_DATA_REFRESH_INTERVAL=5m' \
+        'MARKET_DATA_COINBASE_URL=https://example.invalid/coinbase' \
+        'MARKET_DATA_MEMPOOL_URL=http://mempool.internal:8999' > "$STAGE/market-data.env"
+    out=$(render --env-file profiles/standard.env --env-file base-secrets.env --env-file market-data.env)
+    assert_rendered "packaged market-data settings reach fleet-api with flag $enabled" "$out" \
+        "MARKET_DATA_ENABLED: \"$enabled\"" "shared_buffers=4GB" \
+        'MARKET_DATA_REFRESH_INTERVAL: 5m' \
+        'MARKET_DATA_COINBASE_URL: https://example.invalid/coinbase' \
+        'MARKET_DATA_MEMPOOL_URL: http://mempool.internal:8999'
+    out=$(render_dev --env-file "$STAGE/market-data.env")
+    assert_rendered "local dev market-data settings reach fleet-api with flag $enabled" "$out" \
+        "MARKET_DATA_ENABLED: \"$enabled\"" \
+        'MARKET_DATA_REFRESH_INTERVAL: 5m' \
+        'MARKET_DATA_COINBASE_URL: https://example.invalid/coinbase' \
+        'MARKET_DATA_MEMPOOL_URL: http://mempool.internal:8999'
+done
 
 out=$(render --env-file profiles/mini.env --env-file base-secrets.env)
 assert_rendered "mini render" "$out" \

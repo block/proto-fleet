@@ -20,6 +20,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFleetdMarketDataIsOptIn(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		env     string
+		args    []string
+		enabled bool
+	}{
+		{name: "default off"},
+		{name: "environment opt-in", env: "true", enabled: true},
+		{name: "environment opt-out", env: "false"},
+		{name: "CLI opt-in", args: []string{"--market-data-enabled"}, enabled: true},
+		{name: "CLI opt-out overrides environment", env: "true", args: []string{"--market-data-enabled=false"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MARKET_DATA_ENABLED", tt.env)
+			if tt.env == "" {
+				require.NoError(t, os.Unsetenv("MARKET_DATA_ENABLED"))
+			}
+			t.Setenv("AUTH_CLIENT_EXPIRATION_PERIOD", "1h")
+			t.Setenv("AUTH_CLIENT_SECRET_KEY", "test-client-secret")
+			t.Setenv("ENCRYPT_SERVICE_MASTER_KEY", "test-master-key")
+			config := &Config{}
+			parser, err := kong.New(config, kong.Name("fleetd"))
+			require.NoError(t, err)
+			_, err = parser.Parse(tt.args)
+			require.NoError(t, err)
+			require.Equal(t, tt.enabled, config.MarketData.Enabled)
+		})
+	}
+}
+
 func TestFleetdRepositoryCannotBeOverriddenAtRuntime(t *testing.T) {
 	t.Setenv("UPDATES_RELEASE_REPOSITORY", "other-owner/fleet")
 	t.Setenv("PROTO_FLEET_RELEASE_REPOSITORY", "other-owner/fleet")
@@ -123,7 +154,7 @@ logging:
 }
 
 func TestFleetdLoadsExplicitDBDSNFromEnv(t *testing.T) {
-	explicitDSN := "postgres://fleet:secret@fleet-a:5432,fleet-b:5432/fleet?sslmode=disable&target_session_attrs=read-write"
+	explicitDSN := "postgres://fleet-a:5432,fleet-b:5432/fleet?sslmode=disable&target_session_attrs=read-write"
 	t.Setenv("DB_DSN", explicitDSN)
 
 	configPath := writeFleetdConfigFile(t, `

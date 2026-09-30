@@ -15,6 +15,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
+	marketdataDomain "github.com/block/proto-fleet/server/internal/domain/marketdata"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -57,6 +58,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -128,6 +130,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
 	maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
+	marketdataHandler "github.com/block/proto-fleet/server/internal/handlers/marketdata"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
@@ -194,6 +197,7 @@ func normalizeFleetdArgs(args []string) []string {
 // service shape (no business data), so the inclusion list is "all
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
+	marketdatav1connect.MarketDataServiceName,
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
@@ -213,6 +217,10 @@ func start(config *Config) (result error) {
 	clientIP, err := middleware.NewClientIPMiddleware(config.HTTP.TrustedProxyCIDRs)
 	if err != nil {
 		return err
+	}
+	marketDataSvc, err := marketdataDomain.NewService(config.MarketData, marketdataDomain.NewHTTPProvider(config.MarketData))
+	if err != nil {
+		return fmt.Errorf("configure market data: %w", err)
 	}
 	if err := config.HA.Validate(); err != nil {
 		return fmt.Errorf("invalid HA configuration: %w", err)
@@ -860,6 +868,7 @@ func start(config *Config) (result error) {
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
+	mux.Handle(marketdatav1connect.NewMarketDataServiceHandler(marketdataHandler.NewHandler(marketDataSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))

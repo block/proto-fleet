@@ -1,5 +1,8 @@
 # Fleet Service
 
+For dashboard bitcoin price, estimated hashprice, network hashrate, and outbound
+feed configuration, see [market data](../docs/market-data.md).
+
 Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
 ## Development Commands

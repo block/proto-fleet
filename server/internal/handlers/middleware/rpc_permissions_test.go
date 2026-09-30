@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -85,6 +86,7 @@ var registeredServices = []struct {
 	{infrastructurev1connect.InfrastructureServiceName, reflect.TypeOf((*infrastructurev1connect.InfrastructureServiceHandler)(nil)).Elem()},
 	{minercommandv1connect.MinerCommandServiceName, reflect.TypeOf((*minercommandv1connect.MinerCommandServiceHandler)(nil)).Elem()},
 	{networkinfov1connect.NetworkInfoServiceName, reflect.TypeOf((*networkinfov1connect.NetworkInfoServiceHandler)(nil)).Elem()},
+	{marketdatav1connect.MarketDataServiceName, reflect.TypeOf((*marketdatav1connect.MarketDataServiceHandler)(nil)).Elem()},
 	{alertsv1connect.ChannelServiceName, reflect.TypeOf((*alertsv1connect.ChannelServiceHandler)(nil)).Elem()},
 	{alertsv1connect.RuleServiceName, reflect.TypeOf((*alertsv1connect.RuleServiceHandler)(nil)).Elem()},
 	{alertsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*alertsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
