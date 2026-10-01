@@ -72,7 +72,7 @@ func TestLocalReleaseUsesExistingVerificationWithoutNetwork(t *testing.T) {
 }
 
 func TestLocalReleaseRejectsUnsafeSources(t *testing.T) {
-	for _, kind := range []string{"file symlink", "directory symlink", "writable file", "writable directory", "oversize", "canceled"} {
+	for _, kind := range []string{"file symlink", "relative file symlink", "directory symlink", "writable file", "writable directory", "oversize", "canceled"} {
 		t.Run(kind, func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
 			require.NoError(t, err)
@@ -86,6 +86,9 @@ func TestLocalReleaseRejectsUnsafeSources(t *testing.T) {
 			case "file symlink":
 				require.NoError(t, os.Rename(source, source+".real"))
 				require.NoError(t, os.Symlink(source+".real", source))
+			case "relative file symlink":
+				require.NoError(t, os.Rename(source, source+".real"))
+				require.NoError(t, os.Symlink(filepath.Base(source)+".real", source))
 			case "directory symlink":
 				require.NoError(t, os.Rename(directory, directory+".real"))
 				require.NoError(t, os.Symlink(directory+".real", directory))

@@ -5,8 +5,22 @@ and pin its repository, tag and checksum in deployment configuration. CI verifie
 and stages the bundle for normal upgrades. GitHub credentials stay on the operator's
 machine; CI and hosts need none.
 
-Set `PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater to use
-staged bundles instead of public GitHub downloads:
+Configure each host's updater with a systemd drop-in at
+`/etc/systemd/system/proto-fleet-updater.service.d/release-dir.conf`:
+
+```ini
+[Service]
+Environment="PROTO_FLEET_UPDATER_RELEASE_DIR=/var/lib/proto-fleet-releases"
+```
+
+Create the directory using the ownership rules below, then run
+`sudo systemctl daemon-reload` and `sudo systemctl restart proto-fleet-updater`.
+Keep this drop-in in host provisioning so replacement hosts receive it too.
+`fleet-ha install` preserves this separate file but rewrites
+`/etc/proto-fleet/updater.env`; do not put the release directory setting there.
+For a manually launched updater, use `--release-dir`.
+
+Stage bundles under the configured directory:
 
 ```text
 <release-dir>/<version>/proto-fleet-<version>-<arch>.tar.gz
@@ -25,8 +39,7 @@ Version rules, repository pins, locks, fencing and HA recovery are unchanged.
 Repository switches, nightlies and downgrades require a separate operator maintenance
 procedure; neither CI upgrades nor the ordinary updater perform those transitions.
 
-Manifest-covered `cloud-release.json` records the schema version and one fingerprint
-covering all up/down migrations and database/Patroni/etcd build/configuration sources.
-Cloud deployment requires exact matches to retain the database during replacement.
-Matching metadata neither proves application compatibility nor permits database
-upgrades or downgrades.
+Rare cross-deploys require operators to manually qualify the source and target
+releases, including migration and database dependency compatibility, before
+retaining a database. Release bundles do not provide an automated compatibility
+fingerprint for that decision.

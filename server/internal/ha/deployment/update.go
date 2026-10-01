@@ -70,7 +70,29 @@ func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, err
 	if !rollingUpdateControlReady(report.Control) {
 		return StatusReport{}, errors.New("HA completion update requires rolling-update readiness")
 	}
+	config, err := loadNodeConfig(envPath)
+	if err != nil {
+		return StatusReport{}, err
+	}
+	if err := requireActivePublicPath(ctx, config); err != nil {
+		return StatusReport{}, err
+	}
 	return report, nil
+}
+
+func requireActivePublicPath(ctx context.Context, config NodeConfig) error {
+	if !config.externalEndpoint() {
+		// VIP reachability is already required by control readiness.
+		return nil
+	}
+	// Private startup tolerates closed external ingress, but stopping the active
+	// application requires the public path used to verify takeover to work first.
+	client, cleanup := newProbeHTTPClient(config.publicTLS(nil), nil)
+	defer cleanup()
+	if !endpointReadyWithClient(ctx, client, config.publicURL()+"/api-proxy/health/active") {
+		return errors.New("HA completion update requires a healthy public endpoint")
+	}
+	return nil
 }
 
 func requireUpdatedPeer(ctx context.Context, envPath, targetVersion string) error {

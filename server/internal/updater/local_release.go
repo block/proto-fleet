@@ -41,9 +41,18 @@ func copyLocalRelease(ctx context.Context, source, destination string, maxBytes 
 		return fmt.Errorf("open local release directory: %w", err)
 	}
 	defer root.Close()
-	// O_NOFOLLOW and O_NONBLOCK reject symlinks and prevent a special-file
-	// replacement from blocking before the descriptor can be inspected.
-	file, err := root.OpenFile(filepath.Base(source), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	name := filepath.Base(source)
+	before, err := root.Lstat(name)
+	if err != nil {
+		return fmt.Errorf("inspect local release: %w", err)
+	}
+	if before.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("local release must not be a symlink: %q", source)
+	}
+	// os.Root may resolve in-root symlinks despite O_NOFOLLOW, so compare
+	// the opened descriptor with the entry inspected above. O_NONBLOCK keeps
+	// a special-file replacement from blocking before descriptor inspection.
+	file, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return fmt.Errorf("open local release: %w", err)
 	}
@@ -51,6 +60,9 @@ func copyLocalRelease(ctx context.Context, source, destination string, maxBytes 
 	info, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("inspect local release: %w", err)
+	}
+	if !os.SameFile(before, info) {
+		return fmt.Errorf("local release changed while opening: %q", source)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("local release must be a regular file not writable by group or others: %q", source)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,4 +229,44 @@ func TestUpdatedPassivePeerReady(t *testing.T) {
 	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, version: "v1.1.0"}, "v1.1.0"))
 	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}, "v1.1.0"))
 	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.0.0"}, "v1.1.0"))
+}
+
+func TestActiveUpdateRequiresExternalPublicPath(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		status    int
+		closed    bool
+		wantError bool
+	}{
+		{name: "healthy", status: http.StatusOK},
+		{name: "maintenance gate closed", status: http.StatusServiceUnavailable, wantError: true},
+		{name: "unreachable", closed: true, wantError: true},
+		{name: "redirect", status: http.StatusFound, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api-proxy/health/active" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Location", "/login")
+				w.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			if test.closed {
+				server.Close()
+			}
+			err := requireActivePublicPath(t.Context(), NodeConfig{EndpointMode: "external", PublicURL: server.URL})
+			if test.wantError {
+				require.ErrorContains(t, err, "requires a healthy public endpoint")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestActiveUpdatePublicPathLeavesVIPCheckToControlReadiness(t *testing.T) {
+	// No additional endpoint probe is needed for VIP mode.
+	require.NoError(t, requireActivePublicPath(t.Context(), NodeConfig{EndpointMode: "vip"}))
 }

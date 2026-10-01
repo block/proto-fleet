@@ -695,9 +695,6 @@ jobs:
             echo "channel: $CHANNEL" >> deployment/version.txt
           fi
 
-      - name: Record cloud database compatibility
-        run: python3 deployment-files/scripts/create-cloud-release.py . deployment
-
       - name: Create immutable deployment manifest
         run: deployment/scripts/create-release-manifest.sh deployment
 
@@ -713,7 +710,6 @@ jobs:
             deployment/docker-compose.updater.yaml \
             deployment/reset-super-admin-password.sh \
             deployment/images/fleet.tar.gz \
-            deployment/cloud-release.json \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do
             if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
