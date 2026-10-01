@@ -39,19 +39,31 @@ jobs:
             -p 8080:8080 \
             fake-proto-rig
 
-      - name: Cache Node modules
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Cache npm dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            client/node_modules
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-npm-
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
         working-directory: client
-        run: npm ci
+        run: npm ci --include=optional
 
       - name: Build ProtoOS frontend
         working-directory: client
@@ -65,8 +77,13 @@ jobs:
           PROXY_URL: http://localhost:8080
 
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoOS
-        run: npx playwright install --with-deps chromium
+        run: |
+          # Like ProtoFleet, use ubuntu-latest's Chromium runtime libraries
+          # and emoji fonts. Inter and JetBrainsMono ship in client/public/fonts.
+          # Avoid an apt refresh/install on every fresh runner.
+          npx playwright install chromium
 
       - name: Run Playwright tests (${{ matrix.project }})
         working-directory: client/e2eTests/protoOS

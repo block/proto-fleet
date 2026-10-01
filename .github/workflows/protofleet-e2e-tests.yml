@@ -134,57 +134,92 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # As in Server Checks, refresh TimescaleDB weekly or when its build
+      # context changes, independently of application code (including schedules).
+      - name: Compute image cache week
+        id: cache-week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore TimescaleDB image cache
+        id: tsdb-image-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/docker-images/timescaledb.tar.gz
+          key: ${{ runner.os }}-protofleet-e2e-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
+
+      - name: Build TimescaleDB image
+        if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
+        working-directory: server
+        run: |
+          mkdir -p /tmp/docker-images
+          docker compose build --pull timescaledb
+          image="$(docker compose config --images timescaledb)"
+          docker save "$image" | gzip > /tmp/docker-images/timescaledb.tar.gz
+
+      - name: Save TimescaleDB image cache
+        if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/docker-images/timescaledb.tar.gz
+          key: ${{ runner.os }}-protofleet-e2e-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
+
       # The gitignored `server/plugins/*` binaries are produced in a separate
       # job, so they cannot enter this hash and spuriously bust the cache.
       #
-      # Scheduled runs skip restore + save so they rebuild against fresh
+      # Scheduled runs skip application restore + save to rebuild against fresh
       # upstream base images without polluting the cache namespace with
       # one-off entries that would evict other workflow caches.
-      - name: Restore Docker image cache
+      - name: Restore application image cache
         id: docker-image-cache
         if: github.event_name != 'schedule'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /tmp/docker-images
+          path: /tmp/docker-images/e2e-images.tar.gz
           # `server/**` because the Dockerfile does `COPY server/ ./`
-          # (e.g. go:embed migrations).
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+          # (e.g. go:embed migrations), plus root build-context exclusions.
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
 
-      - name: Build E2E Docker images
+      - name: Build E2E application images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
         working-directory: server
         run: |
           mkdir -p /tmp/docker-images
+          # Select every non-database service so future application services
+          # remain in the bundle without rebuilding or saving TimescaleDB.
+          mapfile -t services < <(docker compose config --services | grep -vx timescaledb)
           # `--ignore-buildable` pulls only services with `image:` and no
           # `build:` (otel-collector, jaeger). `docker save` below otherwise
           # fails on a cold runner because those images don't exist locally.
           echo "::group::docker compose pull"
-          docker compose pull --ignore-buildable
+          docker compose pull --ignore-buildable "${services[@]}"
           echo "::endgroup::"
           # `--pull` forces fresh upstream base images on rebuild so a stale
           # cache miss key doesn't serve stale FROM layers.
           echo "::group::docker compose build"
-          docker compose build --pull
+          docker compose build --pull "${services[@]}"
           echo "::endgroup::"
           echo "::group::Save images to compressed tarball"
-          mapfile -t images < <(docker compose config --images | sort -u)
+          # `config --images` includes dependencies even for selected services.
+          # Exclude the database explicitly so a warm DB cache need not be loaded.
+          db_image="$(docker compose config --images timescaledb)"
+          mapfile -t images < <(docker compose config --images | grep -vxF "$db_image" | sort -u)
           printf '  - %s\n' "${images[@]}"
           docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
           ls -lh /tmp/docker-images/
           echo "::endgroup::"
 
-      - name: Save Docker image cache
+      - name: Save application image cache
         if: github.event_name != 'schedule' && steps.docker-image-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /tmp/docker-images
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+          path: /tmp/docker-images/e2e-images.tar.gz
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
 
       - name: Upload Docker images
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: protofleet-e2e-docker-images
-          path: /tmp/docker-images/e2e-images.tar.gz
+          path: /tmp/docker-images/*.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -310,6 +345,7 @@ jobs:
       - name: Load Docker images
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
+          gunzip < /tmp/docker-images/timescaledb.tar.gz | docker load
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
@@ -487,6 +523,7 @@ jobs:
       - name: Load Docker images
         run: |
           gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
+          gunzip < /tmp/docker-images/timescaledb.tar.gz | docker load
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
