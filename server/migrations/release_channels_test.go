@@ -35,9 +35,9 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	labelsUpSQL, err := migrations.Migrations.ReadFile("000151_rollout_activity_labels.up.sql")
 	require.NoError(t, err)
-	delegatedDownSQL, err := migrations.Migrations.ReadFile("000156_delegated_rollout_events.down.sql")
+	delegatedDownSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.down.sql")
 	require.NoError(t, err)
-	delegatedUpSQL, err := migrations.Migrations.ReadFile("000156_delegated_rollout_events.up.sql")
+	delegatedUpSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.up.sql")
 	require.NoError(t, err)
 
 	relations := []string{

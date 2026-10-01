@@ -18,9 +18,9 @@ func TestDelegatedRolloutEventsMigrationDownAndUpPreservesLegacyHistory(t *testi
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	f := newReleaseChannelFixture(t, db)
-	downSQL, err := migrations.Migrations.ReadFile("000156_delegated_rollout_events.down.sql")
+	downSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.down.sql")
 	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000156_delegated_rollout_events.up.sql")
+	upSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.up.sql")
 	require.NoError(t, err)
 	count := func(query string, args ...any) int {
 		t.Helper()
