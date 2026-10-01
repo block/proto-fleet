@@ -166,6 +166,9 @@ type Config struct {
 	ActivationTimeout time.Duration
 	CleanupTimeout    time.Duration
 	DeploymentMode    DeploymentMode
+	// ReleaseDir selects operator-staged bundles instead of HTTP downloads.
+	// It never changes the embedded/persisted release repository trust pin.
+	ReleaseDir string
 
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
@@ -620,6 +623,9 @@ func newManager(cfg Config) (*Manager, error) {
 	}
 	if !filepath.IsAbs(cfg.StateDir) {
 		return nil, fmt.Errorf("state directory must be absolute")
+	}
+	if cfg.ReleaseDir != "" && !filepath.IsAbs(cfg.ReleaseDir) {
+		return nil, fmt.Errorf("release directory must be absolute")
 	}
 	if cfg.SelfUpdatePath != "" && !filepath.IsAbs(cfg.SelfUpdatePath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
@@ -1348,11 +1354,11 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 		m.fail(operationID, fmt.Errorf("persist download phase: %w", err), recovery)
 		return
 	}
-	if err := m.download(ctx, archiveURL, archivePath, maxDownloadBytes); err != nil {
+	if err := m.obtainReleaseFile(ctx, targetVersion, archiveName, archiveURL, archivePath, maxDownloadBytes); err != nil {
 		m.fail(operationID, fmt.Errorf("download release bundle: %w", err), recovery)
 		return
 	}
-	if err := m.download(ctx, archiveURL+".sha256", checksumPath, maxChecksumBytes); err != nil {
+	if err := m.obtainReleaseFile(ctx, targetVersion, archiveName+".sha256", archiveURL+".sha256", checksumPath, maxChecksumBytes); err != nil {
 		m.fail(operationID, fmt.Errorf("download release checksum: %w", err), recovery)
 		return
 	}
@@ -1361,9 +1367,10 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 		m.fail(operationID, fmt.Errorf("persist verification phase: %w", err), recovery)
 		return
 	}
-	// The selected GitHub Releases origin is the publisher trust anchor. This
-	// sidecar detects transfer/storage corruption; it is not represented as an
-	// independent publisher signature.
+	// GitHub Releases, or the operator controlling ReleaseDir, supplies the
+	// trusted bytes. This sidecar detects transfer/storage corruption; it is
+	// not an independent publisher signature. Repository and version metadata
+	// are still verified below, regardless of delivery mode.
 	if err := verifyChecksum(ctx, archivePath, checksumPath, archiveName); err != nil {
 		m.fail(operationID, err, recovery)
 		return

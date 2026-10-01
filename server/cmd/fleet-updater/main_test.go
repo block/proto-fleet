@@ -19,6 +19,38 @@ import (
 
 const updaterUmaskTestHelper = "PROTO_FLEET_UPDATER_UMASK_TEST_HELPER"
 
+func TestReleaseDirectoryConfiguration(t *testing.T) {
+	const helper = "PROTO_FLEET_RELEASE_DIR_TEST_HELPER"
+	if mode := os.Getenv(helper); mode != "" {
+		root := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(root, "deployment"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "deployment", "version.txt"), []byte("version: v1.0.0\n"), 0o600))
+		t.Setenv("PROTO_FLEET_UPDATER_RELEASE_DIR", "relative-is-invalid")
+		t.Setenv("PROTO_FLEET_DOWNLOAD_BASE_URL", "")
+		t.Setenv("PROTO_FLEET_UPDATER_BINARY_PATH", "")
+		os.Args = []string{"proto-fleet-updater", "--repair-startup", "--deployment-mode=standalone", "--install-root=" + root, "--state-dir=" + filepath.Join(root, "state"), "--socket-path=" + filepath.Join(root, "missing.sock")}
+		if mode == "flag" {
+			os.Args = append(os.Args, "--release-dir="+filepath.Join(root, "releases"))
+		}
+		flag.CommandLine = flag.NewFlagSet("proto-fleet-updater", flag.ContinueOnError)
+		err := run()
+		if mode == "env" {
+			require.ErrorContains(t, err, "release directory must be absolute")
+		} else {
+			require.NoError(t, err)
+		}
+		return
+	}
+	for _, mode := range []string{"env", "flag"} {
+		t.Run(mode, func(t *testing.T) {
+			command := exec.Command(os.Args[0], "-test.run=^TestReleaseDirectoryConfiguration$") //nolint:gosec // The current test executable is trusted.
+			command.Env = append(os.Environ(), helper+"="+mode)
+			output, err := command.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
+}
+
 func TestUpdaterRepositoryCannotBeOverriddenAtRuntime(t *testing.T) {
 	const helper = "PROTO_FLEET_UPDATER_REPOSITORY_TEST_HELPER"
 	if repository := os.Getenv(helper); repository != "" {
@@ -78,6 +110,7 @@ func TestSelfUpdateExecArgsReplacesPriorHandoff(t *testing.T) {
 	args := []string{
 		"proto-fleet-updater",
 		"--state-dir", "/state",
+		"--release-dir", "/releases",
 		"--self-update-handoff", "/stale",
 		"-self-update-handoff=/also-stale",
 		"--socket-path=/socket",
@@ -86,6 +119,7 @@ func TestSelfUpdateExecArgsReplacesPriorHandoff(t *testing.T) {
 		"proto-fleet-updater",
 		"--self-update-handoff=/canonical/updater",
 		"--state-dir", "/state",
+		"--release-dir", "/releases",
 		"--socket-path=/socket",
 	}, selfUpdateExecArgs(args, "/canonical/updater"))
 }

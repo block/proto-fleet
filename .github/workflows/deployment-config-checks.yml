@@ -50,6 +50,9 @@ jobs:
       - name: Validate release repository selection and packaged installers
         run: bash deployment-files/tests/test-release-repository.sh
 
+      - name: Validate cloud compatibility metadata
+        run: python3 deployment-files/tests/test_cloud_release.py
+
       - name: Validate uninstaller updater cleanup
         run: ./deployment-files/tests/test-uninstall-updater-cleanup.sh
 

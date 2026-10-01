@@ -134,7 +134,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 		fleetReady         bool
 		fleetVersionsMatch bool
 		writerReady        bool
-		vipReady           bool
+		publicPathReady    bool
 		probes             sync.WaitGroup
 	)
 	probes.Go(func() {
@@ -149,7 +149,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 	probes.Go(func() {
 		client, cleanup := newProbeHTTPClient(config.publicTLS(tlsConfig), nil)
 		defer cleanup()
-		vipReady = endpointReadyWithClient(ctx, client, config.publicURL()+"/api-proxy/health/active")
+		publicPathReady = controlPublicPathReady(ctx, client, config)
 	})
 	probes.Go(func() {
 		statuses := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) fleetHostStatus {
@@ -168,7 +168,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 
 	localRuntimeReady := report.Runtime.Observation == ha.ObservationCurrent &&
 		(report.Runtime.Role == ha.RoleActive || report.Runtime.Role == ha.RolePassive)
-	controlReady := etcdStatus.quorum && primary == 1 && writerReady && vipReady && fleetActive == 1
+	controlReady := etcdStatus.quorum && primary == 1 && writerReady && publicPathReady && fleetActive == 1
 	failoverReady := controlReady && etcdStatus.redundant && synchronous == 1 && fleetReady && localRuntimeReady
 	control := &ControlStatus{ControlReady: controlReady, FailoverReady: failoverReady}
 	if !etcdStatus.quorum {
@@ -187,7 +187,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 	} else if !fleetVersionsMatch {
 		control.ReasonCodes = append(control.ReasonCodes, ReasonFleetVersionMismatch)
 	}
-	if !vipReady {
+	if !publicPathReady {
 		reason := ReasonVIPUnavailable
 		if config.externalEndpoint() {
 			reason = ReasonEndpointUnavailable
@@ -196,6 +196,17 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 	}
 	report.Control = control
 	return report, nil
+}
+
+func controlPublicPathReady(ctx context.Context, client *http.Client, config NodeConfig) bool {
+	if config.externalEndpoint() {
+		// External ingress can intentionally be closed during bootstrap or
+		// maintenance. Control readiness still requires exactly one active
+		// Fleet through the authenticated private nginx probes above; ingress
+		// reachability is verified separately by WaitForVIPVersion/operators.
+		return true
+	}
+	return endpointReadyWithClient(ctx, client, config.publicURL()+"/api-proxy/health/active")
 }
 
 type etcdMemberIdentity struct {

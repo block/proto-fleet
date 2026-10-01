@@ -60,9 +60,11 @@ Then enable forwarding and inspect both hosts with:
 sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env
 ```
 
-Status checks the public URL using system certificate roots, while direct peer
-checks use the cluster CA and each peer's own IP certificate. Public endpoint
-failure appears as `endpoint_unavailable`; it does not change election behavior.
+In external mode, status proves control readiness through private peer checks
+using the cluster CA and each peer's own IP certificate. Public forwarding can
+remain closed during bootstrap or maintenance. Monitor the public URL separately;
+rolling-update takeover still verifies it using system certificate roots. Neither
+public availability nor load-balancer health grants leadership.
 
 ## Load-balancer and storage behavior
 
