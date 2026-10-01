@@ -47,12 +47,11 @@ def metadata(root):
     if not versions["up"] or versions["up"] != versions["down"]:
         raise ValueError("Require nonempty matching up/down migrations")
     return {
-        "format": 1,
         "schema_version": max(versions["up"]),
-        "migrations_sha256": fingerprint(
-            root, [str(path.relative_to(root)) for path in migrations]
+        "compatibility_sha256": fingerprint(
+            root,
+            [str(path.relative_to(root)) for path in migrations] + list(DATABASE_FILES),
         ),
-        "database_profile_sha256": fingerprint(root, DATABASE_FILES),
     }
 
 

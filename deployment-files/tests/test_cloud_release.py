@@ -27,21 +27,18 @@ class CompatibilityTests(unittest.TestCase):
             down.write_text("DROP TABLE example;\n")
             initial = cloud.metadata(root)
             self.assertEqual(initial["schema_version"], 1)
-            self.assertEqual(initial["format"], 1)
+            self.assertEqual(set(initial), {"schema_version", "compatibility_sha256"})
             (root / "server/main.go").write_text("changed app\n")
             self.assertEqual(cloud.metadata(root), initial)
             down.write_text("DROP TABLE example CASCADE;\n")
             changed = cloud.metadata(root)
             self.assertNotEqual(
-                changed["migrations_sha256"], initial["migrations_sha256"]
-            )
-            self.assertEqual(
-                changed["database_profile_sha256"], initial["database_profile_sha256"]
+                changed["compatibility_sha256"], initial["compatibility_sha256"]
             )
             (root / cloud.DATABASE_FILES[0]).write_text("new postgres\n")
             self.assertNotEqual(
-                cloud.metadata(root)["database_profile_sha256"],
-                initial["database_profile_sha256"],
+                cloud.metadata(root)["compatibility_sha256"],
+                changed["compatibility_sha256"],
             )
             up.unlink()
             with self.assertRaises(ValueError):

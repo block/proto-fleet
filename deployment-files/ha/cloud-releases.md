@@ -25,8 +25,8 @@ Version rules, repository pins, locks, fencing and HA recovery are unchanged.
 Repository switches, nightlies and downgrades require a separate operator maintenance
 procedure; neither CI upgrades nor the ordinary updater perform those transitions.
 
-Manifest-covered `cloud-release.json` records format/schema versions and fingerprints
-of all up/down migrations and database/Patroni/etcd build/configuration sources.
+Manifest-covered `cloud-release.json` records the schema version and one fingerprint
+covering all up/down migrations and database/Patroni/etcd build/configuration sources.
 Cloud deployment requires exact matches to retain the database during replacement.
 Matching metadata neither proves application compatibility nor permits database
 upgrades or downgrades.
