@@ -44,8 +44,9 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 ## Invariants
 
 - Do not hand-edit `**/generated/**`, `*.pb.go`, `*.pb.ts`, or
-  `client/src/protoOS/api/generatedApi.ts`. Edit sources and run `just gen`;
-  commit source and generated output together.
+  `client/src/protoOS/api/generatedApi.ts`. Edit sources and run the appropriate command from the
+  [generation skill](.agents/skills/code-generation/SKILL.md); commit source
+  and generated output together.
 - Deployed migrations are immutable. Use a new migration with both up and
   down files. See the [migration skill](.agents/skills/migration-immutability/SKILL.md)
   when deciding whether an existing migration can change.
