@@ -1,5 +1,10 @@
 # Cloud-staged application releases
 
+Cloud operators can download and verify a published bundle locally, upload it to
+private object storage, then pin its repository, tag and checksum in deployment
+configuration. CI verifies the pinned bundle and stages it on hosts. GitHub
+credentials stay on the operator's machine; neither CI nor hosts need them.
+
 Set `PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater to use
 staged bundles instead of public GitHub downloads:
 
