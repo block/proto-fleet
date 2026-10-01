@@ -1,9 +1,9 @@
 # Cloud-staged application releases
 
-Cloud operators can download and verify a published bundle locally, upload it to
-private object storage, then pin its repository, tag and checksum in deployment
-configuration. CI verifies the pinned bundle and stages it on hosts. GitHub
-credentials stay on the operator's machine; neither CI nor hosts need them.
+Operators verify a published bundle locally, upload it to private object storage,
+and pin its repository, tag and checksum in deployment configuration. CI verifies
+and stages the bundle for normal upgrades. GitHub credentials stay on the operator's
+machine; CI and hosts need none.
 
 Set `PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater to use
 staged bundles instead of public GitHub downloads:
@@ -13,18 +13,18 @@ staged bundles instead of public GitHub downloads:
 <release-dir>/<version>/proto-fleet-<version>-amd64.tar.gz.sha256
 ```
 
-Use an absolute, symlink-free directory owned by root or the updater account;
-neither it nor its files may be group/world writable. Use a separate root per
-publishing repository. Files are copied into protected updater storage before
-checksum, archive and source-pin verification. Invalid or missing files fail
-without network fallback. Unset the directory to use public GitHub downloads.
+Use a separate absolute, symlink-free directory per repository, owned by root or
+the updater account. Neither the directory nor its files may be group/world writable.
+The updater copies files into protected storage before checksum, archive and
+source-pin verification. Missing or invalid files fail without network fallback;
+unset the directory to restore public GitHub downloads.
 
-This changes delivery only: version rules, repository pins, locks, fencing and HA
-recovery still apply. The ordinary updater cannot switch repositories, install
-nightlies or downgrade.
+Version rules, repository pins, locks, fencing and HA recovery are unchanged.
+Repository switches, nightlies and downgrades require a separate operator maintenance
+procedure; neither CI upgrades nor the ordinary updater perform those transitions.
 
-Manifest-covered `cloud-release.json` records the format/schema versions and hashes
+Manifest-covered `cloud-release.json` records format/schema versions and fingerprints
 of all up/down migrations and database/Patroni/etcd build/configuration sources.
-Cloud orchestration uses exact matches to retain the database during application
-replacement. Matching metadata does not prove application compatibility or permit
-database upgrades/downgrades.
+Cloud deployment requires exact matches to retain the database during replacement.
+Matching metadata neither proves application compatibility nor permits database
+upgrades or downgrades.

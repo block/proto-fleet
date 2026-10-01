@@ -188,11 +188,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 		control.ReasonCodes = append(control.ReasonCodes, ReasonFleetVersionMismatch)
 	}
 	if !publicPathReady {
-		reason := ReasonVIPUnavailable
-		if config.externalEndpoint() {
-			reason = ReasonEndpointUnavailable
-		}
-		control.ReasonCodes = append(control.ReasonCodes, reason)
+		control.ReasonCodes = append(control.ReasonCodes, ReasonVIPUnavailable)
 	}
 	report.Control = control
 	return report, nil
