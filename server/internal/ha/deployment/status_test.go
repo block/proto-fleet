@@ -1,12 +1,45 @@
 package deployment
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestControlPublicPathRequirementDependsOnEndpointMode(t *testing.T) {
+	var requests atomic.Int32
+	var status atomic.Int32
+	status.Store(http.StatusServiceUnavailable)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/api-proxy/health/active" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer server.Close()
+	config := NodeConfig{EndpointMode: "external", PublicURL: server.URL}
+	// A closed public maintenance gate must not prevent private Fleet startup.
+	// checkControlPath still requires exactly one authenticated active host.
+	require.True(t, controlPublicPathReady(context.Background(), server.Client(), config))
+	require.Zero(t, requests.Load())
+
+	config.EndpointMode = "vip"
+	config.VirtualIP = strings.TrimPrefix(server.URL, "https://")
+	require.False(t, controlPublicPathReady(context.Background(), server.Client(), config))
+	require.Equal(t, int32(1), requests.Load())
+	status.Store(http.StatusOK)
+	require.True(t, controlPublicPathReady(context.Background(), server.Client(), config))
+	require.Equal(t, int32(2), requests.Load())
+}
 
 func TestHostProbeDSNUsesHostCAAndStatementCache(t *testing.T) {
 	secretsRoot := filepath.Join(t.TempDir(), "generated")

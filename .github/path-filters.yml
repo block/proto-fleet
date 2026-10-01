@@ -23,6 +23,8 @@ deployment_config:
   - deployment-files/ha/**
   - deployment-files/profiles/**
   - deployment-files/tests/**
+  - server/migrations/**
+  - server/timescaledb/**
   - server/docker-compose.base.yaml
   - server/internal/infrastructure/db/config.go
   - server/internal/infrastructure/timescaledb/config.go
