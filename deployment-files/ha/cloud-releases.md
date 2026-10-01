@@ -39,7 +39,11 @@ Version rules, repository pins, locks, fencing and HA recovery are unchanged.
 Repository switches, nightlies and downgrades require a separate operator maintenance
 procedure; neither CI upgrades nor the ordinary updater perform those transitions.
 
-Rare cross-deploys require operators to manually qualify the source and target
-releases, including migration and database dependency compatibility, before
-retaining a database. Release bundles do not provide an automated compatibility
-fingerprint for that decision.
+Manifest-covered `cloud-release.json` records `schema_version` and a
+`compatibility_sha256` fingerprint of up/down migrations, bridge SQL, and the
+listed database/Patroni/etcd build and configuration sources. Cloud deployment
+requires a match before automated database retention; a mismatch stops that path.
+
+A match does not account for floating image or installed package versions and
+does not certify compatibility. Operators must still manually qualify migrations
+and database dependencies for rare cross-deploys, even when fingerprints match.
