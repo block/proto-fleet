@@ -82,6 +82,15 @@ untracked files. It always checks diff whitespace, then routes affected paths to
 - Antminer plugin linting
 - Developer-workflow configuration and shared-agent-skill parity tests
 
+Run targeted tests while editing. When pushing, let the enabled pre-push
+hook run `just check-changed` as the final broad changed-path validation;
+do not run the same command manually immediately before pushing. For
+local-only completion, run `just check-changed` manually once edits are
+complete. The hook does not replace relevant targeted tests. Repeat passing
+checks only after relevant inputs change or a new concern appears, and keep
+hooks enabled on every push. If a hook fails, fix the failure and retry with
+hooks enabled.
+
 ## Git Workflow
 
 ### Planning and Documentation
