@@ -13,7 +13,6 @@ describe("ContainerCard", () => {
     expect(tankHealth(tank, false).band).toBe(healthHeatBand(1 / 16));
     const container = create(ContainerSchema, {
       deviceIdentifier: "ct1",
-      embeddedWebViewAvailable: true,
       name: "Container 1",
       tanks: [tank],
     });
@@ -26,7 +25,7 @@ describe("ContainerCard", () => {
       "data-heat-band",
       "2",
     );
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/miners/ct1");
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/containers/ct1");
   });
   it("never renders incomplete or stale observations as healthy", () => {
     expect(tankHealth(create(TankHealthSchema, { hashingCount: 15, unknownCount: 1 }), false).incomplete).toBe(true);
@@ -40,10 +39,9 @@ describe("ContainerCard", () => {
   });
 });
 
-it("opens a remote container directly rather than linking to the embedded proxy", () => {
+it("opens FleetNode-owned containers in Fleet without a proxy", () => {
   const container = create(ContainerSchema, {
     deviceIdentifier: "remote",
-    url: "http://192.168.1.20:8080",
     name: "Remote CT1",
   });
   render(
@@ -51,18 +49,17 @@ it("opens a remote container directly rather than linking to the embedded proxy"
       <ContainerCard container={container} />
     </MemoryRouter>,
   );
-  expect(screen.getByRole("link")).toHaveAttribute("href", container.url);
-  expect(screen.getByRole("link")).toHaveAttribute("target", "_blank");
-  expect(screen.getByRole("link")).toHaveAttribute("rel", "noopener noreferrer");
+  expect(screen.getByRole("link")).toHaveAttribute("href", "/containers/remote");
+  expect(screen.getByRole("link")).not.toHaveAttribute("target");
 });
 
-it("shows unavailable view without navigation when neither route exists", () => {
+it("opens stored details even without a controller web connection", () => {
   const container = create(ContainerSchema, { deviceIdentifier: "unavailable", name: "CT1" });
   render(
     <MemoryRouter>
       <ContainerCard container={container} />
     </MemoryRouter>,
   );
-  expect(screen.queryByRole("link")).not.toBeInTheDocument();
-  expect(screen.getByText("Web view unavailable")).toBeInTheDocument();
+  expect(screen.getByRole("link")).toHaveAttribute("href", "/containers/unavailable");
+  expect(screen.queryByText("Web view unavailable")).not.toBeInTheDocument();
 });

@@ -173,6 +173,14 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			result.Health = sdk.HealthWarning
 		}
 	}
+	// CT1 does not report efficiency. Use the final controller power selection
+	// (including facility loads when available), not summed module PSU power.
+	// W / H/s is J/H; the existing telemetry pipeline displays this as J/TH.
+	if result.HashrateHS != nil && result.PowerW != nil &&
+		result.HashrateHS.Value > 0 && !math.IsInf(result.HashrateHS.Value, 0) && result.PowerW.Value >= 0 {
+		efficiency := result.PowerW.Value / result.HashrateHS.Value
+		result.EfficiencyJH = metric(&efficiency, 1)
+	}
 	if err := ctx.Err(); err != nil {
 		return sdk.DeviceMetrics{}, fmt.Errorf("collect CT1: %w", err)
 	}

@@ -54,6 +54,8 @@ func (s *Service) WithMiners(miners MinerReader) *Service { s.miners = miners; r
 // Scope represents one required permission. Telemetry-only scopes restrict
 // building telemetry without restricting its independently readable metadata.
 type Scope struct {
+	// RackOnly applies the extra equipment-group permission to rack rows, not tanks.
+	RackOnly bool `json:"rack_only,omitempty"`
 	// TelemetryOnly preserves building metadata access independently of telemetry.
 	TelemetryOnly bool    `json:"telemetry_only,omitempty"`
 	OrgWide       bool    `json:"org_wide"`

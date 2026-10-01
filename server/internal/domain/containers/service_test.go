@@ -8,6 +8,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/containers"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -38,31 +39,42 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.True(t, rows[0].Stale)
-	require.True(t, rows[0].EmbeddedWebViewAvailable)
-	require.Equal(t, "http://192.0.2.1:8080", rows[0].Url)
+	got, err := service.Get(ctx, orgID, "ct1", allow)
+	require.NoError(t, err)
+	require.Equal(t, rows[0], got)
+	_, err = service.Get(ctx, orgID, "missing", allow)
+	require.True(t, fleeterror.IsNotFoundError(err), "denied or missing containers must read as not found, got %v", err)
+	_, err = service.Get(ctx, orgID, "", allow)
+	require.True(t, fleeterror.IsNotFoundError(err), "an empty identifier must not resolve to the first container, got %v", err)
+	_, err = service.Get(ctx, orgID+1, "ct1", allow)
+	require.True(t, fleeterror.IsNotFoundError(err), "denied or missing containers must read as not found, got %v", err)
+	_, err = service.Get(ctx, orgID, "ct1", func(*int64) (bool, error) { return false, nil })
+	require.True(t, fleeterror.IsNotFoundError(err), "denied or missing containers must read as not found, got %v", err)
 	var nodeID int64
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO fleet_node (org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES ($1,'node',$2,$3,'CONFIRMED') RETURNING id`, orgID, []byte("container-node"), make([]byte, 32)).Scan(&nodeID))
 	_, err = db.ExecContext(ctx, `INSERT INTO fleet_node_device (fleet_node_id,device_id,org_id) SELECT $1,id,org_id FROM device WHERE device_identifier='ct1'`, nodeID)
 	require.NoError(t, err)
 	remoteRows, err := service.List(ctx, orgID, nil, false, allow)
 	require.NoError(t, err)
-	require.False(t, remoteRows[0].EmbeddedWebViewAvailable)
-	require.Equal(t, "http://192.0.2.1:8080", remoteRows[0].Url)
+	remoteDetail, err := service.Get(ctx, orgID, "ct1", allow)
+	require.NoError(t, err)
+	require.Equal(t, remoteRows[0], remoteDetail, "native details must not require a FleetNode proxy")
+	require.Positive(t, remoteDetail.Id)
 	_, err = db.ExecContext(ctx, `DELETE FROM fleet_node_device WHERE fleet_node_id=$1`, nodeID)
 	require.NoError(t, err)
 	for _, status := range []string{"AUTHENTICATION_NEEDED", "DEFAULT_PASSWORD", "PAIRED"} {
 		require.NoError(t, devices.UpsertDevicePairing(ctx, &device.Device, orgID, status))
 		views, err := service.List(ctx, orgID, nil, false, allow)
 		require.NoError(t, err)
-		require.Equal(t, status != "AUTHENTICATION_NEEDED", views[0].EmbeddedWebViewAvailable)
-		require.Equal(t, status != "AUTHENTICATION_NEEDED", views[0].Url != "")
+		require.Len(t, views, 1, "native details do not depend on pairing credentials")
 	}
 	_, err = db.ExecContext(ctx, `UPDATE discovered_device SET is_active=false WHERE device_identifier='ct1'`)
 	require.NoError(t, err)
 	inactive, err := service.List(ctx, orgID, nil, false, allow)
 	require.NoError(t, err)
-	require.False(t, inactive[0].EmbeddedWebViewAvailable)
-	require.Empty(t, inactive[0].Url)
+	inactiveDetail, err := service.Get(ctx, orgID, "ct1", allow)
+	require.NoError(t, err)
+	require.Equal(t, inactive[0], inactiveDetail, "native details remain readable when the controller is unreachable")
 	_, err = db.ExecContext(ctx, `UPDATE discovered_device SET is_active=true WHERE device_identifier='ct1'`)
 	require.NoError(t, err)
 
@@ -88,7 +100,63 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	require.EqualValues(t, 1, rows[0].Tanks[0].HashingCount)
 	require.Equal(t, 9000.0, rows[0].GetPowerW())
 
-	_, err = db.ExecContext(ctx, `UPDATE container_snapshot SET snapshot=jsonb_set(snapshot, '{tanks,0,modules,1,observed_at}', to_jsonb($1::timestamptz))`, now.Add(-121*time.Second))
+	t.Run("card counts use current inventory states", func(t *testing.T) {
+		for _, state := range []sdk.ModuleState{sdk.ModuleHashing, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleSleeping, sdk.ModuleIsolated, sdk.ModuleUnknown} {
+			t.Run(string(state), func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "UPDATE container_module SET state=$1 WHERE position=2", state)
+				require.NoError(t, err)
+				card, err := service.Get(ctx, orgID, "ct1", allow)
+				require.NoError(t, err)
+				health := card.Tanks[0]
+				counts := map[sdk.ModuleState]int32{
+					sdk.ModuleHashing: health.HashingCount, sdk.ModuleAttention: health.AttentionCount - 1,
+					sdk.ModuleOffline: health.OfflineCount, sdk.ModuleSleeping: health.SleepingCount,
+					sdk.ModuleIsolated: health.IsolatedCount, sdk.ModuleUnknown: health.UnknownCount,
+				}
+				for key, count := range counts {
+					if key == state {
+						require.EqualValues(t, 1, count)
+					} else {
+						require.Zero(t, count)
+					}
+				}
+			})
+		}
+		_, err := db.ExecContext(ctx, "UPDATE container_module SET state='hashing' WHERE position=2")
+		require.NoError(t, err)
+	})
+	t.Run("module freshness matches inventory", func(t *testing.T) {
+		for _, query := range []string{
+			"UPDATE container_module SET last_seen_at=now()-INTERVAL '3 minutes' WHERE position=2",
+			"UPDATE container_module SET state_observed_at=now()+INTERVAL '1 minute' WHERE position=2",
+			"UPDATE container_module SET state_observed_at=NULL WHERE position=2",
+		} {
+			_, err := db.ExecContext(ctx, query)
+			require.NoError(t, err)
+			card, err := service.Get(ctx, orgID, "ct1", allow)
+			require.NoError(t, err)
+			require.Zero(t, card.Tanks[0].HashingCount)
+			require.EqualValues(t, 1, card.Tanks[0].UnknownCount)
+			_, err = db.ExecContext(ctx, "UPDATE container_module SET last_seen_at=$1, state_observed_at=$1 WHERE position=2", now)
+			require.NoError(t, err)
+		}
+	})
+	t.Run("empty tanks remain visible and absent tanks are excluded", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, `INSERT INTO container_tank (device_id,position,first_seen_at,last_seen_at,present)
+			SELECT device_id,position,$1,$1,present FROM container_inventory CROSS JOIN (VALUES (2,TRUE),(3,FALSE)) AS tanks(position,present)`, now)
+		require.NoError(t, err)
+		card, err := service.Get(ctx, orgID, "ct1", allow)
+		require.NoError(t, err)
+		require.Len(t, card.Tanks, 2)
+		require.EqualValues(t, 1, card.Tanks[0].Position)
+		require.EqualValues(t, 2, card.Tanks[1].Position)
+		require.Zero(t, card.Tanks[1].UnknownCount, "empty tanks must not invent an unknown module")
+		require.Zero(t, card.Tanks[1].HashingCount)
+		_, err = db.ExecContext(ctx, "DELETE FROM container_tank WHERE position IN (2,3)")
+		require.NoError(t, err)
+	})
+
+	_, err = db.ExecContext(ctx, `UPDATE container_module SET state_observed_at=$1 WHERE position=2`, now.Add(-121*time.Second))
 	require.NoError(t, err)
 	expired, err := service.List(ctx, orgID, nil, false, allow)
 	require.NoError(t, err)
@@ -97,7 +165,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	require.EqualValues(t, 1, expired[0].Tanks[0].UnknownCount)
 	require.Equal(t, 9000.0, expired[0].GetPowerW())
 	// Loss of polling retains topology but never reports it as current health.
-	_, err = db.ExecContext(ctx, "UPDATE container_snapshot SET observed_at = $1", now.Add(-10*time.Minute))
+	_, err = db.ExecContext(ctx, "UPDATE container_inventory SET observed_at = $1", now.Add(-10*time.Minute))
 	require.NoError(t, err)
 	rows, err = service.List(ctx, orgID, nil, false, allow)
 	require.NoError(t, err)

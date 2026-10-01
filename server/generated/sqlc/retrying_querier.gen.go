@@ -7422,12 +7422,6 @@ func (q *retryingQuerier) UpsertCommandOnDeviceLog(ctx context.Context, arg Upse
 	})
 }
 
-func (q *retryingQuerier) UpsertContainerSnapshot(ctx context.Context, arg UpsertContainerSnapshotParams) error {
-	return q.retrier.RetryQuery(ctx, "UpsertContainerSnapshot", func() error {
-		return q.next.UpsertContainerSnapshot(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCurtailmentAutomationSignalState", func() error {
 		return q.next.UpsertCurtailmentAutomationSignalState(ctx, arg)

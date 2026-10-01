@@ -48,7 +48,8 @@ const useErrors = ({ enabled = true, poll = false, pollIntervalMs }: UseErrorsPr
     [adapter, handleAuthErrors, setErrors],
   );
 
-  usePoll({ fetchData, enabled, poll, pollIntervalMs });
+  // Start the initial fetch once device discovery has supplied an adapter.
+  usePoll({ fetchData, enabled: enabled && Boolean(adapter), poll, pollIntervalMs });
 
   return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };

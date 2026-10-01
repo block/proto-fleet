@@ -130,6 +130,7 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceListContainersProcedure:             authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListInventoryProcedure:     authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetContainerProcedure:               authz.PermSiteRead,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline

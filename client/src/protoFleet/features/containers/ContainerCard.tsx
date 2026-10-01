@@ -2,15 +2,13 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { containerHealth } from "./containerHealth";
 import { InventoryCell } from "./InventoryCell";
-import { containerViewTarget } from "./useOpenContainerView";
+import { containerDetailPath } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
-import { rememberContainerMetadata } from "@/protoFleet/components/SingleMinerWrapper/routeState";
 import { HEAT_CLASS } from "@/protoFleet/features/buildings/components/cardHealth";
 
 export default function ContainerCard({ container, inventory }: { container: Container; inventory?: InventoryItem }) {
   const { tanks: states, total, affected, incomplete } = containerHealth(container);
-  const target = containerViewTarget(container);
   const className = "flex h-full flex-col rounded-2xl bg-surface-overlay p-5";
   const content = (
     <>
@@ -69,21 +67,15 @@ export default function ContainerCard({ container, inventory }: { container: Con
           )}
         </span>
       </div>
-      {!target ? <p className="mt-3 text-200 text-text-primary-70">Web view unavailable</p> : null}
     </>
   );
-  const props = {
-    className: clsx(className, target && "transition-opacity hover:opacity-80"),
-    "data-testid": `container-card-${container.deviceIdentifier}`,
-  };
-  if (!target) return <div {...props}>{content}</div>;
-  return target.embedded ? (
-    <Link {...props} to={target.url} onClick={() => rememberContainerMetadata(container)}>
+  return (
+    <Link
+      className={`${className} transition-opacity hover:opacity-80`}
+      data-testid={`container-card-${container.deviceIdentifier}`}
+      to={containerDetailPath(container)}
+    >
       {content}
     </Link>
-  ) : (
-    <a {...props} href={target.url} target="_blank" rel="noopener noreferrer">
-      {content}
-    </a>
   );
 }

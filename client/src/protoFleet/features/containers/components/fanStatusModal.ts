@@ -7,9 +7,9 @@ import type { ComponentStatusModalProps } from "@/shared/components/StatusModal/
  */
 export interface FanStatusInput {
   label: string;
-  on: boolean;
+  on: boolean | undefined;
   /** Fan speed as a percentage of max, 0–100 (drives the PWM readout). */
-  speedPercent: number;
+  speedPercent: number | undefined;
   /** Human-readable RPM readout, e.g. "3,200". */
   speedLabel: string;
 }
@@ -28,7 +28,7 @@ export interface FanStatusInput {
  * framework renders the info (not critical) icon when the error list is empty.
  */
 export function toFanComponentStatus(fan: FanStatusInput): ComponentStatusModalProps {
-  const pwm = Math.round(Math.max(0, Math.min(100, fan.speedPercent)));
+  const pwm = Math.round(Math.max(0, Math.min(100, fan.speedPercent ?? 0)));
 
   return {
     summary: fan.on ? `${fan.label} is operating normally` : `${fan.label} is powered off`,

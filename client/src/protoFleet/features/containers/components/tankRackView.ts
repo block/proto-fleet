@@ -1,4 +1,4 @@
-import type { TankModuleState } from "./TankModuleGrid";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 import type {
   NumberingOrigin,
   SlotHealthState,

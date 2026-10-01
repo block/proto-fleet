@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { FleetShellStoryDecorator } from "./FleetShellStoryDecorator";
-import type { TankModuleState } from "./TankModuleGrid";
 import { toTankRackView } from "./tankRackView";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 import { RackHealthModule } from "@/protoFleet/features/fleetManagement/components/RackHealthModule";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 

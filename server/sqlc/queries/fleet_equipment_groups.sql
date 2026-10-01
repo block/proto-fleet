@@ -46,8 +46,9 @@ WITH parents AS (
  LEFT JOIN aggregates a ON a.org_id=r.org_id AND a.group_kind=r.kind AND a.group_id=r.id
  CROSS JOIN LATERAL (
    SELECT NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[])
-     WHERE NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
+     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[], rack_only boolean)
+     WHERE (NOT COALESCE(a.rack_only, FALSE) OR r.kind = 3)
+       AND NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
                     ELSE COALESCE(r.site_id = ANY(a.sites), FALSE) END)
    ) AS telemetry_allowed
  ) access
@@ -72,8 +73,9 @@ WITH parents AS (
  FROM facts r CROSS JOIN options f
  WHERE TRUE
    AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[], telemetry_only boolean)
-     WHERE NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
+     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[], rack_only boolean)
+     WHERE (NOT COALESCE(a.rack_only, FALSE) OR r.kind = 3)
+       AND NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
                     ELSE COALESCE(r.site_id = ANY(a.sites), FALSE) END)
    )
    AND ((cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND NOT sqlc.arg('include_unassigned')::boolean)

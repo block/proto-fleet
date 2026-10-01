@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ContainerTank } from "./ContainerOverview";
 import ContainerStatusModal from "./ContainerStatusModal";
-import type { TankModuleState } from "./TankModuleGrid";
+import type { ContainerTank } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 /** 16 modules with `attention` needing-attention entries, rest healthy. */
 function modules(total: number, attention: number): TankModuleState[] {

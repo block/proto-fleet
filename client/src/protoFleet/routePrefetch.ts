@@ -5,7 +5,7 @@
 // those same component files to build the route tree.
 //
 // To add a route: define the factory const here, add it to the
-// relevant tier export below, and add a lazy() wrapper in router.tsx's
+// relevant tier export below for sidebar/settings routes, and add a lazy() wrapper in router.tsx's
 // route tree. The tier addition isn't lint-enforced — a missed entry
 // leaves the chunk un-warmed without breaking the build.
 
@@ -44,6 +44,7 @@ export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/p
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSettingsUpdates = () => import("@/protoFleet/features/settings/components/Updates");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
+export const importContainerPage = () => import("@/protoFleet/features/containers/pages/ContainerPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");

@@ -74,3 +74,61 @@ func TestSnapshotRejectsDuplicateMembership(t *testing.T) {
 	_, err := snapshot(wire, time.Now())
 	require.ErrorContains(t, err, "duplicate hashboard")
 }
+
+func TestCollectDerivesEfficiencyFromControllerTotals(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mining  string
+		plant   map[string]any
+		stale   bool
+		wantJTH *float64
+	}{
+		{name: "mining power", mining: `{"hashrate":100,"power":3000}`, wantJTH: new(30.0)},
+		{name: "facility power takes precedence", mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500, "totalPowerW": 3200}, wantJTH: new(35.0)},
+		{name: "plant total power", mining: `{"hashrate":100}`, plant: map[string]any{"totalPowerW": 3200}, wantJTH: new(32.0)},
+		{name: "stale plant uses mining power", mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500}, stale: true, wantJTH: new(30.0)},
+		{name: "missing power", mining: `{"hashrate":100}`},
+		{name: "missing hashrate", mining: `{"power":3000}`},
+		{name: "stopped", mining: `{"hashrate":0,"power":3000}`},
+		{name: "negative hashrate", mining: `{"hashrate":-100,"power":3000}`},
+		{name: "negative power", mining: `{"hashrate":100,"power":-3000}`},
+		{name: "measured zero power", mining: `{"hashrate":100,"power":0}`, wantJTH: new(0.0)},
+		{name: "overflowing hashrate conversion", mining: `{"hashrate":1e308,"power":3000}`},
+		{name: "overflowing ratio", mining: `{"hashrate":1e-300,"power":1e308}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/container/map":
+					_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[]}]}}`))
+				case "/api/v2/mining/status":
+					_, _ = w.Write([]byte(tc.mining))
+				case "/api/v2/telemetry/container":
+					observedAt := time.Now().UTC()
+					if tc.stale {
+						observedAt = observedAt.Add(-5 * time.Minute)
+					}
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"timestamp": observedAt, "plant": tc.plant}))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			u, err := url.Parse(server.URL)
+			require.NoError(t, err)
+			port, err := strconv.ParseInt(u.Port(), 10, 32)
+			require.NoError(t, err)
+			client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+			require.NoError(t, err)
+			metrics, err := client.Collect(t.Context(), "ct1")
+			require.NoError(t, err)
+			if tc.wantJTH == nil {
+				require.Nil(t, metrics.EfficiencyJH)
+			} else {
+				require.NotNil(t, metrics.EfficiencyJH)
+				require.InDelta(t, *tc.wantJTH, metrics.EfficiencyJH.Value*1e12, 1e-9)
+				require.Equal(t, sdk.MetricKindGauge, metrics.EfficiencyJH.Kind)
+			}
+		})
+	}
+}

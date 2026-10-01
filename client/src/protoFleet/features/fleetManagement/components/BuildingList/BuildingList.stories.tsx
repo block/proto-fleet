@@ -32,7 +32,6 @@ const meta = {
     containers: [
       create(ContainerSchema, {
         deviceIdentifier: "ct1-demo",
-        embeddedWebViewAvailable: true,
         name: "Container 1",
         site: { id: 1n, label: "West site" },
         hashrateHs: 38e15,

@@ -19,6 +19,14 @@ Container mining totals and plant telemetry are supplementary requests with
 bounded deadlines. Their failure does not discard a successful topology/module
 observation. Parent cancellation still cancels the collection.
 
+The CT1 collector derives container efficiency from the final controller power
+and hashrate measurements in each poll, storing watts divided by hashes/second
+as J/H in the existing device telemetry field. This follows the controller power
+selection (facility power, then plant total power, then mining power), independently
+of module equipment totals. Missing or invalid inputs and zero hashrate leave
+efficiency unavailable. Charts display the collected samples as J/TH; historical
+samples without efficiency are not backfilled.
+
 Fleet child IDs are independent of tank/module positions. Reconciliation is
 serialized on the controller inventory row and only newer topology observations
 may update current inventory. A complete map retires absent modules and marks
@@ -50,9 +58,15 @@ An accepted inventory poll can record explicit unavailability without a reported
 module identity while preserving the last known identity. This exception applies
 only to empty observations, never to measurements or delayed inventory polls.
 
-The existing container snapshot, device metrics, and plant history remain in
-use. Controllers populate normalized inventory on their next successful poll;
-the migration does not invent history from old snapshots. Independent tank
+Container card health summaries are computed from the same normalized module
+state projection as inventory lists. Present tanks and current modules determine
+membership; source timestamps and last-seen times determine freshness. The compact
+per-tank counts remain part of the container API, without a duplicate stored JSON
+snapshot. Container freshness comes from `container_inventory.observed_at`.
+Device metrics and plant history remain separate. The collection payload named
+`ContainerSnapshot` still transports observations into normalized inventory.
+Controllers populate normalized inventory on their next successful poll;
+the migrations do not invent history from old snapshots. Independent tank
 measurements are not available through the currently consumed controller API;
 tank summaries derive from module observations.
 
@@ -60,11 +74,11 @@ tank summaries derive from module observations.
 
 `fleetinventory.v1.FleetInventoryService.ListInventory` provides three views:
 
-| View | Entity kinds |
-| --- | --- |
-| Facilities | Buildings and containers |
-| Equipment groups | Racks and tanks |
-| Mining assets | Paired miners and modules |
+| View             | Entity kinds              |
+| ---------------- | ------------------------- |
+| Facilities       | Buildings and containers  |
+| Equipment groups | Racks and tanks           |
+| Mining assets    | Paired miners and modules |
 
 Each view has an explicit SQL query: `ListFleetFacilities`,
 `ListFleetEquipmentGroups`, or `ListFleetMiningAssets`. Each query combines only
@@ -118,15 +132,15 @@ read-only view of the past hour of telemetry.
 
 Specialized filters retain their native applicability:
 
-| Filter | Applicability |
-| --- | --- |
-| Site, search, shared telemetry ranges | All kinds in the selected view |
-| Typed facility/group ancestors | Descendants of that kind and ID |
-| Miner component issues | Miners, buildings, racks; never synthesized for modules |
-| Building and zone placement | Racks and conventional miners |
-| Model, firmware, IP ranges/subnets, groups, pairing, voltage/current | Conventional miners |
-| Native miner status filter | Conventional miners; exact status semantics retained |
-| Inventory state | Miners/modules through the API; native status controls retain miner semantics |
+| Filter                                                               | Applicability                                                                 |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Site, search, shared telemetry ranges                                | All kinds in the selected view                                                |
+| Typed facility/group ancestors                                       | Descendants of that kind and ID                                               |
+| Miner component issues                                               | Miners, buildings, racks; never synthesized for modules                       |
+| Building and zone placement                                          | Racks and conventional miners                                                 |
+| Model, firmware, IP ranges/subnets, groups, pairing, voltage/current | Conventional miners                                                           |
+| Native miner status filter                                           | Conventional miners; exact status semantics retained                          |
+| Inventory state                                                      | Miners/modules through the API; native status controls retain miner semantics |
 
 `miner_filter` reuses the existing miner-filter parser for validation and
 normalization, narrows the result to miners, and combines with common filters
@@ -139,9 +153,17 @@ instead of broadening them to an attention bucket.
 
 Module/tank rows cannot enter miner/rack selections. Bulk operations and CSV
 export still apply to conventional miners, and CSV is labeled accordingly.
-Tank and container navigation scopes the mining list using typed ancestors.
+Container cards and rows open the native Fleet detail at `/containers/:identifier`.
+It reads collected container metadata, tank/module inventory and controller history,
+including for FleetNode-owned controllers. Tank navigation scopes the mining list
+using the typed tank ancestor; module tiles open the same stored-history dialog
+as module rows. Fan telemetry and equipment control states are not collected for
+this view. Container-reported power stays separate from tank/module equipment power.
 Existing read-only roles lacking telemetry permissions retain their existing
-metadata-only list paths. Equipment-group reads also require rack-read scope.
+metadata-only list paths. Rack rows additionally require rack-read scope. Tanks, modules, and module
+history use their container’s current-site read permissions; tank rows do not
+require rack-read, including in mixed rack/tank lists. More granular child-hardware
+permissions are not implemented.
 Building metadata remains visible under site-read permission even when its
 telemetry is restricted. Telemetry is withheld before filtering and sorting,
 and model/firmware choices include only miners permitted by every read scope.

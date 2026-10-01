@@ -5,16 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/netip"
-	"net/url"
-	"strconv"
 	"time"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,7 +23,29 @@ func NewService(store Store) *Service { return &Service{store: store} }
 
 // List authorizes each current site before exposing identity or telemetry.
 func (s *Service) List(ctx context.Context, orgID int64, siteIDs []int64, unassigned bool, canRead func(*int64) (bool, error)) ([]*pb.Container, error) {
-	rows, err := s.store.ListContainers(ctx, sqlc.ListContainersParams{OrgID: orgID, SiteIds: siteIDs, IncludeUnassigned: unassigned})
+	return s.list(ctx, orgID, siteIDs, unassigned, nil, canRead)
+}
+
+// Get uses the same current-site authorization and projection as the list.
+// A denied identifier is indistinguishable from a missing one.
+func (s *Service) Get(ctx context.Context, orgID int64, identifier string, canRead func(*int64) (bool, error)) (*pb.Container, error) {
+	// Fast path only: the filter below never matches an empty identifier either.
+	if identifier == "" {
+		return nil, fleeterror.NewNotFoundError("container not found")
+	}
+	rows, err := s.list(ctx, orgID, nil, false, []string{identifier}, canRead)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 || rows[0].DeviceIdentifier != identifier {
+		return nil, fleeterror.NewNotFoundError("container not found")
+	}
+	return rows[0], nil
+}
+
+// list filters to identifiers when given; nil or empty lists every container in scope.
+func (s *Service) list(ctx context.Context, orgID int64, siteIDs []int64, unassigned bool, identifiers []string, canRead func(*int64) (bool, error)) ([]*pb.Container, error) {
+	rows, err := s.store.ListContainers(ctx, sqlc.ListContainersParams{OrgID: orgID, SiteIds: siteIDs, IncludeUnassigned: unassigned, DeviceIdentifiers: identifiers})
 	if err != nil {
 		return nil, err
 	}
@@ -50,10 +68,7 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 		if !allowed {
 			continue
 		}
-		c := &pb.Container{DeviceIdentifier: r.DeviceIdentifier, Name: r.Name, Stale: true, EmbeddedWebViewAvailable: r.EmbeddedWebViewAvailable}
-		if r.IsActive && (r.PairingStatus == "PAIRED" || r.PairingStatus == "DEFAULT_PASSWORD") {
-			c.Url = webViewURL(r.UrlScheme, r.IpAddress, r.Port)
-		}
+		c := &pb.Container{Id: r.ID, DeviceIdentifier: r.DeviceIdentifier, Name: r.Name, Stale: true}
 		if c.Name == "" {
 			c.Name = "Container " + r.SerialNumber.String
 		}
@@ -61,15 +76,11 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 			c.Site = &commonpb.ResourceRef{Id: *siteID, Label: r.SiteName}
 		}
 		if r.ObservedAt.Valid {
-			var snapshot sdk.ContainerSnapshot
-			if err := json.Unmarshal(r.Snapshot.RawMessage, &snapshot); err != nil {
-				return nil, fmt.Errorf("decode container observation: %w", err)
+			if err := json.Unmarshal(r.TankHealth, &c.Tanks); err != nil {
+				return nil, fmt.Errorf("decode container tank health: %w", err)
 			}
 			c.ObservedAt = timestamppb.New(r.ObservedAt.Time)
 			c.Stale = now.Sub(r.ObservedAt.Time) > 2*time.Minute || r.ObservedAt.Time.After(now.Add(5*time.Second))
-			for _, tank := range snapshot.Tanks {
-				c.Tanks = append(c.Tanks, summarize(tank, now))
-			}
 		}
 		if r.MetricsAt.Unix() > 0 {
 			c.MetricsAt = timestamppb.New(r.MetricsAt)
@@ -87,46 +98,4 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 		result = append(result, c)
 	}
 	return result, nil
-}
-func summarize(tank sdk.ContainerTank, now time.Time) *pb.TankHealth {
-	out := &pb.TankHealth{Position: tank.Position}
-	for _, m := range tank.Modules {
-		if m.ObservedAt.IsZero() || now.Sub(m.ObservedAt) >= 2*time.Minute || m.ObservedAt.After(now.Add(5*time.Second)) {
-			out.UnknownCount++
-			continue
-		}
-		switch m.State {
-		case sdk.ModuleHashing:
-			out.HashingCount++
-		case sdk.ModuleAttention:
-			out.AttentionCount++
-		case sdk.ModuleOffline:
-			out.OfflineCount++
-		case sdk.ModuleSleeping:
-			out.SleepingCount++
-		case sdk.ModuleIsolated:
-			out.IsolatedCount++
-		case sdk.ModuleUnknown:
-			out.UnknownCount++
-		default:
-			out.UnknownCount++
-		}
-	}
-	return out
-}
-
-// Container ports serve HTTP, unlike miners whose discovery ports can be RPC.
-func webViewURL(scheme, ip, port string) string {
-	if scheme != "http" && scheme != "https" {
-		return ""
-	}
-	if _, err := netip.ParseAddr(ip); err != nil {
-		return ""
-	}
-	p, err := strconv.Atoi(port)
-	if err != nil || p < 1 || p > 65535 {
-		return ""
-	}
-	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(ip, port)}
-	return u.String()
 }

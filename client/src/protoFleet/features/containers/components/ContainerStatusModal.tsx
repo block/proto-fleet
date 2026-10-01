@@ -1,6 +1,6 @@
-import type { ContainerFan, ContainerTank } from "./ContainerOverview";
 import { toFanComponentStatus } from "./fanStatusModal";
 import { toTankComponentStatus } from "./tankStatusModal";
+import type { ContainerFan, ContainerTank } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
 import { variants } from "@/shared/components/Button";
 import { StatusModal } from "@/shared/components/StatusModal";
 import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";

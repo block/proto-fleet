@@ -34,6 +34,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ContainerServiceGetContainerProcedure is the fully-qualified name of the ContainerService's
+	// GetContainer RPC.
+	ContainerServiceGetContainerProcedure = "/containers.v1.ContainerService/GetContainer"
 	// ContainerServiceListContainersProcedure is the fully-qualified name of the ContainerService's
 	// ListContainers RPC.
 	ContainerServiceListContainersProcedure = "/containers.v1.ContainerService/ListContainers"
@@ -41,6 +44,7 @@ const (
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
 type ContainerServiceClient interface {
+	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 }
 
@@ -54,6 +58,11 @@ type ContainerServiceClient interface {
 func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ContainerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &containerServiceClient{
+		getContainer: connect.NewClient[v1.GetContainerRequest, v1.GetContainerResponse](
+			httpClient,
+			baseURL+ContainerServiceGetContainerProcedure,
+			opts...,
+		),
 		listContainers: connect.NewClient[v1.ListContainersRequest, v1.ListContainersResponse](
 			httpClient,
 			baseURL+ContainerServiceListContainersProcedure,
@@ -64,7 +73,13 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // containerServiceClient implements ContainerServiceClient.
 type containerServiceClient struct {
+	getContainer   *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+}
+
+// GetContainer calls containers.v1.ContainerService.GetContainer.
+func (c *containerServiceClient) GetContainer(ctx context.Context, req *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error) {
+	return c.getContainer.CallUnary(ctx, req)
 }
 
 // ListContainers calls containers.v1.ContainerService.ListContainers.
@@ -74,6 +89,7 @@ func (c *containerServiceClient) ListContainers(ctx context.Context, req *connec
 
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
+	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 }
 
@@ -83,6 +99,11 @@ type ContainerServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	containerServiceGetContainerHandler := connect.NewUnaryHandler(
+		ContainerServiceGetContainerProcedure,
+		svc.GetContainer,
+		opts...,
+	)
 	containerServiceListContainersHandler := connect.NewUnaryHandler(
 		ContainerServiceListContainersProcedure,
 		svc.ListContainers,
@@ -90,6 +111,8 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ContainerServiceGetContainerProcedure:
+			containerServiceGetContainerHandler.ServeHTTP(w, r)
 		case ContainerServiceListContainersProcedure:
 			containerServiceListContainersHandler.ServeHTTP(w, r)
 		default:
@@ -100,6 +123,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 
 // UnimplementedContainerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedContainerServiceHandler struct{}
+
+func (UnimplementedContainerServiceHandler) GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetContainer is not implemented"))
+}
 
 func (UnimplementedContainerServiceHandler) ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.ListContainers is not implemented"))

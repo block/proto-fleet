@@ -99,9 +99,7 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
           onAnimationComplete={() => {
             if (isClosing && !hasNavigatedOnClose.current) {
               hasNavigatedOnClose.current = true;
-              navigate(
-                scopedPath(cachedMetadata?.returnToBuildings ? "/fleet/buildings" : "/fleet/miners", activeSite),
-              );
+              navigate(scopedPath("/fleet/miners", activeSite));
             }
           }}
         >

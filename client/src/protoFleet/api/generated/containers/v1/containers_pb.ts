@@ -17,9 +17,45 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_containers_v1_containers: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiVgoVTGlzdENvbnRhaW5lcnNSZXF1ZXN0EiEKCHNpdGVfaWRzGAEgAygDQg+6SAySAQkQgAgiBCICIAASGgoSaW5jbHVkZV91bmFzc2lnbmVkGAIgASgIIkYKFkxpc3RDb250YWluZXJzUmVzcG9uc2USLAoKY29udGFpbmVycxgBIAMoCzIYLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyIqADCglDb250YWluZXISGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgAiAEBEhQKB3Bvd2VyX3cYCCABKAFIAYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAKIAQESDQoFc3RhbGUYCiABKAgSIwobZW1iZWRkZWRfd2ViX3ZpZXdfYXZhaWxhYmxlGAsgASgIEgsKA3VybBgMIAEoCUIOCgxfaGFzaHJhdGVfaHNCCgoIX3Bvd2VyX3dCEAoOX3RlbXBlcmF0dXJlX2MirAEKClRhbmtIZWFsdGgSEAoIcG9zaXRpb24YASABKAUSFQoNaGFzaGluZ19jb3VudBgCIAEoBRIXCg9hdHRlbnRpb25fY291bnQYAyABKAUSFQoNb2ZmbGluZV9jb3VudBgEIAEoBRIWCg5zbGVlcGluZ19jb3VudBgFIAEoBRIWCg5pc29sYXRlZF9jb3VudBgGIAEoBRIVCg11bmtub3duX2NvdW50GAcgASgFMnEKEENvbnRhaW5lclNlcnZpY2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
+    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiPAoTR2V0Q29udGFpbmVyUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASJDChRHZXRDb250YWluZXJSZXNwb25zZRIrCgljb250YWluZXIYASABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJWChVMaXN0Q29udGFpbmVyc1JlcXVlc3QSIQoIc2l0ZV9pZHMYASADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYAiABKAgiRgoWTGlzdENvbnRhaW5lcnNSZXNwb25zZRIsCgpjb250YWluZXJzGAEgAygLMhguY29udGFpbmVycy52MS5Db250YWluZXIi+gIKCUNvbnRhaW5lchIKCgJpZBgLIAEoAxIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSLwoLb2JzZXJ2ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEigKBXRhbmtzGAUgAygLMhkuY29udGFpbmVycy52MS5UYW5rSGVhbHRoEi4KCm1ldHJpY3NfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2hhc2hyYXRlX2hzGAcgASgBSACIAQESFAoHcG93ZXJfdxgIIAEoAUgBiAEBEhoKDXRlbXBlcmF0dXJlX2MYCSABKAFIAogBARINCgVzdGFsZRgKIAEoCEIOCgxfaGFzaHJhdGVfaHNCCgoIX3Bvd2VyX3dCEAoOX3RlbXBlcmF0dXJlX2MirAEKClRhbmtIZWFsdGgSEAoIcG9zaXRpb24YASABKAUSFQoNaGFzaGluZ19jb3VudBgCIAEoBRIXCg9hdHRlbnRpb25fY291bnQYAyABKAUSFQoNb2ZmbGluZV9jb3VudBgEIAEoBRIWCg5zbGVlcGluZ19jb3VudBgFIAEoBRIWCg5pc29sYXRlZF9jb3VudBgGIAEoBRIVCg11bmtub3duX2NvdW50GAcgASgFMsoBChBDb250YWluZXJTZXJ2aWNlElcKDEdldENvbnRhaW5lchIiLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVxdWVzdBojLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVzcG9uc2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_common_v1_common, file_google_protobuf_timestamp],
   );
+
+/**
+ * @generated from message containers.v1.GetContainerRequest
+ */
+export type GetContainerRequest = Message<"containers.v1.GetContainerRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+};
+
+/**
+ * Describes the message containers.v1.GetContainerRequest.
+ * Use `create(GetContainerRequestSchema)` to create a new message.
+ */
+export const GetContainerRequestSchema: GenMessage<GetContainerRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 0);
+
+/**
+ * @generated from message containers.v1.GetContainerResponse
+ */
+export type GetContainerResponse = Message<"containers.v1.GetContainerResponse"> & {
+  /**
+   * @generated from field: containers.v1.Container container = 1;
+   */
+  container?: Container | undefined;
+};
+
+/**
+ * Describes the message containers.v1.GetContainerResponse.
+ * Use `create(GetContainerResponseSchema)` to create a new message.
+ */
+export const GetContainerResponseSchema: GenMessage<GetContainerResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 1);
 
 /**
  * @generated from message containers.v1.ListContainersRequest
@@ -42,7 +78,7 @@ export type ListContainersRequest = Message<"containers.v1.ListContainersRequest
  */
 export const ListContainersRequestSchema: GenMessage<ListContainersRequest> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 0);
+  messageDesc(file_containers_v1_containers, 2);
 
 /**
  * @generated from message containers.v1.ListContainersResponse
@@ -60,12 +96,19 @@ export type ListContainersResponse = Message<"containers.v1.ListContainersRespon
  */
 export const ListContainersResponseSchema: GenMessage<ListContainersResponse> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 1);
+  messageDesc(file_containers_v1_containers, 3);
 
 /**
  * @generated from message containers.v1.Container
  */
 export type Container = Message<"containers.v1.Container"> & {
+  /**
+   * Stable Fleet device ID used by typed inventory ancestor filters.
+   *
+   * @generated from field: int64 id = 11;
+   */
+  id: bigint;
+
   /**
    * @generated from field: string device_identifier = 1;
    */
@@ -118,28 +161,13 @@ export type Container = Message<"containers.v1.Container"> & {
    * @generated from field: bool stale = 10;
    */
   stale: boolean;
-
-  /**
-   * Matches direct Proto proxy eligibility; FleetNode-owned devices are false.
-   *
-   * @generated from field: bool embedded_web_view_available = 11;
-   */
-  embeddedWebViewAvailable: boolean;
-
-  /**
-   * Browser-direct HTTP(S) URL, including the controller API port. Empty when
-   * unavailable. The browser must have its own network route to this endpoint.
-   *
-   * @generated from field: string url = 12;
-   */
-  url: string;
 };
 
 /**
  * Describes the message containers.v1.Container.
  * Use `create(ContainerSchema)` to create a new message.
  */
-export const ContainerSchema: GenMessage<Container> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 2);
+export const ContainerSchema: GenMessage<Container> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 4);
 
 /**
  * @generated from message containers.v1.TankHealth
@@ -185,7 +213,7 @@ export type TankHealth = Message<"containers.v1.TankHealth"> & {
  * Describes the message containers.v1.TankHealth.
  * Use `create(TankHealthSchema)` to create a new message.
  */
-export const TankHealthSchema: GenMessage<TankHealth> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 3);
+export const TankHealthSchema: GenMessage<TankHealth> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 5);
 
 /**
  * Containers are paired controllers with observed internal topology. Their
@@ -194,6 +222,14 @@ export const TankHealthSchema: GenMessage<TankHealth> = /*@__PURE__*/ messageDes
  * @generated from service containers.v1.ContainerService
  */
 export const ContainerService: GenService<{
+  /**
+   * @generated from rpc containers.v1.ContainerService.GetContainer
+   */
+  getContainer: {
+    methodKind: "unary";
+    input: typeof GetContainerRequestSchema;
+    output: typeof GetContainerResponseSchema;
+  };
   /**
    * @generated from rpc containers.v1.ContainerService.ListContainers
    */

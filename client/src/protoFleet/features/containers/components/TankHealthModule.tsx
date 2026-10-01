@@ -1,9 +1,9 @@
 import clsx from "clsx";
 
-import type { ModuleActionType } from "./moduleActions";
-import ModuleTile from "./ModuleTile";
-import type { TankModuleState } from "./TankModuleGrid";
 import { toTankRackView } from "./tankRackView";
+import type { ModuleActionType } from "@/protoFleet/features/containers/components/moduleActions";
+import ModuleTile from "@/protoFleet/features/containers/components/ModuleTile";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 import {
   type StatusBreakdownItem,
   StatusBreakdownPanel,

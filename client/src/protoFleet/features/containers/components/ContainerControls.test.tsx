@@ -5,10 +5,10 @@ import userEvent from "@testing-library/user-event";
 import ContainerControls, { type ContainerToggleControl } from "./ContainerControls";
 
 const controls: ContainerToggleControl[] = [
-  { id: "ac-1", label: "AC 1", metric: "75°F", icon: "fan", on: true },
-  { id: "pump", label: "Coolant pump", metric: "50 Hz", icon: "pump", on: false },
-  { id: "auto", label: "Dry cooler auto", icon: "thermometer", on: true },
-  { id: "light", label: "Tank A light", icon: "light", on: true },
+  { id: "ac-1", label: "AC 1", metric: "75°F", on: true },
+  { id: "pump", label: "Coolant pump", metric: "50 Hz", on: false },
+  { id: "auto", label: "Dry cooler auto", on: true },
+  { id: "light", label: "Tank A light", on: true },
 ];
 
 const renderControls = () => {

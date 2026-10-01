@@ -1,4 +1,4 @@
-import type { TankModuleState } from "./TankModuleGrid";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 import type { ComponentStatusModalProps } from "@/shared/components/StatusModal/types";
 
 /**
@@ -9,12 +9,12 @@ import type { ComponentStatusModalProps } from "@/shared/components/StatusModal/
  */
 export interface TankStatusInput {
   label: string;
-  on: boolean;
+  on: boolean | undefined;
   /** Grid dimensions; the card renders exactly cols * rows module slots. */
   cols: number;
   rows: number;
   /**
-   * Module states in row-major order. Missing entries read healthy, matching
+   * Module states in row-major order. Missing entries read unknown, matching
    * TankModuleGrid; entries beyond cols * rows are not rendered or counted.
    */
   modules: TankModuleState[];
@@ -26,41 +26,40 @@ export interface TankStatusInput {
 
 const EMPTY = "—";
 
-/**
- * Map a container tank to the shared ComponentStatusModalProps consumed by the
- * StatusModal framework's ComponentStatusModalContent — the same layer the
- * miner modal drills into for a per-component glance. "tank" is a first-class
- * component type in that framework (liquid-cooling icon), so the tank card's
- * (ⓘ) reuses it directly (icon, layout, metrics grid) rather than a bespoke
- * modal.
- *
- * Pure (no DOM): the summary copy and the metric mapping — the point of the
- * glance — are unit-tested. The module health breakdown is derived from the
- * `cols * rows` grid that the card's module bars render from; missing entries
- * use the card's healthy default and excess entries are ignored, so the card
- * and its glance cannot disagree on module totals or health. Temperature and
- * power mirror the card footer readouts. A powered-off tank reads every module
- * offline with a dashed temp and zero power.
- *
- * The full drill-down is the Subtank detail page (reached by clicking the tank
- * card body); this glance is the quick tank-level summary.
- */
+/** Summarize the rendered module slots; missing health and power state remain unknown. */
 export function toTankComponentStatus(tank: TankStatusInput): ComponentStatusModalProps {
-  const modules = Array.from({ length: tank.cols * tank.rows }, (_, index) => tank.modules[index] ?? "healthy");
+  const modules = Array.from({ length: tank.cols * tank.rows }, (_, index) => tank.modules[index] ?? "unknown");
   const total = modules.length;
-  const attention = modules.filter((module) => module === "attention").length;
-
-  // When the tank's PDU is off, every module is offline regardless of its
-  // stored health; a running tank splits into healthy vs needs-attention.
-  const offline = tank.on ? 0 : total;
-  const needsAttention = tank.on ? attention : 0;
-  const online = tank.on ? total - attention : 0;
-
-  const summary = !tank.on
+  const off = tank.on === false;
+  const needsAttention = off ? 0 : modules.filter((module) => module === "attention" || module === "isolated").length;
+  const offline = off ? total : modules.filter((module) => module === "offline").length;
+  const online = off ? 0 : modules.filter((module) => module === "healthy").length;
+  const unknown = modules.filter((module) => module === "unknown").length;
+  const sleeping = off ? 0 : modules.filter((module) => module === "sleeping").length;
+  const status = off
+    ? "Off"
+    : tank.on === undefined
+      ? "Unknown"
+      : needsAttention || offline
+        ? "Needs attention"
+        : unknown || total === 0
+          ? "Unknown"
+          : sleeping
+            ? "Sleeping modules"
+            : "Running";
+  const summary = off
     ? `${tank.label} is powered off`
-    : needsAttention > 0
-      ? `${tank.label} has ${needsAttention} ${needsAttention === 1 ? "module" : "modules"} needing attention`
-      : `${tank.label} is operating normally`;
+    : tank.on === undefined
+      ? `${tank.label} power state is unavailable`
+      : needsAttention > 0
+        ? `${tank.label} has ${needsAttention} ${needsAttention === 1 ? "module" : "modules"} needing attention`
+        : offline > 0
+          ? `${tank.label} has ${offline} offline ${offline === 1 ? "module" : "modules"}`
+          : unknown || total === 0
+            ? `${tank.label} has incomplete module readings`
+            : sleeping > 0
+              ? `${tank.label} has ${sleeping} sleeping ${sleeping === 1 ? "module" : "modules"}`
+              : `${tank.label} is operating normally`;
 
   return {
     summary,
@@ -69,15 +68,16 @@ export function toTankComponentStatus(tank: TankStatusInput): ComponentStatusMod
     metrics: [
       { label: "Modules online", value: `${online}/${total}` },
       { label: "Needs attention", value: `${needsAttention}` },
-      { label: "Temperature", value: tank.on ? (tank.tempLabel ?? EMPTY) : EMPTY },
-      { label: "Power", value: tank.on ? (tank.powerLabel ?? EMPTY) : `0.0 kW` },
+      { label: "Temperature", value: off ? EMPTY : (tank.tempLabel ?? EMPTY) },
+      { label: "Power", value: off ? `0.0 kW` : (tank.powerLabel ?? EMPTY) },
     ],
     metadata: {
       status: {
         label: "Status",
-        value: !tank.on ? "Off" : needsAttention > 0 ? "Needs attention" : "Running",
+        value: status,
       },
       offline: { label: "Offline modules", value: `${offline}` },
+      ...(!off && unknown ? { unknown: { label: "Unknown modules", value: `${unknown}` } } : {}),
     },
   };
 }

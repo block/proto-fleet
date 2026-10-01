@@ -5,7 +5,6 @@ import { ContainerSchema, TankHealthSchema } from "@/protoFleet/api/generated/co
 
 const sample = create(ContainerSchema, {
   deviceIdentifier: "ct1-demo",
-  embeddedWebViewAvailable: true,
   name: "Container 1",
   site: { id: 1n, label: "West site" },
   hashrateHs: 38e15,
@@ -37,13 +36,4 @@ export const Incomplete: Story = {
       tanks: [create(TankHealthSchema, { position: 1, hashingCount: 15, unknownCount: 1 })],
     }),
   },
-};
-
-export const FleetNode: Story = {
-  args: {
-    container: create(ContainerSchema, { ...sample, embeddedWebViewAvailable: false, url: "http://192.168.1.20:8080" }),
-  },
-};
-export const UnavailableView: Story = {
-  args: { container: create(ContainerSchema, { ...sample, embeddedWebViewAvailable: false }) },
 };

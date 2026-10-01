@@ -16,22 +16,29 @@ test.describe("Miner Issues Tests", () => {
 
     await commonSteps.loginAsAdmin();
 
-    await test.step("Capture miner data from ListMinerStateSnapshots", async () => {
+    await test.step("Capture miner data from Fleet inventory", async () => {
       const expectedMinerCount = 5;
       const responsePromise = page.waitForResponse(async (response) => {
-        if (!response.url().includes("ListMinerStateSnapshots")) return false;
+        if (!response.url().includes("FleetInventoryService/ListInventory")) return false;
         const data = await response.json();
-        return Array.isArray(data.miners) && data.miners.length >= expectedMinerCount;
+        return (
+          Array.isArray(data.items) &&
+          data.items.filter((item: { miner?: unknown }) => item.miner).length >= expectedMinerCount
+        );
       });
       await commonSteps.goToMinersPage();
       const response = await responsePromise;
       const responseData = await response.json();
 
-      testMiners = responseData.miners.map((miner: { deviceIdentifier: string; ipAddress: string; name: string }) => ({
-        deviceIdentifier: miner.deviceIdentifier,
-        ipAddress: miner.ipAddress,
-        name: miner.name,
-      }));
+      testMiners = responseData.items
+        .flatMap((item: { miner?: { deviceIdentifier: string; ipAddress: string; name: string } }) =>
+          item.miner ? [item.miner] : [],
+        )
+        .map((miner: { deviceIdentifier: string; ipAddress: string; name: string }) => ({
+          deviceIdentifier: miner.deviceIdentifier,
+          ipAddress: miner.ipAddress,
+          name: miner.name,
+        }));
     });
 
     await test.step("Setup error mock for ErrorQueryService", async () => {
