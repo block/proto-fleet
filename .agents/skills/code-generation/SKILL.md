@@ -1,11 +1,13 @@
 ---
 name: code-generation
-description: Regenerate code after proto, SQL schema/query, Fleet CLI or Go generator input, or generator configuration changes.
+description: Regenerate code after generator input, implementation, configuration, or tool-version changes.
 ---
 
 # Code generation
 
-After source edits are complete, select the command below and run it from the
+After source edits are complete, use scoped commands for generator inputs and
+full generation for generator implementation, configuration, or tool-version
+changes, or inputs spanning generators. Run the selected command from the
 repo root. Keep source and generated output together; never patch generated
 files by hand. Inspect the pre-existing diff before generation so user changes
 remain identifiable.
@@ -16,12 +18,11 @@ remain identifiable.
 | SQL schema in `server/migrations/` or queries in `server/sqlc/queries/` | `just gen-db-queries` |
 | Fleet CLI manifest (`server/tools/generate-fleet-cli/commands.json`) or templates (`server/tools/generate-fleet-cli/templates/`) | `just gen-fleet-cli` |
 | Inputs to the server's `go:generate` directives | `just gen-go` |
-| Changes spanning generators, or generator configuration/tool versions (including Buf and sqlc configuration) | `just gen` |
+| Generator implementations, configuration/tool versions (including Buf and sqlc configuration), or inputs spanning generators | `just gen` |
 
 The scoped commands avoid unrelated generators and full client/server
 formatting. `just gen-protos` includes SDK protobufs and the protobuf-driven
-Fleet CLI. Use full `just gen` when changes cross the scopes above or alter
-the generation pipeline.
+Fleet CLI.
 
 Read only the reference relevant to the change:
 
