@@ -1,27 +1,25 @@
 # Cloud-staged application releases
 
-An external deployment coordinator can set
-`PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater. It stages:
+Set `PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater to use
+staged bundles instead of public GitHub downloads:
 
 ```text
 <release-dir>/<version>/proto-fleet-<version>-amd64.tar.gz
 <release-dir>/<version>/proto-fleet-<version>-amd64.tar.gz.sha256
 ```
 
-Use an absolute, symlink-free path, owned by root or the updater account and not
-group/world writable. Keep separate roots for separate publishing repositories.
-The updater copies the files into its protected working directory and verifies
-them through the existing checksum, archive and source-pin checks. Missing local
-files fail; there is no network fallback. With no directory configured, public
-GitHub downloads work as before.
+Use an absolute, symlink-free directory owned by root or the updater account;
+neither it nor its files may be group/world writable. Use a separate root per
+publishing repository. Files are copied into protected updater storage before
+checksum, archive and source-pin verification. Invalid or missing files fail
+without network fallback. Unset the directory to use public GitHub downloads.
 
-This transport does not permit repository switches, nightly installation or
-downgrades through the ordinary updater. Its existing semantic-version, locking,
-repository-pinning, fencing and HA recovery rules remain unchanged.
+This changes delivery only: version rules, repository pins, locks, fencing and HA
+recovery still apply. The ordinary updater cannot switch repositories, install
+nightlies or downgrade.
 
-Published bundles also include manifest-covered `cloud-release.json`: a format
-version, the latest schema version, a fingerprint of every up/down migration, and
-a fingerprint of the database/Patroni/etcd build and configuration sources. Cloud
-orchestration can conservatively require exact matches before retaining an existing
-database during application replacement. These fingerprints do not prove arbitrary
-application compatibility and do not authorize database upgrades or downgrades.
+Manifest-covered `cloud-release.json` records the format/schema versions and hashes
+of all up/down migrations and database/Patroni/etcd build/configuration sources.
+Cloud orchestration uses exact matches to retain the database during application
+replacement. Matching metadata does not prove application compatibility or permit
+database upgrades/downgrades.

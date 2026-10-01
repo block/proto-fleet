@@ -60,11 +60,9 @@ Then enable forwarding and inspect both hosts with:
 sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env
 ```
 
-In external mode, status proves control readiness through private peer checks
-using the cluster CA and each peer's own IP certificate. Public forwarding can
-remain closed during bootstrap or maintenance. Monitor the public URL separately;
-rolling-update takeover still verifies it using system certificate roots. Neither
-public availability nor load-balancer health grants leadership.
+External-mode readiness uses private peer checks with the cluster CA and peer IP
+certificates, so public forwarding may remain closed. Monitor the public URL
+separately; rolling takeover checks it using system roots. Neither check grants leadership.
 
 ## Load-balancer and storage behavior
 

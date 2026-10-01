@@ -110,7 +110,6 @@ func TestSelfUpdateExecArgsReplacesPriorHandoff(t *testing.T) {
 	args := []string{
 		"proto-fleet-updater",
 		"--state-dir", "/state",
-		"--release-dir", "/releases",
 		"--self-update-handoff", "/stale",
 		"-self-update-handoff=/also-stale",
 		"--socket-path=/socket",
@@ -119,7 +118,6 @@ func TestSelfUpdateExecArgsReplacesPriorHandoff(t *testing.T) {
 		"proto-fleet-updater",
 		"--self-update-handoff=/canonical/updater",
 		"--state-dir", "/state",
-		"--release-dir", "/releases",
 		"--socket-path=/socket",
 	}, selfUpdateExecArgs(args, "/canonical/updater"))
 }
