@@ -16,7 +16,14 @@ type providerFunc func(context.Context) (Snapshot, error)
 func (fn providerFunc) Fetch(ctx context.Context) (Snapshot, error) { return fn(ctx) }
 
 func testConfig() Config {
-	return Config{Enabled: true, RefreshInterval: time.Minute, CoinbaseURL: "https://api.coinbase.com", MempoolURL: "https://mempool.space"}
+	return Config{
+		Enabled:         true,
+		RefreshInterval: time.Minute,
+		PriceProvider:   PriceProviderCoinbase,
+		CoinbaseURL:     "https://api.coinbase.com",
+		CoinGeckoURL:    "https://api.coingecko.com",
+		MempoolURL:      "https://mempool.space",
+	}
 }
 
 func TestServiceCacheAndRecovery(t *testing.T) {
@@ -150,4 +157,11 @@ func TestConfigValidation(t *testing.T) {
 		config.MempoolURL = raw
 		require.Error(t, config.Validate())
 	}
+	config := testConfig()
+	config.PriceProvider = "unsupported"
+	require.Error(t, config.Validate())
+	config = testConfig()
+	config.PriceProvider = PriceProviderCoinGecko
+	config.CoinGeckoURL = "not a URL"
+	require.Error(t, config.Validate())
 }

@@ -22,16 +22,18 @@ import (
 
 func TestFleetdMarketDataIsOptIn(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		env     string
-		args    []string
-		enabled bool
+		name          string
+		env           string
+		args          []string
+		enabled       bool
+		priceProvider string
 	}{
-		{name: "default off"},
-		{name: "environment opt-in", env: "true", enabled: true},
-		{name: "environment opt-out", env: "false"},
-		{name: "CLI opt-in", args: []string{"--market-data-enabled"}, enabled: true},
-		{name: "CLI opt-out overrides environment", env: "true", args: []string{"--market-data-enabled=false"}},
+		{name: "default off", priceProvider: "coinbase"},
+		{name: "environment opt-in", env: "true", enabled: true, priceProvider: "coinbase"},
+		{name: "environment opt-out", env: "false", priceProvider: "coinbase"},
+		{name: "CLI opt-in", args: []string{"--market-data-enabled"}, enabled: true, priceProvider: "coinbase"},
+		{name: "CLI opt-out overrides environment", env: "true", args: []string{"--market-data-enabled=false"}, priceProvider: "coinbase"},
+		{name: "CLI price provider override", args: []string{"--market-data-price-provider=coingecko"}, priceProvider: "coingecko"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("MARKET_DATA_ENABLED", tt.env)
@@ -47,6 +49,7 @@ func TestFleetdMarketDataIsOptIn(t *testing.T) {
 			_, err = parser.Parse(tt.args)
 			require.NoError(t, err)
 			require.Equal(t, tt.enabled, config.MarketData.Enabled)
+			require.Equal(t, tt.priceProvider, string(config.MarketData.PriceProvider))
 		})
 	}
 }

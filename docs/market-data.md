@@ -13,12 +13,15 @@ dashboard section and server-side feed requests without a client rebuild.
 
 The following public responses were verified on September 30, 2026:
 
-| Input                | Source        | Endpoint                                               | Units / interpretation                                                                              |
-| -------------------- | ------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| Spot price           | Coinbase      | `https://api.coinbase.com/v2/prices/BTC-USD/spot`      | `data.amount`: string, USD per BTC; verify `base=BTC` and `currency=USD`                            |
-| Network / difficulty | mempool.space | `https://mempool.space/api/v1/mining/hashrate/3d`      | `currentHashrate`: H/s; `currentDifficulty`: dimensionless Bitcoin difficulty                       |
-| Gross block rewards  | mempool.space | `https://mempool.space/api/v1/mining/reward-stats/144` | `totalReward`: satoshis including subsidy and transaction fees; inclusive `startBlock` / `endBlock` |
+| Input                | Source        | Endpoint                                                                 | Units / interpretation                                                                              |
+| -------------------- | ------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Spot price           | Coinbase      | `https://api.coinbase.com/v2/prices/BTC-USD/spot`                        | `data.amount`: string, USD per BTC; verify `base=BTC` and `currency=USD`                            |
+| Spot price           | CoinGecko     | `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd` | `bitcoin.usd`: numeric USD per BTC                                                                  |
+| Network / difficulty | mempool.space | `https://mempool.space/api/v1/mining/hashrate/3d`                        | `currentHashrate`: H/s; `currentDifficulty`: dimensionless Bitcoin difficulty                       |
+| Gross block rewards  | mempool.space | `https://mempool.space/api/v1/mining/reward-stats/144`                   | `totalReward`: satoshis including subsidy and transaction fees; inclusive `startBlock` / `endBlock` |
 
+Coinbase is the default spot-price provider. Set `MARKET_DATA_PRICE_PROVIDER=coingecko`
+to use CoinGecko instead. Mining inputs always come from Mempool-compatible APIs.
 These endpoints worked without API keys. Requests originate from fleetd,
 not each user's browser, and contain no fleet, site, miner, or user information.
 Normal server-side egress metadata (including the server's IP address) is visible
@@ -29,6 +32,7 @@ large production rollout.
 Primary references:
 
 - [Coinbase price API](https://docs.cdp.coinbase.com/coinbase-app/track-apis/prices)
+- [CoinGecko simple price API](https://docs.coingecko.com/reference/simple-price)
 - [mempool.space REST API](https://mempool.space/docs/api/rest)
 - [Mempool mining routes](https://github.com/mempool/mempool/blob/master/backend/src/api/mining/mining-routes.ts)
 
@@ -93,15 +97,18 @@ An incomplete refresh never mixes a new price with retained difficulty/rewards.
 
 Configuration follows fleetd's Kong CLI / environment conventions:
 
-| Environment variable           | Default                    | Purpose                                                                          |
-| ------------------------------ | -------------------------- | -------------------------------------------------------------------------------- |
-| `MARKET_DATA_ENABLED`          | `false`                    | Opt in with `true` to show the dashboard section and allow public feed requests |
-| `MARKET_DATA_REFRESH_INTERVAL` | `1m`                       | Minimum upstream interval; allowed range `1m`–`15m`                              |
-| `MARKET_DATA_COINBASE_URL`     | `https://api.coinbase.com` | Coinbase-compatible API origin / optional base path                              |
-| `MARKET_DATA_MEMPOOL_URL`      | `https://mempool.space`    | Mempool-compatible API origin / optional base path                               |
+| Environment variable           | Default                       | Purpose                                                                          |
+| ------------------------------ | ----------------------------- | -------------------------------------------------------------------------------- |
+| `MARKET_DATA_ENABLED`          | `false`                       | Opt in with `true` to show the dashboard section and allow public feed requests |
+| `MARKET_DATA_REFRESH_INTERVAL` | `1m`                          | Minimum upstream interval; allowed range `1m`–`15m`                              |
+| `MARKET_DATA_PRICE_PROVIDER`   | `coinbase`                    | BTC/USD provider: `coinbase` or `coingecko`                                      |
+| `MARKET_DATA_COINBASE_URL`     | `https://api.coinbase.com`    | Coinbase-compatible API origin / optional base path                              |
+| `MARKET_DATA_COINGECKO_URL`    | `https://api.coingecko.com`   | CoinGecko-compatible API origin / optional base path                             |
+| `MARKET_DATA_MEMPOOL_URL`      | `https://mempool.space`       | Mempool-compatible API origin / optional base path                               |
 
 CLI equivalents are `--market-data-enabled=true`,
-`--market-data-refresh-interval=5m`, `--market-data-coinbase-url=...`, and
+`--market-data-refresh-interval=5m`, `--market-data-price-provider=coingecko`,
+`--market-data-coinbase-url=...`, `--market-data-coingecko-url=...`, and
 `--market-data-mempool-url=...`. URLs must use HTTP(S) and cannot contain embedded
 credentials, queries, or fragments. Use HTTPS for public providers.
 

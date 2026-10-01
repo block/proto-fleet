@@ -47,7 +47,7 @@ describe("MarketDataPanel", () => {
     expect(screen.getAllByText("<1 min ago")).toHaveLength(3);
     expect(screen.queryByText(/Hashprice estimates/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checks every minute/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Coinbase|mempool/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Coinbase|CoinGecko|mempool/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About market data" })).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -62,7 +62,7 @@ describe("MarketDataPanel", () => {
     expect(screen.getByText(/last 144 blocks/)).toBeInTheDocument();
     expect(screen.getByText(/1,008 blocks/)).toBeInTheDocument();
     expect(screen.getByText(/retrieved, not published/)).toBeInTheDocument();
-    expect(screen.queryByText(/Coinbase|mempool/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Coinbase|CoinGecko|mempool/)).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.queryByRole("region", { name: "About market data" })).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");

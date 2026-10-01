@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	pricePath   = "/v2/prices/BTC-USD/spot"
-	networkPath = "/api/v1/mining/hashrate/3d"
-	rewardsPath = "/api/v1/mining/reward-stats/144"
-	priceJSON   = `{"data":{"amount":"100000","base":"BTC","currency":"USD"}}`
-	networkJSON = `{"currentHashrate":1e21,"currentDifficulty":1e14}`
-	rewardsJSON = `{"startBlock":900000,"endBlock":900143,"totalReward":"46800000000"}`
+	pricePath     = "/v2/prices/BTC-USD/spot"
+	coinGeckoPath = "/api/v3/simple/price"
+	networkPath   = "/api/v1/mining/hashrate/3d"
+	rewardsPath   = "/api/v1/mining/reward-stats/144"
+	priceJSON     = `{"data":{"amount":"100000","base":"BTC","currency":"USD"}}`
+	coinGeckoJSON = `{"bitcoin":{"usd":100000}}`
+	networkJSON   = `{"currentHashrate":1e21,"currentDifficulty":1e14}`
+	rewardsJSON   = `{"startBlock":900000,"endBlock":900143,"totalReward":"46800000000"}`
 )
 
 func TestHTTPProvider(t *testing.T) {
@@ -101,6 +103,40 @@ func TestHTTPProvider(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHTTPProviderCoinGeckoPriceProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "application/json", r.Header.Get("Accept"))
+		require.Empty(t, r.Header.Get("Cookie"))
+		require.Empty(t, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case coinGeckoPath:
+			require.Equal(t, "bitcoin", r.URL.Query().Get("ids"))
+			require.Equal(t, "usd", r.URL.Query().Get("vs_currencies"))
+			_, _ = fmt.Fprint(w, coinGeckoJSON)
+		case networkPath:
+			_, _ = fmt.Fprint(w, networkJSON)
+		case rewardsPath:
+			_, _ = fmt.Fprint(w, rewardsJSON)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	provider := NewHTTPProvider(Config{PriceProvider: PriceProviderCoinGecko, CoinGeckoURL: server.URL, MempoolURL: server.URL})
+	at := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	provider.now = func() time.Time { return at }
+
+	result, err := provider.Fetch(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, result.Price)
+	require.Equal(t, 100000.0, result.Price.Value)
+	require.Equal(t, at, result.Price.RetrievedAt)
+	require.Equal(t, "CoinGecko", result.Price.Source)
+	require.NotNil(t, result.Hashprice)
+	require.Equal(t, "CoinGecko + mempool.space", result.Hashprice.Source)
 }
 
 func TestHTTPProviderRejectsRedirects(t *testing.T) {

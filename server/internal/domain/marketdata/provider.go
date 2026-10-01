@@ -44,30 +44,50 @@ type Provider interface {
 	Fetch(ctx context.Context) (Snapshot, error)
 }
 
+type BitcoinPriceProvider interface {
+	FetchBitcoinPriceUSD(ctx context.Context) (*Metric, error)
+}
+
 type HTTPProvider struct {
-	client      *http.Client
-	coinbaseURL string
-	mempoolURL  string
-	now         func() time.Time
+	client        *http.Client
+	priceProvider BitcoinPriceProvider
+	mempoolURL    string
+	now           func() time.Time
 }
 
 func NewHTTPProvider(config Config) *HTTPProvider {
-	return &HTTPProvider{
-		client:      &http.Client{Timeout: requestTimeout, CheckRedirect: transportguard.RejectRedirect},
-		coinbaseURL: strings.TrimRight(config.CoinbaseURL, "/"),
-		mempoolURL:  strings.TrimRight(config.MempoolURL, "/"),
-		now:         time.Now,
+	provider := &HTTPProvider{
+		client:     &http.Client{Timeout: requestTimeout, CheckRedirect: transportguard.RejectRedirect},
+		mempoolURL: strings.TrimRight(config.MempoolURL, "/"),
+		now:        time.Now,
+	}
+	provider.priceProvider = newBitcoinPriceProvider(config, provider.client, provider.currentTime)
+	return provider
+}
+
+func (p *HTTPProvider) currentTime() time.Time {
+	return p.now().UTC()
+}
+
+func newBitcoinPriceProvider(config Config, client *http.Client, now func() time.Time) BitcoinPriceProvider {
+	switch config.effectivePriceProvider() {
+	case PriceProviderCoinGecko:
+		return &CoinGeckoPriceProvider{client: client, baseURL: strings.TrimRight(config.CoinGeckoURL, "/"), now: now}
+	case PriceProviderCoinbase:
+		return &CoinbasePriceProvider{client: client, baseURL: strings.TrimRight(config.CoinbaseURL, "/"), now: now}
+	default:
+		return unsupportedPriceProvider(config.PriceProvider)
 	}
 }
 
-func (p *HTTPProvider) get(ctx context.Context, endpoint string, result any) error {
+func getJSON(ctx context.Context, client *http.Client, endpoint string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create market-data request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "ProtoFleet/market-data")
-	resp, err := p.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request market data: %w", err)
 	}
@@ -88,11 +108,13 @@ func (p *HTTPProvider) get(ctx context.Context, endpoint string, result any) err
 	return nil
 }
 
-func positiveFinite(v float64) bool {
-	return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0)
+type CoinbasePriceProvider struct {
+	client  *http.Client
+	baseURL string
+	now     func() time.Time
 }
 
-func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
+func (p *CoinbasePriceProvider) FetchBitcoinPriceUSD(ctx context.Context) (*Metric, error) {
 	var price struct {
 		Data struct {
 			Amount   string `json:"amount"`
@@ -100,6 +122,50 @@ func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 			Currency string `json:"currency"`
 		} `json:"data"`
 	}
+	if err := getJSON(ctx, p.client, p.baseURL+"/v2/prices/BTC-USD/spot", &price); err != nil {
+		return nil, err
+	}
+	at := p.now()
+	usd, err := strconv.ParseFloat(price.Data.Amount, 64)
+	if err != nil || !positiveFinite(usd) || price.Data.Currency != "USD" || price.Data.Base != "BTC" {
+		return nil, fmt.Errorf("price feed returned an invalid USD price")
+	}
+	return &Metric{Value: usd, RetrievedAt: at, Source: "Coinbase"}, nil
+}
+
+type CoinGeckoPriceProvider struct {
+	client  *http.Client
+	baseURL string
+	now     func() time.Time
+}
+
+func (p *CoinGeckoPriceProvider) FetchBitcoinPriceUSD(ctx context.Context) (*Metric, error) {
+	var price struct {
+		Bitcoin struct {
+			USD float64 `json:"usd"`
+		} `json:"bitcoin"`
+	}
+	if err := getJSON(ctx, p.client, p.baseURL+"/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", &price); err != nil {
+		return nil, err
+	}
+	at := p.now()
+	if !positiveFinite(price.Bitcoin.USD) {
+		return nil, fmt.Errorf("price feed returned an invalid USD price")
+	}
+	return &Metric{Value: price.Bitcoin.USD, RetrievedAt: at, Source: "CoinGecko"}, nil
+}
+
+type unsupportedPriceProvider PriceProviderName
+
+func (p unsupportedPriceProvider) FetchBitcoinPriceUSD(context.Context) (*Metric, error) {
+	return nil, fmt.Errorf("unsupported market-data price provider %q", string(p))
+}
+
+func positiveFinite(v float64) bool {
+	return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 	var network struct {
 		Hashrate   float64 `json:"currentHashrate"`
 		Difficulty float64 `json:"currentDifficulty"`
@@ -110,31 +176,23 @@ func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 		TotalReward json.Number `json:"totalReward"` // satoshis, quoted on mempool.space
 	}
 	var priceErr, networkErr, rewardErr error
-	var priceAt, networkAt, rewardAt time.Time
+	var price *Metric
+	var networkAt, rewardAt time.Time
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		priceErr = p.get(ctx, p.coinbaseURL+"/v2/prices/BTC-USD/spot", &price)
-		priceAt = p.now().UTC()
+		price, priceErr = p.priceProvider.FetchBitcoinPriceUSD(ctx)
 	})
 	wg.Go(func() {
-		networkErr = p.get(ctx, p.mempoolURL+"/api/v1/mining/hashrate/3d", &network)
-		networkAt = p.now().UTC()
+		networkErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/hashrate/3d", &network)
+		networkAt = p.currentTime()
 	})
 	wg.Go(func() {
-		rewardErr = p.get(ctx, p.mempoolURL+"/api/v1/mining/reward-stats/144", &rewards)
-		rewardAt = p.now().UTC()
+		rewardErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/reward-stats/144", &rewards)
+		rewardAt = p.currentTime()
 	})
 	wg.Wait()
 
-	result := Snapshot{Enabled: true}
-	usd, parseErr := strconv.ParseFloat(price.Data.Amount, 64)
-	if priceErr == nil {
-		if parseErr != nil || !positiveFinite(usd) || price.Data.Currency != "USD" || price.Data.Base != "BTC" {
-			priceErr = fmt.Errorf("price feed returned an invalid USD price")
-		} else {
-			result.Price = &Metric{Value: usd, RetrievedAt: priceAt, Source: "Coinbase"}
-		}
-	}
+	result := Snapshot{Enabled: true, Price: price}
 	networkFetched := networkErr == nil
 	if networkFetched && positiveFinite(network.Hashrate) {
 		result.Hashrate = &Metric{Value: network.Hashrate, RetrievedAt: networkAt, Source: "mempool.space"}
@@ -154,9 +212,9 @@ func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 	if result.Price != nil && networkFetched && difficultyErr == nil && rewardErr == nil {
 		// Expected daily hashes for 1 PH/s divided by expected hashes/block,
 		// multiplied by mean gross block reward (subsidy + fees) and USD/BTC.
-		value := 1e15 * 86400 / (network.Difficulty * (1 << 32)) * (totalReward / rewardBlocks / 1e8) * usd
+		value := 1e15 * 86400 / (network.Difficulty * (1 << 32)) * (totalReward / rewardBlocks / 1e8) * result.Price.Value
 		if positiveFinite(value) {
-			result.Hashprice = &Metric{Value: value, RetrievedAt: minTime(priceAt, networkAt, rewardAt), Source: "Coinbase + mempool.space"}
+			result.Hashprice = &Metric{Value: value, RetrievedAt: minTime(result.Price.RetrievedAt, networkAt, rewardAt), Source: result.Price.Source + " + mempool.space"}
 		} else {
 			rewardErr = fmt.Errorf("hashprice calculation returned an invalid value")
 		}
