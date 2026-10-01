@@ -2,6 +2,8 @@ package fleet_telemetry_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,4 +57,49 @@ func TestSetupSampleRateCapsRemoteSampledParents(t *testing.T) {
 
 func TestSetupSampleRateOneKeepsRemoteSampledParents(t *testing.T) {
 	require.True(t, startWithRemoteSampledParent(t, 1.0))
+}
+
+func TestSetupUsesExpectedOTLPTracePath(t *testing.T) {
+	tests := []struct {
+		name         string
+		endpointPath string
+		wantPath     string
+	}{
+		{name: "base endpoint", wantPath: "/v1/traces"},
+		{name: "base endpoint with trailing slash", endpointPath: "/", wantPath: "/v1/traces"},
+		{name: "explicit trace endpoint", endpointPath: "/custom/traces", wantPath: "/custom/traces"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requestPaths := make(chan string, 1)
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestPaths <- r.URL.Path
+				w.Header().Set("Content-Type", "application/x-protobuf")
+			}))
+			t.Cleanup(collector.Close)
+
+			shutdown, err := fleet_telemetry.Setup(t.Context(), "test", fleet_telemetry.Config{
+				Enabled:     true,
+				Endpoint:    collector.URL + test.endpointPath,
+				ServiceName: "test",
+				SampleRate:  1.0,
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				otel.SetTracerProvider(noop.NewTracerProvider())
+				otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+			})
+
+			_, span := otel.Tracer("test").Start(t.Context(), "operation")
+			span.End()
+			require.NoError(t, shutdown(t.Context()))
+			select {
+			case requestPath := <-requestPaths:
+				require.Equal(t, test.wantPath, requestPath)
+			default:
+				t.Fatal("collector received no trace request")
+			}
+		})
+	}
 }
