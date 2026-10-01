@@ -58,6 +58,7 @@ func run() error {
 
 	installRoot := flag.String("install-root", defaultInstallRoot, "Proto Fleet installation root")
 	stateDir := flag.String("state-dir", defaultStateDir, "Durable updater state directory")
+	releaseDir := flag.String("release-dir", os.Getenv("PROTO_FLEET_UPDATER_RELEASE_DIR"), "Operator-controlled release directory (disables HTTP downloads)")
 	socketPath := flag.String("socket-path", defaultSocketPath, "Unix socket path")
 	selfUpdatePath := flag.String("self-update-path", defaultSelfUpdatePath, "Installed updater binary path to atomically refresh")
 	selfUpdateHandoff := flag.String(selfUpdateHandoffFlag, "", "Internal one-shot rollback path for a refreshed updater")
@@ -93,6 +94,7 @@ func run() error {
 	config := updater.Config{
 		InstallRoot:     absoluteInstallRoot,
 		StateDir:        *stateDir,
+		ReleaseDir:      *releaseDir,
 		SelfUpdatePath:  *selfUpdatePath,
 		DeploymentMode:  updater.DeploymentMode(*deploymentMode),
 		DownloadBaseURL: os.Getenv("PROTO_FLEET_DOWNLOAD_BASE_URL"),

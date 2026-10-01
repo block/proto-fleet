@@ -1,8 +1,8 @@
 # Server guidance
 
-- Prepared statements only: all database access goes through sqlc. Schema
-  and query edits require `just gen` from the repo root; see the
-  [generation skill](../.agents/skills/code-generation/SKILL.md).
+- Prepared statements only: all database access goes through sqlc. After schema
+  and query edits, run the appropriate command from the
+  [generation skill](../.agents/skills/code-generation/SKILL.md) at the repo root.
 - Before editing existing migrations, use the
   [migration skill](../.agents/skills/migration-immutability/SKILL.md).
 - SDK proto changes follow [proto contract guidance](../proto/AGENTS.md).
