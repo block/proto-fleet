@@ -1,6 +1,6 @@
 ---
 name: code-generation
-description: Regenerate code after proto, SQL schema/query, Go generator input, or generator configuration changes.
+description: Regenerate code after proto, SQL schema/query, Fleet CLI or Go generator input, or generator configuration changes.
 ---
 
 # Code generation
@@ -14,6 +14,7 @@ remain identifiable.
 | --- | --- |
 | Protobuf contracts in `proto/` or `server/sdk/v1/pb/` | `just gen-protos` |
 | SQL schema in `server/migrations/` or queries in `server/sqlc/queries/` | `just gen-db-queries` |
+| Fleet CLI manifest (`server/tools/generate-fleet-cli/commands.json`) or templates (`server/tools/generate-fleet-cli/templates/`) | `just gen-fleet-cli` |
 | Inputs to the server's `go:generate` directives | `just gen-go` |
 | Changes spanning generators, or generator configuration/tool versions (including Buf and sqlc configuration) | `just gen` |
 

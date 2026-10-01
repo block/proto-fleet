@@ -138,7 +138,8 @@ Codex users can run the same shared skill with `$pr-describe`.
 ### Adding a New API Endpoint
 
 1. Define the API in the appropriate `.proto` file in `proto/`
-2. Run `just gen` to regenerate TypeScript and Go code
+2. Run `just gen-protos` from the repo root to regenerate TypeScript and Go code
+   (see [Code Generation](#code-generation) for command selection)
 3. Implement the server handler in `server/internal/handlers/`
 4. Register the handler in `server/cmd/fleetd/main.go`
 5. Create a client hook in `client/src/{app}/api/`
@@ -149,8 +150,9 @@ Codex users can run the same shared skill with `$pr-describe`.
 
 1. Create a migration: `cd server && just db-migration-new <name>`
 2. Write both up and down migrations in `server/migrations/`
-3. Run `just gen` to regenerate sqlc bindings
-4. Update queries in `server/sqlc/queries/` if needed
+3. Update queries in `server/sqlc/queries/` if needed
+4. Run `just gen-db-queries` from the repo root to regenerate sqlc bindings
+   (see [Code Generation](#code-generation) for command selection)
 5. **Never modify existing migrations after they have been deployed**
 
 ### Adding Features to the Client
@@ -170,11 +172,11 @@ Codex users can run the same shared skill with `$pr-describe`.
 
 ## Code Generation
 
-All generated code must be committed to Git. Run `just gen` after:
-
-- Modifying protobuf definitions in `proto/`
-- Changing database migrations in `server/migrations/`
-- Adding or modifying sqlc queries in `server/sqlc/queries/`
+Follow the [generation skill](.agents/skills/code-generation/SKILL.md) to
+select the command for protobuf, SQL schema/query, Go generator input, or
+generator configuration changes. Use full `just gen` for changes spanning
+generators or their configuration. Validate affected consumers and commit
+generated output together with its sources.
 
 Never manually edit generated files in:
 
