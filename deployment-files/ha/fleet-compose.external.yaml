@@ -1,0 +1,20 @@
+# Added by fleet-ha compose only for HA_ENDPOINT_MODE=external.
+# Host-local retained storage survives application replacement, not host failover.
+services:
+  fleet-api:
+    volumes:
+      - type: bind
+        source: "${HA_DATA_DIR}/artifacts/firmware"
+        target: /app/firmware
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HA_DATA_DIR}/artifacts/command-artifacts"
+        target: /app/command-artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HA_DATA_DIR}/artifacts/logs"
+        target: /app/logs
+        bind:
+          create_host_path: false

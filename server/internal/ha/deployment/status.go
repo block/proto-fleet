@@ -42,6 +42,7 @@ const (
 	ReasonFleetRedundancyDegraded    ControlReasonCode = "fleet_redundancy_degraded"
 	ReasonFleetVersionMismatch       ControlReasonCode = "fleet_version_mismatch"
 	ReasonVIPUnavailable             ControlReasonCode = "vip_unavailable"
+	ReasonEndpointUnavailable        ControlReasonCode = "endpoint_unavailable"
 )
 
 type ControlStatus struct {
@@ -146,13 +147,13 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 		writerReady = writerObservationReady(ctx, etcdConfig, config, conn)
 	})
 	probes.Go(func() {
-		client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+		client, cleanup := newProbeHTTPClient(config.publicTLS(tlsConfig), nil)
 		defer cleanup()
-		vipReady = endpointReadyWithClient(ctx, client, "https://"+config.VirtualIP+"/api-proxy/health/active")
+		vipReady = endpointReadyWithClient(ctx, client, config.publicURL()+"/api-proxy/health/active")
 	})
 	probes.Go(func() {
 		statuses := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) fleetHostStatus {
-			return probeFleetHost(ctx, tlsConfig, config.VirtualIP, address)
+			return probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(address), address)
 		})
 		for _, status := range statuses {
 			if status.active {
@@ -187,7 +188,11 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 		control.ReasonCodes = append(control.ReasonCodes, ReasonFleetVersionMismatch)
 	}
 	if !vipReady {
-		control.ReasonCodes = append(control.ReasonCodes, ReasonVIPUnavailable)
+		reason := ReasonVIPUnavailable
+		if config.externalEndpoint() {
+			reason = ReasonEndpointUnavailable
+		}
+		control.ReasonCodes = append(control.ReasonCodes, reason)
 	}
 	report.Control = control
 	return report, nil

@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { applyChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
   ReleaseChannelSchema,
@@ -41,6 +41,7 @@ const delegatedChannel = (order = RolloutOrder.RANDOM): ChannelView => ({
 function renderManage(channel?: ChannelView) {
   const props = manageViewProps();
   render(<ReleaseChannelManageView {...props} channel={channel} />);
+  if (channel) openChannelSettings();
   return props.onSave;
 }
 
@@ -68,7 +69,7 @@ describe("existing delegated release channels", () => {
     expect(screen.queryByLabelText("Pilot batch size (miners)")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("rollout-order"));
     fireEvent.click(screen.getByRole("option", { name: "Least efficient first" }));
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         behavior: create(RolloutBehaviorSchema, {
@@ -85,7 +86,7 @@ describe("existing delegated release channels", () => {
     [RolloutOrder.LEAST_EFFICIENT_FIRST, "Least efficient first", RolloutOrder.RANDOM, "Random"],
     [RolloutOrder.UNSPECIFIED, "Least efficient first", RolloutOrder.RANDOM, "Random"],
   ] as const)(
-    "shows order %s and requires a supported method before saving the changed order",
+    "saves changed order %s while preserving external control and timeout",
     async (order, label, nextOrder, nextLabel) => {
       const channel = delegatedChannel(order);
       const onSave = renderManage(channel);
@@ -95,79 +96,81 @@ describe("existing delegated release channels", () => {
       expect(screen.getByRole("option", { name: label })).toHaveAttribute("aria-selected", "true");
       fireEvent.click(screen.getByRole("option", { name: nextLabel }));
       expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
-      expect(screen.getByTestId("save-channel")).toBeDisabled();
-      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
-      expect(onSave).not.toHaveBeenCalled();
-      expect(screen.getByTestId("delegated-save-unavailable")).toHaveTextContent("Choose another update method");
-      chooseMethod("Single batch");
-      expect(screen.queryByTestId("delegated-save-unavailable")).not.toBeInTheDocument();
-      expect(screen.getByTestId("rollout-order")).toHaveTextContent(nextLabel);
-      await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+      expect(screen.getByTestId("save-channel")).toBeEnabled();
+      await applyChannelSettings();
       expect(onSave).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
           behavior: create(RolloutBehaviorSchema, {
-            method: RolloutMethod.ALL_AT_ONCE,
+            method: RolloutMethod.DELEGATED,
             order: nextOrder,
             maxConcurrentOffline: 7,
+            controllerTimeoutSeconds: 120,
           }),
         }),
       );
     },
   );
 
-  it("keeps the saved method visible and blocks unrelated edits until the operator changes it", async () => {
+  it("saves unrelated edits without changing external control or its timeout", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
-    expect(
-      screen.getByText("An external controller decides which miners update and when, through the API."),
-    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.getByText("An external controller decides which miners update and when, through the API."),
+      ).toBeVisible(),
+    );
     expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Pilot batch size (miners)")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed delegated channel" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
 
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
-    chooseMethod("Multiple batches");
-    fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         name: "Renamed delegated channel",
         behavior: create(RolloutBehaviorSchema, {
-          method: RolloutMethod.BATCHED,
+          method: RolloutMethod.DELEGATED,
           order: RolloutOrder.RANDOM,
-          batchSize: 5,
           maxConcurrentOffline: 7,
+          controllerTimeoutSeconds: 120,
         }),
       }),
     );
   });
 
-  it("keeps Save blocked after reverting an unsaved switch to external control", async () => {
+  it("preserves external control after reverting an unsaved method switch", async () => {
     const channel = delegatedChannel();
     const onSave = renderManage(channel);
-    expect(screen.getByText("120 seconds")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
     chooseMethod("Multiple batches");
     expect(screen.queryByText("Controller timeout")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Batch size (miners)"), { target: { value: "5" } });
     expect(screen.getByTestId("save-channel")).toBeEnabled();
     chooseMethod("Controlled externally");
 
-    expect(screen.getByText("120 seconds")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
     expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
     expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed after reverting" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
 
     expect(screen.getByTestId("save-channel")).toBeDisabled();
-    expect(screen.getByTestId("delegated-save-unavailable")).toBeVisible();
-    expect(onSave).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        name: "Renamed after reverting",
+        behavior: create(RolloutBehaviorSchema, {
+          method: RolloutMethod.DELEGATED,
+          order: RolloutOrder.RANDOM,
+          maxConcurrentOffline: 7,
+          controllerTimeoutSeconds: 120,
+        }),
+      }),
+    );
   });
 
   it.each(["new", "existing nondelegated"] as const)(

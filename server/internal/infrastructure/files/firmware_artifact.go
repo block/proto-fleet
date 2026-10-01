@@ -148,6 +148,59 @@ func (s *Service) LeaseFirmwareArtifact(sha256Hex string) (fileID string, releas
 	return info.ID, s.firmwareMetadataReuseMu.RUnlock, nil
 }
 
+// FirmwareDeletionCheck rejects deletion while durable references need a file.
+// It runs under the lifecycle write lock and must not call back into files.
+type FirmwareDeletionCheck func(fileID, checksum string) error
+
+// SetFirmwareDeletionGuard registers a check factory before serving requests.
+// Preparation reserves database resources before taking the lifecycle lock, so
+// a saturated connection pool cannot block transactions waiting to pin files.
+// A successful factory must return a check and a release function.
+func (s *Service) SetFirmwareDeletionGuard(guard func() (FirmwareDeletionCheck, func(), error)) {
+	s.firmwareDeletionGuard = guard
+}
+
+// PinFirmwareArtifact protects a verified payload through an assignment's
+// transaction commit. Unlike an enqueue lease, the pin holds no lifecycle lock,
+// so the transaction may safely resolve other artifacts and build read views.
+func (s *Service) PinFirmwareArtifact(checksum string) (func(), error) {
+	if err := validateFirmwareChecksum(checksum); err != nil {
+		return nil, err
+	}
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+	reader, info, err := s.openFirmwareArtifactByChecksumLocked(checksum)
+	if err != nil {
+		return nil, err
+	}
+	if err := reader.Close(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to close firmware artifact: %v", err)
+	}
+	return s.pinFirmwareFileLocked(info.ID), nil
+}
+
+// The caller holds the lifecycle lock so deletion cannot slip between resolving
+// the file and registering its pin. Releasing is safe to call more than once.
+func (s *Service) pinFirmwareFileLocked(fileID string) func() {
+	s.mu.Lock()
+	if s.firmwareExecutionPins == nil {
+		s.firmwareExecutionPins = make(map[string]int)
+	}
+	s.firmwareExecutionPins[fileID]++
+	s.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.firmwareExecutionPins[fileID]--
+			if s.firmwareExecutionPins[fileID] == 0 {
+				delete(s.firmwareExecutionPins, fileID)
+			}
+		})
+	}
+}
+
 // OpenFirmwareArtifactByChecksum resolves the first currently healthy copy of
 // an assignment's artifact, independent of its enqueue-time file ID. The returned
 // file info identifies that actual copy, and the verified reader starts at byte
@@ -190,20 +243,7 @@ func (s *Service) OpenFirmwareFileForExecution(fileID, sha256Hex string) (io.Rea
 	// Register under the lifecycle lock so deletion cannot slip between open
 	// and pin. The pin holds no lock across delivery: a queued lifecycle writer
 	// must not block the Fleet Node's subsequent exact-ID download opener.
-	s.mu.Lock()
-	if s.firmwareExecutionPins == nil {
-		s.firmwareExecutionPins = make(map[string]int)
-	}
-	s.firmwareExecutionPins[info.ID]++
-	s.mu.Unlock()
-	return &firmwareExecutionReader{ReadCloser: reader, release: func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.firmwareExecutionPins[info.ID]--
-		if s.firmwareExecutionPins[info.ID] == 0 {
-			delete(s.firmwareExecutionPins, info.ID)
-		}
-	}}, info, nil
+	return &firmwareExecutionReader{ReadCloser: reader, release: s.pinFirmwareFileLocked(info.ID)}, info, nil
 }
 
 type firmwareExecutionReader struct {

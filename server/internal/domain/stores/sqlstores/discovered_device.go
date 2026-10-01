@@ -86,7 +86,7 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		DeviceClass:      int32(device.DeviceClass),
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %w", err)
 	}
 
 	// Fetch the complete record to get timestamps and other fields
@@ -95,7 +95,7 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		OrgID: doi.OrgID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch discovered device after upsert: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to fetch discovered device after upsert: %w", err)
 	}
 
 	return toDiscoveredDevice(dbDevice), nil

@@ -138,7 +138,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 		defer result.Device.Close(ctx)
 
-		device, err := device.New(deviceID, deviceInfo, testCredentials, device.SetStatusTTL(0*time.Second))
+		device, err := device.New(ctx, deviceID, deviceInfo, testCredentials, device.SetStatusTTL(0*time.Second))
 		require.NoError(t, err)
 		t.Run("Get Status", func(t *testing.T) {
 			metrics, err := device.Status(ctx)

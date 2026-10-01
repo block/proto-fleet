@@ -101,7 +101,8 @@ type Service struct {
 	firmwareChecksumByID    map[string]string      // fileID -> SHA-256 hex
 	firmwarePayloadFailures map[string]os.FileInfo // file ID -> failed payload snapshot; guarded by mu
 	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
-	firmwareExecutionPins   map[string]int // file ID -> active command deliveries; guarded by mu
+	firmwareExecutionPins   map[string]int // file ID -> active deliveries or assignment writes; guarded by mu
+	firmwareDeletionGuard   func() (FirmwareDeletionCheck, func(), error)
 	syncFirmwareDir         func(string) error
 }
 

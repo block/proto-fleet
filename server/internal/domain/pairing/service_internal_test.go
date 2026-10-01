@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -21,6 +22,67 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestIsSameDevice_AuthenticationFailureRequiresIdentityEvidence(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	pairer := pairingmocks.NewMockPairer(ctrl)
+	service := &Service{deviceStore: deviceStore, pairer: pairer}
+
+	paired := &pb.Device{
+		DeviceIdentifier: "miner-1",
+		MacAddress:       "AA:BB:CC:DD:EE:FF",
+		SerialNumber:     "serial-1",
+	}
+	credentials := &pb.Credentials{}
+	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
+	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
+	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), credentials).
+		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
+
+	matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{IpAddress: "192.168.1.20", Port: "80", DriverName: "antminer"},
+	}, "miner-1", 7)
+
+	require.False(t, matched)
+}
+
+func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	pairer := pairingmocks.NewMockPairer(ctrl)
+	service := &Service{deviceStore: deviceStore, transactor: transactor, pairer: pairer}
+
+	paired := &pb.Device{
+		DeviceIdentifier: "miner-1",
+		MacAddress:       "AA:BB:CC:DD:EE:FF",
+		SerialNumber:     "serial-1",
+	}
+	credentials := &pb.Credentials{}
+	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
+	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
+	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), credentials).
+		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	)
+	deviceStore.EXPECT().LockDeviceForCloudRecoveryByIdentifier(gomock.Any(), "miner-1", int64(7)).
+		Return(true, nil)
+	deviceStore.EXPECT().ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), "miner-1", int64(7)).
+		Return(true, true, nil)
+
+	matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:  "192.168.1.20",
+			Port:       "80",
+			DriverName: "antminer",
+			MacAddress: "aa-bb-cc-dd-ee-ff",
+		},
+	}, "miner-1", 7)
+
+	require.False(t, matched)
+}
 
 func mockSessionContext(ctx context.Context, userID, orgID int64) context.Context {
 	return authn.SetInfo(ctx, &session.Info{
@@ -144,27 +206,36 @@ func TestPairDevicesAllowAllFailedReturnsCanceledError(t *testing.T) {
 
 func TestPairingRigConfigReapplyDetachesFromRequestCancellation(t *testing.T) {
 	type reapplyCall struct {
-		ctxErr error
-		orgID  int64
-		userID int64
+		ctxErr      error
+		orgID       int64
+		userID      int64
+		identifiers []string
 	}
 	reapplied := make(chan reapplyCall, 1)
-	service := &Service{rigConfigReapplier: func(ctx context.Context, orgID, userID int64) {
-		reapplied <- reapplyCall{ctxErr: ctx.Err(), orgID: orgID, userID: userID}
+	service := &Service{rigConfigReapplier: func(ctx context.Context, orgID, userID int64, identifiers []string) {
+		reapplied <- reapplyCall{ctxErr: ctx.Err(), orgID: orgID, userID: userID, identifiers: identifiers}
 	}}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	service.reapplyRigConfigBestEffort(ctx, 42, 9)
+	service.reapplyRigConfigBestEffort(ctx, 42, 9, []string{"newly-paired"})
 
 	select {
 	case call := <-reapplied:
 		require.Equal(t, int64(42), call.orgID)
 		require.Equal(t, int64(9), call.userID)
 		require.NoError(t, call.ctxErr)
+		require.Equal(t, []string{"newly-paired"}, call.identifiers)
 	case <-time.After(time.Second):
 		t.Fatal("rig config reapply was not started")
 	}
+}
+
+func TestPairingRigConfigReapplyIgnoresEmptyTargets(t *testing.T) {
+	service := &Service{rigConfigReapplier: func(context.Context, int64, int64, []string) {
+		t.Error("empty targets must not become an organization-wide request")
+	}}
+	service.reapplyRigConfigBestEffort(t.Context(), 42, 9, nil)
 }
 
 func TestCanonicalCIDR(t *testing.T) {

@@ -343,9 +343,19 @@ describe("release-channel scope permissions", () => {
   it("keeps existing unreadable selections in the live preview and when another dimension changes", async () => {
     permissions.add("site:read");
     const onChange = vi.fn();
-    render(<ScopeEditor scope={scope} onChange={onChange} previewScope={previewScope} editingExistingChannel />);
+    const onPreview = vi.fn();
+    render(
+      <ScopeEditor
+        scope={scope}
+        onChange={onChange}
+        previewScope={previewScope}
+        onPreview={onPreview}
+        editingExistingChannel
+      />,
+    );
     await waitFor(() => expect(previewScope).toHaveBeenCalledWith(scope, expect.any(AbortSignal)));
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("1 site, 1 building, 1 rack, 1 group, 1 miner");
+    expect(onPreview).toHaveBeenLastCalledWith(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 5 }));
+    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /^Sites / }));
     expect(SiteSelectionModal).toHaveBeenCalled();

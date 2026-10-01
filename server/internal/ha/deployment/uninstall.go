@@ -73,6 +73,8 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 		if err := uninstallStep(ctx, deps, "verify host updater stopped", "flock", "-n", updaterLock, "true"); err != nil {
 			return err
 		}
+	}
+	if config.usesVIP() {
 		if err := uninstallStep(ctx, deps, "stop VIP routing", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
 			return err
 		}
@@ -111,7 +113,7 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 		return err
 	}
 
-	if err := removeHAArtifacts(ctx, deps, config.isDatabaseNode()); err != nil {
+	if err := removeHAArtifacts(ctx, deps, config); err != nil {
 		return err
 	}
 	if err := uninstallStep(ctx, deps, "reload systemd after HA removal", "systemctl", "daemon-reload"); err != nil {
@@ -165,10 +167,12 @@ func validateUninstall(ctx context.Context, deps uninstallDependencies) (NodeCon
 	required := []string{serviceUnit, firewallUnit, nftablesDropIn, dockerDropIn, infrastructureCompose, installRoot + "/ha/fleet-ha"}
 	if config.isDatabaseNode() {
 		required = append(required,
-			keepalivedConfig, keepalivedOverride, keepalivedHealthCheck,
 			updaterDropIn, haUpdaterDropIn,
 			updaterBinary, updaterUnit, updaterEnvironment, updaterLock,
 		)
+	}
+	if config.usesVIP() {
+		required = append(required, keepalivedConfig, keepalivedOverride, keepalivedHealthCheck)
 	}
 	for _, path := range required {
 		info, err := deps.lstat(path)
@@ -260,20 +264,21 @@ func ownsHAGrafanaVolume(deps uninstallDependencies) (bool, error) {
 	return true, nil
 }
 
-func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, databaseNode bool) error {
+func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, config NodeConfig) error {
+	databaseNode := config.isDatabaseNode()
 	files := []string{
 		serviceUnit, firewallUnit, nftablesDropIn, haActiveInstallMarker,
 	}
 	if databaseNode {
 		files = append(files,
 			updaterDropIn, haUpdaterDropIn,
-			"/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf",
-			keepalivedOverride,
-			keepalivedConfig, keepalivedHealthCheck,
 			updaterUnit, updaterEnvironment,
 			updaterBinary, updaterBinary+".candidate", updaterBinary+".previous",
 			updaterBinary+".handoff", updaterBinary+".handoff.tmp", updaterBinary+".restore",
 		)
+	}
+	if config.usesVIP() {
+		files = append(files, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf", keepalivedOverride, keepalivedConfig, keepalivedHealthCheck)
 	}
 	if err := uninstallStep(ctx, deps, "remove HA service files", "rm", append([]string{"-f", "--"}, files...)...); err != nil {
 		return err

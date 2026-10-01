@@ -121,6 +121,10 @@ describe("formatActivityDescription", () => {
     ["rollout_started", "Started firmware update"],
     ["rollout_review_ready", "Firmware update ready for review"],
     ["rollout_continued", "Continued firmware update"],
+    ["rollout_advanced", "Advanced firmware update"],
+    ["rollout_devices_skipped", "Skipped firmware update targets"],
+    ["rollout_device_failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out"],
     ["rollout_paused", "Paused firmware update"],
     ["rollout_resumed", "Resumed firmware update"],
     ["rollout_canceled", "Canceled remaining firmware updates"],
@@ -135,11 +139,16 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
   });
 
-  it("preserves cleanup-like words in rollout target names and firmware versions", () => {
-    const description =
-      "Retried failed firmware updates: Failed devices (id=42) Device device(s) → force-cleared-failed";
+  it.each([
+    ["rollout_retried", "Retried failed firmware updates"],
+    ["rollout_advanced", "Advanced firmware update"],
+    ["rollout_devices_skipped", "Skipped firmware update targets"],
+    ["rollout_device_failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out"],
+  ])("preserves target names and firmware versions for %s", (eventType, label) => {
+    const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
     const entry = create(ActivityEntrySchema, {
-      eventType: "rollout_retried",
+      eventType,
       description,
       metadata: {
         channel_name: "Failed devices (id=42)",

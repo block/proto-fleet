@@ -19,12 +19,18 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
+// EffectivePermissionResolver loads the current permissions for an authenticated
+// principal. Both Connect and raw HTTP requests use this same resolution path.
+type EffectivePermissionResolver interface {
+	LoadEffective(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
+}
+
 type AuthInterceptor struct {
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
 	userMgmtStore      interfaces.UserManagementStore
 	apiKeyService      *apikey.Service
-	permissionResolver *authz.PermissionResolver
+	permissionResolver EffectivePermissionResolver
 	allowList          map[string]struct{}
 	sessionOnlyList    map[string]struct{}
 	agentAuthList      map[string]struct{}
@@ -37,7 +43,7 @@ func NewAuthInterceptor(
 	userStore interfaces.UserStore,
 	userMgmtStore interfaces.UserManagementStore,
 	apiKeyService *apikey.Service,
-	permissionResolver *authz.PermissionResolver,
+	permissionResolver EffectivePermissionResolver,
 	allowedProcedures []string,
 	sessionOnlyProcedures []string,
 	agentAuthProcedures []string,
@@ -137,7 +143,17 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	if _, ok := i.agentAuthList[procedure]; ok {
 		return ctx, nil
 	}
+	_, sessionOnly := i.sessionOnlyList[procedure]
+	return i.authenticateRequest(ctx, requestHeader, sessionOnly)
+}
 
+// AuthenticateRequest authenticates raw HTTP requests using the same credentials,
+// identity and live permissions as Connect RPCs. Procedure exemptions never apply.
+func (i *AuthInterceptor) AuthenticateRequest(ctx context.Context, requestHeader http.Header) (context.Context, error) {
+	return i.authenticateRequest(ctx, requestHeader, false)
+}
+
+func (i *AuthInterceptor) authenticateRequest(ctx context.Context, requestHeader http.Header, sessionOnly bool) (context.Context, error) {
 	hasAuthHeader := requestHeader.Get("Authorization") != ""
 	hasSessionCookie := i.hasSessionCookie(requestHeader)
 
@@ -146,7 +162,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	}
 
 	// Session-only procedures reject API key auth before attempting validation.
-	if _, sessionOnly := i.sessionOnlyList[procedure]; sessionOnly && hasAuthHeader {
+	if sessionOnly && hasAuthHeader {
 		return ctx, fleeterror.NewForbiddenError("this endpoint requires session authentication; API key auth is not permitted")
 	}
 	if hasAuthHeader {

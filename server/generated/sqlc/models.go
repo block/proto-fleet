@@ -725,15 +725,22 @@ type CurtailmentResponseProfileWithRevision struct {
 }
 
 type CurtailmentRigConfigReconciliation struct {
-	OrganizationID     int64
-	RequestedBy        int64
-	DesiredGeneration  int64
-	EnqueuedGeneration int64
-	RetryAt            time.Time
-	LeaseExpiresAt     sql.NullTime
-	LastError          sql.NullString
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	OrganizationID          int64
+	RequestedBy             int64
+	DesiredGeneration       int64
+	EnqueuedGeneration      int64
+	RetryAt                 time.Time
+	LeaseExpiresAt          sql.NullTime
+	LastError               sql.NullString
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	FullReconcileGeneration int64
+}
+
+type CurtailmentRigConfigTarget struct {
+	OrganizationID      int64
+	DeviceID            int64
+	RequestedGeneration int64
 }
 
 type CurtailmentTarget struct {
@@ -1026,6 +1033,7 @@ type FirmwareRollout struct {
 	LastActionByName         string
 	CreatedAt                time.Time
 	FinishedAt               sql.NullTime
+	ControllerWaitingSince   sql.NullTime
 }
 
 type FirmwareRolloutDevice struct {
@@ -1052,6 +1060,21 @@ type FirmwareRolloutDevice struct {
 	BaselineOpenErrors      sql.NullInt32
 	BaselineAt              sql.NullTime
 	AddedAt                 time.Time
+}
+
+type FirmwareRolloutEvent struct {
+	ID                int64
+	OrgID             int64
+	RolloutID         int64
+	ChannelID         int64
+	Type              string
+	OccurredAt        time.Time
+	ActorType         string
+	ActorID           int64
+	ActorName         string
+	RolloutRevision   int64
+	Note              string
+	DeviceIdentifiers []string
 }
 
 type FirmwareRolloutReservation struct {

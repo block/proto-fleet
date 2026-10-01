@@ -3993,6 +3993,29 @@ describe("useMinerActions", () => {
       ).toBe(false);
     });
 
+    it("preserves channel ownership guidance when a direct firmware update is rejected", async () => {
+      const reason =
+        "This miner is managed by release channel Stable. Change its firmware in Settings > Firmware > Release channels.";
+      mockFirmwareUpdate.mockImplementationOnce(({ onError }: { onError: (error: string) => void }) => onError(reason));
+      const onActionComplete = vi.fn();
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+      await act(async () => result.current.handleFirmwareUpdateConfirm("different-firmware"));
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({ message: `Couldn't update firmware: ${reason}`, status: toaster.STATUSES.error }),
+      );
+      expect(mockStartBatchOperation).not.toHaveBeenCalled();
+      expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
+      expect(onActionComplete).toHaveBeenCalledOnce();
+    });
+
     it("does not infer rebooting devices when successful identifiers are omitted", async () => {
       mockFirmwareUpdate.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-firmware" });

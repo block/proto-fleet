@@ -86,24 +86,31 @@ const Modal = ({
   navigationKey,
   fixedFooter,
 }: ModalProps) => {
+  const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef(new Map<string, number>());
   const previousNavigationKey = useRef(navigationKey);
   useLayoutEffect(() => {
     if (navigationKey === undefined || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollPositions.current.get(navigationKey) ?? 0;
+    setIsTitleCollapsed(scrollRef.current.scrollTop > 0);
     if (manageFocus && previousNavigationKey.current !== navigationKey)
       scrollRef.current.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
     previousNavigationKey.current = navigationKey;
   }, [navigationKey, manageFocus]);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLDivElement>(null);
-  const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const isFullscreen = size === sizes.fullscreen;
   const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
   const slideUpAnimation = useSlideUpAnimation();
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
+
+  // Header content changes its height, so observing its boundary creates a
+  // collapse/expand feedback loop. Only the scroll position controls the title.
+  // Sync on attachment too: PageOverlay remounts this element when reopened.
+  const syncTitleOnMount = useCallback((element: HTMLDivElement | null) => {
+    scrollRef.current = element;
+    if (element) setIsTitleCollapsed(element.scrollTop > 0);
+  }, []);
 
   useEffect(() => {
     if (!manageFocus || open === false) return;
@@ -118,7 +125,7 @@ const Modal = ({
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
       const targets = focusableElements();
-      const index = targets.findIndex((button) => button === document.activeElement);
+      const index = targets.findIndex((element) => element === document.activeElement);
       if (
         targets.length &&
         (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === targets.length - 1))
@@ -133,35 +140,6 @@ const Modal = ({
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
     };
   }, [manageFocus, open]);
-
-  useEffect(() => {
-    if (open === false || !title || !titleRef.current || !scrollRef.current) {
-      setIsTitleCollapsed(false);
-      return;
-    }
-
-    const headerHeight = headerRef.current?.offsetHeight ?? 0;
-    const scroller = scrollRef.current;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        // Ignore edge rounding during the opening animation and stale observer
-        // notifications after scrolling back to the top.
-        setIsTitleCollapsed(scroller.scrollTop > 1 && !entry.isIntersecting);
-      },
-      {
-        root: scroller,
-        rootMargin: `-${headerHeight}px 0px 0px 0px`,
-        threshold: 0,
-      },
-    );
-
-    // Observe the full title: collapse only once it has passed under the header,
-    // rather than testing a zero-size marker on the header's exact boundary.
-    observer.observe(titleRef.current);
-
-    return () => observer.disconnect();
-  }, [title, showHeader, open, isFullscreen, forceTitleCollapsed]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -227,16 +205,16 @@ const Modal = ({
             },
             className,
           )}
-          ref={scrollRef}
+          ref={syncTitleOnMount}
           onScroll={(event) => {
-            if (navigationKey !== undefined) scrollPositions.current.set(navigationKey, event.currentTarget.scrollTop);
-            if (event.currentTarget.scrollTop <= 1) setIsTitleCollapsed(false);
+            const scrollTop = event.currentTarget.scrollTop;
+            if (navigationKey !== undefined) scrollPositions.current.set(navigationKey, scrollTop);
+            setIsTitleCollapsed(scrollTop > 0);
           }}
           data-testid={testId}
         >
           {showHeader ? (
             <div
-              ref={headerRef}
               // Two things keep the sticky background actually opaque:
               //
               // flex-col — headerSpacingClassName is a margin on an empty
@@ -257,7 +235,7 @@ const Modal = ({
               <div className="relative">
                 <Header
                   title={showTitleInHeader ? title : undefined}
-                  titleSize="truncate text-heading-200"
+                  titleSize={clsx("text-heading-200", !hasPhoneFooterButtons && "phone:truncate")}
                   className={hasPhoneFooterButtons ? undefined : "phone:pr-40"}
                   {...headerIconProps}
                   buttonSize={buttonSize}
@@ -274,26 +252,25 @@ const Modal = ({
                   />
                 )}
               </div>
-              {divider ? (
-                // Reserve the divider's height so toggling the title cannot
-                // move the content being observed and trigger another toggle.
-                <Divider className={clsx(headerSpacingClassName, !showTitleInHeader && "invisible")} />
+              {divider && showTitleInHeader ? (
+                <Divider className={headerSpacingClassName} />
               ) : (
                 <div className={headerSpacingClassName} />
               )}
             </div>
           ) : null}
           {title && !isFullscreen && !forceTitleCollapsed ? (
-            <>
-              <div
-                ref={titleRef}
-                className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
-                  "phone:mb-0": hideHeaderOnPhone,
-                })}
-              >
-                {title}
-              </div>
-            </>
+            <div
+              // Retain this space so collapsing the title cannot move the
+              // scroll boundary. Only the visible title should be announced.
+              className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
+                "phone:mb-0": hideHeaderOnPhone,
+                invisible: showHeader && showTitleInHeader,
+                "phone:visible": hideHeaderOnPhone,
+              })}
+            >
+              {title}
+            </div>
           ) : null}
           {description ? <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div> : null}
           <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>

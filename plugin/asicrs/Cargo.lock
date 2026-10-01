@@ -482,6 +482,7 @@ dependencies = [
  "prost-types",
  "proto-fleet-plugin",
  "serde",
+ "serde_json",
  "serde_yaml_ng",
  "tokio",
  "tokio-stream",

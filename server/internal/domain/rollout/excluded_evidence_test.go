@@ -77,6 +77,7 @@ func TestBatchEvidenceTreatsExcludedTargetsAsNeutral(t *testing.T) {
 			f.reportHashrate(t, "miner-0", 0)
 			f.finishUpdate(t, "miner-1", "2.0.0")
 			f.svc.EnforceTick(ctx)
+			f.reportHashrate(t, "miner-1", 100)
 			gated := f.rollout(t, started.ID)
 			require.Equal(t, StageAwaitingReview, gated.Stage)
 			require.NotNil(t, gated.Evidence)

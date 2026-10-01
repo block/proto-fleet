@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { type Mocked, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -58,4 +59,27 @@ export function deferred<T = void>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+export function openChannelSettings() {
+  if (!screen.queryByTestId("channel-settings-modal")) {
+    fireEvent.click(screen.getByTestId("channel-settings"));
+  }
+}
+
+export function closeChannelSettings() {
+  const settings = screen.queryByTestId("channel-settings-modal");
+  if (settings) fireEvent.click(within(settings).getByRole("button", { name: "Close dialog" }));
+}
+
+/** Review and confirm settings, then reopen the editor for further draft assertions. */
+export async function applyChannelSettings() {
+  await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+  const confirmation = screen.queryByTestId("apply-firmware-dialog");
+  if (!confirmation) return;
+  await act(async () => fireEvent.click(within(confirmation).getByRole("button", { name: "Apply changes" })));
+  if (screen.queryByTestId("apply-firmware-dialog")) {
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: "Cancel" }));
+  }
+  openChannelSettings();
 }

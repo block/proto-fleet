@@ -17,6 +17,7 @@ interface DialogProps {
   children?: ReactNode;
   icon?: ReactNode;
   loading?: boolean;
+  inert?: boolean;
   preventScroll?: boolean;
   open?: boolean;
   subtitle?: string;
@@ -36,6 +37,7 @@ const Dialog = ({
   children,
   icon,
   loading,
+  inert,
   preventScroll,
   open,
   subtitle,
@@ -70,6 +72,7 @@ const Dialog = ({
           className,
         )}
         data-testid={testId}
+        inert={inert}
       >
         <div className="p-6">
           <div className="flex flex-col gap-3">

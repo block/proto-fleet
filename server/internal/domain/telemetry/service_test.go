@@ -26,6 +26,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	telemetryScheduler "github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
 
 func TestProcessDevice_ResourceExhaustedSkipsStatusRetry(t *testing.T) {
@@ -4452,16 +4453,11 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, authErr)
 
-	// fetchStatusFromMiner invalidates on auth error; guarded remediation
-	// invalidates again when it changes pairing state.
+	// Resolution failed without a handle: invalidate, but do not change pairing
+	// state without knowing which endpoint produced the authentication failure.
 	mockMinerGetter.EXPECT().
 		InvalidateMiner(deviceID).
-		Times(2)
-
-	// processStatusOnly routes auth remediation through a guarded transition.
-	mockDeviceStore.EXPECT().
-		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
-		Return(true, true, nil)
+		Times(1)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -4492,6 +4488,8 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 
 	deviceID := models.DeviceIdentifier("device-expired-token")
 	authErr := fleeterror.NewUnauthenticatedErrorf("token expired for device %s", deviceID)
+	endpoint := networking.ConnectionInfo{IPAddress: "10.0.0.8", Port: 80, Protocol: networking.ProtocolHTTP}
+	mockMiner.EXPECT().GetConnectionInfo().Return(endpoint)
 
 	// GetMinerFromDeviceIdentifier succeeds (miner in cache)
 	mockMinerGetter.EXPECT().
@@ -4516,7 +4514,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	// An auth error moves the device into AUTHENTICATION_NEEDED only through
 	// the guarded remediation transition.
 	mockDeviceStore.EXPECT().
-		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
+		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID), int64(0), endpoint).
 		Return(true, true, nil)
 
 	service := NewTelemetryService(Config{
@@ -4533,6 +4531,42 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	service.processStatusOnly(ctx, device, activation.results.status)
 
 	// Assert — mock expectations verify InvalidateMiner was called exactly once
+}
+
+func TestCredentialRemediationUsesFailedRequestEndpoint(t *testing.T) {
+	for _, metrics := range []bool{true, false} {
+		t.Run(fmt.Sprintf("metrics=%t", metrics), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			getter := mock.NewMockCachedMinerGetter(ctrl)
+			store := storesMocks.NewMockDeviceStore(ctrl)
+			miner := minerMocks.NewMockMiner(ctrl)
+			endpoint := networking.ConnectionInfo{IPAddress: "10.0.0.8", Port: 4028, Protocol: networking.ProtocolTCP}
+			device := models.Device{ID: "recovered-miner"}
+			authErr := fleeterror.NewUnauthenticatedErrorf("rejected")
+			getter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), device.ID).Return(miner, nil)
+			miner.EXPECT().GetOrgID().Return(int64(8)).AnyTimes()
+			miner.EXPECT().GetSiteID().Return(int64(1))
+			miner.EXPECT().GetDriverName().Return("antminer")
+			miner.EXPECT().GetConnectionInfo().Return(endpoint)
+			service := &TelemetryService{minerManager: getter, deviceStore: store}
+			var failure error
+			if metrics {
+				miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(modelsV2.DeviceMetrics{}, authErr)
+				result, err := service.fetchTelemetryFromMiner(t.Context(), device)
+				require.NoError(t, err)
+				failure = result.metricsErr
+			} else {
+				miner.EXPECT().GetDeviceStatus(gomock.Any()).Return(mm.MinerStatusUnknown, authErr)
+				getter.EXPECT().InvalidateMiner(device.ID)
+				_, _, _, _, failure = service.fetchStatusFromMiner(t.Context(), device.ID)
+			}
+			require.ErrorIs(t, failure, authErr)
+			// The store reports that recovery already changed the endpoint. No
+			// fresh handle lookup or pairing-change cache eviction should occur.
+			store.EXPECT().ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(device.ID), int64(8), endpoint).Return(false, false, nil)
+			require.NoError(t, service.handleCredentialRemediation(t.Context(), device.ID, fmt.Errorf("poll failed: %w", failure)))
+		})
+	}
 }
 
 func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {

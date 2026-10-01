@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { authClient } from "@/protoFleet/api/clients";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -59,8 +60,9 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
 
       // If successful, call onAuthenticated with the credentials
       onAuthenticated(username, password);
-    } catch {
-      setErrorMessage("Invalid credentials entered.");
+    } catch (error) {
+      const rpcError = ConnectError.from(error);
+      setErrorMessage(rpcError.code === Code.ResourceExhausted ? rpcError.rawMessage : "Invalid credentials entered.");
     } finally {
       setIsVerifying(false);
     }

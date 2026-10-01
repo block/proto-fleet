@@ -118,13 +118,15 @@ RETURNING *
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -151,13 +153,15 @@ RETURNING *
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -173,13 +177,15 @@ RETURNING *
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -195,13 +201,15 @@ RETURNING config.organization_id, config.service_user_id
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
-        requested_by
+        requested_by,
+        full_reconcile_generation
     )
-    SELECT organization_id, service_user_id
+    SELECT organization_id, service_user_id, 1
     FROM changed
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
         desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
         retry_at = CURRENT_TIMESTAMP,
         last_error = NULL
 )
@@ -210,16 +218,58 @@ SELECT COUNT(*)::BIGINT FROM changed;
 -- name: RequestRigConfigReconciliation :exec
 INSERT INTO curtailment_rig_config_reconciliation (
     organization_id,
-    requested_by
+    requested_by,
+    full_reconcile_generation
 ) VALUES (
     sqlc.arg('organization_id'),
-    sqlc.arg('requested_by')
+    sqlc.arg('requested_by'),
+    1
 )
 ON CONFLICT (organization_id) DO UPDATE
 SET requested_by = EXCLUDED.requested_by,
     desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
     retry_at = CURRENT_TIMESTAMP,
     last_error = NULL;
+
+-- name: RequestRigConfigReconciliationForDevices :exec
+-- Lock/update the organization before writing targets. Completion and terminal
+-- retry follow the same lock order so concurrent requests cannot lose targets.
+WITH eligible AS MATERIALIZED (
+    SELECT d.id, d.org_id
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    JOIN device_pairing dp ON dp.device_id = d.id
+    WHERE d.org_id = sqlc.arg('organization_id')
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+      AND d.deleted_at IS NULL
+      AND dd.manufacturer = 'Proto'
+      AND dp.pairing_status = 'PAIRED'
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT DISTINCT org_id, sqlc.arg('requested_by')::bigint
+    FROM eligible
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+    RETURNING organization_id, desired_generation
+)
+INSERT INTO curtailment_rig_config_target (
+    organization_id,
+    device_id,
+    requested_generation
+)
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
+ORDER BY eligible.id
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET requested_generation = EXCLUDED.requested_generation;
 
 -- name: ClaimRigConfigReconciliation :one
 WITH candidate AS (
@@ -238,17 +288,41 @@ FROM candidate
 WHERE reconciliation.organization_id = candidate.organization_id
 RETURNING reconciliation.*;
 
+-- name: ListRigConfigReconciliationTargets :many
+-- Run after claiming in a separate statement: its fresh snapshot includes
+-- targets committed by a concurrent requester before the claim obtained its
+-- organization lock. Targets refreshed after the claim remain for the next pass.
+SELECT d.device_identifier
+FROM curtailment_rig_config_target target
+JOIN device d ON d.id = target.device_id AND d.org_id = target.organization_id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE target.organization_id = sqlc.arg('organization_id')
+  AND target.requested_generation > sqlc.arg('enqueued_generation')
+  AND target.requested_generation <= sqlc.arg('desired_generation')
+  AND d.deleted_at IS NULL
+  AND dd.manufacturer = 'Proto'
+  AND dp.pairing_status = 'PAIRED'
+ORDER BY d.device_identifier;
+
 -- name: CompleteRigConfigReconciliation :exec
-UPDATE curtailment_rig_config_reconciliation
-SET enqueued_generation = GREATEST(enqueued_generation, sqlc.arg('enqueued_generation')),
+WITH completed AS (
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET enqueued_generation = GREATEST(reconciliation.enqueued_generation, sqlc.arg('enqueued_generation')),
     retry_at = CASE
-        WHEN desired_generation > sqlc.arg('enqueued_generation') THEN CURRENT_TIMESTAMP
-        ELSE retry_at
+        WHEN reconciliation.desired_generation > sqlc.arg('enqueued_generation') THEN CURRENT_TIMESTAMP
+        ELSE reconciliation.retry_at
     END,
     lease_expires_at = NULL,
     last_error = NULL
-WHERE organization_id = sqlc.arg('organization_id')
-  AND enqueued_generation < sqlc.arg('enqueued_generation');
+WHERE reconciliation.organization_id = sqlc.arg('organization_id')
+  AND reconciliation.enqueued_generation < sqlc.arg('enqueued_generation')
+RETURNING reconciliation.organization_id
+)
+DELETE FROM curtailment_rig_config_target target
+USING completed
+WHERE target.organization_id = completed.organization_id
+  AND target.requested_generation <= sqlc.arg('enqueued_generation');
 
 -- name: RetryRigConfigReconciliation :exec
 UPDATE curtailment_rig_config_reconciliation
@@ -259,11 +333,34 @@ WHERE organization_id = sqlc.arg('organization_id')
   AND desired_generation >= sqlc.arg('desired_generation');
 
 -- name: RequeueRigConfigReconciliationAfterTerminalFailure :exec
--- The command queue has bounded per-message retries. Reopen the organization
--- generation when one config command becomes terminal so reconciliation keeps
--- retrying instead of treating durable enqueue as durable device application.
-UPDATE curtailment_rig_config_reconciliation
-SET desired_generation = desired_generation + 1,
+-- The command queue has bounded per-message retries. Retain only the failed
+-- eligible device for another attempt; successful devices need no new command.
+WITH eligible AS MATERIALIZED (
+    SELECT d.id, d.org_id
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    JOIN device_pairing dp ON dp.device_id = d.id
+    WHERE d.org_id = sqlc.arg('organization_id')
+      AND d.id = sqlc.arg('device_id')
+      AND d.deleted_at IS NULL
+      AND dd.manufacturer = 'Proto'
+      AND dp.pairing_status = 'PAIRED'
+), requested AS (
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET desired_generation = reconciliation.desired_generation + 1,
     retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
     last_error = 'config command reached terminal failure'
-WHERE organization_id = sqlc.arg('organization_id');
+FROM eligible
+WHERE reconciliation.organization_id = eligible.org_id
+RETURNING reconciliation.organization_id, reconciliation.desired_generation
+)
+INSERT INTO curtailment_rig_config_target (
+    organization_id,
+    device_id,
+    requested_generation
+)
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET requested_generation = EXCLUDED.requested_generation;

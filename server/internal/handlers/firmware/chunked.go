@@ -17,7 +17,6 @@ import (
 
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
@@ -25,6 +24,7 @@ import (
 type uploadSession struct {
 	mu            sync.Mutex
 	uploadID      string
+	owner         uploadOwner
 	filename      string
 	metadata      files.FirmwareMetadata
 	expectedSize  int64
@@ -33,6 +33,21 @@ type uploadSession struct {
 	force         bool
 	createdAt     time.Time
 	lastActivity  time.Time
+}
+
+// uploadOwner prevents another user or API key from taking over a staged upload.
+// Session renewal may resume the same user's upload; bearer uploads require the
+// exact key, so another key issued to the same user cannot consume its staging ID.
+type uploadOwner struct {
+	organizationID int64
+	userID         int64
+	authMethod     session.AuthMethod
+	apiKeyID       int64
+}
+
+func ownerFromContext(ctx context.Context) uploadOwner {
+	info, _ := session.GetInfo(ctx) // Permission checks already require session.Info.
+	return uploadOwner{organizationID: info.OrganizationID, userID: info.UserID, authMethod: info.AuthMethod, apiKeyID: info.APIKeyDatabaseID}
 }
 
 type initiateRequest struct {
@@ -107,36 +122,29 @@ func (m *ChunkedUploadManager) cleanupExpired(ttl time.Duration) {
 func NewInitiateHandler(
 	mgr *ChunkedUploadManager,
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
-	permissionResolver effectivePermissionResolver,
+	authenticator RequestAuthenticator,
 ) http.Handler {
 	return &initiateHandler{
-		mgr:                mgr,
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		permissionResolver: permissionResolver,
+		mgr:           mgr,
+		filesService:  filesService,
+		authenticator: authenticator,
 	}
 }
 
 type initiateHandler struct {
-	mgr                *ChunkedUploadManager
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	permissionResolver effectivePermissionResolver
+	mgr           *ChunkedUploadManager
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireMutationPermission(
+	ctx, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"initiate chunked upload",
-	); !ok {
+	)
+	if !ok {
 		return
 	}
 
@@ -190,6 +198,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mgr.mu.Lock()
 	h.mgr.sessions[uploadID] = &uploadSession{
 		uploadID:     uploadID,
+		owner:        ownerFromContext(ctx),
 		filename:     req.Filename,
 		metadata:     req.FirmwareMetadata,
 		expectedSize: req.FileSize,
@@ -212,34 +221,27 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewChunkHandler returns a handler for PUT /api/v1/firmware/upload/chunked/{uploadId}.
 func NewChunkHandler(
 	mgr *ChunkedUploadManager,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
-	permissionResolver effectivePermissionResolver,
+	authenticator RequestAuthenticator,
 ) http.Handler {
 	return &chunkHandler{
-		mgr:                mgr,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		permissionResolver: permissionResolver,
+		mgr:           mgr,
+		authenticator: authenticator,
 	}
 }
 
 type chunkHandler struct {
-	mgr                *ChunkedUploadManager
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	permissionResolver effectivePermissionResolver
+	mgr           *ChunkedUploadManager
+	authenticator RequestAuthenticator
 }
 
 func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireMutationPermission(
+	ctx, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"upload chunk",
-	); !ok {
+	)
+	if !ok {
 		return
 	}
 
@@ -253,7 +255,7 @@ func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sess, ok := h.mgr.sessions[uploadID]
 	h.mgr.mu.Unlock()
 
-	if !ok {
+	if !ok || sess.owner != ownerFromContext(ctx) {
 		writeError(w, http.StatusNotFound, "upload session not found")
 		return
 	}
@@ -307,37 +309,29 @@ func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func NewCompleteHandler(
 	mgr *ChunkedUploadManager,
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
 	activitySvc *activityDomain.Service,
-	permissionResolver effectivePermissionResolver,
 ) http.Handler {
 	return &completeHandler{
-		mgr:                mgr,
-		filesService:       filesService,
-		sessionService:     sessionService,
-		userStore:          userStore,
-		activitySvc:        activitySvc,
-		permissionResolver: permissionResolver,
+		mgr:           mgr,
+		filesService:  filesService,
+		authenticator: authenticator,
+		activitySvc:   activitySvc,
 	}
 }
 
 type completeHandler struct {
-	mgr                *ChunkedUploadManager
-	filesService       *files.Service
-	sessionService     *session.Service
-	userStore          interfaces.UserStore
-	activitySvc        *activityDomain.Service
-	permissionResolver effectivePermissionResolver
+	mgr           *ChunkedUploadManager
+	filesService  *files.Service
+	authenticator RequestAuthenticator
+	activitySvc   *activityDomain.Service
 }
 
 func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := requireMutationPermission(
 		w,
 		r,
-		h.sessionService,
-		h.userStore,
-		h.permissionResolver,
+		h.authenticator,
 		"complete chunked upload",
 	)
 	if !ok {
@@ -352,12 +346,12 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.mgr.mu.Lock()
 	sess, ok := h.mgr.sessions[uploadID]
-	if ok {
+	if ok && sess.owner == ownerFromContext(ctx) {
 		delete(h.mgr.sessions, uploadID)
 	}
 	h.mgr.mu.Unlock()
 
-	if !ok {
+	if !ok || sess.owner != ownerFromContext(ctx) {
 		writeError(w, http.StatusNotFound, "upload session not found")
 		return
 	}

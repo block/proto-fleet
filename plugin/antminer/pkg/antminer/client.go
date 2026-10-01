@@ -221,10 +221,12 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	var serialNumber, macAddress string
 	if c.credentials != nil {
 		connInfo := c.getWebConnectionInfo()
-		if systemInfo, err := c.webClient.GetSystemInfo(ctx, connInfo); err == nil {
-			serialNumber = systemInfo.SerialNumber
-			macAddress = systemInfo.MacAddr
+		systemInfo, err := c.webClient.GetSystemInfo(ctx, connInfo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get authenticated system info: %w", err)
 		}
+		serialNumber = systemInfo.SerialNumber
+		macAddress = systemInfo.MacAddr
 	}
 
 	return &DeviceInfo{

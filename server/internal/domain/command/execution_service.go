@@ -396,7 +396,8 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 
 		reapedCmds = make([]reapedCommand, 0, len(reaped))
 		firmwareDeviceIDs := make([]int64, 0)
-		requeueOrganizations := make(map[int64]struct{})
+		type configTarget struct{ orgID, deviceID int64 }
+		requeueTargets := make(map[configTarget]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -409,7 +410,7 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 			}
 			kind, kindErr := commandtype.FromString(msg.CommandType)
 			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
-				requeueOrganizations[msg.OrgID] = struct{}{}
+				requeueTargets[configTarget{orgID: msg.OrgID, deviceID: msg.DeviceID}] = struct{}{}
 			}
 			if kindErr == nil && kind == commandtype.FirmwareUpdate {
 				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
@@ -424,8 +425,22 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				commandType: msg.CommandType,
 			})
 		}
-		for orgID := range requeueOrganizations {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, orgID); err != nil {
+		// Match organization-then-device lock order across concurrent reapers.
+		targets := make([]configTarget, 0, len(requeueTargets))
+		for target := range requeueTargets {
+			targets = append(targets, target)
+		}
+		sort.Slice(targets, func(i, j int) bool {
+			if targets[i].orgID != targets[j].orgID {
+				return targets[i].orgID < targets[j].orgID
+			}
+			return targets[i].deviceID < targets[j].deviceID
+		})
+		for _, target := range targets {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+				OrganizationID: target.orgID,
+				DeviceID:       target.deviceID,
+			}); err != nil {
 				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
 			}
 		}
@@ -629,7 +644,10 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 			return err
 		}
 		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, orgID); err != nil {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+				OrganizationID: orgID,
+				DeviceID:       message.DeviceID,
+			}); err != nil {
 				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
 			}
 		}
@@ -882,7 +900,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 		// Surface a persistence failure as a command error: the on-device password
 		// already changed, so a silent success would leave Fleet with stale credentials.
-		if dbErr := es.persistUpdatedMinerPassword(ctx, message.DeviceID, minerInfo, p.NewPassword, encryptedCredentials); dbErr != nil {
+		if dbErr := es.persistUpdatedMinerPassword(ctx, message.DeviceID, orgID, minerInfo, p.NewPassword, encryptedCredentials); dbErr != nil {
 			slog.Error("device password updated but database sync failed",
 				"device_id", message.DeviceID, "error", dbErr)
 			err = fleeterror.NewFailedPreconditionErrorf(
@@ -1506,14 +1524,14 @@ var errMinerCredentialsMissing = errors.New("no miner credentials row for device
 
 // persistMinerPassword updates the device's stored password, inserting a defensive
 // row for Proto if the command reached persistence before credentials existed.
-func (es *ExecutionService) persistUpdatedMinerPassword(ctx context.Context, deviceID int64, minerInfo interfaces.Miner, password string, encrypted *gatewaypb.EncryptedCredentials) error {
+func (es *ExecutionService) persistUpdatedMinerPassword(ctx context.Context, deviceID, orgID int64, minerInfo interfaces.Miner, password string, encrypted *gatewaypb.EncryptedCredentials) error {
 	if encrypted != nil {
-		return es.persistFleetNodeMinerCredentials(ctx, deviceID, encrypted)
+		return es.persistFleetNodeMinerCredentials(ctx, deviceID, orgID, string(minerInfo.GetID()), encrypted)
 	}
 	return es.persistMinerPassword(ctx, deviceID, minerInfo.GetDriverName(), password)
 }
 
-func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context, deviceID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context, deviceID, orgID int64, deviceIdentifier string, encrypted *gatewaypb.EncryptedCredentials) error {
 	encodedUsername, encodedPassword, err := credentialblob.EncodeValid(encrypted)
 	if errors.Is(err, credentialblob.ErrMissingCredentials) {
 		return fleeterror.NewInternalErrorf("fleet node password update returned empty encrypted credentials")
@@ -1525,6 +1543,16 @@ func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context
 		return fleeterror.NewInternalErrorf("encode fleet node password update credentials: %v", err)
 	}
 	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+		locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            orgID,
+		})
+		if err != nil {
+			return err
+		}
+		if len(locked) == 0 {
+			return fleeterror.NewFailedPreconditionErrorf("device %d is no longer available for credential repair", deviceID)
+		}
 		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: encodedUsername,

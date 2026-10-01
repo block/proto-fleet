@@ -137,8 +137,10 @@ type RolloutServiceClient interface {
 	// flight keeps the behavior it started with, except that the channel-wide
 	// RolloutBehavior.max_concurrent_offline budget takes effect immediately.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its assignments and rollout history. Miners keep
-	// their running firmware; firmware files are not affected.
+	// Deletes a channel with its assignments and rollout history. Rejected
+	// while a rollout is active or its firmware commands are pending/in flight,
+	// including commands issued before cancellation. Firmware files are not
+	// affected; deleting settled history does not change miners' firmware.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
@@ -176,9 +178,8 @@ type RolloutServiceClient interface {
 	// starts at most one all-at-once rollout for members mismatched under the
 	// RolloutService mismatch rule, so a member whose superseded update is
 	// still outstanding is included and receives the restored target behind
-	// that update. A restored artifact that is not currently
-	// uploaded is still assigned; enforcement waits under the RolloutService
-	// artifact identity rule. Commands already sent finish under existing
+	// that update. An unavailable restored artifact fails with ARTIFACT_MISSING
+	// before any assignment changes. Commands already sent finish under existing
 	// cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
@@ -201,10 +202,13 @@ type RolloutServiceClient interface {
 	// Dispatches the next update commands of a DELEGATED rollout: either the
 	// named QUEUED targets or the next count QUEUED targets in the rollout's
 	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
-	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
-	// rollout is not delegated, not ACTIVE, paused, a named target is not
-	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
-	// every requested target. Honors the RolloutService revision rule.
+	// STALE_GENERATION, DEVICE_NOT_QUEUED, DEVICE_NOT_DISPATCHABLE,
+	// OFFLINE_BUDGET_FULL, or ARTIFACT_MISSING) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, or no longer current, a
+	// named target is not QUEUED in it, a selected target cannot be dispatched
+	// now, RolloutBehavior.max_concurrent_offline cannot admit every requested
+	// target, or no uploaded file carries the rollout's checksum. Honors the
+	// RolloutService revision rule.
 	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
 	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
 	// them: no command is sent, they stay on their current firmware, and they
@@ -239,7 +243,7 @@ type RolloutServiceClient interface {
 	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
 	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
 	// and adds suppressed members from earlier rollouts of the generation as
-	// unbatched late joiners without baselines. A
+	// unbatched targets retaining their original recovery baselines. A
 	// finished rollout, while it is current under the RolloutService
 	// assignment-generation rule and its pair has no active rollout under the
 	// single-active-rollout rule, starts one all-at-once rollout for every
@@ -250,7 +254,8 @@ type RolloutServiceClient interface {
 	// reachable after later reconciliation rollouts for other miners, and
 	// retrying any current finished rollout of the pair has the same effect.
 	// The new rollout inherits the pair's assignment_generation and assignment
-	// lineage (previous_firmware_checksum and previous_firmware_version), so
+	// lineage (previous_firmware_checksum and previous_firmware_version), and
+	// each retried target retains its original recovery baseline, so
 	// rolling it back reverses the original assignment. When nothing is
 	// suppressed, no rollout starts and the response carries the referenced
 	// rollout unchanged.
@@ -586,8 +591,10 @@ type RolloutServiceHandler interface {
 	// flight keeps the behavior it started with, except that the channel-wide
 	// RolloutBehavior.max_concurrent_offline budget takes effect immediately.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its assignments and rollout history. Miners keep
-	// their running firmware; firmware files are not affected.
+	// Deletes a channel with its assignments and rollout history. Rejected
+	// while a rollout is active or its firmware commands are pending/in flight,
+	// including commands issued before cancellation. Firmware files are not
+	// affected; deleting settled history does not change miners' firmware.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
@@ -625,9 +632,8 @@ type RolloutServiceHandler interface {
 	// starts at most one all-at-once rollout for members mismatched under the
 	// RolloutService mismatch rule, so a member whose superseded update is
 	// still outstanding is included and receives the restored target behind
-	// that update. A restored artifact that is not currently
-	// uploaded is still assigned; enforcement waits under the RolloutService
-	// artifact identity rule. Commands already sent finish under existing
+	// that update. An unavailable restored artifact fails with ARTIFACT_MISSING
+	// before any assignment changes. Commands already sent finish under existing
 	// cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
@@ -650,10 +656,13 @@ type RolloutServiceHandler interface {
 	// Dispatches the next update commands of a DELEGATED rollout: either the
 	// named QUEUED targets or the next count QUEUED targets in the rollout's
 	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
-	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
-	// rollout is not delegated, not ACTIVE, paused, a named target is not
-	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
-	// every requested target. Honors the RolloutService revision rule.
+	// STALE_GENERATION, DEVICE_NOT_QUEUED, DEVICE_NOT_DISPATCHABLE,
+	// OFFLINE_BUDGET_FULL, or ARTIFACT_MISSING) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, or no longer current, a
+	// named target is not QUEUED in it, a selected target cannot be dispatched
+	// now, RolloutBehavior.max_concurrent_offline cannot admit every requested
+	// target, or no uploaded file carries the rollout's checksum. Honors the
+	// RolloutService revision rule.
 	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
 	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
 	// them: no command is sent, they stay on their current firmware, and they
@@ -688,7 +697,7 @@ type RolloutServiceHandler interface {
 	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
 	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place
 	// and adds suppressed members from earlier rollouts of the generation as
-	// unbatched late joiners without baselines. A
+	// unbatched targets retaining their original recovery baselines. A
 	// finished rollout, while it is current under the RolloutService
 	// assignment-generation rule and its pair has no active rollout under the
 	// single-active-rollout rule, starts one all-at-once rollout for every
@@ -699,7 +708,8 @@ type RolloutServiceHandler interface {
 	// reachable after later reconciliation rollouts for other miners, and
 	// retrying any current finished rollout of the pair has the same effect.
 	// The new rollout inherits the pair's assignment_generation and assignment
-	// lineage (previous_firmware_checksum and previous_firmware_version), so
+	// lineage (previous_firmware_checksum and previous_firmware_version), and
+	// each retried target retains its original recovery baseline, so
 	// rolling it back reverses the original assignment. When nothing is
 	// suppressed, no rollout starts and the response carries the referenced
 	// rollout unchanged.
