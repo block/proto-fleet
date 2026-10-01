@@ -79,7 +79,12 @@ shows the full surface; setup options are in CONTRIBUTING.md.
   report unrelated failures without expanding scope. Read-only reviews stay
   read-only. Commit, push, and PR creation follow the user's requested scope.
 - Choose checks for the affected behavior; broaden only for a relevant risk
-  or failure. Report what ran, what passed, and what remains unverified.
+  or failure. Run targeted tests while editing. For an authorized push, let
+  pre-push run the final `just check-changed`; do not duplicate it manually
+  immediately before pushing. For local-only completion, run it manually.
+  Repeat passing checks only after relevant inputs change or a new concern
+  appears; keep hooks enabled on every push. Report what ran, what passed,
+  and what remains unverified.
 - Verify versions and upstream behavior against live sources. For setup
   instructions, read the actual scripts; mark unverifiable claims explicitly.
 
