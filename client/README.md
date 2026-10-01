@@ -102,6 +102,30 @@ npm run preview:protoFleet
 
 Vite is configured with mode-based builds. Each app has its own `index.html` entry point in `src/{app}/` and builds to `dist/{app}/`. Always specify the mode when building: `vite build --mode protoOS`.
 
+### CT1 on-device standalone
+
+CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens Frigate's API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter makes relative `/api/v2/…` requests with `X-Frigate-Actor: proto-os`, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device.
+
+Host packaging and serving live in [Frigate](https://github.com/btc-mining/frigate):
+
+- [`packaging/proto-os/release.json`](https://github.com/btc-mining/frigate/blob/main/packaging/proto-os/release.json) pins the release tag, full commit, tarball asset and SHA-256. Release/nightly publication here does **not** automatically advance that pin.
+- Frigate's `fetch.sh` verifies that release identity and checksum; `stage.sh` verifies the archive and generates its own integrity manifest. The `.deb` installs the full tree into `/var/www`, the version into `/etc/web_dashboard_version`, and release provenance into `/usr/share/frigate/proto-os-release.json`. Controller Pi images install that same `.deb`.
+- Frigate serves the verified bundle on the same listener as `/api/v2/`. Its default `server.web_root` is `/var/www`; an empty value disables UI serving. After installing an updated bundle, restart Frigate to load its immutable startup snapshot.
+
+The existing artifact workflow supplies `proto-os-${VERSION}.tar.gz` with archive root **`dist/protoOS`**. Preserve `index.html`, `config.js`, `version.txt`, all `assets/` lazy chunks, and optional favicon/fonts. `version.txt` must identify the release tag and full source commit. Do not flatten the archive, include links or unrelated files, or generate `.frigate-protoos-manifest.json` here; Frigate staging owns that manifest. `nfpm-proto-os.yaml` and the `.ipk` remain **R2/OpenWRT-only**, not the CT1 deployment path. Frigate's separate HMI/Flotilla kiosk image is not this controller-host dashboard.
+
+To verify a fresh production build against an isolated same-origin CT1 simulator, activate Hermit from the repository root, then run:
+
+```bash
+cd client
+npx playwright install chromium # once per browser version
+npm run test:e2e:ct1
+```
+
+This builds protoOS, starts its own `fake-ct1` on port 18081 serving `dist/protoOS`, and checks desktop/mobile boot, tank/module deep-link reloads, no login gate, and scoped tank stop/start with actor-only decoration and untouched neighboring tank state. It refuses to reuse an existing server and restores the touched simulator scope. See [the E2E guide](e2eTests/protoOS/README.md) for focused commands. The simulator preview does not replace Frigate's archive/manifest verification or an on-hardware deployment check.
+
+For rollout, select a published validated tarball, advance Frigate's release pin in a separate change, and run its package/image verification. On an authorized controller, check root and tank/module refreshes, reads, and a narrowly scoped stop/start round trip on the management network. This repository's browser smoke does not install a package, update Frigate's pin, or validate a physical controller.
+
 ## Testing
 
 ```bash

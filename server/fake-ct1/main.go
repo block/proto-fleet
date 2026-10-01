@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -32,6 +33,9 @@ const (
 )
 
 func main() {
+	webRoot := flag.String("web-root", "", "Serve a built ProtoOS directory on the API origin (disabled by default)")
+	flag.Parse()
+
 	instanceID := uuid.New().String()[:8]
 
 	cfg := ContainerConfig{
@@ -58,27 +62,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	port := getEnvInt("HTTP_PORT", defaultHTTPPort)
-	err := startHTTPServer(ctx, state, port)
+	err := startHTTPServer(ctx, state, port, *webRoot)
 	cancel()
 	if err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *ContainerState, port int) error {
-	mux := http.NewServeMux()
-
-	handler := NewRESTApiHandler(state)
-	handler.RegisterRoutes(mux)
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
+func startHTTPServer(ctx context.Context, state *ContainerState, port int, webRoot string) error {
+	handler, closeHandler, err := newHTTPHandler(state, webRoot)
+	if err != nil {
+		return err
+	}
+	defer closeHandler()
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           jsonErrorMiddleware(mux),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		// Bound total request and response time. Every handler holds the state
 		// mutex while reading the body / streaming the (up to 288-board)
