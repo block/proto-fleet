@@ -9,9 +9,11 @@ Set `PROTO_FLEET_UPDATER_RELEASE_DIR` (or `--release-dir`) on the host updater t
 staged bundles instead of public GitHub downloads:
 
 ```text
-<release-dir>/<version>/proto-fleet-<version>-amd64.tar.gz
-<release-dir>/<version>/proto-fleet-<version>-amd64.tar.gz.sha256
+<release-dir>/<version>/proto-fleet-<version>-<arch>.tar.gz
+<release-dir>/<version>/proto-fleet-<version>-<arch>.tar.gz.sha256
 ```
+
+Use the host architecture, `amd64` or `arm64`, for `<arch>`.
 
 Use a separate absolute, symlink-free directory per repository, owned by root or
 the updater account. Neither the directory nor its files may be group/world writable.
