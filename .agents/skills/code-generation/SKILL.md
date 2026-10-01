@@ -1,13 +1,26 @@
 ---
 name: code-generation
-description: Regenerate code after proto, SQL schema/query, sqlc, or Buf configuration changes.
+description: Regenerate code after proto, SQL schema/query, Go generator input, or generator configuration changes.
 ---
 
 # Code generation
 
-Run `just gen` from the repo root after source edits are complete. Keep source
-and generated output together; never patch generated files by hand. Inspect
-the pre-existing diff before generation so user changes remain identifiable.
+After source edits are complete, select the command below and run it from the
+repo root. Keep source and generated output together; never patch generated
+files by hand. Inspect the pre-existing diff before generation so user changes
+remain identifiable.
+
+| Source changes | Command |
+| --- | --- |
+| Protobuf contracts in `proto/` or `server/sdk/v1/pb/` | `just gen-protos` |
+| SQL schema in `server/migrations/` or queries in `server/sqlc/queries/` | `just gen-db-queries` |
+| Inputs to the server's `go:generate` directives | `just gen-go` |
+| Changes spanning generators, or generator configuration/tool versions (including Buf and sqlc configuration) | `just gen` |
+
+The scoped commands avoid unrelated generators and full client/server
+formatting. `just gen-protos` includes SDK protobufs and the protobuf-driven
+Fleet CLI. Use full `just gen` when changes cross the scopes above or alter
+the generation pipeline.
 
 Read only the reference relevant to the change:
 

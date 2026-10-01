@@ -4,8 +4,9 @@ description: Run the repository generation pipeline and report source and genera
 argument-hint: (no arguments)
 ---
 
-Use the [generation skill](../code-generation/SKILL.md) to run
-`just gen` and inspect the resulting diff. Resolve failures caused by the
+Use the [generation skill](../code-generation/SKILL.md) to select the scoped command for the
+changed sources, or full `just gen` for changes spanning generators or their
+configuration, and inspect the resulting diff. Resolve failures caused by the
 requested change and rerun affected generation; report external blockers.
 Summarize output by consumer/language, explain unexpected changes with
 evidence, and identify artifacts that belong with the source commit.
