@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,6 +54,9 @@ func TestHTTPProviderCoinbase(t *testing.T) {
 		{name: "missing rewards", path: rewardsPath, body: `{}`, price: true, hashrate: true, wantError: true},
 		{name: "zero reward", path: rewardsPath, body: strings.ReplaceAll(rewardsJSON, `46800000000`, `0`), price: true, hashrate: true, wantError: true},
 		{name: "wrong sample size", path: rewardsPath, body: strings.ReplaceAll(rewardsJSON, `900143`, `900142`), price: true, hashrate: true, wantError: true},
+		{name: "reversed sample", path: rewardsPath, body: strings.ReplaceAll(rewardsJSON, `900143`, `899999`), price: true, hashrate: true, wantError: true},
+		{name: "reversed sample with overflow", path: rewardsPath, body: fmt.Sprintf(`{"startBlock":%d,"endBlock":%d,"totalReward":"46800000000"}`, int64(math.MaxInt64), int64(math.MinInt64+142)), price: true, hashrate: true, wantError: true},
+		{name: "sample near maximum height", path: rewardsPath, body: fmt.Sprintf(`{"startBlock":%d,"endBlock":%d,"totalReward":"46800000000"}`, int64(math.MaxInt64-143), int64(math.MaxInt64)), price: true, hashrate: true, hashprice: true},
 		{name: "oversized body", path: pricePath, body: strings.Repeat(" ", maxBodyBytes+1), hashrate: true, wantError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

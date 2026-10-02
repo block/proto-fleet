@@ -213,7 +213,7 @@ func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 	// An unavailable hashrate doesn't invalidate difficulty, and vice versa.
 	// Hashprice depends on difficulty, not the noisy network-hashrate estimate.
 	totalReward, parseErr := rewards.TotalReward.Float64()
-	if rewardErr == nil && (parseErr != nil || !positiveFinite(totalReward) || rewards.Start < 0 || rewards.End-rewards.Start != rewardBlocks-1) {
+	if rewardErr == nil && (parseErr != nil || !positiveFinite(totalReward) || rewards.Start < 0 || rewards.End < rewards.Start || rewards.End-rewards.Start != rewardBlocks-1) {
 		rewardErr = fmt.Errorf("reward feed returned an invalid 144-block sample")
 	}
 	var difficultyErr error
