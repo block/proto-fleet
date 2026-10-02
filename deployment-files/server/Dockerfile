@@ -4,13 +4,13 @@ RUN apk add --no-cache gcompat
 
 WORKDIR /app
 
-COPY fleetd /app/
+COPY fleetd fleet-db-transition /app/
 
 RUN mkdir -p /app/plugins
 COPY proto-plugin antminer-plugin asicrs-plugin asicrs-config.yaml /app/plugins/
 COPY virtual-plugin virtual-plugin.json /app/optional-plugins/
 
-RUN chmod 755 /app/fleetd /app/plugins/*-plugin /app/optional-plugins/virtual-plugin
+RUN chmod 755 /app/fleet-db-transition /app/fleetd /app/plugins/*-plugin /app/optional-plugins/virtual-plugin
 
 EXPOSE 4000
 

@@ -117,6 +117,8 @@ func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *
 	// Assert
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(commands, "\n"), haActiveInstallMarker)
+	// Maintenance preflight precedes the manual reconciliation.
+	require.NotContains(t, strings.Join(commands, "\n"), "fleet-db-transition")
 }
 
 func TestUpdateCompatibilityRejectsPreGrafanaProfile(t *testing.T) {
@@ -269,4 +271,16 @@ func TestActiveUpdateRequiresExternalPublicPath(t *testing.T) {
 func TestActiveUpdatePublicPathLeavesVIPCheckToControlReadiness(t *testing.T) {
 	// No additional endpoint probe is needed for VIP mode.
 	require.NoError(t, requireActivePublicPath(t.Context(), NodeConfig{EndpointMode: "vip"}))
+}
+
+func TestApplicationSchemaCheckRefusesUnreconciledDatabase(t *testing.T) {
+	expected := errors.New("database has not been reconciled")
+	var got []string
+	err := checkApplicationSchema(t.Context(), "/release", fleetApplicationProfile{}, func(_ context.Context, args []string) error {
+		got = args
+		return expected
+	})
+	require.ErrorIs(t, err, expected)
+	require.Contains(t, strings.Join(got, " "), "run --rm --no-deps --entrypoint /app/fleet-db-transition fleet-api check --state target")
+	require.NotContains(t, got, "fleet-client")
 }
