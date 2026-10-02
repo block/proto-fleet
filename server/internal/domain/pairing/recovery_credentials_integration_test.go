@@ -2,6 +2,7 @@ package pairing_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -25,8 +26,17 @@ func TestIsSameDeviceStoredCredentials(t *testing.T) {
 		corruptPassword    bool
 		missingCredentials bool
 		identityMismatch   bool
+		discoveryIdentity  string
+		rejectDiscovery    bool
 	}{
 		{name: "matching miner receives decrypted credentials"},
+		{name: "missing discovery identity never receives credentials", discoveryIdentity: "missing", rejectDiscovery: true},
+		{name: "conflicting discovery MAC never receives credentials", discoveryIdentity: "conflicting MAC", rejectDiscovery: true},
+		{name: "conflicting discovery serial never receives credentials", discoveryIdentity: "conflicting serial", rejectDiscovery: true},
+		{name: "invalid discovery identity never receives credentials", discoveryIdentity: "invalid", rejectDiscovery: true},
+		{name: "MAC-only discovery identity permits recovery", discoveryIdentity: "MAC only"},
+		{name: "serial-only discovery identity permits recovery", discoveryIdentity: "serial only"},
+		{name: "normalized discovery MAC permits recovery", discoveryIdentity: "normalized MAC"},
 		{name: "another miner cannot inherit the identity", identityMismatch: true},
 		{name: "corrupt username never reaches the driver", corruptUsername: true},
 		{name: "corrupt password never reaches the driver", corruptPassword: true},
@@ -36,6 +46,8 @@ func TestIsSameDeviceStoredCredentials(t *testing.T) {
 			created := testContext.DatabaseService.CreateAndAssignDevices(1, admin.OrganizationID)[0]
 			device, err := store.GetDeviceByDeviceIdentifier(t.Context(), created.ID, admin.OrganizationID)
 			require.NoError(t, err)
+			device.SerialNumber = "recovery-miner-" + created.ID
+			require.NoError(t, store.UpdateDeviceInfo(t.Context(), device, admin.OrganizationID))
 			require.NoError(t, store.UpsertDevicePairing(t.Context(), device, admin.OrganizationID, pairing.StatusPaired))
 			usernameEnc, err := encryption.Encrypt([]byte("admin"))
 			require.NoError(t, err)
@@ -54,9 +66,25 @@ func TestIsSameDeviceStoredCredentials(t *testing.T) {
 				IpAddress: "192.168.94.15", Port: "8080", UrlScheme: "http", DriverName: "proto",
 				MacAddress: device.MacAddress, SerialNumber: device.SerialNumber,
 			}}
+			switch tc.discoveryIdentity {
+			case "missing":
+				candidate.MacAddress, candidate.SerialNumber = "", ""
+			case "conflicting MAC":
+				candidate.MacAddress = "02:00:00:00:00:99"
+			case "conflicting serial":
+				candidate.SerialNumber = "unrelated-miner"
+			case "invalid":
+				candidate.MacAddress, candidate.SerialNumber = "invalid-mac", ""
+			case "MAC only":
+				candidate.SerialNumber = ""
+			case "serial only":
+				candidate.MacAddress = ""
+			case "normalized MAC":
+				candidate.MacAddress = strings.ToLower(device.MacAddress)
+			}
 			ctrl := gomock.NewController(t)
 			pairer := pairingmocks.NewMockPairer(ctrl)
-			valid := !tc.corruptUsername && !tc.corruptPassword && !tc.missingCredentials
+			valid := !tc.rejectDiscovery && !tc.corruptUsername && !tc.corruptPassword && !tc.missingCredentials
 			if valid {
 				pairer.EXPECT().GetDeviceInfo(gomock.Any(), candidate, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error) {

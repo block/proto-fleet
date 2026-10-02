@@ -754,6 +754,13 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 	identityConfirmed := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress()).Matches(
 		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
 	)
+	// Never disclose stored credentials to a candidate that discovery cannot
+	// identify as this miner. Reject conflicts or absent shared identity before
+	// reading or decrypting the credentials, not after authenticating.
+	if !identityConfirmed {
+		slog.Debug("skipping recovery candidate without matching discovery identity", "device_identifier", pairedDeviceIdentifier)
+		return false
+	}
 
 	pairer := s.pairer
 

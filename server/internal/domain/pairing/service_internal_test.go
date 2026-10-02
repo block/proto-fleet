@@ -26,28 +26,28 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestIsSameDevice_AuthenticationFailureRequiresIdentityEvidence(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	pairer := pairingmocks.NewMockPairer(ctrl)
-	encryptService, credentials, plainCredentials := recoveryTestCredentials(t)
-	service := &Service{deviceStore: deviceStore, pairer: pairer, encryptService: encryptService}
-
-	paired := &pb.Device{
-		DeviceIdentifier: "miner-1",
-		MacAddress:       "AA:BB:CC:DD:EE:FF",
-		SerialNumber:     "serial-1",
+func TestIsSameDevice_UnconfirmedDiscoveryNeverReadsCredentials(t *testing.T) {
+	for _, tc := range []struct{ name, mac, serial string }{
+		{name: "missing identity"},
+		{name: "invalid MAC", mac: "invalid-mac"},
+		{name: "conflicting MAC", mac: "AA:BB:CC:DD:EE:00", serial: "serial-1"},
+		{name: "conflicting serial", mac: "AA:BB:CC:DD:EE:FF", serial: "another-miner"},
+		{name: "unrelated identity", mac: "AA:BB:CC:DD:EE:00", serial: "another-miner"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			deviceStore := mocks.NewMockDeviceStore(ctrl)
+			pairer := pairingmocks.NewMockPairer(ctrl)
+			service := &Service{deviceStore: deviceStore, pairer: pairer}
+			paired := &pb.Device{DeviceIdentifier: "miner-1", MacAddress: "AA:BB:CC:DD:EE:FF", SerialNumber: "serial-1"}
+			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
+			// No credential-store or driver calls are permitted for an unconfirmed candidate.
+			matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{Device: pb.Device{
+				IpAddress: "192.168.1.20", Port: "80", DriverName: "antminer", MacAddress: tc.mac, SerialNumber: tc.serial,
+			}}, "miner-1", 7)
+			require.False(t, matched)
+		})
 	}
-	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
-	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
-	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), plainCredentials).
-		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
-
-	matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{IpAddress: "192.168.1.20", Port: "80", DriverName: "antminer"},
-	}, "miner-1", 7)
-
-	require.False(t, matched)
 }
 
 func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *testing.T) {
