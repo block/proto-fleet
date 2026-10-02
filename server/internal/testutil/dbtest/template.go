@@ -871,7 +871,7 @@ func migrationSetFingerprint(role string) string {
 	}
 
 	for _, name := range names {
-		contents, err := fs.ReadFile(migrations.Migrations, name)
+		contents, err := fs.ReadFile(migrations.Current, "current/"+name)
 		if err != nil {
 			return fmt.Sprintf("%x", time.Now().UnixNano())[:templateFingerprintLength]
 		}
@@ -884,7 +884,7 @@ func migrationSetFingerprint(role string) string {
 
 // migrationFileNames lists the embedded migration files in a stable order.
 func migrationFileNames() ([]string, error) {
-	entries, err := fs.ReadDir(migrations.Migrations, ".")
+	entries, err := fs.ReadDir(migrations.Current, "current")
 	if err != nil {
 		return nil, fmt.Errorf("read migrations directory: %w", err)
 	}

@@ -442,7 +442,7 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 		"server/monitoring/grafana/grafana.ini", "server/monitoring/grafana/provisioning/alerting/notification-policies.yaml",
 		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml", "server/monitoring/grafana/ha/timescaledb.yaml",
 		"server/monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml", "server/monitoring/grafana/system-monitoring/dashboards.yaml", "server/monitoring/grafana/system-monitoring/dashboards/system-monitoring.json",
-		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
+		"server/Dockerfile", "server/fleetd", "server/fleet-db-transition", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
 		"ha/updater-systemd.conf", "ha/ha-updater-systemd.conf",

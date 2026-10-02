@@ -114,6 +114,29 @@ This option works with standalone and `--ha` installs. It controls bootstrap
 scratch only, not the permanent installation directory or runtime updater state.
 Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
+## Database admission and retained artifacts
+
+Baseline releases include `server/fleet-db-transition`. Existing installations
+must complete the qualified offline reconciliation before switching migration
+histories or repositories. The standalone runner checks startup admission before
+replacing containers; ordinary pending migrations within the admitted history
+still run at application startup. HA application replacement and recovery require
+the exact target schema. A failed deployment does not undo a database migration.
+
+Standalone installations retain firmware, command artifacts and application logs
+in `artifacts/` beside `deployment/`, outside the updater's tree swap. On the first
+replacement, the runner stops the old API container and copies its `/app` tree to
+a private temporary directory, then retains only those three artifact directories.
+Allow temporary disk space for that one-time copy. Configuration and authentication
+keys keep their existing preservation paths. Include the artifact directory in
+your coordinated backup.
+
+A failed copy leaves the old container available and stops replacement. A retry
+accepts an identical completed copy; conflicting files, symlinks or unexpected
+mounts require operator review. Do not remove the old container or either copy
+to work around a refusal. HA external deployments retain their existing
+`HA_DATA_DIR/artifacts` mounts and are unaffected by the standalone copy.
+
 ## Release repositories and forks
 
 Proto Fleet supports public releases on GitHub.com under a validated

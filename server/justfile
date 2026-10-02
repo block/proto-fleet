@@ -78,7 +78,7 @@ db-up:
 
 # run a db migration
 db-migrate:
-  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations up
+  go run ./cmd/fleet-db-transition migrate
 
 # stop the db
 db-down:
@@ -86,15 +86,23 @@ db-down:
 
 # tear down the db by running down migrations
 db-reset:
-  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations down
+  echo "Database down migrations are unsupported after baseline adoption; restore a coordinated backup." >&2
+  exit 1
 
 # launch psql shell for interacting with the db started via db-up
 db-shell:
   psql -h 127.0.0.1 -U fleet -d fleet
 
-# create a new migration
-db-migration-new name:
-  migrate create -ext sql -dir migrations -seq {{name}}
+# allocate a shared or private migration in the internal repository
+db-migration-new $name:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "$name" in
+    shared_*|internal_*) ;;
+    *) echo "Use shared_<name> or internal_<name>." >&2; exit 1 ;;
+  esac
+  test -f migrations/current/001001_internal_baseline.up.sql || { echo "Allocate migration numbers in the internal repository, then promote shared files unchanged." >&2; exit 1; }
+  migrate create -ext sql -dir migrations/current -seq "$name"
 
 # run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
 _run: db-up install
