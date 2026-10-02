@@ -24,7 +24,7 @@ const (
 	rewardsJSON   = `{"startBlock":900000,"endBlock":900143,"totalReward":"46800000000"}`
 )
 
-func TestHTTPProvider(t *testing.T) {
+func TestHTTPProviderCoinbase(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		path      string
@@ -61,6 +61,7 @@ func TestHTTPProvider(t *testing.T) {
 				require.Equal(t, "application/json", r.Header.Get("Accept"))
 				require.Empty(t, r.Header.Get("Cookie"))
 				require.Empty(t, r.Header.Get("Authorization"))
+				require.Empty(t, r.Header.Get("X-Cg-Pro-Api-Key"))
 				if tt.path == r.URL.Path {
 					if tt.status != 0 {
 						w.WriteHeader(tt.status)
@@ -78,7 +79,7 @@ func TestHTTPProvider(t *testing.T) {
 				_, _ = fmt.Fprint(w, body)
 			}))
 			defer server.Close()
-			provider := NewHTTPProvider(Config{CoinbaseURL: server.URL, MempoolURL: server.URL})
+			provider := NewHTTPProvider(Config{PriceProvider: PriceProviderCoinbase, CoinbaseURL: server.URL, CoinGeckoAPIKey: "test-key", MempoolURL: server.URL})
 			at := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 			provider.now = func() time.Time { return at }
 			result, err := provider.Fetch(t.Context())
@@ -106,37 +107,88 @@ func TestHTTPProvider(t *testing.T) {
 }
 
 func TestHTTPProviderCoinGeckoPriceProvider(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "application/json", r.Header.Get("Accept"))
-		require.Empty(t, r.Header.Get("Cookie"))
-		require.Empty(t, r.Header.Get("Authorization"))
-		switch r.URL.Path {
-		case coinGeckoPath:
-			require.Equal(t, "bitcoin", r.URL.Query().Get("ids"))
-			require.Equal(t, "usd", r.URL.Query().Get("vs_currencies"))
-			_, _ = fmt.Fprint(w, coinGeckoJSON)
-		case networkPath:
-			_, _ = fmt.Fprint(w, networkJSON)
-		case rewardsPath:
-			_, _ = fmt.Fprint(w, rewardsJSON)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-	provider := NewHTTPProvider(Config{PriceProvider: PriceProviderCoinGecko, CoinGeckoURL: server.URL, MempoolURL: server.URL})
-	at := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
-	provider.now = func() time.Time { return at }
+	for _, tt := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{name: "complete", body: coinGeckoJSON},
+		{name: "unauthorized", status: http.StatusUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden},
+		{name: "rate limited", status: http.StatusTooManyRequests},
+		{name: "upstream outage", status: http.StatusServiceUnavailable},
+		{name: "missing price", body: `{}`},
+		{name: "zero price", body: `{"bitcoin":{"usd":0}}`},
+		{name: "negative price", body: `{"bitcoin":{"usd":-1}}`},
+		{name: "malformed JSON", body: `{"bitcoin":`},
+		{name: "wrong type", body: `{"bitcoin":{"usd":"100000"}}`},
+		{name: "oversized body", body: strings.Repeat(" ", maxBodyBytes+1)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "application/json", r.Header.Get("Accept"))
+				require.Empty(t, r.Header.Get("Cookie"))
+				require.Empty(t, r.Header.Get("Authorization"))
+				require.Empty(t, r.Header.Get("X-Cg-Demo-Api-Key"))
+				require.NotContains(t, r.URL.String(), "test-key")
+				switch r.URL.Path {
+				case coinGeckoPath:
+					require.Equal(t, "test-key", r.Header.Get("X-Cg-Pro-Api-Key"))
+					require.Equal(t, "ids=bitcoin&vs_currencies=usd", r.URL.RawQuery)
+					if tt.status != 0 {
+						w.WriteHeader(tt.status)
+						_, _ = fmt.Fprint(w, "test-key") // response bodies must not leak into errors
+						return
+					}
+					_, _ = fmt.Fprint(w, tt.body)
+				case networkPath:
+					require.Empty(t, r.Header.Get("X-Cg-Pro-Api-Key"))
+					_, _ = fmt.Fprint(w, networkJSON)
+				case rewardsPath:
+					require.Empty(t, r.Header.Get("X-Cg-Pro-Api-Key"))
+					_, _ = fmt.Fprint(w, rewardsJSON)
+				default:
+					t.Errorf("unexpected request to %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			// Omitted provider selection must use CoinGecko, never fall back to Coinbase.
+			provider := NewHTTPProvider(Config{CoinbaseURL: server.URL, CoinGeckoURL: server.URL, CoinGeckoAPIKey: "test-key", MempoolURL: server.URL})
+			provider.client.Transport = server.Client().Transport
+			at := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+			provider.now = func() time.Time { return at }
 
-	result, err := provider.Fetch(t.Context())
-	require.NoError(t, err)
-	require.NotNil(t, result.Price)
-	require.Equal(t, 100000.0, result.Price.Value)
-	require.Equal(t, at, result.Price.RetrievedAt)
-	require.Equal(t, "CoinGecko", result.Price.Source)
-	require.NotNil(t, result.Hashprice)
-	require.Equal(t, "CoinGecko + mempool.space", result.Hashprice.Source)
+			result, err := provider.Fetch(t.Context())
+			require.NotNil(t, result.Hashrate)
+			if tt.name != "complete" {
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), "test-key")
+				require.Nil(t, result.Price)
+				require.Nil(t, result.Hashprice)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result.Price)
+			require.Equal(t, 100000.0, result.Price.Value)
+			require.Equal(t, at, result.Price.RetrievedAt)
+			require.Equal(t, "CoinGecko", result.Price.Source)
+			require.NotNil(t, result.Hashprice)
+			require.Equal(t, "CoinGecko + mempool.space", result.Hashprice.Source)
+			require.InDelta(t, 65.37884473800659, result.Hashprice.Value, 0.000001)
+		})
+	}
+}
+
+func TestCoinGeckoProviderRejectsMissingKeyBeforeRequest(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer server.Close()
+	provider := NewHTTPProvider(Config{CoinGeckoURL: server.URL})
+	_, err := provider.priceProvider.FetchBitcoinPriceUSD(t.Context())
+	require.ErrorContains(t, err, "MARKET_DATA_COINGECKO_API_KEY")
+	require.Zero(t, calls.Load())
 }
 
 func TestHTTPProviderRejectsRedirects(t *testing.T) {
@@ -154,11 +206,15 @@ func TestHTTPProviderRejectsRedirects(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 			defer target.Close()
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == coinGeckoPath {
+					require.Equal(t, "test-key", r.Header.Get("X-Cg-Pro-Api-Key"))
+				}
 				http.Redirect(w, r, target.URL, status)
 			}))
 			defer upstream.Close()
-			provider := NewHTTPProvider(Config{CoinbaseURL: upstream.URL, MempoolURL: upstream.URL})
+			provider := NewHTTPProvider(Config{CoinGeckoURL: upstream.URL, CoinGeckoAPIKey: "test-key", MempoolURL: upstream.URL})
+			provider.client.Transport = upstream.Client().Transport
 			result, err := provider.Fetch(t.Context())
 			require.ErrorIs(t, err, transportguard.ErrRedirectNotAllowed)
 			require.Zero(t, redirectedCalls.Load(), "redirect destinations must never be contacted")
@@ -174,7 +230,7 @@ func TestHTTPProviderTimeout(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	provider := NewHTTPProvider(Config{CoinbaseURL: server.URL, MempoolURL: server.URL})
+	provider := NewHTTPProvider(Config{PriceProvider: PriceProviderCoinbase, CoinbaseURL: server.URL, MempoolURL: server.URL})
 	provider.client.Timeout = 20 * time.Millisecond
 	result, err := provider.Fetch(t.Context())
 	require.Error(t, err)

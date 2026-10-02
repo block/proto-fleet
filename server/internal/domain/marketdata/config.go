@@ -4,6 +4,7 @@ package marketdata
 import (
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -17,9 +18,10 @@ const (
 type Config struct {
 	Enabled         bool              `help:"Enable dashboard market data and outbound public feed requests" default:"false" env:"ENABLED"`
 	RefreshInterval time.Duration     `help:"Minimum interval between market-data refreshes" default:"1m" env:"REFRESH_INTERVAL"`
-	PriceProvider   PriceProviderName `help:"Bitcoin USD price provider" default:"coinbase" enum:"coinbase,coingecko" env:"PRICE_PROVIDER"`
+	PriceProvider   PriceProviderName `help:"Bitcoin USD price provider" default:"coingecko" enum:"coinbase,coingecko" env:"PRICE_PROVIDER"`
 	CoinbaseURL     string            `help:"Coinbase API base URL" default:"https://api.coinbase.com" env:"COINBASE_URL"`
-	CoinGeckoURL    string            `help:"CoinGecko API base URL" default:"https://api.coingecko.com" env:"COINGECKO_URL"`
+	CoinGeckoURL    string            `name:"coingecko-url" help:"CoinGecko Pro API base URL" default:"https://pro-api.coingecko.com" env:"COINGECKO_URL"`
+	CoinGeckoAPIKey string            `name:"coingecko-api-key" help:"CoinGecko paid-plan API key for the Pro API (prefer the environment variable)" env:"COINGECKO_API_KEY" json:"-"`
 	MempoolURL      string            `help:"Mempool API base URL (a self-hosted mainnet instance may be used)" default:"https://mempool.space" env:"MEMPOOL_URL"`
 }
 
@@ -39,14 +41,32 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
+	if priceProvider == PriceProviderCoinGecko {
+		if err := validateCoinGeckoAPIKey(c.CoinGeckoAPIKey); err != nil {
+			return err
+		}
+		if !strings.HasPrefix(c.CoinGeckoURL, "https://") {
+			return fmt.Errorf("MARKET_DATA_COINGECKO_URL must use HTTPS")
+		}
+	}
 	return nil
 }
 
 func (c Config) effectivePriceProvider() PriceProviderName {
 	if c.PriceProvider == "" {
-		return PriceProviderCoinbase
+		return PriceProviderCoinGecko
 	}
 	return c.PriceProvider
+}
+
+func validateCoinGeckoAPIKey(key string) error {
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("MARKET_DATA_COINGECKO_API_KEY requires a CoinGecko paid-plan API key when CoinGecko is enabled")
+	}
+	if strings.ContainsAny(key, "\r\n") {
+		return fmt.Errorf("MARKET_DATA_COINGECKO_API_KEY must not contain line breaks")
+	}
+	return nil
 }
 
 func (c Config) priceProviderURL(provider PriceProviderName) string {

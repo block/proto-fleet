@@ -72,7 +72,7 @@ func (p *HTTPProvider) currentTime() time.Time {
 func newBitcoinPriceProvider(config Config, client *http.Client, now func() time.Time) BitcoinPriceProvider {
 	switch config.effectivePriceProvider() {
 	case PriceProviderCoinGecko:
-		return &CoinGeckoPriceProvider{client: client, baseURL: strings.TrimRight(config.CoinGeckoURL, "/"), now: now}
+		return &CoinGeckoPriceProvider{client: client, baseURL: strings.TrimRight(config.CoinGeckoURL, "/"), apiKey: config.CoinGeckoAPIKey, now: now}
 	case PriceProviderCoinbase:
 		return &CoinbasePriceProvider{client: client, baseURL: strings.TrimRight(config.CoinbaseURL, "/"), now: now}
 	default:
@@ -80,13 +80,18 @@ func newBitcoinPriceProvider(config Config, client *http.Client, now func() time
 	}
 }
 
-func getJSON(ctx context.Context, client *http.Client, endpoint string, result any) error {
+func getJSON(ctx context.Context, client *http.Client, endpoint string, headers http.Header, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create market-data request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "ProtoFleet/market-data")
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request market data: %w", err)
@@ -122,7 +127,7 @@ func (p *CoinbasePriceProvider) FetchBitcoinPriceUSD(ctx context.Context) (*Metr
 			Currency string `json:"currency"`
 		} `json:"data"`
 	}
-	if err := getJSON(ctx, p.client, p.baseURL+"/v2/prices/BTC-USD/spot", &price); err != nil {
+	if err := getJSON(ctx, p.client, p.baseURL+"/v2/prices/BTC-USD/spot", nil, &price); err != nil {
 		return nil, err
 	}
 	at := p.now()
@@ -136,16 +141,22 @@ func (p *CoinbasePriceProvider) FetchBitcoinPriceUSD(ctx context.Context) (*Metr
 type CoinGeckoPriceProvider struct {
 	client  *http.Client
 	baseURL string
+	apiKey  string
 	now     func() time.Time
 }
 
 func (p *CoinGeckoPriceProvider) FetchBitcoinPriceUSD(ctx context.Context) (*Metric, error) {
+	if err := validateCoinGeckoAPIKey(p.apiKey); err != nil {
+		return nil, err
+	}
 	var price struct {
 		Bitcoin struct {
 			USD float64 `json:"usd"`
 		} `json:"bitcoin"`
 	}
-	if err := getJSON(ctx, p.client, p.baseURL+"/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", &price); err != nil {
+	headers := make(http.Header)
+	headers.Set("X-Cg-Pro-Api-Key", p.apiKey)
+	if err := getJSON(ctx, p.client, p.baseURL+"/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", headers, &price); err != nil {
 		return nil, err
 	}
 	at := p.now()
@@ -183,11 +194,11 @@ func (p *HTTPProvider) Fetch(ctx context.Context) (Snapshot, error) {
 		price, priceErr = p.priceProvider.FetchBitcoinPriceUSD(ctx)
 	})
 	wg.Go(func() {
-		networkErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/hashrate/3d", &network)
+		networkErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/hashrate/3d", nil, &network)
 		networkAt = p.currentTime()
 	})
 	wg.Go(func() {
-		rewardErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/reward-stats/144", &rewards)
+		rewardErr = getJSON(ctx, p.client, p.mempoolURL+"/api/v1/mining/reward-stats/144", nil, &rewards)
 		rewardAt = p.currentTime()
 	})
 	wg.Wait()

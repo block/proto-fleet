@@ -28,12 +28,12 @@ func TestFleetdMarketDataIsOptIn(t *testing.T) {
 		enabled       bool
 		priceProvider string
 	}{
-		{name: "default off", priceProvider: "coinbase"},
-		{name: "environment opt-in", env: "true", enabled: true, priceProvider: "coinbase"},
-		{name: "environment opt-out", env: "false", priceProvider: "coinbase"},
-		{name: "CLI opt-in", args: []string{"--market-data-enabled"}, enabled: true, priceProvider: "coinbase"},
-		{name: "CLI opt-out overrides environment", env: "true", args: []string{"--market-data-enabled=false"}, priceProvider: "coinbase"},
-		{name: "CLI price provider override", args: []string{"--market-data-price-provider=coingecko"}, priceProvider: "coingecko"},
+		{name: "default off", priceProvider: "coingecko"},
+		{name: "environment opt-in", env: "true", enabled: true, priceProvider: "coingecko"},
+		{name: "environment opt-out", env: "false", priceProvider: "coingecko"},
+		{name: "CLI opt-in", args: []string{"--market-data-enabled"}, enabled: true, priceProvider: "coingecko"},
+		{name: "CLI opt-out overrides environment", env: "true", args: []string{"--market-data-enabled=false"}, priceProvider: "coingecko"},
+		{name: "CLI price provider override", args: []string{"--market-data-price-provider=coinbase"}, priceProvider: "coinbase"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("MARKET_DATA_ENABLED", tt.env)
@@ -43,6 +43,13 @@ func TestFleetdMarketDataIsOptIn(t *testing.T) {
 			t.Setenv("AUTH_CLIENT_EXPIRATION_PERIOD", "1h")
 			t.Setenv("AUTH_CLIENT_SECRET_KEY", "test-client-secret")
 			t.Setenv("ENCRYPT_SERVICE_MASTER_KEY", "test-master-key")
+			for _, key := range []string{"MARKET_DATA_PRICE_PROVIDER", "MARKET_DATA_COINGECKO_URL", "MARKET_DATA_COINGECKO_API_KEY"} {
+				t.Setenv(key, "")
+				require.NoError(t, os.Unsetenv(key))
+			}
+			if tt.enabled {
+				t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "test-key")
+			}
 			config := &Config{}
 			parser, err := kong.New(config, kong.Name("fleetd"))
 			require.NoError(t, err)
@@ -50,6 +57,53 @@ func TestFleetdMarketDataIsOptIn(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.enabled, config.MarketData.Enabled)
 			require.Equal(t, tt.priceProvider, string(config.MarketData.PriceProvider))
+			require.Equal(t, "https://pro-api.coingecko.com", config.MarketData.CoinGeckoURL)
+			if tt.enabled {
+				require.Equal(t, "test-key", config.MarketData.CoinGeckoAPIKey)
+			} else {
+				require.Empty(t, config.MarketData.CoinGeckoAPIKey)
+			}
+		})
+	}
+}
+
+func TestFleetdCoinGeckoAPIKeyConfiguration(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		args       []string
+		key        string
+		url        string
+		missingKey bool
+	}{
+		{name: "operator environment", key: "test-env-key", url: "https://price.example.invalid"},
+		{name: "CLI overrides environment", args: []string{"--market-data-coingecko-api-key=test-cli-key", "--market-data-coingecko-url=https://cli.example.invalid"}, key: "test-cli-key", url: "https://cli.example.invalid"},
+		{name: "enabled without key is rejected", missingKey: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTH_CLIENT_EXPIRATION_PERIOD", "1h")
+			t.Setenv("AUTH_CLIENT_SECRET_KEY", "test-client-secret")
+			t.Setenv("ENCRYPT_SERVICE_MASTER_KEY", "test-master-key")
+			t.Setenv("MARKET_DATA_ENABLED", "true")
+			t.Setenv("MARKET_DATA_PRICE_PROVIDER", "coingecko")
+			t.Setenv("MARKET_DATA_REFRESH_INTERVAL", "1m")
+			t.Setenv("MARKET_DATA_COINGECKO_URL", "https://price.example.invalid")
+			t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "test-env-key")
+			if tt.missingKey {
+				t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "")
+			}
+			t.Setenv("MARKET_DATA_MEMPOOL_URL", "https://mempool.space")
+			config := &Config{}
+			parser, err := kong.New(config, kong.Name("fleetd"))
+			require.NoError(t, err)
+			_, err = parser.Parse(tt.args)
+			if tt.missingKey {
+				require.ErrorContains(t, err, "MARKET_DATA_COINGECKO_API_KEY")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.key, config.MarketData.CoinGeckoAPIKey)
+			require.Equal(t, tt.url, config.MarketData.CoinGeckoURL)
+			require.NoError(t, config.MarketData.Validate())
 		})
 	}
 }

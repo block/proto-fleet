@@ -19,9 +19,10 @@ func testConfig() Config {
 	return Config{
 		Enabled:         true,
 		RefreshInterval: time.Minute,
-		PriceProvider:   PriceProviderCoinbase,
+		PriceProvider:   PriceProviderCoinGecko,
 		CoinbaseURL:     "https://api.coinbase.com",
-		CoinGeckoURL:    "https://api.coingecko.com",
+		CoinGeckoURL:    "https://pro-api.coingecko.com",
+		CoinGeckoAPIKey: "test-key",
 		MempoolURL:      "https://mempool.space",
 	}
 }

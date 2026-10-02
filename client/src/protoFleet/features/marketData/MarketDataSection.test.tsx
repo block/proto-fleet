@@ -1,9 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import MarketDataSection from "./MarketDataSection";
-import { GetMarketDataResponseSchema } from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
+import {
+  GetMarketDataResponseSchema,
+  MarketMetricSchema,
+} from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
 import { MARKET_DATA_POLL_MS } from "@/protoFleet/api/useMarketData";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -100,4 +104,54 @@ describe("MarketDataSection rollout flag", () => {
     });
     expect(container).toBeEmptyDOMElement();
   });
+
+  it.each([
+    { hiddenMinutes: 3, refreshAlreadyPending: false },
+    { hiddenMinutes: 61, refreshAlreadyPending: false },
+    { hiddenMinutes: 61, refreshAlreadyPending: true },
+  ])(
+    "updates freshness immediately after $hiddenMinutes hidden minutes with a pending refresh ($refreshAlreadyPending)",
+    async ({ hiddenMinutes, refreshAlreadyPending }) => {
+      const retrievedAt = new Date("2026-10-02T12:00:00Z");
+      vi.setSystemTime(retrievedAt);
+      mocks.get.mockResolvedValue(
+        create(GetMarketDataResponseSchema, {
+          enabled: true,
+          refreshIntervalSeconds: 60,
+          bitcoinPriceUsd: create(MarketMetricSchema, {
+            value: 100000,
+            retrievedAt: timestampFromDate(retrievedAt),
+          }),
+        }),
+      );
+      const visibility = vi.spyOn(document, "visibilityState", "get");
+      render(<MarketDataSection />);
+      await settle();
+      expect(screen.getByText("$100,000.00")).toBeInTheDocument();
+      expect(screen.getByText("<1 min ago")).toBeInTheDocument();
+      mocks.get.mockImplementationOnce(() => new Promise(() => {}));
+      if (refreshAlreadyPending) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(MARKET_DATA_POLL_MS);
+        });
+      }
+      visibility.mockReturnValue("hidden");
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(hiddenMinutes * MARKET_DATA_POLL_MS);
+      });
+      visibility.mockReturnValue("visible");
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+      if (hiddenMinutes >= 60) {
+        expect(screen.queryByText("$100,000.00")).not.toBeInTheDocument();
+        expect(screen.getAllByText("Unavailable")).toHaveLength(3);
+      } else {
+        expect(screen.getByText("$100,000.00")).toBeInTheDocument();
+        expect(screen.getByText(/Stale ·/)).toBeInTheDocument();
+        expect(screen.getByText("3 min ago")).toBeInTheDocument();
+      }
+    },
+  );
 });

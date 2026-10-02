@@ -148,8 +148,8 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 
 func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDependencies) error {
 	if bundlePath != "" {
-		if err := os.Unsetenv("DD_API_KEY"); err != nil {
-			return fmt.Errorf("clear DD_API_KEY before prepared host installation: %w", err)
+		if err := clearFleetApplicationAPIKeys(); err != nil {
+			return err
 		}
 	}
 	source, err := deps.sourceRoot()

@@ -53,6 +53,7 @@ export const useMarketData = () => {
 
     const onVisibilityChange = () => {
       clearTimeout(timer);
+      if (isVisible()) setState((previous) => ({ ...previous, now: Date.now() }));
       void fetchData();
     };
 
