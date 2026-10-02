@@ -42,4 +42,4 @@ The suite refuses to reuse a running server, so an occupied port is a setup erro
 
 Reports go to `playwright-report/ct1/`, within the existing lint/git artifact exclusions; traces and failure screenshots go to `test-results/ct1/`. The ProtoOS E2E workflow runs this suite on desktop and mobile alongside the independent rig job. Simulator unit tests run once in Server Checks' Fake CT1 job. No visual baselines are created or replaced.
 
-This validates the current client against a simulator with Frigate-compatible routing, not Frigate's integrity staging, package installation, or a physical control host. See [the client deployment contract](../../README.md#ct1-on-device-standalone) for artifact ownership and rollout verification.
+This validates the current client against a simulator with MDK v2 host-compatible routing, not the host's artifact verification, package installation, or a physical control host. See [the client deployment contract](../../README.md#ct1-on-device-standalone) for artifact ownership and rollout verification.

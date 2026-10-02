@@ -40,7 +40,7 @@ func newHTTPHandler(state *ContainerState, webRoot string) (http.Handler, func()
 }
 
 // webHandler previews a production build, not a firmware package: unlike
-// Frigate's manifest validation, it only requires a readable built index.html.
+// MDK v2 host artifact verification, it only requires a readable built index.html.
 // os.Root confines file access, including symlinks, to the selected directory.
 type webHandler struct {
 	root *os.Root
@@ -67,7 +67,7 @@ func newWebHandler(webRoot string) (*webHandler, error) {
 }
 
 func (h *webHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Match Frigate's public-path and browser-route rules. Reject dot segments
+	// Match the MDK v2 host's static-path and browser-route rules. Reject dot segments
 	// before cleaning the path so traversal never turns into an allowed route.
 	for _, segment := range strings.Split(r.URL.Path, "/") {
 		if strings.HasPrefix(segment, ".") || strings.ContainsAny(segment, "\\\x00") {
@@ -100,7 +100,7 @@ func (h *webHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// Pinned to Frigate's device-served ProtoOS route prefixes. Arbitrary misses
+// Match MDK v2 device-served ProtoOS route prefixes. Arbitrary misses
 // must stay 404, especially stale asset URLs and unsupported API namespaces.
 func isProtoOSBrowserRoute(name string) bool {
 	prefix, _, _ := strings.Cut(name, "/")

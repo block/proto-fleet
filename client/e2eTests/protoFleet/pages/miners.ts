@@ -110,44 +110,14 @@ export class MinersPage extends BasePage {
 
   private async dismissAddFilterPopover() {
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
-    if (this.isMobile) {
-      const box = await popover.boundingBox();
-      const viewport = this.page.viewportSize();
-
-      if (box && viewport) {
-        const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-        const candidates = [
-          {
-            x: clamp(box.x - 12, 4, viewport.width - 4),
-            y: clamp(box.y + 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + box.width + 12, 4, viewport.width - 4),
-            y: clamp(box.y + 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + 12, 4, viewport.width - 4),
-            y: clamp(box.y - 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + 12, 4, viewport.width - 4),
-            y: clamp(box.y + box.height + 12, 4, viewport.height - 4),
-          },
-        ];
-
-        for (const { x, y } of candidates) {
-          await this.page.mouse.click(x, y);
-          if (await popover.isHidden().catch(() => true)) {
-            return;
-          }
-        }
-      }
+    const sheet = this.page.getByTestId("nested-dropdown-filter-popover-sheet");
+    if (await sheet.isVisible()) {
+      await this.page.keyboard.press("Escape");
+    } else {
+      // Desktop/tablet only support outside dismissal. Applying a filter moves the
+      // trigger under the frozen popover, so use the non-interactive Fleet heading.
+      await this.page.getByTestId("fleet-layout").getByRole("heading", { name: "Fleet", exact: true }).click();
     }
-
-    // Desktop keeps the trigger stable while the popover is open, so toggling it remains
-    // the most direct close path there. On mobile this is only a fallback when the outside
-    // tap candidates above are unavailable.
-    await this.page.getByTestId("filter-nested-filters-meta").click();
     await expect(popover).toBeHidden();
   }
 

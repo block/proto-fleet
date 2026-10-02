@@ -108,11 +108,11 @@ Open `http://localhost:18080/` or a deep link such as `/tanks/1/modules/2`.
 The production assets and `/api/v2/*` now share one origin; no Vite dev server,
 proxy, or CORS setup is needed. Startup fails if the selected root does not have
 a readable, non-empty regular `index.html`. This is a local build-preview fixture,
-not Frigate's manifest-validated firmware packaging/installation flow.
+not the MDK v2 host's artifact verification or packaging/installation flow.
 
 GET/HEAD serve `index.html`, `config.js`, `version.txt`, `favicon.png`, and files
-under `/assets/` or `/fonts/`. Extensionless browser routes use the verified
-[Frigate route prefixes](https://github.com/btc-mining/frigate/blob/b95f1d711aa01de001fc865dea200585885cbe3b/cmd/frigate/protoos.go#L773-L791):
+under `/assets/` or `/fonts/`. Extensionless browser routes use the MDK v2
+host-compatible route prefixes:
 `hashrate`, `efficiency`, `power-usage`, `temperature`, `logs`, `pools`, `systems`,
 `tanks`, `modules`, `onboarding`, and `settings`. Unknown routes, missing assets,
 directories, and unsafe paths return 404; static writes return 405. API and health
