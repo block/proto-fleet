@@ -439,9 +439,9 @@ export class BasePage {
   }
 
   async validateTitleInModal(expectedTitle: string) {
-    const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
-    );
+    const titleLocator = this.page
+      .locator(`//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`)
+      .filter({ visible: true });
     await expect(titleLocator).toBeVisible();
   }
 
@@ -451,10 +451,10 @@ export class BasePage {
   }
 
   async validateTitleInModalNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
-    );
-    await expect(titleLocator).toBeHidden();
+    const titleLocator = this.page
+      .locator(`//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`)
+      .filter({ visible: true });
+    await expect(titleLocator).toHaveCount(0);
   }
 
   async validateTextIsVisible(text: string) {

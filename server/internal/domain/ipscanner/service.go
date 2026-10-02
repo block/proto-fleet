@@ -26,9 +26,14 @@ type Service struct {
 	deviceIDCheckService  DeviceIdentityCheckService
 	scanner               *NetworkScanner
 	logger                *slog.Logger
+	fleetNodeRecovery     fleetNodeRecovery
 
 	lifecycleMu sync.Mutex
 	run         *serviceRun
+}
+
+type fleetNodeRecovery interface {
+	RunCycle(ctx context.Context)
 }
 
 var _ runtimejobs.Lifecycle = (*Service)(nil)
@@ -64,9 +69,15 @@ func NewIPScannerService(
 	}
 }
 
+// WithFleetNodeRecovery adds the Fleet Node-owned half of the recovery cycle.
+// It runs on its own serial loop so a slow LAN scan cannot delay cloud scans.
+func (s *Service) WithFleetNodeRecovery(recovery fleetNodeRecovery) {
+	s.fleetNodeRecovery = recovery
+}
+
 // Start begins the IP scanner service
 func (s *Service) Start(ctx context.Context) error {
-	if !s.config.Enabled {
+	if !s.config.Enabled && s.fleetNodeRecovery == nil {
 		s.logger.Info("IP scanner service is disabled")
 		return nil
 	}
@@ -91,6 +102,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start ip scanner service: %w", err)
 	}
+	if s.config.ScanInterval <= 0 {
+		return fmt.Errorf("start ip scanner service: scan interval must be positive, got %s", s.config.ScanInterval)
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	run := &serviceRun{
@@ -102,22 +116,23 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.run = run
 
-	s.logger.Debug("configured IP scanner service",
-		"scan_interval", s.config.ScanInterval,
-		"max_concurrent_subnet_scans", s.config.MaxConcurrentSubnetScans,
-		"max_concurrent_ip_scans_per_subnet", s.config.MaxConcurrentIPScansPerSubnet,
-	)
-
-	// Start worker pool
-	for i := range s.config.MaxConcurrentSubnetScans {
-		run.wg.Go(func() { s.scanWorker(ctx, run, i) })
+	if s.config.Enabled {
+		s.logger.Debug("configured IP scanner service",
+			"scan_interval", s.config.ScanInterval,
+			"max_concurrent_subnet_scans", s.config.MaxConcurrentSubnetScans,
+			"max_concurrent_ip_scans_per_subnet", s.config.MaxConcurrentIPScansPerSubnet,
+		)
+		for i := range s.config.MaxConcurrentSubnetScans {
+			run.wg.Go(func() { s.scanWorker(ctx, run, i) })
+		}
+		run.wg.Go(func() { s.resultProcessor(ctx, run) })
+		run.wg.Go(func() { s.scanLoop(ctx, run) })
+	} else {
+		s.logger.Info("cloud IP scanner is disabled; Fleet Node recovery remains enabled")
 	}
-
-	// Start result processor
-	run.wg.Go(func() { s.resultProcessor(ctx, run) })
-
-	// Start main scan loop
-	run.wg.Go(func() { s.scanLoop(ctx, run) })
+	if s.fleetNodeRecovery != nil {
+		run.wg.Go(func() { s.fleetNodeRecoveryLoop(ctx) })
+	}
 
 	go func() {
 		run.wg.Wait()
@@ -125,6 +140,23 @@ func (s *Service) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (s *Service) fleetNodeRecoveryLoop(ctx context.Context) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			s.fleetNodeRecovery.RunCycle(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			timer.Reset(s.config.ScanInterval)
+		}
+	}
 }
 
 // Stop gracefully stops the active scanner run, bounded by ctx.

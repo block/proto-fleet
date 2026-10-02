@@ -245,6 +245,26 @@ check_discovery_routes() { # config upstream_host
     done
 }
 
+check_pairing_routes() { # config upstream_host
+    local config="$1" upstream_host="$2" route block generic expected
+    route=fleetnodeadmin.v1.FleetNodeAdminService/PairDiscoveredDevicesOnFleetNode
+    block=$(sed -n "\|location = /api-proxy/${route} {|,/^[[:space:]]*}/p" "$config")
+    # A node can remain silent for its full 12-minute server-side command budget.
+    # Flush result batches to the operator without waiting for pair-all to finish.
+    for expected in "proxy_pass http://${upstream_host}:4000/${route};" \
+        'proxy_http_version 1.1;' 'proxy_set_header Host $host;' \
+        'proxy_read_timeout 13m;' 'proxy_buffering off;' 'client_max_body_size 64m;'; do
+        if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+            fail "$(basename "$config"): ${route} route does not contain: $expected"
+        fi
+    done
+
+    generic=$(sed -n '\|location /api-proxy/ {|,/^[[:space:]]*}/p' "$config")
+    if printf '%s\n' "$generic" | grep -Eq 'proxy_(read|send)_timeout'; then
+        fail "$(basename "$config"): extended pairing timeouts must not apply to generic RPCs"
+    fi
+}
+
 check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
 check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
 check_discovery_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
@@ -253,6 +273,11 @@ check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.http.conf" 
 check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
 check_control_stream_route "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
 pass "NGINX routes only ControlStream through native gRPC"
+
+check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_pairing_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+pass "NGINX gives Fleet Node pairing scoped streaming timeouts"
 
 # ----------------------------------------------------------------------------
 # 6. Compose render smoke test (staged tarball layout)

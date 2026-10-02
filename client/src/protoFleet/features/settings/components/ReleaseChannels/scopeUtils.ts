@@ -4,16 +4,16 @@ import { type ReleaseChannelScope, ReleaseChannelScopeSchema } from "@/protoFlee
 import { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 
 // Scope selectors are sets; the server deduplicates and sorts their IDs.
-const sameSelection = (left: readonly (bigint | string)[], right: readonly (bigint | string)[]): boolean => {
+export const scopeSelectionFields = ["siteIds", "buildingIds", "rackIds", "groupIds", "deviceIdentifiers"] as const;
+
+export const sameSelection = (left: readonly (bigint | string)[], right: readonly (bigint | string)[]): boolean => {
   const leftIds = new Set(left);
   const rightIds = new Set(right);
   return leftIds.size === rightIds.size && [...leftIds].every((id) => rightIds.has(id));
 };
 
 export function scopeSelectionsEqual(left: ReleaseChannelScope, right: ReleaseChannelScope): boolean {
-  return (["siteIds", "buildingIds", "rackIds", "groupIds", "deviceIdentifiers"] as const).every((field) =>
-    sameSelection(left[field], right[field]),
-  );
+  return scopeSelectionFields.every((field) => sameSelection(left[field], right[field]));
 }
 
 // Preserve each locally edited selector while accepting remote changes to the

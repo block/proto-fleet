@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { applyChannelSettings, closeChannelSettings, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import RolloutControls from "./RolloutControls";
 import {
@@ -53,6 +53,7 @@ function renderView(behavior = healthyBehavior()) {
       }}
     />,
   );
+  openChannelSettings();
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed production" } });
   return { onSave: props.onSave, onApply: props.onApply };
 }
@@ -98,7 +99,7 @@ describe("release channel numeric safeguards", () => {
     expect(onSave).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "1" } });
     expect(input).not.toHaveAttribute("aria-invalid");
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave).toHaveBeenCalledOnce();
   });
 
@@ -112,11 +113,11 @@ describe("release channel numeric safeguards", () => {
     const input = screen.getByLabelText(label);
     fireEvent.change(input, { target: { value: "" } });
     expect(input).not.toHaveAttribute("aria-invalid");
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[0][0].behavior.thresholds?.[field]).toBeUndefined();
-    fireEvent.change(input, { target: { value: "0" } });
-    expect(input).not.toHaveAttribute("aria-invalid");
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    fireEvent.change(screen.getByLabelText(label), { target: { value: "0" } });
+    expect(screen.getByLabelText(label)).not.toHaveAttribute("aria-invalid");
+    await applyChannelSettings();
     expect(onSave.mock.calls[1][0].behavior.thresholds?.[field]).toBe(0);
   });
 
@@ -125,7 +126,7 @@ describe("release channel numeric safeguards", () => {
     fireEvent.change(screen.getByLabelText("Max hashrate drop (%)"), { target: { value: "10junk" } });
     fireEvent.click(screen.getByLabelText("Auto-continue healthy batches"));
     expect(screen.getByTestId("save-channel")).toBeEnabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[0][0].behavior.thresholds).toBeUndefined();
     fireEvent.click(screen.getByLabelText("Auto-continue healthy batches"));
     expect(screen.getByLabelText("Max hashrate drop (%)")).toHaveValue("10junk");
@@ -133,7 +134,7 @@ describe("release channel numeric safeguards", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Single batch/ }));
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[1][0].behavior.thresholds).toBeUndefined();
     fireEvent.click(screen.getByTestId("rollout-method"));
     fireEvent.click(screen.getByRole("option", { name: /^Multiple batches/ }));
@@ -141,16 +142,17 @@ describe("release channel numeric safeguards", () => {
     expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
-  test("allows Apply to use saved behavior while an unsaved safeguard is invalid", async () => {
+  test("blocks Apply when a staged safeguard is invalid", async () => {
     const { onSave, onApply } = renderView();
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "-1" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
+    closeChannelSettings();
     fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
     fireEvent.click(screen.getByRole("option", { name: "No firmware" }));
+    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Unsaved channel changes");
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear assignments" })));
-    expect(onApply).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("apply-firmware-dialog")).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -175,27 +177,27 @@ describe("release channel numeric safeguards", () => {
     behavior.waitBetweenBatchesSeconds = 1;
     const { onSave } = renderView(behavior);
     expect(screen.getByLabelText("Wait for telemetry (minutes)")).toHaveValue(String(31 / 60));
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[0][0].behavior.stabilizationSeconds).toBe(31);
     fireEvent.change(screen.getByLabelText("Wait for telemetry (minutes)"), { target: { value: "2.05" } });
     fireEvent.change(screen.getByLabelText("Max errors"), { target: { value: "2147483647" } });
     fireEvent.change(screen.getByLabelText("Max hashrate drop (%)"), { target: { value: "100" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[1][0].behavior).toMatchObject({
       stabilizationSeconds: 123,
       thresholds: { maxNewErrors: 2147483647, maxHashrateDropPercent: 100 },
     });
     fireEvent.change(screen.getByLabelText("Wait for telemetry (minutes)"), { target: { value: String(31 / 60) } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[2][0].behavior.stabilizationSeconds).toBe(31);
     fireEvent.click(screen.getByLabelText("Review after each batch"));
     expect(screen.getByLabelText("Wait between batches (minutes)")).toHaveValue(String(1 / 60));
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[3][0].behavior.waitBetweenBatchesSeconds).toBe(1);
     fireEvent.change(screen.getByLabelText("Wait between batches (minutes)"), { target: { value: "0.001" } });
     expect(screen.getByTestId("save-channel")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Wait between batches (minutes)"), { target: { value: "0.5" } });
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    await applyChannelSettings();
     expect(onSave.mock.calls[4][0].behavior.waitBetweenBatchesSeconds).toBe(30);
   });
 });

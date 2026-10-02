@@ -23,7 +23,6 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 interface ReleaseChannelsTableProps {
   channels: ChannelView[];
   rollouts: Rollout[];
-  onCreate: () => void;
   onManage: (channel: ChannelView) => void;
   onExpandedChannelIdsChange?: (ids: bigint[]) => void;
   historyStates?: ReadonlyMap<bigint, ChannelHistoryState>;
@@ -61,7 +60,6 @@ const channelColTitles: ColTitles<ChannelColumn> = {
 const ReleaseChannelsTable = ({
   channels,
   rollouts,
-  onCreate,
   onManage,
   onExpandedChannelIdsChange,
   historyStates,
@@ -215,16 +213,6 @@ const ReleaseChannelsTable = ({
 
   return (
     <div className="flex flex-col gap-6" data-testid="channels-table">
-      <div>
-        <Button
-          variant={variants.primary}
-          size={sizes.compact}
-          text="Create release channel"
-          onClick={onCreate}
-          className="phone:w-full"
-          testId="create-release-channel"
-        />
-      </div>
       <List<ChannelTableRow, string, ChannelColumn>
         activeCols={channelColumns}
         colTitles={channelColTitles}

@@ -6,19 +6,22 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { deferred } from "./__tests__/helpers";
+import { apiFor, apiWithBanners } from "./__tests__/monitorHelpers";
 import ActiveUpdatesMonitor, { type MonitorRequest } from "./ActiveUpdatesMonitor";
 import {
   activeRigRollout,
-  canaryChannel,
-  canaryPreview,
   canceledRemainingRigRollout,
   completedRigRollout,
   completedWithFailuresRigRollout,
   gatedRigRollout,
   pausedRigRollout,
 } from "./ReleaseChannels.fixtures";
-import { isActive } from "./rolloutStatus";
-import { type Rollout, RolloutDeviceCountsSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  RolloutDeviceCountsSchema,
+  RolloutDevicePhase,
+  RolloutDeviceSchema,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
 import Firmware from "@/protoFleet/features/settings/components/Firmware";
 import { useFleetStore } from "@/protoFleet/store";
@@ -47,45 +50,16 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   MinerSelectionModal: () => null,
 }));
 
-function apiFor(rollout: Rollout) {
-  return {
-    channels: [
-      {
-        ...canaryChannel,
-        modelGroups: canaryChannel.modelGroups.map((group) =>
-          group.manufacturer === rollout.manufacturer && group.model === rollout.model
-            ? {
-                ...group,
-                assignmentGeneration: rollout.assignmentGeneration,
-                firmwareChecksum: rollout.firmwareChecksum,
-                activeRolloutId: isActive(rollout) ? rollout.id : 0n,
-              }
-            : group,
-        ),
-      },
-    ],
-    rollouts: [rollout],
-    acknowledgedRollbacks: [] as readonly Rollout[],
-    minerNames: {},
-    isLoading: false,
-    hasLoaded: true,
-    error: null,
-    refresh: vi.fn().mockResolvedValue(undefined),
-    createChannel: vi.fn().mockResolvedValue(undefined),
-    updateChannel: vi.fn().mockResolvedValue(undefined),
-    deleteChannel: vi.fn().mockResolvedValue(undefined),
-    previewScope: vi.fn().mockResolvedValue(canaryPreview),
-    listChannelMiners: vi.fn().mockResolvedValue([]),
-    listChannelRollouts: vi.fn().mockResolvedValue([rollout]),
-    listRolloutDevices: vi.fn().mockResolvedValue([]),
-    applyFirmware: vi.fn().mockResolvedValue([]),
-    rollbackFirmware: vi.fn().mockResolvedValue([]),
-    continueRollout: vi.fn().mockResolvedValue(undefined),
-    pauseRollout: vi.fn().mockResolvedValue(undefined),
-    resumeRollout: vi.fn().mockResolvedValue(undefined),
-    cancelRollout: vi.fn().mockResolvedValue(undefined),
-    retryFailedDevices: vi.fn().mockResolvedValue(undefined),
-  } satisfies ReleaseChannelsApi;
+function openMoreActions() {
+  if (!screen.queryByTestId("view-rollout-more-actions-menu")) {
+    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+  }
+}
+
+function requestRetry() {
+  openMoreActions();
+  fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+  fireEvent.click(within(screen.getByTestId("retry-rollout-dialog")).getByTestId("confirm-rollout-retry"));
 }
 
 const initialAuth = useFleetStore.getState().auth;
@@ -105,7 +79,7 @@ describe("delayed mutation selection", () => {
 
   function setup(initialKind: MonitorRequest["kind"] = "view") {
     const api = apiFor(first);
-    api.rollouts = [first, other];
+    api.rollouts = [first, other, { ...other, id: 900n, manufacturer: "Other" }];
     const otherGroup = api.channels[0].modelGroups.find((group) => group.model === other.model)!;
     api.channels[0].modelGroups.push({
       ...otherGroup,
@@ -148,13 +122,13 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
-    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    requestRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
 
     await act(async () => pending.resolve(successor));
 
-    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
     expect(handled).toHaveBeenCalledOnce();
     expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(first.id, first.revision);
     expect(pushToast).toHaveBeenCalledWith({ message: expect.stringContaining("Retry requested"), status: "success" });
@@ -164,8 +138,8 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    requestRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "View first history" }));
 
     await act(async () => pending.resolve(successor));
@@ -179,8 +153,8 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    requestRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(within(screen.getByTestId(`update-banner-${other.id.toString()}`)).getByRole("button"));
 
     await act(async () => pending.resolve(successor));
@@ -197,9 +171,12 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     fireEvent.click(screen.getByRole("button", { name: button }));
-    if (selected.id !== first.id) expect(screen.getByTestId("view-rollout-retry-action")).not.toBeDisabled();
+    if (selected.id !== first.id) {
+      openMoreActions();
+      expect(screen.getByTestId("view-rollout-retry-action")).toBeDisabled();
+    }
 
     await act(async () => pending.resolve(successor));
 
@@ -214,7 +191,7 @@ describe("delayed mutation selection", () => {
       const pending = deferred<Rollout>();
       const { api, handled, refresh } = setup();
       api.retryFailedDevices.mockReturnValue(pending.promise);
-      fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+      requestRetry();
       refresh({ ...api, rollouts: [{ ...first, revision: first.revision + (advances ? 1n : 0n) }, other] });
 
       await act(async () => pending.resolve(successor));
@@ -229,12 +206,12 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled, refresh } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     refresh({ ...api, channels: [], rollouts: [] });
 
     await act(async () => pending.resolve(successor));
 
-    expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
     expect(handled).not.toHaveBeenCalled();
   });
 
@@ -242,7 +219,7 @@ describe("delayed mutation selection", () => {
     const pending = deferred<Rollout>();
     const { api, handled, unmount } = setup();
     api.retryFailedDevices.mockReturnValue(pending.promise);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     unmount();
 
     await act(async () => pending.resolve(successor));
@@ -301,7 +278,8 @@ describe("rollout controls use the operator's observed revision", () => {
     };
     const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
 
-    fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
+    if (action === "retry") requestRetry();
+    else fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
     rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [{ ...observed, revision: 8n }] }} />);
 
     await waitFor(() => expect(api[method]).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
@@ -309,6 +287,30 @@ describe("rollout controls use the operator's observed revision", () => {
       message: expect.stringContaining(`${observed.manufacturer} ${observed.model}`),
       status: "success",
     });
+  });
+
+  it("keeps the confirmed retry revision after a newer poll and does not retry a stale action", async () => {
+    const observed = { ...completedWithFailuresRigRollout, revision: 7n };
+    const api = apiFor(observed);
+    const stale = new ConnectError("The update changed; review it again", Code.FailedPrecondition);
+    api.retryFailedDevices.mockRejectedValue(stale);
+    const props = {
+      api,
+      request: { kind: "view" as const, rollout: observed },
+      onManageChannel: vi.fn(),
+    };
+    const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
+    openMoreActions();
+    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    expect(screen.getByTestId("retry-rollout-dialog")).toBeInTheDocument();
+    expect(api.retryFailedDevices).not.toHaveBeenCalled();
+
+    rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [{ ...observed, revision: 8n }] }} />);
+    fireEvent.click(screen.getByTestId("confirm-rollout-retry"));
+
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith({ message: stale.message, status: "error" }));
+    expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n);
+    expect(screen.queryByTestId("retry-rollout-dialog")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -427,10 +429,11 @@ describe("rollout controls use the operator's observed revision", () => {
 
 describe("acknowledged rollback navigation", () => {
   const expectFinishedActions = () => {
-    for (const action of ["continue", "pause", "resume", "retry"]) {
+    for (const action of ["continue", "pause", "resume"]) {
       expect(screen.queryByTestId(`view-rollout-${action}-action`)).not.toBeInTheDocument();
     }
-    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
+    openMoreActions();
+    expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
     expect(screen.queryByTestId("view-rollout-cancel-action")).not.toBeInTheDocument();
     expect(screen.queryByTestId("view-rollout-rollback-action")).not.toBeInTheDocument();
     expect(screen.getByTestId("view-rollout-view-miners-action")).toBeInTheDocument();
@@ -447,7 +450,7 @@ describe("acknowledged rollback navigation", () => {
       firmwareVersion: "1.4.5",
       firmwareChecksum: "c".repeat(64),
     };
-    const api = apiFor(source);
+    const api = apiWithBanners(source);
     function Harness({ currentApi }: { currentApi: ReleaseChannelsApi }) {
       const [request, setRequest] = useState<MonitorRequest | null>(null);
       return (
@@ -483,20 +486,21 @@ describe("acknowledged rollback navigation", () => {
     expect(screen.getByTestId(`rollout-detail-${source.id}`)).toBeInTheDocument();
     expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Superseded");
     expectFinishedActions();
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Reopen cached source" }));
     expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Superseded");
     expectFinishedActions();
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "View completed history" }));
     expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Completed");
     expectFinishedActions();
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "Roll back completed history" }));
     expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument();
 
-    fireEvent.click(within(screen.getByTestId(`update-banner-${successor.id}`)).getByRole("button"));
+    fireEvent.click(screen.getByTestId("inline-view-rollout-more-actions-trigger"));
+    fireEvent.click(screen.getByTestId("inline-view-rollout-open-action"));
     fireEvent.click(screen.getByTestId("view-rollout-pause-action"));
     await waitFor(() => expect(api.pauseRollout).toHaveBeenCalledExactlyOnceWith(successor.id, successor.revision));
     fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
@@ -520,7 +524,7 @@ describe("acknowledged rollback navigation", () => {
       firmwareVersion: source.previousFirmwareVersion,
       firmwareChecksum: source.previousFirmwareChecksum,
     };
-    const api = apiFor(source);
+    const api = apiWithBanners(source);
     const pending = deferred<Rollout[]>();
     api.rollbackFirmware.mockReturnValueOnce(pending.promise);
     const props = { onManageChannel: vi.fn() };
@@ -642,7 +646,7 @@ describe("acknowledged rollback navigation", () => {
       rerender(<Harness currentApi={refreshed} />);
       expect(screen.queryByTestId(dialog)).not.toBeInTheDocument();
       expect(screen.getByTestId(`rollout-detail-${other.id}`)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
       expect(screen.queryByTestId(dialog)).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Reopen old rollback" }));
       expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument();
@@ -666,7 +670,7 @@ describe("acknowledged rollback navigation", () => {
         assignmentGeneration: source.assignmentGeneration + 1n,
         firmwareVersion: previousFirmwareVersion,
       };
-      const api = apiFor(source);
+      const api = apiWithBanners(source);
       const pending = deferred<Rollout[]>();
       api.rollbackFirmware.mockReturnValueOnce(pending.promise);
       function Harness({ currentApi }: { currentApi: ReleaseChannelsApi }) {
@@ -705,15 +709,15 @@ describe("acknowledged rollback navigation", () => {
       if (previousFirmwareVersion) {
         expect(screen.getByTestId(`rollout-detail-${successor.id}`)).toBeInTheDocument();
         expect(screen.getByTestId(`update-banner-${successor.id}`)).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+        fireEvent.click(screen.getByRole("button", { name: "Back" }));
       } else {
-        expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
       }
 
       fireEvent.click(screen.getByRole("button", { name: "Reopen source history" }));
       expect(screen.getByTestId("rollout-status-headline")).toHaveTextContent("Rolled back");
       expectFinishedActions();
-      fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
       fireEvent.click(screen.getByRole("button", { name: "Request source rollback" }));
       expect(screen.queryByTestId("rollback-firmware-dialog")).not.toBeInTheDocument();
       expect(api.rollbackFirmware).toHaveBeenCalledOnce();
@@ -762,8 +766,8 @@ describe("acknowledged rollback navigation", () => {
       />,
     );
     expect(screen.getByTestId("view-rollout-pause-action")).toBeInTheDocument();
+    openMoreActions();
     expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
     expect(screen.getByTestId("view-rollout-cancel-action")).toBeInTheDocument();
     expect(screen.getByTestId("view-rollout-rollback-action")).toBeInTheDocument();
   });
@@ -781,7 +785,7 @@ describe("acknowledged rollback navigation", () => {
     fireEvent.click(screen.getByTestId("manage-channel-Canary"));
     fireEvent.click(screen.getByTestId("channel-history"));
     fireEvent.click(await screen.findByTestId(`history-view-${source.id}`));
-    fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
 
     mockUseReleaseChannels.mockReturnValue({ ...api, acknowledgedRollbacks: [source], rollouts: [] });
     rerender(page());
@@ -815,8 +819,8 @@ describe("rollout manufacturer identity", () => {
     const secondBanner = screen.getByTestId(`update-banner-${second.id.toString()}`);
     expect(secondBanner).toHaveTextContent("Canary, Acme Rig firmware update");
     fireEvent.click(within(secondBanner).getByRole("button", { name: "View update" }));
-    expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Canary, Acme Rig firmware update");
-    expect(screen.getByTestId("rollout-detail-header")).not.toHaveTextContent("Proto Rig");
+    expect(screen.getByTestId("rollout-detail-title")).toHaveTextContent("Canary, Acme Rig firmware update");
+    expect(screen.getByTestId("rollout-detail-title")).not.toHaveTextContent("Proto Rig");
     fireEvent.click(screen.getByRole("button", { name: "More actions for Canary, Acme Rig firmware update" }));
     fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
 
@@ -850,7 +854,7 @@ describe("on-demand history detail handoff", () => {
         const [request, setRequest] = useState<MonitorRequest | null>({ kind, rollout: observed });
         return (
           <ActiveUpdatesMonitor
-            api={{ ...api, channels, rollouts: [survivor] }}
+            api={{ ...api, channels, rollouts: [survivor, { ...survivor, id: 900n, manufacturer: "Other" }] }}
             request={request}
             onRequestHandled={
               callback
@@ -865,7 +869,7 @@ describe("on-demand history detail handoff", () => {
         );
       }
       const { rerender } = render(<Harness channels={[...api.channels, survivorChannel]} />);
-      const surface = kind === "view" ? "rollout-detail-header" : "rollback-firmware-dialog";
+      const surface = kind === "view" ? "rollout-live-view" : "rollback-firmware-dialog";
       expect(screen.getByTestId(surface)).toBeInTheDocument();
 
       rerender(<Harness channels={[survivorChannel]} />);
@@ -875,20 +879,20 @@ describe("on-demand history detail handoff", () => {
           name: "View update",
         }),
       );
-      expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Production, Proto Rig firmware update");
+      expect(screen.getByTestId("rollout-detail-title")).toHaveTextContent("Production, Proto Rig firmware update");
       expect(screen.getByTestId(`rollout-detail-${survivor.id.toString()}`)).toBeInTheDocument();
       expect(handled).toHaveBeenCalledTimes(callback ? 1 : 0);
       expect(api.rollbackFirmware).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByRole("button", { name: "Close update details" }));
-      await waitFor(() => expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await waitFor(() => expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument());
     },
   );
 
-  it.each(["cancel", "rollback"] as const)(
+  it.each(["cancel", "rollback", "retry"] as const)(
     "dismisses a local %s confirmation when its channel disappears",
     async (action) => {
       const observed = activeRigRollout;
-      const api = apiFor(observed);
+      const api = apiWithBanners(observed);
       const { rerender } = render(<ActiveUpdatesMonitor api={api} onManageChannel={vi.fn()} />);
       fireEvent.click(
         within(screen.getByTestId(`update-banner-${observed.id.toString()}`)).getByRole("button", {
@@ -897,14 +901,15 @@ describe("on-demand history detail handoff", () => {
       );
       fireEvent.click(screen.getByTestId("view-rollout-more-actions-trigger"));
       fireEvent.click(screen.getByTestId(`view-rollout-${action}-action`));
-      const dialog = action === "cancel" ? "cancel-rollout-dialog" : "rollback-firmware-dialog";
+      const dialog = action === "rollback" ? "rollback-firmware-dialog" : `${action}-rollout-dialog`;
       expect(screen.getByTestId(dialog)).toBeInTheDocument();
 
       rerender(<ActiveUpdatesMonitor api={{ ...api, channels: [], rollouts: [] }} onManageChannel={vi.fn()} />);
       await waitFor(() => expect(screen.queryByTestId(dialog)).not.toBeInTheDocument());
-      expect(screen.queryByTestId("rollout-detail-header")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("rollout-live-view")).not.toBeInTheDocument();
       expect(api.cancelRollout).not.toHaveBeenCalled();
       expect(api.rollbackFirmware).not.toHaveBeenCalled();
+      expect(api.retryFailedDevices).not.toHaveBeenCalled();
     },
   );
 
@@ -920,7 +925,7 @@ describe("on-demand history detail handoff", () => {
     const api = apiFor(observed);
     api.retryFailedDevices.mockResolvedValue(observed);
     render(<ActiveUpdatesMonitor api={api} request={{ kind: "view", rollout: observed }} onManageChannel={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Retry remaining" }));
+    requestRetry();
     await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
     expect(pushToast).toHaveBeenCalledWith({
       message: `Retry requested for remaining ${observed.manufacturer} ${observed.model} miners in ${observed.channelName}`,
@@ -934,12 +939,15 @@ describe("on-demand history detail handoff", () => {
     const api = apiFor(observed);
     const props = { request: { kind: "view" as const, rollout: observed }, onManageChannel: vi.fn() };
     const { rerender } = render(<ActiveUpdatesMonitor {...props} api={api} />);
+    openMoreActions();
     expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
 
     rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, rollouts: [observed, activeRigRollout] }} />);
+    openMoreActions();
     expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
 
     rerender(<ActiveUpdatesMonitor {...props} api={api} />);
+    openMoreActions();
     expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
     rerender(
       <ActiveUpdatesMonitor
@@ -956,6 +964,7 @@ describe("on-demand history detail handoff", () => {
         }}
       />,
     );
+    openMoreActions();
     expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
     expect(api.retryFailedDevices).not.toHaveBeenCalled();
   });
@@ -974,11 +983,12 @@ describe("on-demand history detail handoff", () => {
     fireEvent.click(screen.getByTestId("manage-channel-Canary"));
     fireEvent.click(screen.getByTestId("channel-history"));
     fireEvent.click(await screen.findByTestId(`history-view-${observed.id.toString()}`));
+    openMoreActions();
     expect(screen.getByTestId("view-rollout-retry-action")).toBeInTheDocument();
     expect(api.listChannelRollouts).toHaveBeenCalledExactlyOnceWith(observed.channelId, expect.any(AbortSignal));
     mockUseReleaseChannels.mockReturnValue({ ...api, rollouts: [{ ...observed, revision: 8n }] });
     rerender(page());
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 8n));
   });
 
@@ -999,9 +1009,9 @@ describe("on-demand history detail handoff", () => {
       );
     }
     render(<Harness />);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     await waitFor(() => expect(screen.getByTestId(`rollout-detail-${successor.id.toString()}`)).toBeInTheDocument());
-    expect(screen.getByTestId("rollout-detail-header")).toHaveTextContent("Successor model");
+    expect(screen.getByTestId("rollout-detail-title")).toHaveTextContent("Successor model");
   });
 
   it("keeps a newer historical revision and drops its fallback when the channel disappears", async () => {
@@ -1013,9 +1023,33 @@ describe("on-demand history detail handoff", () => {
       onManageChannel: vi.fn(),
     };
     const { rerender } = render(<ActiveUpdatesMonitor {...props} />);
-    fireEvent.click(screen.getByTestId("view-rollout-retry-action"));
+    requestRetry();
     await waitFor(() => expect(api.retryFailedDevices).toHaveBeenCalledExactlyOnceWith(observed.id, 7n));
     rerender(<ActiveUpdatesMonitor {...props} api={{ ...api, channels: [], rollouts: [] }} />);
     expect(screen.queryByTestId("view-rollout-retry-action")).not.toBeInTheDocument();
   });
+});
+
+it("opens failed miner details with their actual cause from the update view", async () => {
+  const rollout = completedWithFailuresRigRollout;
+  const api = apiFor(rollout);
+  const error = "Reported manufacturer/model does not match the firmware target";
+  api.listRolloutDevices.mockResolvedValue([
+    create(RolloutDeviceSchema, {
+      deviceId: 1n,
+      deviceIdentifier: "incompatible-rig",
+      phase: RolloutDevicePhase.FAILED,
+      attempts: 0,
+      lastError: error,
+      online: true,
+    }),
+  ]);
+  render(<ActiveUpdatesMonitor api={api} request={{ kind: "view", rollout }} onManageChannel={vi.fn()} />);
+  expect(screen.getByTestId("rollout-failed-banner")).toHaveTextContent(
+    "Review miner details for the cause of each failed update.",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review miners" }));
+  expect(await screen.findByText(error)).toBeInTheDocument();
+  expect(screen.getByTestId("rollout-miners-modal")).toHaveTextContent("1 miner failed to update");
+  expect(api.listRolloutDevices).toHaveBeenCalledExactlyOnceWith(rollout.id, expect.any(AbortSignal));
 });

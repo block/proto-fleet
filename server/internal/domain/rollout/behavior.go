@@ -18,9 +18,7 @@ const (
 	MethodBatched = "batched"
 	// MethodPilotThenContinue updates a pilot batch, gates, then the rest.
 	MethodPilotThenContinue = "pilot_then_continue"
-	// MethodDelegated leaves dispatch to an external controller. The schema
-	// and behavior carry it so the delegated-control slice can enable it
-	// without another migration; until then channels cannot use it.
+	// MethodDelegated leaves dispatch and target selection to a controller.
 	MethodDelegated = "delegated"
 
 	// OrderLeastEfficientFirst works through miners worst efficiency first.
@@ -173,8 +171,8 @@ type Behavior struct {
 	ControllerTimeoutSeconds int32
 }
 
-// allAtOnce is the behavior of drift-correction and rollback rollouts: no
-// operator is present to review a gate, so they never stage.
+// allAtOnce is the recovery behavior used by explicit retry and rollback.
+// Background reconciliation uses the channel's current behavior instead.
 var allAtOnce = Behavior{Method: MethodAllAtOnce, Order: OrderLeastEfficientFirst}
 
 // gatesAfterBatch reports whether a finished batch holds for review.
@@ -214,7 +212,9 @@ func (b *Behavior) validate() error {
 		b.BatchSize, b.WaitBetweenBatchesSeconds = 0, 0
 		b.ReviewAfterEachBatch = true
 	case MethodDelegated:
-		return fleeterror.NewInvalidArgumentError("delegated rollouts are not available yet")
+		if b.BatchSize != 0 || b.PilotSize != 0 || b.WaitBetweenBatchesSeconds != 0 || b.ReviewAfterEachBatch || b.AutoContinue || b.StabilizationSeconds != 0 || b.Thresholds != (Thresholds{}) {
+			return fleeterror.NewInvalidArgumentError("delegated rollouts cannot configure engine pacing or telemetry gates")
+		}
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unknown rollout method %q", b.Method)
 	}
@@ -225,7 +225,7 @@ func (b *Behavior) validate() error {
 		b.AutoContinue, b.StabilizationSeconds = false, 0
 		b.Thresholds = Thresholds{}
 	}
-	if b.WaitBetweenBatchesSeconds < 0 || b.StabilizationSeconds < 0 || b.MaxConcurrentOffline < 0 {
+	if b.WaitBetweenBatchesSeconds < 0 || b.StabilizationSeconds < 0 || b.MaxConcurrentOffline < 0 || b.ControllerTimeoutSeconds < 0 {
 		return fleeterror.NewInvalidArgumentError("durations and limits must not be negative")
 	}
 	t := b.Thresholds

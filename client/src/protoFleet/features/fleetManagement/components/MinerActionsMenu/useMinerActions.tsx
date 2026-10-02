@@ -948,7 +948,7 @@ export const useMinerActions = ({
         },
         onError: (error) => {
           updateToast(toastId, {
-            message: `Firmware update failed: ${error}`,
+            message: `Couldn't update firmware: ${error}`,
             status: TOAST_STATUSES.error,
             progress: undefined,
           });

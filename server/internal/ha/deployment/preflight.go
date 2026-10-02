@@ -91,7 +91,7 @@ func validateHostEnvironment(ctx context.Context, config NodeConfig, host hostEn
 		return errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
 	var interfacePrefixes []netip.Prefix
-	if config.isDatabaseNode() {
+	if config.usesVIP() {
 		interfacePrefixes, err = host.interfacePrefixes(config.NetworkInterface)
 		if err != nil {
 			return fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
@@ -109,7 +109,7 @@ func validateHostEnvironment(ctx context.Context, config NodeConfig, host hostEn
 		if !ok || source != config.NodeIP {
 			return fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
-		if config.isDatabaseNode() && (peer == config.DatabaseAIP || peer == config.DatabaseBIP) {
+		if config.usesVIP() && (peer == config.DatabaseAIP || peer == config.DatabaseBIP) {
 			device, deviceOK := routeDevice(output)
 			_, routedViaGateway := routeField(output, "via")
 			peerIP, _ := netip.ParseAddr(peer)
@@ -118,7 +118,7 @@ func validateHostEnvironment(ctx context.Context, config NodeConfig, host hostEn
 			}
 		}
 	}
-	if config.isDatabaseNode() {
+	if config.usesVIP() {
 		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
 		if slices.Contains(addresses, virtualIP) {
 			return errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
@@ -188,15 +188,30 @@ func addressSharesNodePrefix(nodeIP, address netip.Addr, prefixes []netip.Prefix
 
 func validateNodeConfig(config NodeConfig) error {
 	required := map[string]string{
-		"HA_NODE_NAME":         config.NodeName,
-		"HA_NODE_IP":           config.NodeIP,
-		"HA_DB_A_IP":           config.DatabaseAIP,
-		"HA_DB_B_IP":           config.DatabaseBIP,
-		"HA_DCS_C_IP":          config.WitnessIP,
-		"HA_VIRTUAL_IP":        config.VirtualIP,
-		"HA_NETWORK_INTERFACE": config.NetworkInterface,
-		"HA_DATA_DIR":          config.DataDir,
-		"HA_SECRETS_DIR":       config.SecretsDir,
+		"HA_NODE_NAME":   config.NodeName,
+		"HA_NODE_IP":     config.NodeIP,
+		"HA_DB_A_IP":     config.DatabaseAIP,
+		"HA_DB_B_IP":     config.DatabaseBIP,
+		"HA_DCS_C_IP":    config.WitnessIP,
+		"HA_DATA_DIR":    config.DataDir,
+		"HA_SECRETS_DIR": config.SecretsDir,
+	}
+	if config.EndpointMode != "" && config.EndpointMode != "vip" && config.EndpointMode != endpointModeExternal {
+		return errors.New("HA_ENDPOINT_MODE must be vip or external")
+	}
+	if config.externalEndpoint() {
+		if config.VirtualIP != "" || config.NetworkInterface != "" {
+			return errors.New("external endpoint must not configure HA_VIRTUAL_IP or HA_NETWORK_INTERFACE")
+		}
+		if err := validatePublicURL(config.PublicURL); err != nil {
+			return err
+		}
+	} else {
+		required["HA_VIRTUAL_IP"] = config.VirtualIP
+		required["HA_NETWORK_INTERFACE"] = config.NetworkInterface
+		if config.PublicURL != "" {
+			return errors.New("HA_PUBLIC_URL is only valid in external mode")
+		}
 	}
 	for key, value := range required {
 		if value == "" {
@@ -215,12 +230,14 @@ func validateNodeConfig(config NodeConfig) error {
 		}
 		seen[ip] = struct{}{}
 	}
-	virtualIP, ok := parseRoutableIPv4(config.VirtualIP)
-	if !ok {
-		return errors.New("HA_VIRTUAL_IP must be a routable literal IPv4 address")
-	}
-	if _, duplicate := seen[virtualIP]; duplicate {
-		return errors.New("HA_VIRTUAL_IP must differ from every HA node address")
+	if !config.externalEndpoint() {
+		virtualIP, ok := parseRoutableIPv4(config.VirtualIP)
+		if !ok {
+			return errors.New("HA_VIRTUAL_IP must be a routable literal IPv4 address")
+		}
+		if _, duplicate := seen[virtualIP]; duplicate {
+			return errors.New("HA_VIRTUAL_IP must differ from every HA node address")
+		}
 	}
 
 	expectedIP := map[string]string{
@@ -461,11 +478,21 @@ func ipv4Broadcast(prefix netip.Prefix) netip.Addr {
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	name, args = withoutRedundantSudo(os.Geteuid(), name, args)
 	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("run %s: %w", name, err)
 	}
 	return output, nil
+}
+
+// SSM and systemd already run as root, sometimes under a requiretty sudo policy.
+// Preserve sudo options/user switches; only omit a redundant plain elevation.
+func withoutRedundantSudo(uid int, name string, args []string) (string, []string) {
+	if uid == 0 && name == "sudo" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return name, args
 }
 
 func portIsListening(listeners string, port int) bool {

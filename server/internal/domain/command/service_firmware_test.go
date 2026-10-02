@@ -171,6 +171,7 @@ func TestFirmwareUpdate_QueuesCanonicalFileID(t *testing.T) {
 	).Return(nil)
 	svc := &Service{
 		config:           &Config{},
+		conn:             newCommandTestDB(t),
 		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		messageQueue:     messageQueue,
 		filesService:     filesService,

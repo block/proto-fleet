@@ -1,7 +1,7 @@
 # Protobuf changes
 
 Sources live under `proto/` and `server/sdk/v1/pb/`. Follow
-[contract guidance](../../../../proto/AGENTS.md), then use root `just gen`
+[contract guidance](../../../../proto/AGENTS.md), then use root `just gen-protos`
 to drive the configured generation pipeline rather than ad-hoc protoc calls.
 
 Review generated output by consumer (Go server, SDKs, TypeScript clients).

@@ -51,6 +51,19 @@ type Querier interface {
 	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
 	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
+	// The ownership/pairing/offline predicates are repeated at write time so a
+	// stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+	// miner. Locking the ownership and status rows serializes this recheck with
+	// unpairing, reassignment, and telemetry recovery. Returns the device id only
+	// when the guarded update applied.
+	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error)
+	// Authentication state is changed only for the still-owned, paired-like,
+	// offline miner named by the acknowledgement. Identity evidence is validated
+	// by the domain layer before this conditional write. Locking the ownership and
+	// status rows serializes this recheck with unpairing, reassignment, and
+	// telemetry recovery. The caller separately locks the device row before this
+	// statement so credential repair is observed from a fresh snapshot.
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -209,6 +222,10 @@ type Querier interface {
 	// NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
 	// the total affected row count across all racks.
 	CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error)
+	// Uploaded artifacts are global. Assignments protect continuous enforcement,
+	// active rollouts protect in-progress targets, and queued commands protect
+	// dispatches that may outlive a rollout or use a legacy file ID.
+	CheckFirmwareArtifactInUse(ctx context.Context, arg CheckFirmwareArtifactInUseParams) (bool, error)
 	// Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 	// policy state (pending or unavailable) instead of immediately claiming them
 	// as DISPATCHING. Same-event RELEASED, topology-restored RESOLVED, or failed
@@ -270,6 +287,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
@@ -368,6 +386,7 @@ type Querier interface {
 	// Creation follows assignment/scope locks; start the initial stage at this
 	// write rather than at the beginning of a transaction that may have waited.
 	CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareRolloutParams) (FirmwareRollout, error)
+	CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirmwareRolloutEventParams) error
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
 	// Name is unique per (site_id, name) among live rows; the partial
@@ -434,10 +453,10 @@ type Querier interface {
 	DeletePool(ctx context.Context, id int64) error
 	DeleteReleaseChannel(ctx context.Context, arg DeleteReleaseChannelParams) (int64, error)
 	DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error
-	// Offline targets keep an offline slot through their retained rollout target
-	// history, so a terminal command no longer needs its reservation row. A live
-	// command can also release after an observed offline/online cycle. Keep that
-	// observation until recovery, and discard fleet-deleted targets immediately.
+	// Retain an offline dispatched target until recovery, including after command
+	// completion or departure from the channel. A live command can also release
+	// after an observed offline/online cycle. Once released, later unrelated
+	// outages of departed historical targets do not reserve capacity again.
 	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
 	// True when the device is cloud-dialed: paired-like and not bound to any fleet node.
@@ -758,6 +777,10 @@ type Querier interface {
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
+	// Stable oldest-offline ordering lets the recovery service rotate bounded
+	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
+	// blobs stored during pairing.
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error)
 	// Finds an open error (closed_at IS NULL) matching the deduplication key.
 	// Used to determine if an upsert should update an existing error or insert a new one.
 	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
@@ -804,6 +827,9 @@ type Querier interface {
 	// Used by Foreman import to resolve Foreman miner IDs to Fleet device identifiers in a single query.
 	GetPairedDevicesByMACAddresses(ctx context.Context, arg GetPairedDevicesByMACAddressesParams) ([]GetPairedDevicesByMACAddressesRow, error)
 	GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64, error)
+	// Lock eligible rows until targeted fallback-config commands are enqueued.
+	// Pairing, manufacturer, and deletion changes must wait for that transaction.
+	GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (PendingEnrollment, error)
 	// Filter to the active status: a fleet_node_id can have terminal rows
 	// (CONFIRMED/CANCELLED/EXPIRED) alongside the live AWAITING_CONFIRMATION,
@@ -820,6 +846,11 @@ type Querier interface {
 	GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error)
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
 	GetReleaseChannel(ctx context.Context, arg GetReleaseChannelParams) (ReleaseChannel, error)
+	// Channel deletion must not erase active rollout controls or command history
+	// while an already-dispatched update remains pending. A recovered target may
+	// have released its reservation while the command still runs, so consult the
+	// durable dispatch identity as well as reservations.
+	GetReleaseChannelDeletionState(ctx context.Context, channelID int64) (GetReleaseChannelDeletionStateRow, error)
 	GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	// Serialize assignment changes before reading any pair, including pairs with
 	// no assignment row yet. Lock the channel before its rollouts. NO KEY UPDATE
@@ -1181,7 +1212,8 @@ type Querier interface {
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
-	// status, latest telemetry within 15 minutes of this statement, open errors
+	// status, latest telemetry within 15 minutes of this statement and at or after
+	// verification once DONE (so baseline samples cannot pass post-update gates), open errors
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 	// and channel membership separately from eligibility for the rollout's pair.
@@ -1203,11 +1235,15 @@ type Querier interface {
 	// non-deleted device and must be sampled at or after that device was created;
 	// retained targets keep their saved baselines without reading a replacement.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
-	// Every historical target can hold an offline slot, regardless of phase or
-	// current membership. Actual command reservations persist until their command
-	// finishes or an offline/online cycle is observed; elapsed time is irrelevant.
-	// Fleet deletion releases both. UNION counts a device only once, including
-	// when it was targeted by several rollouts in this channel.
+	// When each target's latest dispatched FirmwareUpdate reached a terminal
+	// status. Targets whose command is still queued or unrecorded are omitted.
+	ListFirmwareRolloutDispatchCompletions(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDispatchCompletionsRow, error)
+	ListFirmwareRolloutEvents(ctx context.Context, arg ListFirmwareRolloutEventsParams) ([]FirmwareRolloutEvent, error)
+	// Offline current members that have been targeted hold capacity. Departed
+	// targets count only while a durable dispatch reservation remains unresolved:
+	// a pending command before an offline cycle, or an offline miner not yet
+	// observed recovered. Completed historical targets cannot reacquire capacity
+	// after leaving. UNION counts each device only once; fleet deletion releases it.
 	ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID int64) ([]int64, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned. Incremental polls
@@ -1225,10 +1261,11 @@ type Querier interface {
 	ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
-	// Fleet-node-discovered devices not yet paired to their node. A discovered
-	// device is excluded when ANY of its live device rows is already node-bound
-	// (fleet_node_device) or cloud-paired-like; AUTHENTICATION_NEEDED rows (a pair
-	// attempt that needs credentials) surface for retry. Inverse of
+	// Fleet-node-discovered devices available for pairing or credential retry. A
+	// discovered device is excluded when ANY live device row is cloud-paired-like
+	// or bound to another node. A row bound to the requesting node surfaces only
+	// in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
+	// Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
 	// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 	// The exclusions use NOT EXISTS so a device with more than one live row is
 	// judged across all of them, not just the joined row. They match by
@@ -1260,6 +1297,11 @@ type Querier interface {
 	// a crash before the active-event pointer was written, cannot hide it.
 	ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]ListMQTTSourcesWithActiveCurtailmentRow, error)
 	ListMaintenanceAssignees(ctx context.Context, orgID int64) ([]ListMaintenanceAssigneesRow, error)
+	// A direct firmware command must not compete with release-channel enforcement,
+	// including a command that happens to report the assigned version. Firmware
+	// can rename a target's reported hardware; active enrollment remains owned by
+	// its current assignment until that paired device settles or leaves scope.
+	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
 	// TYPE GENERATION STUB - This query is never executed.
 	// The actual list query uses a hand-written query builder in device.go
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
@@ -1353,6 +1395,10 @@ type Querier interface {
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
+	// Run after claiming in a separate statement: its fresh snapshot includes
+	// targets committed by a concurrent requester before the claim obtained its
+	// organization lock. Targets refreshed after the claim remain for the next pass.
+	ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error)
 	// Returns every permission key attached to the given role. Used by the
 	// per-request resolver and by the role-edit privilege-parity check
 	// (a caller can only assign a role whose permissions are a subset of
@@ -1485,12 +1531,20 @@ type Querier interface {
 	// Topology writes still conflict with this lock, while command queue inserts
 	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
+	// Serialize ownership and authentication reconciliation with pairing changes
+	// and credential repair. Callers recheck their predicates in a subsequent
+	// statement so they see the winner at READ COMMITTED.
+	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
+	// Serialize ownership assignment with cloud IP-recovery authentication
+	// reconciliation. Call after locking the Fleet Node and before checking the
+	// device's current cloud-pairing state.
+	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1583,6 +1637,10 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	// Retrying a failed deployment preserves its original health expectations.
+	// A failed update can itself stop hashing; recapturing that degraded state
+	// would incorrectly lower the requirements for the retry to succeed.
+	PreserveFirmwareRolloutRetryBaselines(ctx context.Context, rolloutID int64) error
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -1637,7 +1695,12 @@ type Querier interface {
 	ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error)
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
-	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	// Call after locking the device, so endpoint recovery is visible in this statement.
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error)
+	// A credential rejection from cloud IP recovery applies only while the cloud
+	// still owns the device. The caller must first lock the device row above in the
+	// same transaction so Fleet Node assignment and this ownership check serialize.
+	ReconcileCloudAuthNeededByIdentifier(ctx context.Context, arg ReconcileCloudAuthNeededByIdentifierParams) (ReconcileCloudAuthNeededByIdentifierRow, error)
 	ReconcileContainerModules(ctx context.Context, arg ReconcileContainerModulesParams) error
 	ReconcileContainerTanks(ctx context.Context, arg ReconcileContainerTanksParams) error
 	// Telemetry reconciles only the paired-like factory-password state machine.
@@ -1704,6 +1767,9 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
+	// Lock/update the organization before writing targets. Completion and terminal
+	// retry follow the same lock order so concurrent requests cannot lose targets.
+	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
 	// Re-queues the pair's suppressed miners (device_ids: what
 	// ListReleaseChannelSuppressedMembers returns for the rollout's pair and
 	// generation) into an active rollout and returns them. Miners the rollout
@@ -1713,10 +1779,9 @@ type Querier interface {
 	// hold them. Excluded rows are left alone: re-inclusion brings such a miner
 	// back still halted, for the next retry.
 	RequeueFirmwareRolloutDevices(ctx context.Context, arg RequeueFirmwareRolloutDevicesParams) ([]int64, error)
-	// The command queue has bounded per-message retries. Reopen the organization
-	// generation when one config command becomes terminal so reconciliation keeps
-	// retrying instead of treating durable enqueue as durable device application.
-	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error
+	// The command queue has bounded per-message retries. Retain only the failed
+	// eligible device for another attempt; successful devices need no new command.
+	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error
 	ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error)
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one
@@ -1775,6 +1840,7 @@ type Querier interface {
 	// caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
 	// Zero rows means paired-like won.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
+	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
@@ -1811,6 +1877,7 @@ type Querier interface {
 	// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
 	// bulk-validate rack-list site_ids filter references in one round trip.
 	SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error)
+	SkipFirmwareRolloutDevices(ctx context.Context, arg SkipFirmwareRolloutDevicesParams) error
 	// Adds a rollout's initial targets with their batch (NULL for the unbatched
 	// rest), their order (position_offset + index in device_ids) and a baseline
 	// of their health, so post-update evidence is compared with each miner's own

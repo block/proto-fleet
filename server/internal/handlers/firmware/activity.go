@@ -6,6 +6,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -35,7 +36,7 @@ func logFirmwareUploadActivity(
 			"firmware_version":    result.Metadata.FirmwareVersion,
 		},
 	}
-	activity.StampActor(ctx, &event)
+	stampFirmwareActor(ctx, &event)
 	activitySvc.Log(ctx, event)
 }
 
@@ -64,6 +65,15 @@ func logFirmwareMetadataUpdatedActivity(
 		Description: fmt.Sprintf("Updated firmware metadata: %s", fileID),
 		Metadata:    metadata,
 	}
-	activity.StampActor(ctx, &event)
+	stampFirmwareActor(ctx, &event)
 	activitySvc.Log(ctx, event)
+}
+
+func stampFirmwareActor(ctx context.Context, event *activitymodels.Event) {
+	activity.StampActor(ctx, event)
+	info, err := session.GetInfo(ctx)
+	if err == nil && info.AuthMethod == session.AuthMethodAPIKey {
+		event.Metadata["api_key_id"] = info.APIKeyID
+		event.Metadata["api_key_name"] = info.APIKeyName
+	}
 }

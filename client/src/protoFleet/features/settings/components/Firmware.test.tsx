@@ -370,7 +370,7 @@ describe("Firmware", () => {
     render(<Firmware />);
     await waitFor(() => expect(screen.getByText("Loading firmware files...")).toBeInTheDocument());
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Release channels" }));
+    fireEvent.click(screen.getByRole("button", { name: "Release channels" }));
     await waitFor(() => expect(screen.getByText("No release channels")).toBeInTheDocument());
     expect(screen.queryByText("Loading firmware files...")).not.toBeInTheDocument();
   });

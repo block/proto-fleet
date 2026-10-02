@@ -21,10 +21,15 @@ their impact; do not silently call blocked validation a pass.
 
 ## Check selection
 
-Use the `justfile`s and affected behavior to choose checks. For code changes,
-run `just check-changed` first; it selects the branch-diff lint and typecheck
-jobs that pre-push also runs. Then run relevant targeted tests. Do not repeat
-`just lint` unless a full-repository check is specifically needed.
+Use the `justfile`s and affected behavior to choose targeted tests while
+editing. For an authorized push, let the enabled pre-push hook run
+`just check-changed` as the final broad changed-path validation; do not run
+the same command manually immediately before pushing. For local-only
+completion, run `just check-changed` manually once the edits are complete.
+Pre-push does not replace relevant targeted tests. Fix hook failures caused
+by the change and retry the push with hooks enabled; report unrelated failures
+or unavailable prerequisites as validation gaps.
+Do not run `just lint` unless a full-repository check is specifically needed.
 Documentation-only changes need link, instruction, and formatting checks
 rather than application suites.
 
@@ -41,7 +46,8 @@ rather than application suites.
 
 Check applicable scoped guidance for client boundaries, migration
 immutability, Go workspace sync, and generated artifacts. Do not load every
-skill or rerun already-passing checks without a new change or unresolved risk.
+skill. Repeat passing checks only after relevant inputs change or a new
+concern appears; required hooks remain enabled on every push.
 
 ## Finish
 

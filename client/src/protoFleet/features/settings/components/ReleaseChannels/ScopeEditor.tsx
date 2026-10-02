@@ -48,8 +48,8 @@ interface ScopeEditorProps {
 }
 
 // The "Applies to" section: one selector per placement level, opening the
-// shared target selection modals, with a live readout of what the scope
-// resolves to and which channels it would overlap.
+// shared target selection modals and overlap validation. Creation also shows
+// a live readout of what the scope resolves to.
 const ScopeEditor = ({
   scope,
   onChange,
@@ -234,7 +234,7 @@ const ScopePreview = ({
   canSelectTargets: boolean;
   retryDisabled: boolean;
   onRetry: () => void;
-}): ReactElement => {
+}): ReactElement | null => {
   if (isScopeEmpty(scope)) {
     return (
       <p className="text-200 text-text-primary-50" data-testid="scope-preview">
@@ -277,7 +277,7 @@ const ScopePreview = ({
             {!editingExistingChannel ? " Wait for the preview before creating the channel." : ""}
           </p>
         )}
-        {previousPreview ? (
+        {previousPreview && !editingExistingChannel ? (
           <p className="text-text-primary-50">
             Last valid preview: {scopeSummary(previousPreview.request.scope)} · covers{" "}
             {previousPreview.value.minerCount.toLocaleString()}{" "}
@@ -287,14 +287,17 @@ const ScopePreview = ({
       </div>
     );
   }
+  if (editingExistingChannel && preview.conflicts.length === 0) return null;
   const models = preview.models.map((m) => `${m.minerCount.toLocaleString()} ${m.model || "unknown model"}`).join(", ");
   return (
     <div className="flex flex-col gap-1 text-200" data-testid="scope-preview">
-      <span className="text-text-primary">
-        {scopeSummary(scope)} · covers {preview.minerCount.toLocaleString()}{" "}
-        {preview.minerCount === 1 ? "miner" : "miners"}
-        {models ? ` (${models})` : ""}
-      </span>
+      {!editingExistingChannel ? (
+        <span className="text-text-primary">
+          {scopeSummary(scope)} · covers {preview.minerCount.toLocaleString()}{" "}
+          {preview.minerCount === 1 ? "miner" : "miners"}
+          {models ? ` (${models})` : ""}
+        </span>
+      ) : null}
       {preview.conflicts.length > 0 ? (
         <span className="text-text-critical" data-testid="scope-conflicts">
           Overlaps{" "}

@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import Modal from ".";
 
@@ -44,6 +44,110 @@ describe("Modal", () => {
       rects.mockRestore();
     }
   });
+
+  it("keeps the title expanded at the top and collapsed consistently while scrolling", () => {
+    render(
+      <Modal title="Channel settings">
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+
+    const scrollArea = screen.getByTestId("modal");
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    const bodyTitle = screen.getByText("Channel settings");
+
+    expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+
+    for (const scrollTop of [1, 1, 100, 100, 1]) {
+      fireEvent.scroll(scrollArea, { target: { scrollTop } });
+      expect(within(header).getByText("Channel settings")).toBeInTheDocument();
+      expect(bodyTitle).toHaveClass("invisible");
+      expect(bodyTitle).not.toHaveClass("hidden");
+      expect(scrollArea).toContainElement(bodyTitle);
+    }
+
+    fireEvent.scroll(scrollArea, { target: { scrollTop: 0 } });
+    expect(within(header).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+    expect(bodyTitle).not.toHaveClass("invisible");
+  });
+
+  it("retains the body title on phones when the sticky header is hidden there", () => {
+    render(
+      <Modal title="Phone settings" hideHeaderOnPhone>
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+    const bodyTitle = screen.getByText("Phone settings");
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 20 } });
+
+    expect(header).toHaveClass("phone:hidden");
+    expect(bodyTitle).toHaveClass("invisible", "phone:visible");
+    expect(bodyTitle).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("keeps the body title visible while scrolling without a header", () => {
+    render(
+      <Modal title="Headerless settings" showHeader={false}>
+        <div>Scrollable settings</div>
+      </Modal>,
+    );
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 20 } });
+    expect(screen.getByText("Headerless settings")).not.toHaveClass("invisible");
+  });
+
+  it("tracks scrolling when first opened and resets the title when reopened", () => {
+    const modal = (open: boolean) => (
+      <Modal title="Channel settings" open={open}>
+        <div>Scrollable settings</div>
+      </Modal>
+    );
+    const { rerender } = render(modal(false));
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+
+    rerender(modal(true));
+    const firstHeader = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(firstHeader).queryByText("Channel settings")).not.toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 100 } });
+    expect(within(firstHeader).getByText("Channel settings")).toBeInTheDocument();
+
+    rerender(modal(false));
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+    rerender(modal(true));
+
+    const reopenedHeader = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(reopenedHeader).queryByText("Channel settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel settings")).toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop: 1 } });
+    expect(within(reopenedHeader).getByText("Channel settings")).toBeInTheDocument();
+  });
+
+  it.each([
+    { name: "forced", props: { forceTitleCollapsed: true } },
+    { name: "fullscreen", props: { size: "fullscreen" as const } },
+  ])("keeps the $name title in the header regardless of scroll position", ({ props }) => {
+    render(
+      <Modal title="Persistent title" {...props}>
+        <div>Scrollable content</div>
+      </Modal>,
+    );
+
+    const header = screen.getByRole("button", { name: "Close dialog" }).closest<HTMLElement>(".sticky")!;
+    expect(within(header).getByText("Persistent title")).toBeInTheDocument();
+    expect(screen.getAllByText("Persistent title")).toHaveLength(1);
+
+    for (const scrollTop of [100, 0]) {
+      fireEvent.scroll(screen.getByTestId("modal"), { target: { scrollTop } });
+      expect(within(header).getByText("Persistent title")).toBeInTheDocument();
+      expect(screen.getAllByText("Persistent title")).toHaveLength(1);
+    }
+  });
+
   it("uses the full-width top dialog mobile pattern by default", () => {
     render(
       <Modal title="Standard modal">
@@ -142,66 +246,5 @@ describe("Modal", () => {
     fireEvent.mouseDown(fixedFooter);
     fireEvent.click(fixedFooter);
     expect(onDismiss).not.toHaveBeenCalled();
-  });
-});
-
-describe("Modal scroll title", () => {
-  let reportIntersection: (isIntersecting: boolean) => void;
-  const observe = vi.fn();
-  const disconnect = vi.fn();
-
-  beforeEach(() => {
-    observe.mockClear();
-    disconnect.mockClear();
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        constructor(callback: (entries: IntersectionObserverEntry[]) => void) {
-          reportIntersection = (isIntersecting) => callback([{ isIntersecting } as IntersectionObserverEntry]);
-        }
-        observe = observe;
-        disconnect = disconnect;
-      },
-    );
-  });
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("keeps the compact title hidden at the top despite intersection boundary jitter", () => {
-    render(<Modal title="Miner status">Status content</Modal>);
-    for (const isIntersecting of [false, true, false]) {
-      act(() => reportIntersection(isIntersecting));
-      expect(screen.getAllByText("Miner status")).toHaveLength(1);
-    }
-  });
-
-  it("shows the compact title after scrolling past the large title and clears it immediately at the top", () => {
-    render(<Modal title="Miner status">Status content</Modal>);
-    const scroller = screen.getByTestId("modal");
-    fireEvent.scroll(scroller, { target: { scrollTop: 100 } });
-    act(() => reportIntersection(false));
-    expect(screen.getAllByText("Miner status")).toHaveLength(2);
-    // IntersectionObserver callbacks arrive asynchronously after a scroll event.
-    fireEvent.scroll(scroller, { target: { scrollTop: 0 } });
-    expect(screen.getAllByText("Miner status")).toHaveLength(1);
-    act(() => reportIntersection(false));
-    expect(screen.getAllByText("Miner status")).toHaveLength(1);
-  });
-
-  it("starts observing when a previously closed modal opens", () => {
-    const { rerender } = render(
-      <Modal title="Miner status" open={false}>
-        Status content
-      </Modal>,
-    );
-    expect(observe).not.toHaveBeenCalled();
-    rerender(
-      <Modal title="Miner status" open>
-        {" "}
-        Status content
-      </Modal>,
-    );
-    expect(observe).toHaveBeenCalledOnce();
-    act(() => reportIntersection(false));
-    expect(screen.getAllByText("Miner status")).toHaveLength(1);
   });
 });

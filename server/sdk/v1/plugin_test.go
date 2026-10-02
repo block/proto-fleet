@@ -210,6 +210,7 @@ func (f fakeDriver) NewDevice(ctx context.Context, deviceID string, deviceInfo D
 type fakeDevice struct {
 	describeDeviceFunc      func(ctx context.Context) (DeviceInfo, Capabilities, error)
 	statusFunc              func(ctx context.Context) (DeviceMetrics, error)
+	closeFunc               func(ctx context.Context) error
 	startMiningFunc         func(ctx context.Context) error
 	setCoolingModeFunc      func(ctx context.Context, mode CoolingMode) error
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword, newPassword string) error
@@ -226,7 +227,47 @@ func (f fakeDevice) Status(ctx context.Context) (DeviceMetrics, error) {
 	return f.statusFunc(ctx)
 }
 
-func (f fakeDevice) Close(ctx context.Context) error { return nil }
+func (f fakeDevice) Close(ctx context.Context) error {
+	if f.closeFunc != nil {
+		return f.closeFunc(ctx)
+	}
+	return nil
+}
+
+func TestDriverGRPCServerNewDeviceClosesResultCompletedAfterCancellation(t *testing.T) {
+	release := make(chan struct{})
+	closed := make(chan error, 1)
+	server := &DriverGRPCServer{
+		Impl: fakeDriver{newDeviceFunc: func(context.Context, string, DeviceInfo, SecretBundle) (NewDeviceResult, error) {
+			<-release
+			return NewDeviceResult{Device: fakeDevice{closeFunc: func(ctx context.Context) error {
+				closed <- ctx.Err()
+				return nil
+			}}}, nil
+		}},
+		devices: make(map[string]Device),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.NewDevice(ctx, &pb.NewDeviceRequest{
+			DeviceId: "device-123",
+			Info:     &pb.DeviceInfo{},
+			Secret:   &pb.SecretBundle{},
+		})
+		done <- err
+	}()
+	cancel()
+	close(release)
+
+	require.Equal(t, codes.Canceled, status.Code(<-done))
+	require.NoError(t, <-closed, "cleanup must not inherit the canceled request context")
+	server.mu.RLock()
+	_, retained := server.devices["device-123"]
+	server.mu.RUnlock()
+	assert.False(t, retained)
+}
+
 func (f fakeDevice) StartMining(ctx context.Context) error {
 	if f.startMiningFunc != nil {
 		return f.startMiningFunc(ctx)

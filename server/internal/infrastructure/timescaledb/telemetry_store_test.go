@@ -1159,18 +1159,12 @@ func insertTestMinerStateSnapshot(t *testing.T, db *sql.DB, at time.Time, orgID 
 
 func refreshMetricsHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Time) {
 	t.Helper()
-	_, err := db.ExecContext(context.Background(),
-		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
-		start, end)
-	require.NoError(t, err)
+	testutil.RefreshContinuousAggregate(t, db, "device_metrics_hourly", &start, &end)
 }
 
 func refreshStatusHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Time) {
 	t.Helper()
-	_, err := db.ExecContext(context.Background(),
-		"CALL refresh_continuous_aggregate('device_status_hourly', $1::timestamptz, $2::timestamptz)",
-		start, end)
-	require.NoError(t, err)
+	testutil.RefreshContinuousAggregate(t, db, "device_status_hourly", &start, &end)
 }
 
 func cleanupDeviceMetrics(t *testing.T, db *sql.DB, deviceIdentifier string) {

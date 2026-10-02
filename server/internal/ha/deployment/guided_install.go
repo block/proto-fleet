@@ -137,7 +137,7 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			if err := validateHostEnvironment(ctx, config, host, false, profile); err != nil {
 				return installedDependencies{}, err
 			}
-			_, installed, err := inspectInstallBase(ctx, source, defaultInstallDependencies())
+			_, installed, err := inspectInstallBase(ctx, source, defaultInstallDependencies(), false)
 			return installed, err
 		},
 		install: func(ctx context.Context, options InstallOptions) error {

@@ -264,6 +264,7 @@ func TestMultiTypeDiscoverer_Discover_AllPluginsFail(t *testing.T) {
 	// Assert
 	assert.Nil(t, device)
 	require.Error(t, err)
+	assert.True(t, IsIncompleteDiscoveryError(err))
 	assert.Contains(t, err.Error(), "all plugin discovery attempts failed")
 }
 

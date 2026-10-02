@@ -23,6 +23,19 @@ type fakeUpdaterClient struct {
 	operation  updaterapi.Operation
 }
 
+func TestExternalCommandsParseWithoutInteractiveInput(t *testing.T) {
+	var parsed cli
+	parser, err := kong.New(&parsed, kong.Vars{"default_node_env": defaultNodeEnv, "default_firewall_template": defaultFirewallTemplate})
+	require.NoError(t, err)
+	_, err = parser.Parse([]string{"prepare-external", "/secure/cluster", "--database-a", "10.0.1.10", "--database-b", "10.0.2.10", "--witness", "10.0.3.10", "--public-url", "https://fleet.example.com"})
+	require.NoError(t, err)
+	require.Equal(t, "https://fleet.example.com", parsed.PrepareExternal.PublicURL)
+	_, err = parser.Parse([]string{"install-prepared", "/secure/ha-a/node.env", "--etcd-root-password-file", "/secure/root-password"})
+	require.NoError(t, err)
+	require.Equal(t, "/secure/ha-a/node.env", parsed.InstallPrepared.NodeEnv)
+	require.Equal(t, "/secure/root-password", parsed.InstallPrepared.EtcdRootPasswordFile)
+}
+
 func TestResetPasswordCommandParsesStdinFlag(t *testing.T) {
 	var parsed cli
 	parser, err := kong.New(&parsed, kong.Vars{

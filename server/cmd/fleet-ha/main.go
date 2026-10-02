@@ -37,6 +37,8 @@ type cli struct {
 	ResetPassword     resetPasswordCmd     `cmd:"" name:"reset-password" help:"reset the sole SUPER_ADMIN password"`
 	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
 	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
+	PrepareExternal   prepareExternalCmd   `cmd:"" help:"generate protected external-endpoint host configurations without SSH"`
+	InstallPrepared   installPreparedCmd   `cmd:"" help:"install an external-endpoint host from protected configuration"`
 	Uninstall         uninstallCmd         `cmd:"" help:"remove the local HA runtime"`
 	Update            updateCmd            `cmd:"" help:"update the application services on a passive HA host"`
 	Start             startCmd             `cmd:"" help:"start installed HA services"`
@@ -46,7 +48,28 @@ type cli struct {
 	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
-	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the VIP to serve an application version"`
+	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
+}
+
+type prepareExternalCmd struct {
+	Output    string `arg:"" type:"path" help:"new protected output directory"`
+	DatabaseA string `required:"" help:"ha-a private IPv4 address"`
+	DatabaseB string `required:"" help:"ha-b private IPv4 address"`
+	Witness   string `required:"" help:"ha-c private IPv4 address"`
+	PublicURL string `required:"" help:"HTTPS public origin"`
+}
+
+func (c *prepareExternalCmd) Run() error {
+	return deployment.PrepareExternal(c.Output, [3]string{c.DatabaseA, c.DatabaseB, c.Witness}, c.PublicURL)
+}
+
+type installPreparedCmd struct {
+	NodeEnv              string `arg:"" type:"path" help:"protected node.env; HA_SECRETS_DIR must name the local staged secret directory"`
+	EtcdRootPasswordFile string `type:"path" help:"etcd bootstrap root password file, ha-a only"`
+}
+
+func (c *installPreparedCmd) Run(ctx context.Context) error {
+	return deployment.InstallPreparedConfig(ctx, deployment.InstallOptions{NodeEnvPath: c.NodeEnv, EtcdRootPasswordFile: c.EtcdRootPasswordFile})
 }
 
 type preflightCmd struct {

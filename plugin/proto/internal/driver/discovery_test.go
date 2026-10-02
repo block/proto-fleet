@@ -3,6 +3,9 @@ package driver
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"sync"
@@ -248,12 +251,9 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		// This should fail because driver expects a specific port but we're trying a different one
 		_, err = driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.Error(t, err, "Discovery should fail when driver port doesn't match target port")
-		assert.Contains(
-			t,
-			err.Error(),
-			"proto miners are configured for port",
-			"strict-port discovery should fail before any network call; the reported target port may be a Docker-mapped test port",
-		)
+		var sdkErr sdk.SDKError
+		assert.ErrorAs(t, err, &sdkErr)
+		assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 	})
 
 	t.Run("concurrent discovery", func(t *testing.T) {
@@ -464,6 +464,75 @@ func TestDiscoverDevice_ContextCancellation(t *testing.T) {
 	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "80")
 	require.Error(t, err)
 	// The error might be context canceled or connection failure, both are acceptable
+}
+
+func TestDiscoverDeviceClassifiesHTTPResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		status       int
+		body         string
+		truncateBody bool
+		wantCode     sdk.ErrorCode
+	}{
+		{name: "unrelated service", status: http.StatusNotFound, wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "transient server failure", status: http.StatusServiceUnavailable, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "HTML login page", status: http.StatusOK, body: "<!DOCTYPE html><html><body>Log in</body></html>", wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "missing identity", status: http.StatusOK, body: "{}", wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "truncated JSON", status: http.StatusOK, body: `{"cb_sn":"miner"`, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "empty body", status: http.StatusOK, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "interrupted HTML transfer", status: http.StatusOK, body: "<html><body>Log in", truncateBody: true, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "Proto miner", status: http.StatusOK, body: `{"cb_sn":"miner","mac":"00:11:22:33:44:55"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.truncateBody {
+					w.Header().Set("Content-Length", strconv.Itoa(len(tc.body)+10))
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			portNumber, err := strconv.Atoi(port)
+			require.NoError(t, err)
+			driver, err := New(portNumber)
+			require.NoError(t, err)
+
+			info, err := driver.DiscoverDevice(t.Context(), host, port)
+			if tc.wantCode == "" {
+				require.NoError(t, err)
+				assert.Equal(t, "miner", info.SerialNumber)
+				assert.Equal(t, "00:11:22:33:44:55", info.MacAddress)
+				return
+			}
+
+			require.Error(t, err)
+			var sdkErr sdk.SDKError
+			assert.ErrorAs(t, err, &sdkErr)
+			assert.Equal(t, tc.wantCode, sdkErr.Code)
+		})
+	}
+}
+
+func TestDiscoverDevicePreservesHTTPSMissAcrossHTTPFallback(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html><body>Log in</body></html>"))
+	}))
+	defer server.Close()
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	portNumber, err := strconv.Atoi(port)
+	require.NoError(t, err)
+	driver, err := New(portNumber)
+	require.NoError(t, err)
+
+	_, err = driver.DiscoverDevice(t.Context(), host, port)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 // TestDiscoverDevice_SchemeNegotiation tests HTTPS->HTTP fallback with sim miner

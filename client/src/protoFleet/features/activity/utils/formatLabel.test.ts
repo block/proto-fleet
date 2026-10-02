@@ -14,6 +14,16 @@ describe("formatLabel", () => {
     expect(formatLabel("inventory.parts_imported")).toBe("Imported inventory parts");
   });
 
+  it.each([
+    ["rollout_advanced", "Advanced firmware update", "Firmware update advanced"],
+    ["rollout_devices_skipped", "Skipped firmware update targets", "Firmware update targets skipped"],
+    ["rollout_device_failed", "Firmware update target failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out", "Firmware update controller timed out"],
+  ])("labels %s in activity and its filters", (eventType, label, filterLabel) => {
+    expect(formatLabel(eventType)).toBe(label);
+    expect(formatActivityFilterLabel(eventType)).toBe(filterLabel);
+  });
+
   it("formats completed event types using the base event label", () => {
     expect(formatLabel("reboot.completed")).toBe("Reboot miners");
   });

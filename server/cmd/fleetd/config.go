@@ -39,6 +39,7 @@ func validateHAHTTPAddress(config Config) error {
 }
 
 type HTTPConfig struct {
+	TrustedProxyCIDRs string        `name:"trusted-proxy-cidrs" help:"Comma-separated CIDRs of trusted HTTP proxies (empty trusts none)" env:"TRUSTED_PROXY_CIDRS"`
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`
 	ReadHeaderTimeout time.Duration `help:"Read header timeout" default:"3s" env:"READ_HEADER_TIMEOUT"`
 	WriteByteTimeout  time.Duration `help:"HTTP/2 timeout for stalled response writes." default:"30s" env:"WRITE_BYTE_TIMEOUT"`

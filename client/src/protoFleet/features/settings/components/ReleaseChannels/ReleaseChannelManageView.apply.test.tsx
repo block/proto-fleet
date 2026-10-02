@@ -1,9 +1,9 @@
 import type { ComponentProps } from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { deferred, manageViewProps } from "./__tests__/helpers";
+import { closeChannelSettings, deferred, manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import {
   ReleaseChannelModelGroupSchema,
@@ -82,6 +82,8 @@ function renderManage(channel = channelFor(), hasRefreshError = false) {
     firmwareFiles,
     onSave,
     onApply,
+    onDelete: vi.fn(),
+    onShowHistory: vi.fn(),
   };
   const { rerender } = render(<ReleaseChannelManageView {...props} />);
   return {
@@ -100,12 +102,16 @@ function chooseFile(id: string, model = "Rig") {
   fireEvent.click(within(list).getByRole("option", { name: id === "" ? "No firmware" : new RegExp(`^${id}-`) }));
 }
 function chooseMethod(label: string) {
+  openChannelSettings();
   fireEvent.click(screen.getByTestId("rollout-method"));
   fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${label}`) }));
 }
 async function startApply(button = "Start update") {
+  closeChannelSettings();
   fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: button })));
+  await act(async () =>
+    fireEvent.click(within(screen.getByTestId("apply-firmware-dialog")).getByRole("button", { name: button })),
+  );
 }
 
 beforeEach(() => {
@@ -113,13 +119,169 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+describe("pending firmware header actions", () => {
+  it("replaces channel actions while staging and restores them after discarding", () => {
+    const { onApply, onSave } = renderManage();
+    for (const name of ["Channel settings", "History"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+
+    chooseFile("next");
+    expect(screen.getByTestId("channel-settings")).toBeEnabled();
+    for (const name of ["History"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    for (const name of ["Channel settings", "History"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("old-saved");
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+  it("offers the same Apply and Discard actions for settings-only changes", () => {
+    const { onApply, onSave } = renderManage();
+    openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Draft name" } });
+    closeChannelSettings();
+    expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByTestId("channel-settings")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "History" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "History" })).toBeVisible();
+    expect(screen.queryByTestId("delete-channel")).not.toBeInTheDocument();
+    openChannelSettings();
+    expect(screen.getByLabelText("Name")).toHaveValue("Production");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("counts settings and model changes in Apply, updates on revert, and keeps pending text in the preview", async () => {
+    const channel = channelFor();
+    channel.modelGroups.push(group("Other", "second-old"));
+    renderManage(channel);
+    openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Canary" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Draft description" } });
+    closeChannelSettings();
+    chooseFile("next");
+    chooseFile("second-next", "Other");
+
+    let apply = screen.getByRole("button", { name: "Apply changes (4)" });
+    expect(within(apply).getByTestId("pending-change-count")).toHaveTextContent("4");
+    expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument();
+    openChannelSettings();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Production" } });
+    closeChannelSettings();
+    expect(screen.getByTestId("pending-change-count")).toHaveTextContent("3");
+    chooseFile("second-old", "Other");
+    apply = screen.getByRole("button", { name: "Apply changes (2)" });
+    expect(within(apply).getByTestId("pending-change-count")).toHaveTextContent("2");
+    fireEvent.click(apply);
+
+    const dialog = screen.getByTestId("apply-firmware-dialog");
+    expect(within(dialog).getByText("2 changes pending")).toBeInTheDocument();
+    expect(screen.getAllByText(/changes? pending/i)).toHaveLength(1);
+    expect(dialog).toHaveTextContent("Draft description");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pending-change-count")).not.toBeInTheDocument();
+  });
+});
+
 describe("firmware assignment confirmation", () => {
+  it.each(["different names", "same name", "missing original"])(
+    "identifies a same-version firmware replacement with %s",
+    (catalog) => {
+      const channel = channelFor();
+      channel.modelGroups[0].firmwareVersion = "1.4.3";
+      channel.modelGroups[0].firmwareChecksum = "aabbccddeeff00112233445566778899";
+      const { update } = renderManage(channel);
+      const originalFile = { ...file("old"), firmware_version: "1.4.3" };
+      const targetFile = {
+        ...file("next"),
+        firmware_version: "1.4.3",
+        filename: catalog === "same name" ? originalFile.filename : "next.swu",
+      };
+      update({ firmwareFiles: catalog === "missing original" ? [targetFile] : [originalFile, targetFile] });
+      fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+      const options = screen.getAllByRole("option", { name: /^1\.4\.3/ });
+      fireEvent.click(options[options.length - 1]);
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      const table = within(screen.getByTestId("apply-firmware-dialog")).getByRole("table", {
+        name: "Firmware changes",
+      });
+      const cells = within(within(table).getByRole("row", { name: /proto Rig/i })).getAllByRole("cell");
+      expect(cells.map((cell) => cell.textContent)).toEqual([
+        catalog === "missing original"
+          ? "1.4.3\nChecksum aabbccddeeff"
+          : `1.4.3\nold.swu${catalog === "same name" ? " · old" : ""}`,
+        `1.4.3\n${targetFile.filename}${catalog === "same name" ? " · next" : ""}`,
+      ]);
+    },
+  );
+
+  it.each(["present", "missing"])(
+    "compares the saved version with the target when its catalog entry is %s",
+    (catalog) => {
+      const { update } = renderManage();
+      if (catalog === "missing") update({ firmwareFiles: firmwareFiles.filter((file) => file.id !== "old") });
+      chooseFile("next");
+      fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+      const table = within(screen.getByTestId("apply-firmware-dialog")).getByRole("table", {
+        name: "Firmware changes",
+      });
+      expect(
+        within(table)
+          .getAllByRole("columnheader")
+          .map((cell) => cell.textContent),
+      ).toEqual(["Model", "Original", "Target"]);
+      const row = within(table).getByRole("row", { name: /proto Rig/i });
+      expect(within(row).getByRole("rowheader")).toHaveTextContent(/proto Rig/i);
+      expect(
+        within(row)
+          .getAllByRole("cell")
+          .map((cell) => cell.textContent),
+      ).toEqual(["old-saved", "next-catalog"]);
+      expect(table).not.toHaveTextContent("old-catalog");
+    },
+  );
+
+  it("shows no firmware as the original when assigning an unassigned model", () => {
+    const channel = channelFor();
+    channel.modelGroups = [create(ReleaseChannelModelGroupSchema, { manufacturer: "proto", model: "Rig" })];
+    renderManage(channel);
+    chooseFile("next");
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const table = within(screen.getByTestId("apply-firmware-dialog")).getByRole("table", { name: "Firmware changes" });
+    const row = within(table).getByRole("row", { name: /Proto Rig/ });
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["No firmware", "next-catalog"]);
+  });
+
   it.each([RolloutMethod.ALL_AT_ONCE, RolloutMethod.DELEGATED])(
     "describes a clear without promising an update for method %s",
     async (method) => {
       const { onApply } = renderManage(channelFor(method));
       chooseFile("");
-      expect(screen.getByText("1 firmware change pending")).not.toHaveTextContent("starts an update");
+      expect(screen.queryByText(/changes? pending/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId("pending-change-count")).toHaveTextContent("1");
       fireEvent.click(screen.getByTestId("apply-firmware-changes"));
       const dialog = screen.getByTestId("apply-firmware-dialog");
       expect(dialog).toHaveTextContent("Clear firmware assignments?");
@@ -127,6 +289,14 @@ describe("firmware assignment confirmation", () => {
       expect(dialog).toHaveTextContent("Clearing stops enforcement and cancels remaining updates");
       expect(dialog).toHaveTextContent("updates already dispatched may finish");
       expect(dialog).not.toHaveTextContent("Pacing:");
+      const row = within(within(dialog).getByRole("table", { name: "Firmware changes" })).getByRole("row", {
+        name: /proto Rig/i,
+      });
+      expect(
+        within(row)
+          .getAllByRole("cell")
+          .map((cell) => cell.textContent),
+      ).toEqual(["old-saved", "No firmware"]);
       expect(within(dialog).queryByRole("button", { name: "Start update" })).not.toBeInTheDocument();
       await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Clear assignments" })));
       expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
@@ -187,62 +357,90 @@ describe("unavailable assigned firmware", () => {
 });
 
 describe("firmware Apply with saved delegated behavior", () => {
-  it("requires saving a supported method before starting firmware, including after a failed refresh", async () => {
+  it("applies firmware without changing external control, including after a failed refresh", async () => {
+    const channel = channelFor(RolloutMethod.DELEGATED);
+    channel.behavior!.controllerTimeoutSeconds = 120;
+    const { onApply, onSave } = renderManage(channel, true);
+    chooseFile("next");
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    await startApply();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
+    ]);
+    openChannelSettings();
+    expect(screen.getByTestId("rollout-method")).toHaveTextContent("Controlled externally");
+    await waitFor(() => expect(screen.getByText("120 seconds")).toBeVisible());
+  });
+
+  it("saves a draft method before applying firmware", async () => {
     const { onApply, onSave } = renderManage(channelFor(RolloutMethod.DELEGATED), true);
     chooseFile("next");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
-    expect(screen.getByTestId("delegated-apply-unavailable")).toHaveTextContent(
-      "Choose and save another update method",
-    );
     chooseMethod("Single batch");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
-    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    expect(onApply).not.toHaveBeenCalled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    expect(screen.getByTestId("save-channel")).toBeEnabled();
+    expect(onSave).not.toHaveBeenCalled();
+    await startApply("Apply changes");
     expect(onSave).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
-    expect(screen.queryByTestId("delegated-apply-unavailable")).not.toBeInTheDocument();
-    await startApply();
+    expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(onApply.mock.invocationCallOrder[0]);
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
       { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
     ]);
   });
 
-  it("blocks a mixed set and clear but allows clearing all delegated assignments, including unavailable files", async () => {
+  it.each(["next", ""])("applies firmware selection %s alongside clearing an unavailable assignment", async (id) => {
     const channel = channelFor(RolloutMethod.DELEGATED);
     channel.modelGroups.push({ ...group("Other", "second-old"), firmwareFileId: "", firmwareAvailable: false });
-    const { onApply } = renderManage(channel);
-    chooseFile("next");
+    const { onApply, onSave } = renderManage(channel);
+    chooseFile(id);
     chooseFile("", "Other");
-    expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
-    chooseFile("");
     expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
-    expect(screen.queryByTestId("delegated-apply-unavailable")).not.toBeInTheDocument();
-    await startApply("Clear assignments");
+    await startApply(id === "" ? "Clear assignments" : "Apply changes");
+    expect(onSave).not.toHaveBeenCalled();
     expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
-      { manufacturer: "Proto", model: "Rig", firmwareFileId: "" },
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: id },
       { manufacturer: "Proto", model: "Other", firmwareFileId: "" },
     ]);
   });
 
-  it("disables an open confirmation if the saved method becomes delegated", async () => {
+  it("keeps an open confirmation usable when the saved method becomes delegated", async () => {
     const channel = channelFor();
-    const { update, onApply } = renderManage(channel);
+    const { update, onApply, onSave } = renderManage(channel);
     chooseFile("next");
     fireEvent.click(screen.getByTestId("apply-firmware-changes"));
-    update({ channel: { ...channel, behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED }) } });
-    expect(screen.getByRole("button", { name: "Start update" })).toBeDisabled();
-    expect(screen.getByTestId("apply-firmware-dialog")).toHaveTextContent("Choose and save another update method");
-    fireEvent.click(screen.getByRole("button", { name: "Start update" }));
-    expect(onApply).not.toHaveBeenCalled();
-    chooseMethod("Single batch");
-    expect(screen.getByRole("button", { name: "Start update" })).toBeDisabled();
-    await act(async () => fireEvent.click(screen.getByTestId("save-channel")));
+    update({
+      channel: {
+        ...channel,
+        behavior: create(RolloutBehaviorSchema, { method: RolloutMethod.DELEGATED, controllerTimeoutSeconds: 120 }),
+      },
+    });
     expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledExactlyOnceWith(1n, [
+      { manufacturer: "Proto", model: "Rig", firmwareFileId: "next" },
+    ]);
   });
 });
 
 describe("acknowledged firmware assignments before read recovery", () => {
+  it("compares against the acknowledged version when staging another change before reads recover", async () => {
+    const { update } = renderManage(channelFor(), true);
+    chooseFile("next");
+    await startApply();
+    update({ firmwareFiles: firmwareFiles.filter((file) => file.id !== "next") });
+    chooseFile("later");
+    fireEvent.click(screen.getByTestId("apply-firmware-changes"));
+    const table = within(screen.getByTestId("apply-firmware-dialog")).getByRole("table", { name: "Firmware changes" });
+    const row = within(table).getByRole("row", { name: /proto Rig/i });
+    expect(within(row).getByRole("rowheader")).toHaveTextContent(/proto Rig/i);
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["next-server", "later-catalog"]);
+    expect(table).not.toHaveTextContent("old-saved");
+  });
+
   it("withholds stale miner details for an acknowledged assignment until reads recover", async () => {
     const channel = channelFor();
     channel.modelGroups.push(group("Other", "second-old"));
@@ -271,6 +469,10 @@ describe("acknowledged firmware assignments before read recovery", () => {
     expect(picker).toHaveTextContent("next-server");
     expect(screen.getByText("Refreshing update status")).toBeInTheDocument();
     expect(screen.queryByTestId("apply-firmware-changes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    for (const name of ["Channel settings", "History"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
     update({
       channel: { ...channel },
       firmwareFiles: firmwareFiles.map((f) => ({ ...f, firmware_version: `${f.id}-edited` })),
@@ -318,7 +520,7 @@ describe("acknowledged firmware assignments before read recovery", () => {
   });
 
   it.each(["later", "old"])(
-    "preserves a newer %s selection made during Apply and Discard restores the acknowledged selection",
+    "accepts a newer %s selection after Apply and Discard restores the acknowledged selection",
     async (newer) => {
       const channel = channelFor();
       const { onApply, update } = renderManage(channel);
@@ -326,9 +528,10 @@ describe("acknowledged firmware assignments before read recovery", () => {
       onApply.mockReturnValueOnce(write.promise);
       chooseFile("next");
       await startApply();
-      chooseFile(newer);
+      expect(screen.getByTestId("channel-firmware-select-Rig")).toBeDisabled();
       update({ channel: { ...channel }, hasRefreshError: true });
       await act(async () => write.resolve([started()]));
+      chooseFile(newer);
       expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent(`${newer}-catalog`);
       expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
       fireEvent.click(screen.getByRole("button", { name: "Discard" }));
@@ -337,15 +540,15 @@ describe("acknowledged firmware assignments before read recovery", () => {
     },
   );
 
-  it("preserves unavailable newer choices and their recovery guard after Apply succeeds", async () => {
+  it("preserves unavailable newer choices and their recovery guard after an earlier Apply", async () => {
     const { onApply, update } = renderManage(channelFor(), true);
     const write = deferred<Rollout[]>();
     onApply.mockReturnValueOnce(write.promise);
     chooseFile("next");
     await startApply();
+    await act(async () => write.resolve([started()]));
     chooseFile("later");
     update({ firmwareFiles: firmwareFiles.filter((f) => f.id !== "later") });
-    await act(async () => write.resolve([started()]));
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("Firmware details unavailable");
     expect(screen.getByTestId("apply-firmware-changes")).toBeDisabled();
     expect(screen.getByText(/Selected firmware is unavailable for this model/)).toBeInTheDocument();
@@ -375,6 +578,12 @@ describe("acknowledged firmware assignments before read recovery", () => {
     await startApply();
     expect(screen.getByTestId("channel-firmware-select-Rig")).toHaveTextContent("next-catalog");
     expect(screen.queryByText("Refreshing update status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("apply-firmware-changes")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+    expect(screen.getByTestId("channel-settings")).toBeEnabled();
+    for (const name of ["History"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
     expect(screen.getByRole("button", { name: "Start update" })).toBeEnabled();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start update" })));
     expect(onApply).toHaveBeenCalledTimes(2);

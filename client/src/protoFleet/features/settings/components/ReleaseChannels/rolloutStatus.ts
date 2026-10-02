@@ -326,11 +326,13 @@ export const rolloutProgressColorMap: Record<Segment["status"], string> = {
 };
 
 // Updated / Remaining / Failed, dropping empty buckets.
-export function rolloutProgressSegments(counts: RolloutDeviceCounts): Segment[] {
+export function rolloutProgressSegments(counts: RolloutDeviceCounts, status?: RolloutStatus): Segment[] {
   const remaining = counts.updating + counts.retrying + counts.queued;
   return [
     { name: "Updated", status: "OK" as const, count: counts.updated },
-    { name: "Remaining", status: "WARNING" as const, count: remaining },
+    status === RolloutStatus.CANCELED
+      ? { name: "Canceled", status: "NA" as const, count: remaining }
+      : { name: "Remaining", status: "WARNING" as const, count: remaining },
     { name: "Failed", status: "CRITICAL" as const, count: counts.failed },
   ].filter((segment) => segment.count > 0);
 }

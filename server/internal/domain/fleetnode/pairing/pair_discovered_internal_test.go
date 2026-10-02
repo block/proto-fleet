@@ -5,13 +5,163 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
+
+type orderedPersistStore struct {
+	Store
+	events        *[]string
+	activePairing bool
+}
+
+func (s *orderedPersistStore) GetDeviceIDByDeviceIdentifier(context.Context, string) (int64, error) {
+	*s.events = append(*s.events, "resolve_device")
+	return 42, nil
+}
+
+func (s *orderedPersistStore) LockDeviceForFleetNodePairing(context.Context, int64, int64) (bool, error) {
+	*s.events = append(*s.events, "lock_device")
+	return true, nil
+}
+
+func (s *orderedPersistStore) DeviceHasActiveCloudPairing(context.Context, int64, int64) (bool, error) {
+	return false, nil
+}
+
+func (s *orderedPersistStore) DeviceHasActivePairing(context.Context, int64, int64) (bool, error) {
+	*s.events = append(*s.events, "check_active_pairing")
+	return s.activePairing, nil
+}
+
+func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
+	return 1, nil
+}
+
+func (s *orderedPersistStore) DeleteMinerCredentialsByDeviceIDAndOrgID(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
+func (s *orderedPersistStore) TransferDiscoveredDeviceAttribution(context.Context, int64, int64, int64) (int64, error) {
+	return 1, nil
+}
+
+type orderedPersistEnrollmentStore struct {
+	enrollment.AgentStore
+	events *[]string
+}
+
+func (s orderedPersistEnrollmentStore) LockFleetNodeByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	*s.events = append(*s.events, "lock_node")
+	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
+}
+
+type errorEnrollmentStore struct {
+	enrollment.AgentStore
+	err error
+}
+
+func (s errorEnrollmentStore) LockFleetNodeByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	return nil, s.err
+}
+
+func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		outcome        gatewaypb.PairOutcome
+		existingStatus string
+	}{
+		{name: "paired", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED},
+		{name: "auth_needed", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED},
+		{name: "auth_failed", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED},
+		{name: "preserve_paired", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, existingStatus: StatusPaired},
+		{name: "preserve_default_password", outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED, existingStatus: StatusDefaultPassword},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			deviceStore := storemocks.NewMockDeviceStore(ctrl)
+			discoveredStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
+			events := []string{}
+			fleetNodeID := int64(12)
+			orgID := int64(34)
+			identifier := "mac:ordered"
+			dd := &discoverymodels.DiscoveredDevice{
+				Device:                  pairingpb.Device{DeviceIdentifier: identifier},
+				OrgID:                   orgID,
+				DiscoveredByFleetNodeID: &fleetNodeID,
+			}
+			existing := &pairingpb.Device{DeviceIdentifier: identifier}
+			discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
+			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
+			wantEvents := []string{"lock_node", "resolve_device", "lock_device"}
+			wantStatus := StatusPaired
+			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+				wantEvents = append(wantEvents, "check_active_pairing")
+				wantStatus = StatusAuthenticationNeeded
+			}
+			if tc.existingStatus != "" {
+				wantStatus = tc.existingStatus
+				deviceStore.EXPECT().GetDevicePairingStatusByIdentifier(gomock.Any(), identifier, orgID).Return(tc.existingStatus, nil)
+			} else {
+				wantEvents = append(wantEvents, "save_discovered", "update_device")
+				discoveredStore.EXPECT().Save(gomock.Any(), gomock.Any(), dd).DoAndReturn(
+					func(context.Context, discoverymodels.DeviceOrgIdentifier, *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+						events = append(events, "save_discovered")
+						return dd, nil
+					},
+				)
+				deviceStore.EXPECT().UpdateDeviceInfo(gomock.Any(), gomock.Any(), orgID).DoAndReturn(
+					func(context.Context, *pairingpb.Device, int64) error {
+						events = append(events, "update_device")
+						return nil
+					},
+				)
+				if tc.outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+					deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), orgID, StatusPaired).Return(nil)
+					deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), gomock.Any(), gomock.Any(), "").Return(nil)
+				} else {
+					deviceStore.EXPECT().SetDevicePairingAuthNeededIfNotPaired(gomock.Any(), gomock.Any(), orgID).Return(true, nil)
+				}
+			}
+
+			service := NewService(
+				&orderedPersistStore{events: &events, activePairing: tc.existingStatus != ""},
+				orderedPersistEnrollmentStore{events: &events},
+				passThroughTransactor{},
+			).WithProvisioning(deviceStore, discoveredStore, nil)
+			defaultPasswordActive := false
+			status, err := service.PersistFleetNodePairResult(t.Context(), fleetNodeID, orgID, &gatewaypb.FleetNodePairResult{
+				DeviceIdentifier:      identifier,
+				Outcome:               tc.outcome,
+				DefaultPasswordActive: &defaultPasswordActive,
+			}, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, wantStatus, status)
+			require.Equal(t, wantEvents, events)
+		})
+	}
+}
+
+func TestPairingLockPreservesRetryablePostgresError(t *testing.T) {
+	retryable := &pgconn.PgError{Code: db.PGDeadlockDetected}
+	service := NewService(nil, errorEnrollmentStore{err: retryable}, passThroughTransactor{})
+
+	err := service.lockFleetNodeForPairing(t.Context(), 12, 34)
+
+	require.Same(t, retryable, err)
+}
 
 func TestPairingStatusFilterSet(t *testing.T) {
 	got, supported := pairingStatusFilterValues(nil)
@@ -54,11 +204,13 @@ type pagingPairTargetStore struct {
 }
 
 type pagingPairTargetCall struct {
-	filter FleetNodeDiscoveredDeviceFilter
+	filter      FleetNodeDiscoveredDeviceFilter
+	orgID       int64
+	fleetNodeID *int64
 }
 
-func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, _ int64, _ *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error) {
-	s.calls = append(s.calls, pagingPairTargetCall{filter: copyFleetNodeDiscoveredDeviceFilter(filter)})
+func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error) {
+	s.calls = append(s.calls, pagingPairTargetCall{filter: copyFleetNodeDiscoveredDeviceFilter(filter), orgID: orgID, fleetNodeID: copyInt64(fleetNodeID)})
 	filtered := make([]FleetNodeDiscoveredDevice, 0, len(s.devices))
 	for _, device := range s.devices {
 		if filter.ExcludeAuthNeeded && device.PairingStatus == StatusAuthenticationNeeded {
@@ -89,6 +241,35 @@ func (s *pagingPairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context
 		end = start + int(*filter.Limit)
 	}
 	return filtered[start:end], nil
+}
+
+func TestResolvePairAllPagesPreserveScopeAndCredentials(t *testing.T) {
+	password := ""
+	for _, credentials := range []*pairingpb.Credentials{nil, {Password: &password}} {
+		store := pairAllTestStore(MaxPairBatch + 2)
+		store.devices[MaxPairBatch].PairingStatus = StatusAuthenticationNeeded
+		service := NewService(store, nil, nil)
+		_, cursor, err := service.resolvePairTargetsPage(t.Context(), 7, 20, nil, true, credentials, nil)
+		require.NoError(t, err)
+		require.NotNil(t, cursor)
+		targets, next, err := service.resolvePairTargetsPage(t.Context(), 7, 20, nil, true, credentials, cursor)
+		require.NoError(t, err)
+		assert.Nil(t, next)
+		usable := credentials != nil && credentials.Password != nil
+		if usable {
+			assert.Len(t, targets, 2)
+		} else {
+			assert.Len(t, targets, 1)
+		}
+		require.Len(t, store.calls, 2)
+		for _, call := range store.calls {
+			assert.Equal(t, int64(20), call.orgID)
+			require.NotNil(t, call.fleetNodeID)
+			assert.Equal(t, int64(7), *call.fleetNodeID)
+			assert.Equal(t, !usable, call.filter.ExcludeAuthNeeded)
+			assert.Equal(t, int64(MaxPairBatch), *call.filter.Limit)
+		}
+	}
 }
 
 func copyFleetNodeDiscoveredDeviceFilter(filter FleetNodeDiscoveredDeviceFilter) FleetNodeDiscoveredDeviceFilter {

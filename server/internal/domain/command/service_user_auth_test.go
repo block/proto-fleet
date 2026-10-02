@@ -20,7 +20,7 @@ type mockCredentialsVerifier struct {
 	failError  error
 }
 
-func (m *mockCredentialsVerifier) VerifyCredentials(ctx context.Context, username, password string) error {
+func (m *mockCredentialsVerifier) VerifySessionCredentials(ctx context.Context, username, password string) error {
 	if m.shouldFail {
 		return m.failError
 	}
@@ -222,6 +222,15 @@ func TestService_verifyUserCredentials(t *testing.T) {
 }
 
 func TestService_verifyUserCredentials_SecurityScenarios(t *testing.T) {
+	t.Run("preserves password throttling errors", func(t *testing.T) {
+		service := &Service{credentialsVerifier: &mockCredentialsVerifier{
+			shouldFail: true,
+			failError:  connect.NewError(connect.CodeResourceExhausted, nil),
+		}}
+		err := service.verifyUserCredentials(context.Background(), "user", "password")
+		require.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+	})
+
 	t.Run("prevents cross-user credential usage", func(t *testing.T) {
 		// Scenario: Alice is logged in (user ID 1) but provides Bob's credentials (user ID 2)
 		// This should be rejected even though Bob's credentials are valid

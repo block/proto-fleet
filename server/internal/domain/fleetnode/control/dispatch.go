@@ -25,17 +25,40 @@ type Sender interface {
 // stop early. PARTIAL is delivered to onData before completion; OK is not.
 // Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
 func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	return runCommand(ctx, sender, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair, timeout, noun, onData, false)
+}
+
+// RunCommandToCompletion keeps dispatch cancelable, then finishes an accepted
+// command even if the caller disconnects. The timeout covers both enqueueing and
+// completion; detaching the wait does not restart it or retain the caller deadline.
+func RunCommandToCompletion(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
+	return runCommand(ctx, sender, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair, timeout, noun, onData, true)
+}
+
+func runCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error), finishAfterCancellation bool) error {
+	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
 	session, err := sender.Send(ctx, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s command timed out after %s", noun, timeout))
+		}
+		if ctx.Err() != nil {
+			return fleeterror.NewCanceledError()
+		}
 		if errors.Is(err, ErrNoActiveStream) {
 			return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
 		}
 		return err
 	}
 	defer session.Close()
+	if finishAfterCancellation {
+		var cancelWait context.CancelFunc
+		ctx, cancelWait = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		defer cancelWait()
+	}
 
 	handleEvent := func(ev CommandEvent) (terminal bool, err error) {
 		if ev.Ack != nil {
