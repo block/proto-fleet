@@ -216,6 +216,34 @@ The Docker repository setup follows the official instructions for
 [Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
 [64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
 
+### WAL retention during a host outage
+
+New clusters retain an absent member's replication slot for 12 hours
+(`member_slots_ttl: 12h`), instead of Patroni's 30-minute default. While the
+slot exists, PostgreSQL retains the WAL needed by that member to catch up.
+After the timeout, Patroni can drop the slot and PostgreSQL can recycle that
+history; a returning member may then need its database replica rebuilt.
+
+This is an outage recovery window, not a rolling WAL archive. Disk usage grows
+with writes while the replica is absent. Budget for 12 hours of peak WAL
+generation on each database host and monitor free space: the profile does not
+cap slot-retained WAL, so a busy or stalled replica can consume more space.
+
+Existing clusters keep their configuration in etcd; changing the bootstrap
+template or updating Fleet does not change that configuration. Apply the
+setting once from either database host:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml \
+  edit-config proto-fleet --set member_slots_ttl=12h --force
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml show-config
+```
+
+No restart is required. Increasing retention does not recover WAL that has
+already been removed.
+
 ### HA readiness alerts
 
 Each database host runs the same file-provisioned Grafana rule. The active
