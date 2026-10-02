@@ -228,8 +228,10 @@ export class NavigationPage {
       const home = drawer.getByTestId("navigation-home-link");
       await expect(home).toBeInViewport({ ratio: 1 });
       const homeBounds = await home.boundingBox();
-      expect(homeBounds?.width).toBeGreaterThanOrEqual(44);
-      expect(homeBounds?.height).toBeGreaterThanOrEqual(44);
+      if (!homeBounds) throw new Error("Navigation home link must be visible");
+      // Ignore subpixel floating-point noise without relaxing the 44px touch target.
+      expect(Number(homeBounds.width.toFixed(2))).toBeGreaterThanOrEqual(44);
+      expect(Number(homeBounds.height.toFixed(2))).toBeGreaterThanOrEqual(44);
       // Hit the padding above the symbol, not just the visible artwork.
       await home.tap({ position: { x: 22, y: 2 } });
       await expect(page).toHaveURL(/\/dashboard(?:[?#].*)?$/);

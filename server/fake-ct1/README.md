@@ -36,24 +36,24 @@ elapsed times reproduce it, independent of request order.
 
 ## Implemented endpoints
 
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/api/v2/system/info` | `product: "CT1"`, version, control board |
-| GET | `/api/v2/system/status` | health, active/total boards, HA role |
-| GET | `/api/v2/container/map` | full Tank→Module→Slot→Hashboard tree |
-| GET | `/api/v2/mining/status` | aggregate hashrate/power/efficiency + per-state counts |
-| POST | `/api/v2/mining/start` · `/stop` | container-wide mining intent |
-| GET/PUT | `/api/v2/mining/target-power` | read/set miner-wide per-board power target |
-| GET | `/api/v2/pools` · `/pools/diagnostics` | primary pool plus two standby backups and live connection state |
-| GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
-| GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
-| GET | `/api/v2/telemetry/timeseries` | recorded board and plant history, including fans, PDUs, phases and feed power/voltage |
-| GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
-| POST | `/api/v2/mining/scoped/power` · `/power/clear` | set/clear per-board power target |
-| POST | `/api/v2/mining/scoped/start` · `/stop` | scoped board lifecycle |
-| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage |
-| POST | `/api/v2/modules/{moduleId}/run-in` | accept a run-in request; returns queued, execution remains unimplemented |
-| GET | `/health` | liveness |
+| Method     | Path                                              | Notes                                                                                                                       |
+| ---------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| GET        | `/api/v2/system/info`                             | `product: "CT1"`, version, control board                                                                                    |
+| GET        | `/api/v2/system/status`                           | health, active/total boards, HA role                                                                                        |
+| GET        | `/api/v2/container/map`                           | full Tank→Module→Slot→Hashboard tree                                                                                        |
+| GET        | `/api/v2/mining/status`                           | aggregate hashrate/power/efficiency + per-state counts                                                                      |
+| POST       | `/api/v2/mining/start` · `/stop`                  | container-wide mining intent                                                                                                |
+| GET/PUT    | `/api/v2/mining/target-power`                     | read/set miner-wide per-board power target                                                                                  |
+| GET        | `/api/v2/pools` · `/pools/diagnostics`            | primary pool plus two standby backups and live connection state                                                             |
+| GET        | `/api/v2/telemetry/shares/history`                | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
+| GET        | `/api/v2/telemetry/container`                     | plant (PUE), phase, fan, distribution, and feed telemetry                                                                   |
+| GET        | `/api/v2/telemetry/timeseries`                    | recorded board and plant history, including fans, PDUs, phases and feed power/voltage                                       |
+| GET        | `/api/v2/hashboards/{identifier}/asics`           | 312 ASICs + layout (`identifier` = MAC or serial)                                                                           |
+| POST       | `/api/v2/mining/scoped/power` · `/power/clear`    | set/clear per-board power target                                                                                            |
+| POST       | `/api/v2/mining/scoped/start` · `/stop`           | scoped board lifecycle                                                                                                      |
+| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage                                                                                              |
+| POST       | `/api/v2/modules/{moduleId}/run-in`               | accept a run-in request; returns queued, execution remains unimplemented                                                    |
+| GET        | `/health`                                         | liveness                                                                                                                    |
 
 **Scopes.** The scoped write endpoints accept a `scope` of `identifiers`
 (MAC/serial) and/or `modules` (`{tank, module}` coordinates). An empty scope
@@ -94,6 +94,33 @@ GOWORK=off go run .
 curl -s localhost:8080/api/v2/system/status | jq
 ```
 
+### Serve the production ProtoOS build on the API origin
+
+Static hosting is opt-in; without `--web-root`, fake-ct1 remains API-only.
+From the repository root, build ProtoOS and launch the simulator with that output:
+
+```bash
+npm --prefix client run build:protoOS
+(cd server/fake-ct1 && HTTP_PORT=18080 GOWORK=off go run . --web-root ../../client/dist/protoOS)
+```
+
+Open `http://localhost:18080/` or a deep link such as `/tanks/1/modules/2`.
+The production assets and `/api/v2/*` now share one origin; no Vite dev server,
+proxy, or CORS setup is needed. Startup fails if the selected root does not have
+a readable, non-empty regular `index.html`. This is a local build-preview fixture,
+not the MDK v2 host's artifact verification or packaging/installation flow.
+
+GET/HEAD serve `index.html`, `config.js`, `version.txt`, `favicon.png`, and files
+under `/assets/` or `/fonts/`. Extensionless browser routes use the MDK v2
+host-compatible route prefixes:
+`hashrate`, `efficiency`, `power-usage`, `temperature`, `logs`, `pools`, `systems`,
+`tanks`, `modules`, `onboarding`, and `settings`. Unknown routes, missing assets,
+directories, and unsafe paths return 404; static writes return 405. API and health
+routes keep their existing behavior, and fixture static responses use `no-store`.
+
+For automated desktop/mobile smoke coverage, `cd client && npm run test:e2e:ct1`
+builds the production bundle and launches its own simulator on port 18081.
+
 ### Run with Docker
 
 ```bash
@@ -103,29 +130,29 @@ docker run -p 8080:8080 fake-ct1
 
 ## Environment variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `HTTP_PORT` | Port to listen on | `8080` |
-| `SERVER_ID` | Container server id | `ct1-sim-<uuid>` |
-| `HOSTNAME` | Reported hostname | `fake-ct1-<uuid>` |
-| `CT1_VERSION` | Reported firmware/OS version | `2.0.0` |
-| `CT1_TANKS` | Number of tanks | `6` |
-| `CT1_MODULES_PER_TANK` | Modules per tank | `16` |
-| `CT1_SLOTS_PER_MODULE` | Hashboard slots per module | `3` |
-| `CT1_ASICS_PER_BOARD` | ASICs reported per board | `312` |
-| `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true` |
-| `CT1_SEED` | Positive integer controlling deterministic variation | `1` |
+| Variable                 | Description                                                                                                                                    | Default           |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `HTTP_PORT`              | Port to listen on                                                                                                                              | `8080`            |
+| `SERVER_ID`              | Container server id                                                                                                                            | `ct1-sim-<uuid>`  |
+| `HOSTNAME`               | Reported hostname                                                                                                                              | `fake-ct1-<uuid>` |
+| `CT1_VERSION`            | Reported firmware/OS version                                                                                                                   | `2.0.0`           |
+| `CT1_TANKS`              | Number of tanks                                                                                                                                | `6`               |
+| `CT1_MODULES_PER_TANK`   | Modules per tank                                                                                                                               | `16`              |
+| `CT1_SLOTS_PER_MODULE`   | Hashboard slots per module                                                                                                                     | `3`               |
+| `CT1_ASICS_PER_BOARD`    | ASICs reported per board                                                                                                                       | `312`             |
+| `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true`            |
+| `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.
 
 The standalone defaults and `just dev-ct1` use the same topology and demo states:
 
-| Tank | Initial module states |
-| --- | --- |
-| 1, 5, 6 | All 16 modules healthy and mining |
-| 2 | Module 03 sleeping, 06 offline, and 11 faulted; the remaining 13 healthy |
-| 3 | Module 08's first board has one over-current error; its other two boards and all other modules keep mining |
-| 4 | Module 04 sleeping and module 09 offline; the remaining 14 healthy |
+| Tank    | Initial module states                                                                                      |
+| ------- | ---------------------------------------------------------------------------------------------------------- |
+| 1, 5, 6 | All 16 modules healthy and mining                                                                          |
+| 2       | Module 03 sleeping, 06 offline, and 11 faulted; the remaining 13 healthy                                   |
+| 3       | Module 08's first board has one over-current error; its other two boards and all other modules keep mining |
+| 4       | Module 04 sleeping and module 09 offline; the remaining 14 healthy                                         |
 
 Tank 2 module 11's boards report one, two, and three errors, plus a shared PSU
 thermal warning. Tank 3's lighter fault has no PSU thermal warning. Scenarios

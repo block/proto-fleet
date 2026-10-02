@@ -109,14 +109,16 @@ export class MinersPage extends BasePage {
   }
 
   private async dismissAddFilterPopover() {
-    // Selecting a filter changes the toolbar layout and can move its trigger
-    // beneath the open popover. Dismiss through the stable page title instead.
-    if (this.isMobile) {
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    const sheet = this.page.getByTestId("nested-dropdown-filter-popover-sheet");
+    if (await sheet.isVisible()) {
       await this.page.keyboard.press("Escape");
     } else {
-      await this.page.locator("//*[contains(@class,'heading')][text()='Fleet']").click();
+      // Desktop/tablet only support outside dismissal. Applying a filter moves the
+      // trigger under the frozen popover, so use the non-interactive Fleet heading.
+      await this.page.getByTestId("fleet-layout").getByRole("heading", { name: "Fleet", exact: true }).click();
     }
-    await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
+    await expect(popover).toBeHidden();
   }
 
   private async filterMinersByModel(minerType: string) {

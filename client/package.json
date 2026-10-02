@@ -19,6 +19,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "tsc --noEmit && BUILD_STORYBOOK=1 storybook build",
     "test": "vitest",
+    "pretest:e2e:ct1": "npm run build:protoOS",
+    "test:e2e:ct1": "playwright test --config e2eTests/protoOS/playwright.ct1.config.ts",
     "test:e2e": "cd e2eTests/protoFleet && npx playwright install && npx playwright test --project=desktop",
     "test:e2e:ui": "cd e2eTests/protoFleet && npx playwright install && npx playwright test --ui --project=desktop",
     "test:e2e:headed": "cd e2eTests/protoFleet && npx playwright install && npx playwright test --headed --project=desktop",

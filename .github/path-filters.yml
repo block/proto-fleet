@@ -178,5 +178,6 @@ protoos_e2e:
   - client/vite.config.ts
   - client/vitePlugins/**
   - server/fake-proto-rig/**
+  - server/fake-ct1/**
   - server/go.mod
   - server/go.sum

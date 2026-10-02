@@ -1,5 +1,44 @@
+import { fromJsonString } from "@bufbuild/protobuf";
+import { type Response } from "@playwright/test";
+import {
+  EntityKind,
+  InventoryView,
+  ListInventoryRequestSchema,
+  ListInventoryResponseSchema,
+} from "../../../src/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  ListMinerStateSnapshotsRequestSchema,
+  ListMinerStateSnapshotsResponseSchema,
+  type MinerStateSnapshot,
+  PairingStatus,
+} from "../../../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { test } from "../fixtures/pageFixtures";
 import { IssueIcon } from "../helpers/testDataHelper";
+
+async function getResponseMiners(response: Response): Promise<MinerStateSnapshot[]> {
+  if (!response.ok()) return [];
+
+  const path = new URL(response.url()).pathname;
+  let miners: MinerStateSnapshot[];
+  if (path.endsWith("/fleetinventory.v1.FleetInventoryService/ListInventory")) {
+    const request = fromJsonString(ListInventoryRequestSchema, response.request().postData() ?? "{}");
+    if (request.view !== InventoryView.MINING_ASSETS || request.pageSize === 1) return [];
+    const data = fromJsonString(ListInventoryResponseSchema, await response.text());
+    miners = data.items.flatMap((item) =>
+      item.ref?.kind === EntityKind.MINER && item.details.case === "miner" ? [item.details.value] : [],
+    );
+  } else if (path.endsWith("/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots")) {
+    // Fleet uses this endpoint when the role lacks site:read or fleet:read.
+    const request = fromJsonString(ListMinerStateSnapshotsRequestSchema, response.request().postData() ?? "{}");
+    // The visible list includes paired miners; CompleteSetup's auth-needed query does not.
+    if (request.pageSize === 1 || !request.filter?.pairingStatuses.includes(PairingStatus.PAIRED)) return [];
+    miners = fromJsonString(ListMinerStateSnapshotsResponseSchema, await response.text()).miners;
+  } else {
+    return [];
+  }
+
+  return miners.filter((miner) => miner.deviceIdentifier && miner.ipAddress && miner.name);
+}
 
 test.describe("Miner Issues Tests", () => {
   test.beforeEach(async ({ page }) => {
@@ -16,29 +55,25 @@ test.describe("Miner Issues Tests", () => {
 
     await commonSteps.loginAsAdmin();
 
-    await test.step("Capture miner data from Fleet inventory", async () => {
+    await test.step("Capture at least five visible miners from the fleet list response", async () => {
       const expectedMinerCount = 5;
       const responsePromise = page.waitForResponse(async (response) => {
-        if (!response.url().includes("FleetInventoryService/ListInventory")) return false;
-        const data = await response.json();
-        return (
-          Array.isArray(data.items) &&
-          data.items.filter((item: { miner?: unknown }) => item.miner).length >= expectedMinerCount
-        );
+        const miners = await getResponseMiners(response);
+        return miners.length >= expectedMinerCount;
       });
       await commonSteps.goToMinersPage();
       const response = await responsePromise;
-      const responseData = await response.json();
+      const responseMiners = await getResponseMiners(response);
 
-      testMiners = responseData.items
-        .flatMap((item: { miner?: { deviceIdentifier: string; ipAddress: string; name: string } }) =>
-          item.miner ? [item.miner] : [],
-        )
-        .map((miner: { deviceIdentifier: string; ipAddress: string; name: string }) => ({
-          deviceIdentifier: miner.deviceIdentifier,
-          ipAddress: miner.ipAddress,
-          name: miner.name,
-        }));
+      testMiners = responseMiners.slice(0, expectedMinerCount).map((miner) => ({
+        deviceIdentifier: miner.deviceIdentifier,
+        ipAddress: miner.ipAddress,
+        name: miner.name,
+      }));
+      await minersPage.validateMinersAdded(expectedMinerCount);
+      for (const miner of testMiners) {
+        await minersPage.validateMinerInList(miner.ipAddress);
+      }
     });
 
     await test.step("Setup error mock for ErrorQueryService", async () => {
