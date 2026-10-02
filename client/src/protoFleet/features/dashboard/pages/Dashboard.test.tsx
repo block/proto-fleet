@@ -53,6 +53,7 @@ vi.mock("@/protoFleet/features/dashboard/components/FleetHealthMetrics", () => (
   default: () => null,
 }));
 vi.mock("@/protoFleet/features/dashboard/components/SitesSection", () => ({ __esModule: true, default: () => null }));
+vi.mock("@/protoFleet/features/marketData/MarketDataSection", () => ({ default: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/SectionHeading", () => ({ __esModule: true, default: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/HashratePanel", () => ({ HashratePanel: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/UptimePanel", () => ({ UptimePanel: () => null }));

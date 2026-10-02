@@ -20,6 +20,13 @@ var fleetDeploymentEnvironmentKeys = []string{
 	"ENABLE_TRACING",
 	"FLEET_TELEMETRY_SAMPLE_RATE",
 	"FLEET_TELEMETRY_TRUST_INCOMING_TRACES",
+	"MARKET_DATA_ENABLED",
+	"MARKET_DATA_REFRESH_INTERVAL",
+	"MARKET_DATA_PRICE_PROVIDER",
+	"MARKET_DATA_COINBASE_URL",
+	"MARKET_DATA_COINGECKO_URL",
+	"MARKET_DATA_COINGECKO_API_KEY",
+	"MARKET_DATA_MEMPOOL_URL",
 }
 
 type fleetApplicationProfile map[string]string
@@ -41,14 +48,23 @@ func fleetApplicationEnvironment(lookup func(string) (string, bool)) (fleetAppli
 
 func captureFleetApplicationEnvironment() (fleetApplicationProfile, error) {
 	profile, profileErr := fleetApplicationEnvironment(os.LookupEnv)
-	unsetErr := os.Unsetenv("DD_API_KEY")
+	unsetErr := clearFleetApplicationAPIKeys()
 	if profileErr != nil {
 		return nil, profileErr
 	}
 	if unsetErr != nil {
-		return nil, fmt.Errorf("clear DD_API_KEY after capture: %w", unsetErr)
+		return nil, unsetErr
 	}
 	return profile, nil
+}
+
+func clearFleetApplicationAPIKeys() error {
+	for _, key := range []string{"DD_API_KEY", "MARKET_DATA_COINGECKO_API_KEY"} {
+		if err := os.Unsetenv(key); err != nil {
+			return fmt.Errorf("clear %s from the installer environment: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func loadFleetApplicationProfileFile(path string, defaultBetaAlerts bool) (fleetApplicationProfile, error) {
@@ -73,6 +89,13 @@ func fleetApplicationProfileFromValues(values map[string]string, defaultBetaAler
 		if value, ok := values[key]; ok {
 			profile[key] = value
 		}
+	}
+	if _, ok := profile["MARKET_DATA_ENABLED"]; ok {
+		enabled, err := fleetFeatureFlagOrDefault(profile, "MARKET_DATA_ENABLED", false)
+		if err != nil {
+			return nil, err
+		}
+		profile["MARKET_DATA_ENABLED"] = strconv.FormatBool(enabled)
 	}
 	if cidrs := profile["HTTP_TRUSTED_PROXY_CIDRS"]; cidrs != "" {
 		for _, value := range strings.Split(cidrs, ",") {

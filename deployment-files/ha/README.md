@@ -116,6 +116,26 @@ to a release supporting this key before adding it to existing `fleet.env` files:
 older HA tools reject unknown keys. Setting the process environment on
 `fleet-ha update` does not change installed configuration.
 
+Market data is off by default. HA installation and `prepare-external` also
+capture the `MARKET_DATA_*` settings documented in [market data](../../docs/market-data.md),
+including the CoinGecko paid-plan API key, and persist them in the protected
+`fleet.env` on both Fleet hosts. To enable it during interactive installation,
+read the key without echo and preserve the settings through `sudo`:
+
+```bash
+read -rsp 'CoinGecko paid-plan API key: ' MARKET_DATA_COINGECKO_API_KEY < /dev/tty && printf '\n'
+export MARKET_DATA_ENABLED=true MARKET_DATA_COINGECKO_API_KEY
+curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK,MARKET_DATA_ENABLED,MARKET_DATA_COINGECKO_API_KEY bash -s -- --ha
+unset MARKET_DATA_COINGECKO_API_KEY
+```
+
+The installer captures and clears this key from its exported environment using
+the same handling as the Datadog key. Preserve any optional refresh/provider
+settings through `sudo` too. For an existing deployment, upgrade both hosts to
+a release supporting these keys before adding them to each host's `fleet.env`;
+updates reuse that file. Only the active host serves market-data requests and
+refreshes its on-demand cache.
+
 System monitoring is configured on both database hosts, but its runtime job
 runs only on the host that currently owns Fleet. This keeps the shared metric
 series single-writer while preserving monitoring across failover. Its disk

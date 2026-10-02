@@ -16,6 +16,7 @@ import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHe
 import SitesSection from "@/protoFleet/features/dashboard/components/SitesSection";
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
+import MarketDataSection from "@/protoFleet/features/marketData/MarketDataSection";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
@@ -189,6 +190,8 @@ const Dashboard = () => {
               )}
             </div>
           </section>
+
+          <MarketDataSection />
 
           {/* Sites Section — All Sites mode only */}
           {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}
