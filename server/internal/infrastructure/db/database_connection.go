@@ -116,7 +116,7 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 
 	slog.Info("connected to database", "target", config.ConnectionTarget(), "database", config.Name)
 
-	err = runMigrationsWithCompatibilityBridges(connection, config)
+	err = runCurrentMigrations(context.Background(), connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}

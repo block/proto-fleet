@@ -130,6 +130,7 @@ make_stage() {
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     cp "$DEPLOY_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
     cp "$DEPLOY_DIR/scripts/docker-daemon.sh" "$STAGE/scripts/"
+    cp "$DEPLOY_DIR/scripts/preserve-local-artifacts.sh" "$STAGE/scripts/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
             printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
@@ -228,6 +229,12 @@ if [ "${1:-}" = "image" ] && [ "${2:-}" = "rm" ]; then
 fi
 
 case " $* " in
+    *" compose "*" ps -a -q fleet-api "*)
+        printf '%s' "${FAKE_API_CONTAINER:-}"
+        ;;
+    *" compose "*" fleet-api check --state startup "*)
+        [ "${FAKE_SCHEMA_REFUSAL:-false}" != true ]
+        ;;
     *" compose up --help "*)
         echo 'Options: --wait --wait-timeout --no-build --pull string'
         ;;
@@ -2286,6 +2293,23 @@ else
 fi
 assert_contains "startup marker directory race reports proof failure" "$HARNESS_OUTPUT_LOG" \
     "could not record the successful startup"
+
+# Schema refusal preserves the old container and prevents Compose replacement.
+make_stage schema-admission-refused
+cat > "$STAGE/scripts/preserve-local-artifacts.sh" <<'EOF_PRESERVE'
+#!/bin/bash
+printf 'preserve-artifacts %s\n' "$*" >> "$CALL_LOG"
+EOF_PRESERVE
+chmod +x "$STAGE/scripts/preserve-local-artifacts.sh"
+write_release_manifest "$STAGE"
+if FAKE_API_CONTAINER=old-api FAKE_SCHEMA_REFUSAL=true run_stage "$STAGE" --non-interactive; then
+    fail "schema admission refusal must stop replacement"
+else
+    pass "schema admission refusal stops replacement"
+fi
+assert_contains "artifacts are retained before database admission" "$HARNESS_CALL_LOG" "preserve-artifacts old-api"
+assert_contains "standalone checks startup admission" "$HARNESS_CALL_LOG" "fleet-api check --state startup"
+assert_not_contains "schema refusal does not remove the old container" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do
