@@ -476,7 +476,6 @@ func start(config *Config) (result error) {
 		deviceStore,
 		transactor,
 		tokenSvc,
-		encryptSvc,
 		discoverer,
 		pluginService,
 		telemetryService,

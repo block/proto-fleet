@@ -78,7 +78,6 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		deviceStore,
 		transactor,
 		tokenService,
-		testContext.ServiceProvider.EncryptService,
 		mockDiscoverer,
 		pluginService,
 		mockListener,
@@ -428,7 +427,7 @@ func TestDiscoverWithIPList_ContinuesScanAfterCollisionSkip(t *testing.T) {
 	// Assert: port1 collision-skipped, scan continued to port2 and succeeded
 	mockDiscoverer.AssertExpectations(t)
 	require.Len(t, devices, 1, "port2 should be tried after port1 collision skip")
-	assert.Equal(t, xIdentifier, devices[0].DeviceIdentifier)
+	assert.NotEqual(t, xIdentifier, devices[0].DeviceIdentifier, "new endpoint needs explicit pairing")
 }
 
 func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
@@ -921,7 +920,6 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
-			testContext.ServiceProvider.EncryptService,
 			mockDiscoverer,
 			pluginService,
 			nil,
@@ -1057,7 +1055,6 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
-			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1135,7 +1132,6 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
-			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1217,7 +1213,6 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
-			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1599,10 +1594,10 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 }
 
 func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
-	t.Run("re-discovery on new subnet reconciles with existing paired device by MAC", func(t *testing.T) {
+	t.Run("re-discovery on new subnet requires approval before reconciliation", func(t *testing.T) {
 		// Scenario: A device was paired at 172.16.21.10, then the network moves it to 172.16.25.10.
-		// Re-discovering should update the existing discovered_device record's IP rather than
-		// creating a duplicate, allowing the device to come back online without re-pairing.
+		// Re-discovering must keep the approved endpoint intact and create a separate
+		// candidate until the operator explicitly pairs the selected endpoint.
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 		queries := sqlc.New(testContext.ServiceProvider.DB)
@@ -1718,10 +1713,9 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		}
 		require.Len(t, devicesNewIP, 1)
 
-		// The discovered device should reuse the SAME device_identifier as before
-		// (reconciled by MAC address), not a brand new one.
-		assert.Equal(t, originalDeviceIdentifier, devicesNewIP[0].DeviceIdentifier,
-			"re-discovered device should reuse the original device_identifier after MAC reconciliation")
+		// Discovery is not endpoint authentication, even for a matching MAC.
+		assert.NotEqual(t, originalDeviceIdentifier, devicesNewIP[0].DeviceIdentifier,
+			"the new endpoint must remain a separate unapproved discovery candidate")
 
 		// Verify the discovered_device record's IP was updated to the new one
 		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
@@ -1731,7 +1725,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		}
 		dd, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 		require.NoError(t, err)
-		assert.Equal(t, newIP, dd.IpAddress, "discovered_device IP should be updated to the new subnet IP")
+		assert.Equal(t, oldIP, dd.IpAddress, "discovery must not change the approved endpoint")
 		assert.Equal(t, "1.2.3", dd.FirmwareVersion, "MAC-reconciled rediscovery should preserve existing firmware when the new discovery omits it")
 
 		// Verify no duplicate device records were created
@@ -1745,7 +1739,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 	})
 }
 
-func TestDiscoveryReconciliation_DeletesUnpairedStaleEndpointRecord(t *testing.T) {
+func TestDiscoveryReconciliation_ReusesCandidateWithoutMovingPairedEndpoint(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	queries := sqlc.New(testContext.ServiceProvider.DB)
@@ -1861,14 +1855,14 @@ func TestDiscoveryReconciliation_DeletesUnpairedStaleEndpointRecord(t *testing.T
 		secondDiscovery = append(secondDiscovery, result.Devices...)
 	}
 	require.Len(t, secondDiscovery, 1)
-	assert.Equal(t, originalIdentifier, secondDiscovery[0].DeviceIdentifier)
+	assert.Equal(t, "stale-endpoint-device", secondDiscovery[0].DeviceIdentifier)
 
 	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: originalIdentifier,
 		OrgID:            adminUser.OrganizationID,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, newIP, reconciledDevice.IpAddress)
+	assert.Equal(t, oldIP, reconciledDevice.IpAddress)
 }
 
 func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
@@ -2105,7 +2099,6 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
-		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,
@@ -2210,7 +2203,6 @@ func TestPairDevices_DeduplicatesAliasIdentifiersByIPPort(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
-		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,
@@ -2317,7 +2309,6 @@ func TestPairDevices_RefusesFleetNodeDiscoveredDevices(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
-		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,

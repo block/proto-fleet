@@ -544,7 +544,7 @@ func (s *Service) resolvePairedDeviceByIdentifier(
 ) (*interfaces.PairedDeviceInfo, error) {
 	switch idType {
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS:
-		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID, "")
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
 		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER:
@@ -556,7 +556,7 @@ func (s *Service) resolvePairedDeviceByIdentifier(
 		// AA:BB:.. string only for valid MAC input; anything else is treated
 		// as a serial.
 		if len(networking.NormalizeMAC(identifier)) == 17 {
-			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID, "")
 		}
 		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
 	}

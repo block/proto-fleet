@@ -246,7 +246,7 @@ type DeviceStore interface {
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error
-	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*PairedDeviceInfo, error)
+	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64, excludeDeviceIdentifier string) (*PairedDeviceInfo, error)
 	GetPairedDevicesByMACAddresses(ctx context.Context, macAddresses []string, orgID int64) (map[string]*PairedDeviceInfo, error)
 	GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*PairedDeviceInfo, error)
 }

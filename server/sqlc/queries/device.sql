@@ -1177,7 +1177,8 @@ WHERE dd.id = d.discovered_device_id
 
 -- name: GetPairedDeviceByMACAddress :many
 -- Finds an existing paired device by MAC address for a given organization.
--- Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+-- Explicit pairing excludes its own pending candidate to resolve the original miner.
+-- Pass an empty exclusion for ordinary identity lookups.
 -- Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
 -- which matches the normalized format stored in the database.
 SELECT
@@ -1190,6 +1191,7 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.mac_address = sqlc.arg('normalized_mac')
+  AND d.device_identifier <> sqlc.arg('exclude_device_identifier')
   AND d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL

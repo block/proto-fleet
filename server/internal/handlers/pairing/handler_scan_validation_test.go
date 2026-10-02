@@ -20,7 +20,7 @@ func TestDiscover_RejectsNonPrivateServerTargetRegardlessOfNodeLocalSubnet(t *te
 				t.Run(fmt.Sprintf("%s/localSubnet=%t/fanOut=%t", target, localSubnet, fanOut), func(t *testing.T) {
 					// Arrange: explicit ports avoid DB access; a nil stream must never be used.
 					runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
-					h := &Handler{pairingSvc: pairingdomain.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil)}
+					h := &Handler{pairingSvc: pairingdomain.NewService(nil, nil, nil, nil, nil, nil, nil, nil)}
 					if fanOut {
 						h.discovery = runner
 					}
