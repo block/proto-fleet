@@ -234,7 +234,7 @@ func TestRigConfigStore_MigrationPreservesPendingWorkAcrossUpgradeAndDowngrade(t
 	// Include pending targeted work: a downgrade must preserve its generation
 	// for the older organization-wide worker even though target scope is removed.
 	f.request(t, rig.identifier)
-	down, err := migrations.Migrations.ReadFile("000154_curtailment_rig_config_targets.down.sql")
+	down, err := migrations.Migrations.ReadFile("000155_curtailment_rig_config_targets.down.sql")
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)
@@ -246,7 +246,7 @@ func TestRigConfigStore_MigrationPreservesPendingWorkAcrossUpgradeAndDowngrade(t
 	require.Equal(t, int64(4), desired)
 	require.Equal(t, int64(1), enqueued)
 
-	up, err := migrations.Migrations.ReadFile("000154_curtailment_rig_config_targets.up.sql")
+	up, err := migrations.Migrations.ReadFile("000155_curtailment_rig_config_targets.up.sql")
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), string(up))
 	require.NoError(t, err)
