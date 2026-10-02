@@ -1,0 +1,45 @@
+{
+  "target": 1000,
+  "admissions": {
+    "1000": [
+      "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce"
+    ]
+  },
+  "targets": [
+    "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce"
+  ],
+  "sources": {
+    "public-152": {
+      "catalog": "bd63a7d057409ed495d53002c04340cce5fe68c80632bed4e1789f8263122094",
+      "sql": [
+        "000153_delegated_rollout_events.up.sql"
+      ]
+    },
+    "public-153": {
+      "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+      "sql": []
+    },
+    "public-1000": {
+      "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+      "sql": []
+    }
+  },
+  "preserve": [
+    "user",
+    "role",
+    "permission",
+    "role_permission",
+    "user_organization",
+    "user_organization_role",
+    "api_key",
+    "fleet_node",
+    "fleet_node_device",
+    "fleet_node_session",
+    "fleet_node_auth_challenge",
+    "pending_enrollment",
+    "miner_credentials",
+    "device_pairing",
+    "device",
+    "discovered_device"
+  ]
+}

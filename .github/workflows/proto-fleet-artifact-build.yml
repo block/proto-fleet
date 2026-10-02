@@ -204,6 +204,7 @@ jobs:
           go mod download
           go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
+          CGO_ENABLED=0 go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-db-transition-${{ matrix.arch }} ./cmd/fleet-db-transition
           updater_binary="proto-fleet-updater-${{ matrix.arch }}"
           CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o "$updater_binary" ./cmd/fleet-updater
           if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
@@ -260,6 +261,7 @@ jobs:
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
             fleet-ha-${{ matrix.arch }} \
+            fleet-db-transition-${{ matrix.arch }} \
             proto-fleet-updater-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
@@ -611,6 +613,7 @@ jobs:
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
           mv fleet-ha-${{ matrix.arch }} fleet-ha
+          mv fleet-db-transition-${{ matrix.arch }} fleet-db-transition
           mkdir -p ../updater
           mv proto-fleet-updater-${{ matrix.arch }} ../updater/proto-fleet-updater
           mv proto-plugin-${{ matrix.arch }} proto-plugin
@@ -714,6 +717,7 @@ jobs:
             deployment/reset-super-admin-password.sh \
             deployment/images/fleet.tar.gz \
             deployment/cloud-release.json \
+            deployment/server/fleet-db-transition \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do
             if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
