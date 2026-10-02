@@ -9,8 +9,9 @@ import (
 // Plant values are firmware aggregates. They must not be summed from boards:
 // cooling and other facility loads are absent from board measurements.
 type plantResponse struct {
-	Timestamp time.Time `json:"timestamp"`
-	Plant     *struct {
+	CoolingFans []fanResponse `json:"coolingFans"`
+	Timestamp   time.Time     `json:"timestamp"`
+	Plant       *struct {
 		TotalPowerW         *float64 `json:"totalPowerW"`
 		FacilityPowerW      *float64 `json:"facilityPowerW"`
 		PUE                 *float64 `json:"pue"`

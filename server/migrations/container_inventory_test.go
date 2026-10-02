@@ -37,3 +37,18 @@ func TestRemoveContainerSnapshotMigrationRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestContainerEquipmentMigrationRoundTrip(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	for _, direction := range []string{"down", "up"} {
+		script, err := migrations.Migrations.ReadFile("000158_container_equipment." + direction + ".sql")
+		require.NoError(t, err)
+		_, err = db.ExecContext(t.Context(), string(script))
+		require.NoError(t, err)
+		for _, table := range []string{"container_fan_observation", "container_controls_observation", "container_control_observation", "container_setpoint_observation"} {
+			var exists bool
+			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists))
+			require.Equal(t, direction == "up", exists, table)
+		}
+	}
+}

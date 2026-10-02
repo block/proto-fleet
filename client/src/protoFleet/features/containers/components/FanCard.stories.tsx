@@ -32,16 +32,16 @@ export const Gauge = () => (
 // on the container overview.
 export const FanRow = () => {
   const initial = [
-    { label: "Fan 1", speedPercent: 68, speedLabel: "3,200", on: true },
-    { label: "Fan 2", speedPercent: 74, speedLabel: "3,480", on: true },
-    { label: "Fan 3", speedPercent: 61, speedLabel: "2,870", on: true },
-    { label: "Fan 4", speedPercent: 0, speedLabel: "0", on: false },
-    { label: "Fan 5", speedPercent: 71, speedLabel: "3,340", on: true },
-    { label: "Fan 6", speedPercent: 66, speedLabel: "3,100", on: true },
-    { label: "Fan 7", speedPercent: 79, speedLabel: "3,710", on: true },
-    { label: "Fan 8", speedPercent: 58, speedLabel: "2,720", on: true },
-    { label: "Fan 9", speedPercent: 72, speedLabel: "3,380", on: true },
-    { label: "Fan 10", speedPercent: 64, speedLabel: "3,010", on: true },
+    { label: "Fan 1", speedPercent: 68, powerLabel: "3,200", on: true },
+    { label: "Fan 2", speedPercent: 74, powerLabel: "3,480", on: true },
+    { label: "Fan 3", speedPercent: 61, powerLabel: "2,870", on: true },
+    { label: "Fan 4", speedPercent: 0, powerLabel: "0", on: false },
+    { label: "Fan 5", speedPercent: 71, powerLabel: "3,340", on: true },
+    { label: "Fan 6", speedPercent: 66, powerLabel: "3,100", on: true },
+    { label: "Fan 7", speedPercent: 79, powerLabel: "3,710", on: true },
+    { label: "Fan 8", speedPercent: 58, powerLabel: "2,720", on: true },
+    { label: "Fan 9", speedPercent: 72, powerLabel: "3,380", on: true },
+    { label: "Fan 10", speedPercent: 64, powerLabel: "3,010", on: true },
   ];
   const [fans, setFans] = useState(initial);
 
@@ -53,7 +53,7 @@ export const FanRow = () => {
             key={fan.label}
             label={fan.label}
             speedPercent={fan.speedPercent}
-            speedLabel={fan.speedLabel}
+            powerLabel={fan.powerLabel}
             on={fan.on}
             onToggle={(on) => setFans((prev) => prev.map((f, idx) => (idx === i ? { ...f, on } : f)))}
             onInfo={() => {}}

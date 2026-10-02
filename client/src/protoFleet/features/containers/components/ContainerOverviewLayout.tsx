@@ -28,8 +28,10 @@ export interface ContainerFan {
   on: boolean | undefined;
   toggleDisabled?: boolean;
   speedPercent: number | undefined;
-  speedLabel: string;
+  powerLabel: string;
   faulted?: boolean;
+  statusLabel?: string;
+  directionLabel?: string;
 }
 
 type ContainerKpi = Omit<StatProps, "size">;
@@ -125,7 +127,7 @@ export default function ContainerOverviewLayout(props: ContainerOverviewLayoutPr
         {controls ? (
           <ContainerControls
             controls={controls}
-            onToggle={(id, on) => props.onToggleControl?.(id, on)}
+            onToggle={props.onToggleControl}
             alarm={
               props.onResetAlarm || props.onMuteAlarm
                 ? { label: "Alarm", onReset: props.onResetAlarm, onMute: props.onMuteAlarm }

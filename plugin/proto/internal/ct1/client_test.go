@@ -41,6 +41,8 @@ func TestCollectBulkMapAuthenticatesAndCountsModulesOnce(t *testing.T) {
 			require.NoError(t, json.NewEncoder(w).Encode(wire))
 		case "/api/v2/telemetry/container":
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"timestamp": now, "plant": map[string]any{"facilityPowerW": 3500, "pue": 1.1}}))
+		case "/api/v2/power/container/controls":
+			_, _ = w.Write([]byte(`{"supported":false}`))
 		case "/api/v2/mining/status":
 			_, _ = w.Write([]byte(`{"hashrate":100,"power":3000,"mining":true}`))
 		default:

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { buildContainerOverview } from "../buildContainerOverview";
+import { buildEquipmentOverview } from "../buildEquipmentOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
 import { useContainerOverview } from "../hooks/useContainerOverview";
@@ -41,6 +42,7 @@ export default function ContainerPage() {
       </div>
     );
   const view = buildContainerOverview(data, unit, !!error);
+  const equipment = buildEquipmentOverview(container, !!error);
   const module =
     selected?.container === identifier
       ? data.modules.find((item) => item.ref?.id.toString() === selected.module)
@@ -61,7 +63,8 @@ export default function ContainerPage() {
         }
         kpis={view.kpis}
         tanks={view.tanks}
-        fans={[]}
+        fans={equipment.fans}
+        controls={equipment.controls.length ? equipment.controls : undefined}
         notice={
           view.stale || error ? (
             <div className="flex flex-wrap items-center justify-between gap-3 text-200 text-text-primary-70">
@@ -77,31 +80,10 @@ export default function ContainerPage() {
         }
         onSelectTank={(tankId) => navigate(moduleList(tankId))}
         onSelectModule={(module) => setSelected({ container: identifier, module })}
-        fanCards={
-          <p className="text-200 text-text-primary-70">
-            Fan readings are not collected by Fleet yet.{" "}
-            <a
-              className="underline"
-              href="https://github.com/btc-mining/proto-fleet-internal/issues/152"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              #152
-            </a>
-          </p>
-        }
         plantControls={
-          <p className="text-200 text-text-primary-70">
-            Equipment controls are not available from this Fleet view.{" "}
-            <a
-              className="underline"
-              href="https://github.com/btc-mining/proto-fleet-internal/issues/153"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              #153
-            </a>
-          </p>
+          equipment.controlsNotice ? (
+            <p className="text-200 text-text-primary-70">{equipment.controlsNotice}</p>
+          ) : undefined
         }
         performance={<ContainerPerformance key={identifier} identifier={identifier} siteId={container.site?.id} />}
       />

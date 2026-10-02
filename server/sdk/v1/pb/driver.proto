@@ -762,6 +762,8 @@ service Driver {
 
 // Container topology and health are observations, not independently paired miners.
 message ContainerSnapshot {
+ repeated ContainerFan fans = 5;
+ ContainerControls controls = 6;
   google.protobuf.Timestamp observed_at = 1;
   repeated ContainerTank tanks = 2;
   ContainerPlant plant = 3;
@@ -797,4 +799,35 @@ message ContainerPlant {
  optional double outlet_temperature_c = 6;
  bool alarm_active = 7;
  bool critical_alarm_active = 8;
+}
+
+// Latest component observations. Missing scalar values are unavailable, not zero.
+message ContainerFan {
+ string component_id = 1;
+ google.protobuf.Timestamp observed_at = 2;
+ optional double speed_percent = 3;
+ optional double power_w = 4;
+ optional string direction = 5;
+ optional bool alarm_active = 6;
+}
+// A successful independent read; absent capability flags mean unknown.
+message ContainerControls {
+ google.protobuf.Timestamp observed_at = 1;
+ optional bool supported = 2;
+ repeated ContainerControl controls = 3;
+ repeated ContainerSetpoint setpoints = 4;
+ optional bool main_circuit_breaker_supported = 5;
+ optional bool main_circuit_breaker_closed = 6;
+ optional bool alarm_reset_supported = 7;
+ optional bool alarm_mute_supported = 8;
+ optional bool dry_cooler_fan_reverse_supported = 9;
+}
+message ContainerControl {
+ string name = 1;
+ optional bool enabled = 2;
+}
+message ContainerSetpoint {
+ string name = 1;
+ optional double value = 2;
+ string unit = 3;
 }

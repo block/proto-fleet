@@ -3,6 +3,7 @@ package containers_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
@@ -16,9 +17,12 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetry "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/handlers/containers"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,6 +44,10 @@ func TestGetContainerCurrentSite(t *testing.T) {
 	require.NoError(t, devices.UpsertDevicePairing(ctx, &device.Device, orgID, "PAIRED"))
 	_, err = db.ExecContext(ctx, `UPDATE device SET site_id=$1 WHERE org_id=$2 AND device_identifier='ct1'`, site.ID, orgID)
 	require.NoError(t, err)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: "ct1", Timestamp: now, Container: &sdk.ContainerSnapshot{ObservedAt: now, Fans: []sdk.ContainerFan{{ComponentID: "fan-1", ObservedAt: now, SpeedPercent: new(25.0)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(true)}}}}}))
 	handler := containers.NewHandler(domain.NewService(sqlstores.NewSQLContainerStore(db)))
 	withPermissions := func(permissions []string) context.Context {
 		authenticated := authn.SetInfo(ctx, &session.Info{UserID: 1, OrganizationID: orgID})
@@ -51,6 +59,9 @@ func TestGetContainerCurrentSite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, site.ID, response.Msg.Container.Site.Id)
 	require.Positive(t, response.Msg.Container.Id)
+	require.Len(t, response.Msg.Container.Fans, 1)
+	require.Equal(t, 25.0, *response.Msg.Container.Fans[0].SpeedPercent)
+	require.Equal(t, true, *response.Msg.Container.Controls.Controls[0].Enabled)
 	for i := range read {
 		incomplete := append(append([]string{}, read[:i]...), read[i+1:]...)
 		_, err = handler.GetContainer(withPermissions(incomplete), request)

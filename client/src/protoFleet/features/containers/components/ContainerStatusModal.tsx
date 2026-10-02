@@ -7,7 +7,7 @@ import type { ComponentStatusData, MinerStatusData } from "@/shared/components/S
 
 /**
  * Address the container glance drills into. Fans and tanks are both wired: a
- * fan opens a leaf component glance (speed / PWM), a tank opens a tank-level
+ * fan opens a leaf component glance (speed / speed), a tank opens a tank-level
  * summary (module health breakdown + temp/power). "tank" is a first-class
  * component type in the shared StatusModal framework (liquid-cooling icon), so
  * both reuse ComponentStatusModalContent directly.
@@ -25,7 +25,7 @@ interface ContainerStatusModalProps {
 /**
  * Container-side wrapper around the shared StatusModal container, mirroring
  * ProtoFleetStatusModal but for infrastructure components rather than miners.
- * A fan card's (ⓘ) opens a component-status glance (speed / PWM + running
+ * A fan card's (ⓘ) opens a component-status glance (speed / speed + running
  * state); a tank card's (ⓘ) opens a tank-level glance (modules
  * healthy/attention/offline + temp/power). Both reuse the exact
  * ComponentStatusModalContent the miner modal drills into — "fan" and "tank"

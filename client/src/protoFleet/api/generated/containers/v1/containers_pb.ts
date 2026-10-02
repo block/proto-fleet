@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_containers_v1_containers: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiPAoTR2V0Q29udGFpbmVyUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASJDChRHZXRDb250YWluZXJSZXNwb25zZRIrCgljb250YWluZXIYASABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJWChVMaXN0Q29udGFpbmVyc1JlcXVlc3QSIQoIc2l0ZV9pZHMYASADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYAiABKAgiRgoWTGlzdENvbnRhaW5lcnNSZXNwb25zZRIsCgpjb250YWluZXJzGAEgAygLMhguY29udGFpbmVycy52MS5Db250YWluZXIi+gIKCUNvbnRhaW5lchIKCgJpZBgLIAEoAxIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSLwoLb2JzZXJ2ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEigKBXRhbmtzGAUgAygLMhkuY29udGFpbmVycy52MS5UYW5rSGVhbHRoEi4KCm1ldHJpY3NfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2hhc2hyYXRlX2hzGAcgASgBSACIAQESFAoHcG93ZXJfdxgIIAEoAUgBiAEBEhoKDXRlbXBlcmF0dXJlX2MYCSABKAFIAogBARINCgVzdGFsZRgKIAEoCEIOCgxfaGFzaHJhdGVfaHNCCgoIX3Bvd2VyX3dCEAoOX3RlbXBlcmF0dXJlX2MirAEKClRhbmtIZWFsdGgSEAoIcG9zaXRpb24YASABKAUSFQoNaGFzaGluZ19jb3VudBgCIAEoBRIXCg9hdHRlbnRpb25fY291bnQYAyABKAUSFQoNb2ZmbGluZV9jb3VudBgEIAEoBRIWCg5zbGVlcGluZ19jb3VudBgFIAEoBRIWCg5pc29sYXRlZF9jb3VudBgGIAEoBRIVCg11bmtub3duX2NvdW50GAcgASgFMsoBChBDb250YWluZXJTZXJ2aWNlElcKDEdldENvbnRhaW5lchIiLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVxdWVzdBojLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVzcG9uc2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
+    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiPAoTR2V0Q29udGFpbmVyUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASJDChRHZXRDb250YWluZXJSZXNwb25zZRIrCgljb250YWluZXIYASABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJWChVMaXN0Q29udGFpbmVyc1JlcXVlc3QSIQoIc2l0ZV9pZHMYASADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYAiABKAgiRgoWTGlzdENvbnRhaW5lcnNSZXNwb25zZRIsCgpjb250YWluZXJzGAEgAygLMhguY29udGFpbmVycy52MS5Db250YWluZXIi2QMKCUNvbnRhaW5lchIpCgRmYW5zGAwgAygLMhsuY29udGFpbmVycy52MS5Db250YWluZXJGYW4SMgoIY29udHJvbHMYDSABKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lckNvbnRyb2xzEgoKAmlkGAsgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEgwKBG5hbWUYAiABKAkSJAoEc2l0ZRgDIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIvCgtvYnNlcnZlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKAoFdGFua3MYBSADKAsyGS5jb250YWluZXJzLnYxLlRhbmtIZWFsdGgSLgoKbWV0cmljc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoLaGFzaHJhdGVfaHMYByABKAFIAIgBARIUCgdwb3dlcl93GAggASgBSAGIAQESGgoNdGVtcGVyYXR1cmVfYxgJIAEoAUgCiAEBEg0KBXN0YWxlGAogASgIQg4KDF9oYXNocmF0ZV9oc0IKCghfcG93ZXJfd0IQCg5fdGVtcGVyYXR1cmVfYyKsAQoKVGFua0hlYWx0aBIQCghwb3NpdGlvbhgBIAEoBRIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhcKD2F0dGVudGlvbl9jb3VudBgDIAEoBRIVCg1vZmZsaW5lX2NvdW50GAQgASgFEhYKDnNsZWVwaW5nX2NvdW50GAUgASgFEhYKDmlzb2xhdGVkX2NvdW50GAYgASgFEhUKDXVua25vd25fY291bnQYByABKAUihgIKDENvbnRhaW5lckZhbhIUCgxjb21wb25lbnRfaWQYASABKAkSLwoLb2JzZXJ2ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhoKDXNwZWVkX3BlcmNlbnQYAyABKAFIAIgBARIUCgdwb3dlcl93GAQgASgBSAGIAQESFgoJZGlyZWN0aW9uGAUgASgJSAKIAQESGQoMYWxhcm1fYWN0aXZlGAYgASgISAOIAQESDQoFc3RhbGUYByABKAhCEAoOX3NwZWVkX3BlcmNlbnRCCgoIX3Bvd2VyX3dCDAoKX2RpcmVjdGlvbkIPCg1fYWxhcm1fYWN0aXZlIskEChFDb250YWluZXJDb250cm9scxIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJc3VwcG9ydGVkGAIgASgISACIAQESMQoIY29udHJvbHMYAyADKAsyHy5jb250YWluZXJzLnYxLkNvbnRhaW5lckNvbnRyb2wSMwoJc2V0cG9pbnRzGAQgAygLMiAuY29udGFpbmVycy52MS5Db250YWluZXJTZXRwb2ludBIrCh5tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWQYBSABKAhIAYgBARIoChttYWluX2NpcmN1aXRfYnJlYWtlcl9jbG9zZWQYBiABKAhIAogBARIiChVhbGFybV9yZXNldF9zdXBwb3J0ZWQYByABKAhIA4gBARIhChRhbGFybV9tdXRlX3N1cHBvcnRlZBgIIAEoCEgEiAEBEi0KIGRyeV9jb29sZXJfZmFuX3JldmVyc2Vfc3VwcG9ydGVkGAkgASgISAWIAQESDQoFc3RhbGUYCiABKAhCDAoKX3N1cHBvcnRlZEIhCh9fbWFpbl9jaXJjdWl0X2JyZWFrZXJfc3VwcG9ydGVkQh4KHF9tYWluX2NpcmN1aXRfYnJlYWtlcl9jbG9zZWRCGAoWX2FsYXJtX3Jlc2V0X3N1cHBvcnRlZEIXChVfYWxhcm1fbXV0ZV9zdXBwb3J0ZWRCIwohX2RyeV9jb29sZXJfZmFuX3JldmVyc2Vfc3VwcG9ydGVkIkIKEENvbnRhaW5lckNvbnRyb2wSDAoEbmFtZRgBIAEoCRIUCgdlbmFibGVkGAIgASgISACIAQFCCgoIX2VuYWJsZWQiTQoRQ29udGFpbmVyU2V0cG9pbnQSDAoEbmFtZRgBIAEoCRISCgV2YWx1ZRgCIAEoAUgAiAEBEgwKBHVuaXQYAyABKAlCCAoGX3ZhbHVlMsoBChBDb250YWluZXJTZXJ2aWNlElcKDEdldENvbnRhaW5lchIiLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVxdWVzdBojLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVzcG9uc2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_common_v1_common, file_google_protobuf_timestamp],
   );
 
@@ -102,6 +102,16 @@ export const ListContainersResponseSchema: GenMessage<ListContainersResponse> =
  * @generated from message containers.v1.Container
  */
 export type Container = Message<"containers.v1.Container"> & {
+  /**
+   * @generated from field: repeated containers.v1.ContainerFan fans = 12;
+   */
+  fans: ContainerFan[];
+
+  /**
+   * @generated from field: containers.v1.ContainerControls controls = 13;
+   */
+  controls?: ContainerControls | undefined;
+
   /**
    * Stable Fleet device ID used by typed inventory ancestor filters.
    *
@@ -214,6 +224,170 @@ export type TankHealth = Message<"containers.v1.TankHealth"> & {
  * Use `create(TankHealthSchema)` to create a new message.
  */
 export const TankHealthSchema: GenMessage<TankHealth> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 5);
+
+/**
+ * Latest component observations. Missing scalar values are unavailable, not zero.
+ *
+ * @generated from message containers.v1.ContainerFan
+ */
+export type ContainerFan = Message<"containers.v1.ContainerFan"> & {
+  /**
+   * @generated from field: string component_id = 1;
+   */
+  componentId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 2;
+   */
+  observedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: optional double speed_percent = 3;
+   */
+  speedPercent?: number | undefined;
+
+  /**
+   * @generated from field: optional double power_w = 4;
+   */
+  powerW?: number | undefined;
+
+  /**
+   * @generated from field: optional string direction = 5;
+   */
+  direction?: string | undefined;
+
+  /**
+   * @generated from field: optional bool alarm_active = 6;
+   */
+  alarmActive?: boolean | undefined;
+
+  /**
+   * @generated from field: bool stale = 7;
+   */
+  stale: boolean;
+};
+
+/**
+ * Describes the message containers.v1.ContainerFan.
+ * Use `create(ContainerFanSchema)` to create a new message.
+ */
+export const ContainerFanSchema: GenMessage<ContainerFan> = /*@__PURE__*/ messageDesc(file_containers_v1_containers, 6);
+
+/**
+ * A successful independent read; absent capability flags mean unknown.
+ *
+ * @generated from message containers.v1.ContainerControls
+ */
+export type ContainerControls = Message<"containers.v1.ContainerControls"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 1;
+   */
+  observedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: optional bool supported = 2;
+   */
+  supported?: boolean | undefined;
+
+  /**
+   * @generated from field: repeated containers.v1.ContainerControl controls = 3;
+   */
+  controls: ContainerControl[];
+
+  /**
+   * @generated from field: repeated containers.v1.ContainerSetpoint setpoints = 4;
+   */
+  setpoints: ContainerSetpoint[];
+
+  /**
+   * @generated from field: optional bool main_circuit_breaker_supported = 5;
+   */
+  mainCircuitBreakerSupported?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool main_circuit_breaker_closed = 6;
+   */
+  mainCircuitBreakerClosed?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool alarm_reset_supported = 7;
+   */
+  alarmResetSupported?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool alarm_mute_supported = 8;
+   */
+  alarmMuteSupported?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool dry_cooler_fan_reverse_supported = 9;
+   */
+  dryCoolerFanReverseSupported?: boolean | undefined;
+
+  /**
+   * @generated from field: bool stale = 10;
+   */
+  stale: boolean;
+};
+
+/**
+ * Describes the message containers.v1.ContainerControls.
+ * Use `create(ContainerControlsSchema)` to create a new message.
+ */
+export const ContainerControlsSchema: GenMessage<ContainerControls> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 7);
+
+/**
+ * @generated from message containers.v1.ContainerControl
+ */
+export type ContainerControl = Message<"containers.v1.ContainerControl"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: optional bool enabled = 2;
+   */
+  enabled?: boolean | undefined;
+};
+
+/**
+ * Describes the message containers.v1.ContainerControl.
+ * Use `create(ContainerControlSchema)` to create a new message.
+ */
+export const ContainerControlSchema: GenMessage<ContainerControl> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 8);
+
+/**
+ * @generated from message containers.v1.ContainerSetpoint
+ */
+export type ContainerSetpoint = Message<"containers.v1.ContainerSetpoint"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: optional double value = 2;
+   */
+  value?: number | undefined;
+
+  /**
+   * @generated from field: string unit = 3;
+   */
+  unit: string;
+};
+
+/**
+ * Describes the message containers.v1.ContainerSetpoint.
+ * Use `create(ContainerSetpointSchema)` to create a new message.
+ */
+export const ContainerSetpointSchema: GenMessage<ContainerSetpoint> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 9);
 
 /**
  * Containers are paired controllers with observed internal topology. Their

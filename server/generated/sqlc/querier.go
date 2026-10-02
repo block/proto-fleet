@@ -33,6 +33,8 @@ type Querier interface {
 	// forced termination. Zero-row return lets the caller route active,
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
+	// The parent upsert serializes replacement of its controls and setpoints.
+	AdvanceContainerControls(ctx context.Context, arg AdvanceContainerControlsParams) (int64, error)
 	// Serializes reconciliation for each controller. A delayed response cannot
 	// change placement, retire inventory, or overwrite a newer status observation.
 	AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error)
@@ -430,6 +432,8 @@ type Querier interface {
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
 	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
+	DeleteContainerControls(ctx context.Context, deviceID int64) error
+	DeleteContainerSetpoints(ctx context.Context, deviceID int64) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -930,6 +934,7 @@ type Querier interface {
 	InsertAlertMaintenanceWindow(ctx context.Context, arg InsertAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
 	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
 	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
+	InsertContainerControls(ctx context.Context, arg InsertContainerControlsParams) error
 	// Samples resolve only to current matching hardware. Late samples for replaced
 	// hardware cannot contaminate its replacement. Retried observations are no-ops.
 	// Collection time disambiguates aggregates sharing an oldest-source timestamp.
@@ -937,6 +942,7 @@ type Querier interface {
 	// evidence. Never use that exception for measurements or delayed inventory.
 	InsertContainerModuleMetrics(ctx context.Context, arg InsertContainerModuleMetricsParams) error
 	InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error
+	InsertContainerSetpoints(ctx context.Context, arg InsertContainerSetpointsParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -2187,6 +2193,8 @@ type Querier interface {
 	// The retained batch UUID identifies the latest serialized completion without
 	// relying on clocks from different workers to order command results.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
+	// Source time orders fans independently of inventory and control reads.
+	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error

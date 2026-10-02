@@ -39,6 +39,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.adminTerminateCurtailmentEventStmt, err = db.PrepareContext(ctx, adminTerminateCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminTerminateCurtailmentEvent: %w", err)
 	}
+	if q.advanceContainerControlsStmt, err = db.PrepareContext(ctx, advanceContainerControls); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceContainerControls: %w", err)
+	}
 	if q.advanceContainerInventoryStmt, err = db.PrepareContext(ctx, advanceContainerInventory); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceContainerInventory: %w", err)
 	}
@@ -410,6 +413,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteAlertRuleConfigStmt, err = db.PrepareContext(ctx, deleteAlertRuleConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAlertRuleConfig: %w", err)
+	}
+	if q.deleteContainerControlsStmt, err = db.PrepareContext(ctx, deleteContainerControls); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteContainerControls: %w", err)
+	}
+	if q.deleteContainerSetpointsStmt, err = db.PrepareContext(ctx, deleteContainerSetpoints); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteContainerSetpoints: %w", err)
 	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteCurtailmentAutomationRuleByOrg: %w", err)
@@ -1062,11 +1071,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertAlertRouteChannelsStmt, err = db.PrepareContext(ctx, insertAlertRouteChannels); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertAlertRouteChannels: %w", err)
 	}
+	if q.insertContainerControlsStmt, err = db.PrepareContext(ctx, insertContainerControls); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerControls: %w", err)
+	}
 	if q.insertContainerModuleMetricsStmt, err = db.PrepareContext(ctx, insertContainerModuleMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertContainerModuleMetrics: %w", err)
 	}
 	if q.insertContainerPlantMetricsStmt, err = db.PrepareContext(ctx, insertContainerPlantMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertContainerPlantMetrics: %w", err)
+	}
+	if q.insertContainerSetpointsStmt, err = db.PrepareContext(ctx, insertContainerSetpoints); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerSetpoints: %w", err)
 	}
 	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
@@ -2115,6 +2130,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
+	if q.upsertContainerFansStmt, err = db.PrepareContext(ctx, upsertContainerFans); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertContainerFans: %w", err)
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
 	}
@@ -2188,6 +2206,11 @@ func (q *Queries) Close() error {
 	if q.adminTerminateCurtailmentEventStmt != nil {
 		if cerr := q.adminTerminateCurtailmentEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing adminTerminateCurtailmentEventStmt: %w", cerr)
+		}
+	}
+	if q.advanceContainerControlsStmt != nil {
+		if cerr := q.advanceContainerControlsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceContainerControlsStmt: %w", cerr)
 		}
 	}
 	if q.advanceContainerInventoryStmt != nil {
@@ -2808,6 +2831,16 @@ func (q *Queries) Close() error {
 	if q.deleteAlertRuleConfigStmt != nil {
 		if cerr := q.deleteAlertRuleConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteAlertRuleConfigStmt: %w", cerr)
+		}
+	}
+	if q.deleteContainerControlsStmt != nil {
+		if cerr := q.deleteContainerControlsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteContainerControlsStmt: %w", cerr)
+		}
+	}
+	if q.deleteContainerSetpointsStmt != nil {
+		if cerr := q.deleteContainerSetpointsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteContainerSetpointsStmt: %w", cerr)
 		}
 	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt != nil {
@@ -3895,6 +3928,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertAlertRouteChannelsStmt: %w", cerr)
 		}
 	}
+	if q.insertContainerControlsStmt != nil {
+		if cerr := q.insertContainerControlsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerControlsStmt: %w", cerr)
+		}
+	}
 	if q.insertContainerModuleMetricsStmt != nil {
 		if cerr := q.insertContainerModuleMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertContainerModuleMetricsStmt: %w", cerr)
@@ -3903,6 +3941,11 @@ func (q *Queries) Close() error {
 	if q.insertContainerPlantMetricsStmt != nil {
 		if cerr := q.insertContainerPlantMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertContainerPlantMetricsStmt: %w", cerr)
+		}
+	}
+	if q.insertContainerSetpointsStmt != nil {
+		if cerr := q.insertContainerSetpointsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerSetpointsStmt: %w", cerr)
 		}
 	}
 	if q.insertCurtailmentAutomationRuleStmt != nil {
@@ -5650,6 +5693,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
 		}
 	}
+	if q.upsertContainerFansStmt != nil {
+		if cerr := q.upsertContainerFansStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertContainerFansStmt: %w", cerr)
+		}
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
@@ -5769,6 +5817,7 @@ type Queries struct {
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
 	adminTerminateCurtailmentEventStmt                           *sql.Stmt
+	advanceContainerControlsStmt                                 *sql.Stmt
 	advanceContainerInventoryStmt                                *sql.Stmt
 	advanceFirmwareRolloutStageStmt                              *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
@@ -5893,6 +5942,8 @@ type Queries struct {
 	deleteAlertRouteChannelsStmt                                 *sql.Stmt
 	deleteAlertRoutePolicyStmt                                   *sql.Stmt
 	deleteAlertRuleConfigStmt                                    *sql.Stmt
+	deleteContainerControlsStmt                                  *sql.Stmt
+	deleteContainerSetpointsStmt                                 *sql.Stmt
 	deleteCurtailmentAutomationRuleByOrgStmt                     *sql.Stmt
 	deleteCurtailmentResponseProfileByOrgStmt                    *sql.Stmt
 	deleteCurtailmentResponseProfilesBySiteStmt                  *sql.Stmt
@@ -6110,8 +6161,10 @@ type Queries struct {
 	insertAlertChannelStmt                                       *sql.Stmt
 	insertAlertMaintenanceWindowStmt                             *sql.Stmt
 	insertAlertRouteChannelsStmt                                 *sql.Stmt
+	insertContainerControlsStmt                                  *sql.Stmt
 	insertContainerModuleMetricsStmt                             *sql.Stmt
 	insertContainerPlantMetricsStmt                              *sql.Stmt
+	insertContainerSetpointsStmt                                 *sql.Stmt
 	insertCurtailmentAutomationRuleStmt                          *sql.Stmt
 	insertCurtailmentEventStmt                                   *sql.Stmt
 	insertCurtailmentResponseProfileStmt                         *sql.Stmt
@@ -6461,6 +6514,7 @@ type Queries struct {
 	upsertAlertRuleConfigStmt                                    *sql.Stmt
 	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
 	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
+	upsertContainerFansStmt                                      *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
 	upsertCustomRoleForOrgStmt                                   *sql.Stmt
@@ -6480,28 +6534,29 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                             tx,
-		tx:                                             tx,
-		acquireFleetRuntimeLeaseStmt:                   q.acquireFleetRuntimeLeaseStmt,
-		acquireReconcileLockStmt:                       q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:                      q.addDevicesToDeviceSetStmt,
-		adminResetUserPasswordStmt:                     q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:             q.adminTerminateCurtailmentEventStmt,
-		advanceContainerInventoryStmt:                  q.advanceContainerInventoryStmt,
-		advanceFirmwareRolloutStageStmt:                q.advanceFirmwareRolloutStageStmt,
-		advanceFleetMetricRollupProgressStmt:           q.advanceFleetMetricRollupProgressStmt,
-		allDevicesBelongToOrgStmt:                      q.allDevicesBelongToOrgStmt,
-		appendFirmwareRolloutDevicesStmt:               q.appendFirmwareRolloutDevicesStmt,
-		applyFleetNodeRecoveredEndpointStmt:            q.applyFleetNodeRecoveredEndpointStmt,
-		applyFleetNodeRecoveryAuthenticationNeededStmt: q.applyFleetNodeRecoveryAuthenticationNeededStmt,
-		assignBuildingToSiteStmt:                       q.assignBuildingToSiteStmt,
-		assignBuildingsToSiteBulkStmt:                  q.assignBuildingsToSiteBulkStmt,
-		assignDevicesToBuildingStmt:                    q.assignDevicesToBuildingStmt,
-		assignDevicesToSiteStmt:                        q.assignDevicesToSiteStmt,
-		assignPermissionToRoleStmt:                     q.assignPermissionToRoleStmt,
-		assignRoleStmt:                                 q.assignRoleStmt,
-		beginCurtailmentRestorationStmt:                q.beginCurtailmentRestorationStmt,
-		beginCurtailmentTopologyTargetRestoreStmt:      q.beginCurtailmentTopologyTargetRestoreStmt,
+		db:                                                           tx,
+		tx:                                                           tx,
+		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
+		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:                           q.adminTerminateCurtailmentEventStmt,
+		advanceContainerControlsStmt:                                 q.advanceContainerControlsStmt,
+		advanceContainerInventoryStmt:                                q.advanceContainerInventoryStmt,
+		advanceFirmwareRolloutStageStmt:                              q.advanceFirmwareRolloutStageStmt,
+		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
+		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
+		appendFirmwareRolloutDevicesStmt:                             q.appendFirmwareRolloutDevicesStmt,
+		applyFleetNodeRecoveredEndpointStmt:                          q.applyFleetNodeRecoveredEndpointStmt,
+		applyFleetNodeRecoveryAuthenticationNeededStmt:               q.applyFleetNodeRecoveryAuthenticationNeededStmt,
+		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
+		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
+		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
+		assignDevicesToSiteStmt:                                      q.assignDevicesToSiteStmt,
+		assignPermissionToRoleStmt:                                   q.assignPermissionToRoleStmt,
+		assignRoleStmt:                                               q.assignRoleStmt,
+		beginCurtailmentRestorationStmt:                              q.beginCurtailmentRestorationStmt,
+		beginCurtailmentTopologyTargetRestoreStmt:                    q.beginCurtailmentTopologyTargetRestoreStmt,
 		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
@@ -6611,6 +6666,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteAlertRouteChannelsStmt:                                 q.deleteAlertRouteChannelsStmt,
 		deleteAlertRoutePolicyStmt:                                   q.deleteAlertRoutePolicyStmt,
 		deleteAlertRuleConfigStmt:                                    q.deleteAlertRuleConfigStmt,
+		deleteContainerControlsStmt:                                  q.deleteContainerControlsStmt,
+		deleteContainerSetpointsStmt:                                 q.deleteContainerSetpointsStmt,
 		deleteCurtailmentAutomationRuleByOrgStmt:                     q.deleteCurtailmentAutomationRuleByOrgStmt,
 		deleteCurtailmentResponseProfileByOrgStmt:                    q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteCurtailmentResponseProfilesBySiteStmt:                  q.deleteCurtailmentResponseProfilesBySiteStmt,
@@ -6828,8 +6885,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
 		insertAlertMaintenanceWindowStmt:                             q.insertAlertMaintenanceWindowStmt,
 		insertAlertRouteChannelsStmt:                                 q.insertAlertRouteChannelsStmt,
+		insertContainerControlsStmt:                                  q.insertContainerControlsStmt,
 		insertContainerModuleMetricsStmt:                             q.insertContainerModuleMetricsStmt,
 		insertContainerPlantMetricsStmt:                              q.insertContainerPlantMetricsStmt,
+		insertContainerSetpointsStmt:                                 q.insertContainerSetpointsStmt,
 		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
 		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
 		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
@@ -7179,6 +7238,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertAlertRuleConfigStmt:                                    q.upsertAlertRuleConfigStmt,
 		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
+		upsertContainerFansStmt:                                      q.upsertContainerFansStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,

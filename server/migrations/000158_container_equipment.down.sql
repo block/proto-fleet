@@ -1,0 +1,4 @@
+DROP TABLE container_setpoint_observation;
+DROP TABLE container_control_observation;
+DROP TABLE container_controls_observation;
+DROP TABLE container_fan_observation;

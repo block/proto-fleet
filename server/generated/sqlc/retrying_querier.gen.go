@@ -78,6 +78,18 @@ func (q *retryingQuerier) AdminTerminateCurtailmentEvent(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) AdvanceContainerControls(ctx context.Context, arg AdvanceContainerControlsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AdvanceContainerControls", func() error {
+		callResult, callErr := q.next.AdvanceContainerControls(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AdvanceContainerInventory", func() error {
@@ -1431,6 +1443,18 @@ func (q *retryingQuerier) DeleteAlertRoutePolicy(ctx context.Context, arg Delete
 func (q *retryingQuerier) DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error {
 	return q.retrier.RetryQuery(ctx, "DeleteAlertRuleConfig", func() error {
 		return q.next.DeleteAlertRuleConfig(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) DeleteContainerControls(ctx context.Context, deviceID int64) error {
+	return q.retrier.RetryQuery(ctx, "DeleteContainerControls", func() error {
+		return q.next.DeleteContainerControls(ctx, deviceID)
+	})
+}
+
+func (q *retryingQuerier) DeleteContainerSetpoints(ctx context.Context, deviceID int64) error {
+	return q.retrier.RetryQuery(ctx, "DeleteContainerSetpoints", func() error {
+		return q.next.DeleteContainerSetpoints(ctx, deviceID)
 	})
 }
 
@@ -3972,6 +3996,12 @@ func (q *retryingQuerier) InsertAlertRouteChannels(ctx context.Context, arg Inse
 	})
 }
 
+func (q *retryingQuerier) InsertContainerControls(ctx context.Context, arg InsertContainerControlsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertContainerControls", func() error {
+		return q.next.InsertContainerControls(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertContainerModuleMetrics(ctx context.Context, arg InsertContainerModuleMetricsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertContainerModuleMetrics", func() error {
 		return q.next.InsertContainerModuleMetrics(ctx, arg)
@@ -3981,6 +4011,12 @@ func (q *retryingQuerier) InsertContainerModuleMetrics(ctx context.Context, arg 
 func (q *retryingQuerier) InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertContainerPlantMetrics", func() error {
 		return q.next.InsertContainerPlantMetrics(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) InsertContainerSetpoints(ctx context.Context, arg InsertContainerSetpointsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertContainerSetpoints", func() error {
+		return q.next.InsertContainerSetpoints(ctx, arg)
 	})
 }
 
@@ -7611,6 +7647,12 @@ func (q *retryingQuerier) UpsertBuiltinRoleForOrg(ctx context.Context, arg Upser
 func (q *retryingQuerier) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCommandOnDeviceLog", func() error {
 		return q.next.UpsertCommandOnDeviceLog(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertContainerFans", func() error {
+		return q.next.UpsertContainerFans(ctx, arg)
 	})
 }
 

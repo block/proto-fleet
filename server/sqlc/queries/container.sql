@@ -2,6 +2,8 @@
 SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,
        COALESCE(s.name, '')::text AS site_name,
+       COALESCE(fans.readings, '[]'::jsonb)::jsonb AS fans,
+       COALESCE(to_jsonb(controls) || jsonb_build_object('controls', COALESCE(control_states.readings, '[]'::jsonb), 'setpoints', COALESCE(setpoints.readings, '[]'::jsonb)), 'null'::jsonb)::jsonb AS controls,
        ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
        COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hash_rate_hs, dm.power_w, dm.temp_c
 FROM device d
@@ -9,6 +11,19 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 JOIN device_pairing dp ON dp.device_id = d.id
 LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
 LEFT JOIN container_inventory ci ON ci.device_id = d.id
+LEFT JOIN LATERAL (
+ SELECT jsonb_agg(to_jsonb(f) ORDER BY f.component_id) AS readings
+ FROM container_fan_observation f WHERE f.device_id = d.id
+) fans ON TRUE
+LEFT JOIN container_controls_observation controls ON controls.device_id = d.id
+LEFT JOIN LATERAL (
+ SELECT jsonb_agg(to_jsonb(c) ORDER BY c.name) AS readings
+ FROM container_control_observation c WHERE c.device_id = d.id
+) control_states ON TRUE
+LEFT JOIN LATERAL (
+ SELECT jsonb_agg(to_jsonb(sp) ORDER BY sp.name) AS readings
+ FROM container_setpoint_observation sp WHERE sp.device_id = d.id
+) setpoints ON TRUE
 -- Reuse the inventory state projection so cards agree with module lists about
 -- freshness, retained partial topology, and retired/replaced hardware.
 LEFT JOIN LATERAL (

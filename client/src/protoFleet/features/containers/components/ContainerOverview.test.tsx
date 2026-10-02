@@ -30,7 +30,7 @@ const TEST_FAN = {
   label: "Fan 1",
   on: true,
   speedPercent: 68,
-  speedLabel: "3,200",
+  powerLabel: "3,200",
 };
 
 const renderOverview = (overrides: Partial<ContainerOverviewProps> = {}) => {

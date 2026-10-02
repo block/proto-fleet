@@ -7,6 +7,7 @@ export interface ContainerToggleControl {
   on: boolean | undefined;
   /** Prominent operational readout, for example `75°F` or `60% speed`. */
   metric?: string;
+  stateLabel?: string;
 }
 
 export interface ContainerAlarmControl {
@@ -18,12 +19,12 @@ export interface ContainerAlarmControl {
 export interface ContainerControlsProps {
   controls: ContainerToggleControl[];
   alarm?: ContainerAlarmControl;
-  onToggle: (id: string, on: boolean) => void;
+  onToggle?: (id: string, on: boolean) => void;
 }
 
 interface ControlCardProps {
   control: ContainerToggleControl;
-  onToggle: (on: boolean) => void;
+  onToggle?: (on: boolean) => void;
 }
 
 const ControlCard = ({ control, onToggle }: ControlCardProps) => {
@@ -36,12 +37,18 @@ const ControlCard = ({ control, onToggle }: ControlCardProps) => {
         <div className="text-emphasis-300 text-text-primary">{control.label}</div>
         {control.metric ? <div className="text-300 text-text-primary-70">{control.metric}</div> : null}
       </div>
-      <Switch
-        ariaLabel={`${control.label} power`}
-        checked={control.on ?? false}
-        disabled={control.on === undefined}
-        setChecked={(next) => onToggle(typeof next === "function" ? next(control.on ?? false) : next)}
-      />
+      {onToggle ? (
+        <Switch
+          ariaLabel={`${control.label} power`}
+          checked={control.on ?? false}
+          disabled={control.on === undefined}
+          setChecked={(next) => onToggle(typeof next === "function" ? next(control.on ?? false) : next)}
+        />
+      ) : (
+        <span className="shrink-0 text-300 text-text-primary-70">
+          {control.stateLabel ?? (control.on === undefined ? "Unknown" : control.on ? "On" : "Off")}
+        </span>
+      )}
     </div>
   );
 };
@@ -74,7 +81,11 @@ const ContainerControls = ({ controls, alarm, onToggle }: ContainerControlsProps
     <h2 className="text-heading-200 text-text-primary">Controls</h2>
     <div className="grid grid-cols-2 gap-1 phone:grid-cols-1" data-testid="container-controls-grid">
       {controls.map((control) => (
-        <ControlCard key={control.id} control={control} onToggle={(on) => onToggle(control.id, on)} />
+        <ControlCard
+          key={control.id}
+          control={control}
+          onToggle={onToggle ? (on) => onToggle(control.id, on) : undefined}
+        />
       ))}
       {alarm ? <AlarmCard {...alarm} /> : null}
     </div>

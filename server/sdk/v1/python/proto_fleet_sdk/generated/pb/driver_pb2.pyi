@@ -883,16 +883,20 @@ class DeviceErrors(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    FANS_FIELD_NUMBER: _ClassVar[int]
+    CONTROLS_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    fans: _containers.RepeatedCompositeFieldContainer[ContainerFan]
+    controls: ContainerControls
     observed_at: _timestamp_pb2.Timestamp
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("position", "modules")
@@ -947,3 +951,59 @@ class ContainerPlant(_message.Message):
     alarm_active: bool
     critical_alarm_active: bool
     def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., total_power_w: _Optional[float] = ..., facility_power_w: _Optional[float] = ..., pue: _Optional[float] = ..., inlet_temperature_c: _Optional[float] = ..., outlet_temperature_c: _Optional[float] = ..., alarm_active: bool = ..., critical_alarm_active: bool = ...) -> None: ...
+
+class ContainerFan(_message.Message):
+    __slots__ = ("component_id", "observed_at", "speed_percent", "power_w", "direction", "alarm_active")
+    COMPONENT_ID_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    SPEED_PERCENT_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    DIRECTION_FIELD_NUMBER: _ClassVar[int]
+    ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    component_id: str
+    observed_at: _timestamp_pb2.Timestamp
+    speed_percent: float
+    power_w: float
+    direction: str
+    alarm_active: bool
+    def __init__(self, component_id: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., speed_percent: _Optional[float] = ..., power_w: _Optional[float] = ..., direction: _Optional[str] = ..., alarm_active: bool = ...) -> None: ...
+
+class ContainerControls(_message.Message):
+    __slots__ = ("observed_at", "supported", "controls", "setpoints", "main_circuit_breaker_supported", "main_circuit_breaker_closed", "alarm_reset_supported", "alarm_mute_supported", "dry_cooler_fan_reverse_supported")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    CONTROLS_FIELD_NUMBER: _ClassVar[int]
+    SETPOINTS_FIELD_NUMBER: _ClassVar[int]
+    MAIN_CIRCUIT_BREAKER_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    MAIN_CIRCUIT_BREAKER_CLOSED_FIELD_NUMBER: _ClassVar[int]
+    ALARM_RESET_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    ALARM_MUTE_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    DRY_COOLER_FAN_REVERSE_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    supported: bool
+    controls: _containers.RepeatedCompositeFieldContainer[ContainerControl]
+    setpoints: _containers.RepeatedCompositeFieldContainer[ContainerSetpoint]
+    main_circuit_breaker_supported: bool
+    main_circuit_breaker_closed: bool
+    alarm_reset_supported: bool
+    alarm_mute_supported: bool
+    dry_cooler_fan_reverse_supported: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., supported: bool = ..., controls: _Optional[_Iterable[_Union[ContainerControl, _Mapping]]] = ..., setpoints: _Optional[_Iterable[_Union[ContainerSetpoint, _Mapping]]] = ..., main_circuit_breaker_supported: bool = ..., main_circuit_breaker_closed: bool = ..., alarm_reset_supported: bool = ..., alarm_mute_supported: bool = ..., dry_cooler_fan_reverse_supported: bool = ...) -> None: ...
+
+class ContainerControl(_message.Message):
+    __slots__ = ("name", "enabled")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    enabled: bool
+    def __init__(self, name: _Optional[str] = ..., enabled: bool = ...) -> None: ...
+
+class ContainerSetpoint(_message.Message):
+    __slots__ = ("name", "value", "unit")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    value: float
+    unit: str
+    def __init__(self, name: _Optional[str] = ..., value: _Optional[float] = ..., unit: _Optional[str] = ...) -> None: ...

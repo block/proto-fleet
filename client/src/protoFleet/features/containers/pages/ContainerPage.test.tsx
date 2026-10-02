@@ -82,7 +82,7 @@ describe("native container detail", () => {
     expect(breadcrumb.queryByText("Buildings")).not.toBeInTheDocument();
     expect(mocks.sync).toHaveBeenCalledWith({ kind: "site", id: "2", slug: "north" });
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText("Fan readings are not collected by Fleet yet.")).toBeInTheDocument();
+    expect(screen.getByText("No fan readings available.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Tank 1 module 1.*View module/ }));
     expect(screen.getByRole("dialog", { name: "Tank 1 module 1" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close history" }));

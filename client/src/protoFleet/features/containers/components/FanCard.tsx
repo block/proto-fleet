@@ -6,13 +6,15 @@ import Switch from "@/shared/components/Switch";
 
 interface FanCardProps {
   label: string;
-  /** Fan speed as a percentage of max (drives the donut fill and PWM readout), 0–100. */
+  /** Fan speed as a percentage of max (drives the donut fill and speed readout), 0–100. */
   speedPercent: number | undefined;
-  /** Human-readable RPM readout, e.g. "3,200". */
-  speedLabel: string;
+  /** Human-readable W readout, e.g. "3,200". */
+  powerLabel: string;
   on: boolean | undefined;
   toggleDisabled?: boolean;
   faulted?: boolean;
+  statusLabel?: string;
+  directionLabel?: string;
   onToggle?: (on: boolean) => void;
   onInfo?: () => void;
 }
@@ -27,20 +29,32 @@ const GAUGE_VALUE_STROKE = 12;
 
 /**
  * A single fan control on the container overview: header (label + on/off
- * toggle + stroked info button) over a full-ring speed donut, with RPM and PWM
+ * toggle + stroked info button) over a full-ring speed donut, with W and speed
  * readouts spread across the footer. The donut follows the container spec — a
  * flat-capped ring, low-opacity orange track, orange value arc — and greys out
  * when the fan is off. Reuses the shared Switch, RadialGauge, and the stroked
  * InfoInverted icon.
  */
-const FanCard = ({ label, speedPercent, speedLabel, on, toggleDisabled, onToggle, onInfo, faulted }: FanCardProps) => {
-  const pwm = speedPercent === undefined ? undefined : Math.round(Math.max(0, Math.min(100, speedPercent)));
+const FanCard = ({
+  label,
+  speedPercent,
+  powerLabel,
+  on,
+  toggleDisabled,
+  onToggle,
+  onInfo,
+  faulted,
+  statusLabel,
+  directionLabel,
+}: FanCardProps) => {
+  const speed = speedPercent === undefined ? undefined : Math.round(Math.max(0, Math.min(100, speedPercent)));
 
   return (
     <div className="flex min-w-0 flex-col rounded-2xl bg-surface-overlay px-5 pt-5 pb-6">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <span className="truncate text-300 text-emphasis-300">
+        <span className="min-w-0 text-300 text-emphasis-300 break-words">
           {label}
+          {statusLabel ? <span className="block text-200 text-text-primary-70">{statusLabel}</span> : null}
           {faulted ? <span className="block text-200 text-text-critical">Needs attention</span> : null}
         </span>
         <div className="flex shrink-0 items-center gap-3">
@@ -66,7 +80,7 @@ const FanCard = ({ label, speedPercent, speedLabel, on, toggleDisabled, onToggle
       </div>
       <div className="flex flex-1 items-center justify-center py-2">
         <RadialGauge
-          value={pwm ?? 0}
+          value={speed ?? 0}
           sweep={360}
           size={GAUGE_SIZE}
           strokeWidth={GAUGE_TRACK_STROKE}
@@ -77,12 +91,16 @@ const FanCard = ({ label, speedPercent, speedLabel, on, toggleDisabled, onToggle
           dataTestId="fan-gauge"
         />
       </div>
+      {directionLabel ? <p className="mt-2 text-center text-200 text-text-primary-70">{directionLabel}</p> : null}
       <div
-        className={clsx("mt-4 flex items-center gap-3 text-300 text-text-primary-70", !on && "text-text-primary-30")}
+        className={clsx(
+          "mt-4 flex items-center gap-3 text-300 text-text-primary-70 phone:flex-col phone:gap-1",
+          on === false && "text-text-primary-30",
+        )}
         data-testid="fan-card-stats"
       >
-        <span className="flex-1 truncate text-center">{`${speedLabel} RPM`}</span>
-        <span className="flex-1 truncate text-center">{pwm === undefined ? "— PWM" : `${pwm}% PWM`}</span>
+        <span className="flex-1 truncate text-center">{`${powerLabel} W`}</span>
+        <span className="flex-1 truncate text-center">{speed === undefined ? "— speed" : `${speed}% speed`}</span>
       </div>
     </div>
   );

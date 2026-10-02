@@ -3,8 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react";
 import ContainerStatusModal from "./ContainerStatusModal";
 import type { ContainerFan } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
 
-const runningFan: ContainerFan = { id: "f3", label: "Fan 3", on: true, speedPercent: 61, speedLabel: "2,870" };
-const offFan: ContainerFan = { id: "f4", label: "Fan 4", on: false, speedPercent: 0, speedLabel: "0" };
+const runningFan: ContainerFan = { id: "f3", label: "Fan 3", on: true, speedPercent: 61, powerLabel: "2,870" };
+const offFan: ContainerFan = { id: "f4", label: "Fan 4", on: false, speedPercent: 0, powerLabel: "0" };
 
 /**
  * Container-side component-status glance opened from a fan card's (ⓘ) on the

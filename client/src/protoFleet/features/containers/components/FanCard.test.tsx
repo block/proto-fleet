@@ -10,7 +10,7 @@ describe("FanCard", () => {
   ])("reports the next power state when on is %s", async (on, expected) => {
     const user = userEvent.setup();
     const onToggle = vi.fn();
-    render(<FanCard label="Fan 1" speedPercent={50} speedLabel="1,000" on={on} onToggle={onToggle} />);
+    render(<FanCard label="Fan 1" speedPercent={50} powerLabel="1,000" on={on} onToggle={onToggle} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Fan 1 power" }));
 

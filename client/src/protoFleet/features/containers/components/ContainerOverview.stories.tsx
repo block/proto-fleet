@@ -109,16 +109,16 @@ const initialTanks: ContainerTank[] = [
 ];
 
 const initialFans: ContainerFan[] = [
-  { id: "f1", label: "Fan 1", on: true, speedPercent: 68, speedLabel: "3,200" },
-  { id: "f2", label: "Fan 2", on: true, speedPercent: 74, speedLabel: "3,480" },
-  { id: "f3", label: "Fan 3", on: true, speedPercent: 61, speedLabel: "2,870" },
-  { id: "f4", label: "Fan 4", on: false, speedPercent: 0, speedLabel: "0" },
-  { id: "f5", label: "Fan 5", on: true, speedPercent: 71, speedLabel: "3,340" },
-  { id: "f6", label: "Fan 6", on: true, speedPercent: 66, speedLabel: "3,100" },
-  { id: "f7", label: "Fan 7", on: true, speedPercent: 79, speedLabel: "3,710" },
-  { id: "f8", label: "Fan 8", on: true, speedPercent: 58, speedLabel: "2,720" },
-  { id: "f9", label: "Fan 9", on: true, speedPercent: 72, speedLabel: "3,380" },
-  { id: "f10", label: "Fan 10", on: true, speedPercent: 64, speedLabel: "3,010" },
+  { id: "f1", label: "Fan 1", on: true, speedPercent: 68, powerLabel: "3,200" },
+  { id: "f2", label: "Fan 2", on: true, speedPercent: 74, powerLabel: "3,480" },
+  { id: "f3", label: "Fan 3", on: true, speedPercent: 61, powerLabel: "2,870" },
+  { id: "f4", label: "Fan 4", on: false, speedPercent: 0, powerLabel: "0" },
+  { id: "f5", label: "Fan 5", on: true, speedPercent: 71, powerLabel: "3,340" },
+  { id: "f6", label: "Fan 6", on: true, speedPercent: 66, powerLabel: "3,100" },
+  { id: "f7", label: "Fan 7", on: true, speedPercent: 79, powerLabel: "3,710" },
+  { id: "f8", label: "Fan 8", on: true, speedPercent: 58, powerLabel: "2,720" },
+  { id: "f9", label: "Fan 9", on: true, speedPercent: 72, powerLabel: "3,380" },
+  { id: "f10", label: "Fan 10", on: true, speedPercent: 64, powerLabel: "3,010" },
 ];
 
 const initialControls: ContainerToggleControl[] = [

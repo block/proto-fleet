@@ -472,6 +472,33 @@ type ConnectedPostgresIdentity struct {
 	Timeline      int64
 }
 
+type ContainerControlObservation struct {
+	DeviceID int64
+	Name     string
+	Enabled  sql.NullBool
+}
+
+type ContainerControlsObservation struct {
+	DeviceID                     int64
+	ObservedAt                   time.Time
+	Supported                    sql.NullBool
+	MainCircuitBreakerSupported  sql.NullBool
+	MainCircuitBreakerClosed     sql.NullBool
+	AlarmResetSupported          sql.NullBool
+	AlarmMuteSupported           sql.NullBool
+	DryCoolerFanReverseSupported sql.NullBool
+}
+
+type ContainerFanObservation struct {
+	DeviceID     int64
+	ComponentID  string
+	ObservedAt   time.Time
+	SpeedPercent sql.NullFloat64
+	PowerW       sql.NullFloat64
+	Direction    sql.NullString
+	AlarmActive  sql.NullBool
+}
+
 type ContainerInventory struct {
 	DeviceID   int64
 	ObservedAt time.Time
@@ -511,6 +538,13 @@ type ContainerPlantMetric struct {
 	DeviceID int64
 	Time     time.Time
 	Metrics  json.RawMessage
+}
+
+type ContainerSetpointObservation struct {
+	DeviceID int64
+	Name     string
+	Value    sql.NullFloat64
+	Unit     string
 }
 
 type ContainerTank struct {

@@ -159,6 +159,7 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	}
 	var plant plantResponse
 	if err := c.collectSupplement(ctx, "/api/v2/telemetry/container", &plant); err != nil {
+		plant = plantResponse{}
 		slog.WarnContext(ctx, "CT1 plant observation unavailable", "device_id", id, "error", err)
 	} else if topology.Plant = plant.observation(time.Now().UTC()); topology.Plant != nil {
 		// Prefer metered facility power over the mining-only estimate when present.
@@ -172,6 +173,15 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 		if p.AlarmActive || p.CriticalAlarmActive {
 			result.Health = sdk.HealthWarning
 		}
+	}
+	// Fans have their own source observation time and do not depend on plant
+	// aggregate availability. A failed read leaves them absent.
+	topology.Fans = plant.fanObservations(time.Now().UTC())
+	var controls controlsResponse
+	if err := c.collectSupplement(ctx, "/api/v2/power/container/controls", &controls); err != nil {
+		slog.WarnContext(ctx, "CT1 equipment controls unavailable", "device_id", id, "error", err)
+	} else {
+		topology.Controls = controls.observation(time.Now().UTC())
 	}
 	// CT1 does not report efficiency. Use the final controller power selection
 	// (including facility loads when available), not summed module PSU power.

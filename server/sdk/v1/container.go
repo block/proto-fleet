@@ -18,6 +18,8 @@ const (
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
+	Fans     []ContainerFan     `json:"fans,omitempty"`
+	Controls *ContainerControls `json:"controls,omitempty"`
 	// TopologyComplete permits reconciliation of missing members. Partial or
 	// telemetry-only observations never remove inventory.
 	TopologyComplete bool            `json:"topology_complete"`
@@ -61,4 +63,42 @@ type ContainerPlant struct {
 	OutletTemperatureC  *float64  `json:"outlet_temperature_c,omitempty"`
 	AlarmActive         bool      `json:"alarm_active"`
 	CriticalAlarmActive bool      `json:"critical_alarm_active"`
+}
+
+// ContainerFan retains the controller's component identity and source timestamp.
+// Absent readings are unknown; speed is percentage, not RPM or PWM.
+type ContainerFan struct {
+	ComponentID  string    `json:"component_id"`
+	ObservedAt   time.Time `json:"observed_at"`
+	SpeedPercent *float64  `json:"speed_percent,omitempty"`
+	PowerW       *float64  `json:"power_w,omitempty"`
+	Direction    *string   `json:"direction,omitempty"`
+	AlarmActive  *bool     `json:"alarm_active,omitempty"`
+}
+
+// ContainerControls is independently collected. CT1 supplies no source time for
+// this endpoint, so ObservedAt is the successful read completion time. Missing
+// capabilities are unknown, not unsupported. Nil means no successful read.
+type ContainerControls struct {
+	ObservedAt                   time.Time           `json:"observed_at"`
+	Supported                    *bool               `json:"supported,omitempty"`
+	Controls                     []ContainerControl  `json:"controls,omitempty"`
+	Setpoints                    []ContainerSetpoint `json:"setpoints,omitempty"`
+	MainCircuitBreakerSupported  *bool               `json:"main_circuit_breaker_supported,omitempty"`
+	MainCircuitBreakerClosed     *bool               `json:"main_circuit_breaker_closed,omitempty"`
+	AlarmResetSupported          *bool               `json:"alarm_reset_supported,omitempty"`
+	AlarmMuteSupported           *bool               `json:"alarm_mute_supported,omitempty"`
+	DryCoolerFanReverseSupported *bool               `json:"dry_cooler_fan_reverse_supported,omitempty"`
+}
+
+type ContainerControl struct {
+	Name string `json:"name"`
+	// Nil means the controller cannot report an authoritative state.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type ContainerSetpoint struct {
+	Name  string   `json:"name"`
+	Value *float64 `json:"value,omitempty"`
+	Unit  string   `json:"unit"`
 }

@@ -9,9 +9,9 @@ describe("unavailable observations", () => {
     expect(screen.getAllByTestId("tank-module")[1]).toHaveAttribute("data-module-state", "unknown");
   });
   it("shows an unavailable fan reading without an unsupported switch", () => {
-    render(<FanCard label="Fan 1" on={undefined} speedPercent={undefined} speedLabel="—" />);
+    render(<FanCard label="Fan 1" on={undefined} speedPercent={undefined} powerLabel="—" />);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.queryByText("0 RPM")).not.toBeInTheDocument();
-    expect(screen.getByText("— RPM")).toBeInTheDocument();
+    expect(screen.queryByText("0 W")).not.toBeInTheDocument();
+    expect(screen.getByText("— W")).toBeInTheDocument();
   });
 });

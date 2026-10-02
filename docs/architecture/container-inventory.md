@@ -157,8 +157,7 @@ Container cards and rows open the native Fleet detail at `/containers/:identifie
 It reads collected container metadata, tank/module inventory and controller history,
 including for FleetNode-owned controllers. Tank navigation scopes the mining list
 using the typed tank ancestor; module tiles open the same stored-history dialog
-as module rows. Fan telemetry and equipment control states are not collected for
-this view. Container-reported power stays separate from tank/module equipment power.
+as module rows. Fan telemetry and read-only equipment states are collected for this view. Container-reported power stays separate from tank/module equipment power.
 Existing read-only roles lacking telemetry permissions retain their existing
 metadata-only list paths. Rack rows additionally require rack-read scope. Tanks, modules, and module
 history use their container’s current-site read permissions; tank rows do not
@@ -173,3 +172,36 @@ The integration suite covers filtering, mixed cursors, topology reconciliation,
 identity replacement, and historical observation ordering against TimescaleDB.
 Large-fleet query performance has not yet been benchmarked; live cursor pages
 remain subject to changes in telemetry and inventory between requests.
+
+
+## Fan and equipment observations
+
+The CT1 collector retains cooling fan component IDs, speed percentage, power,
+direction, and alarm state from `/api/v2/telemetry/container`. Each fan keeps the
+response source timestamp independently of inventory. No RPM or PWM reading is
+inferred. `/api/v2/power/container/controls` is a separate bounded supplementary
+read. It has no source timestamp, so successful read completion is its observation
+time. Missing capability flags remain unknown; `stateKnown=false` becomes an
+absent enabled value. Setpoints are labeled as setpoints, not measured output.
+
+`container_fan_observation` stores one latest row per controller/component.
+`container_controls_observation` orders successful control reads and stores
+capability presence; its normalized control and setpoint children are replaced
+atomically for a newer response. Omitted children are no longer reported; failure
+or malformed JSON does not create a successful observation. An explicitly
+unsupported response replaces old capabilities. Fan rows absent from a partial
+response retain their original time and become stale. Equal or older timestamps
+cannot replace current readings. These tables have no historical retention or
+whole-container JSON cache. Both direct and FleetNode JSON telemetry use this path.
+
+The container API projects these observations after current-site authorization.
+Fans and controls become stale independently after two minutes. Fleet displays
+stale labels and hides retained measurements, preserves measured zero, and
+provides no equipment command affordances. Viewing requires no controller URL.
+
+Backend support was verified against Frigate main commit
+`61f1f4c3a073f65d71dcb506e74d5db5a485bb47`: `pkg/api/power_container_controls.go`,
+`pkg/api/telemetry_container.go`, and Trident96's `container_controls.go` implement
+these reads. This verifies backend implementation, not deployment to a specific
+physical controller. Unsupported backends and unavailable endpoints remain valid
+collection outcomes.

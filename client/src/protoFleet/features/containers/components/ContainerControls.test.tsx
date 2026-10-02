@@ -22,6 +22,22 @@ const renderControls = () => {
 };
 
 describe("ContainerControls", () => {
+  it("presents collected state without command affordances", () => {
+    render(
+      <ContainerControls
+        controls={[
+          { id: "pump", label: "Pump", on: false },
+          { id: "ac", label: "AC", on: undefined },
+          { id: "fan", label: "Fan", on: undefined, stateLabel: "Stale" },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Off")).toBeInTheDocument();
+    expect(screen.getByText("Unknown")).toBeInTheDocument();
+    expect(screen.getByText("Stale")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
   it("renders the supplied inventory and only shows metrics that exist", () => {
     renderControls();
 

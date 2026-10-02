@@ -107,5 +107,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			return err
 		}
 	}
-	return q.InsertContainerModuleMetrics(ctx, sqlc.InsertContainerModuleMetricsParams{DeviceIdentifier: identifier, CollectedAt: snapshot.ObservedAt, Samples: sampleJSON, InventoryAccepted: err == nil})
+	if err := q.InsertContainerModuleMetrics(ctx, sqlc.InsertContainerModuleMetricsParams{DeviceIdentifier: identifier, CollectedAt: snapshot.ObservedAt, Samples: sampleJSON, InventoryAccepted: err == nil}); err != nil {
+		return err
+	}
+	return storeContainerEquipment(ctx, q, identifier, snapshot)
 }

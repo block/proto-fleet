@@ -28,6 +28,8 @@ message ListContainersResponse {
   repeated Container containers = 1;
 }
 message Container {
+ repeated ContainerFan fans = 12;
+ ContainerControls controls = 13;
   // Stable Fleet device ID used by typed inventory ancestor filters.
   int64 id = 11;
   string device_identifier = 1;
@@ -52,4 +54,37 @@ message TankHealth {
   int32 sleeping_count = 5;
   int32 isolated_count = 6;
   int32 unknown_count = 7;
+}
+
+// Latest component observations. Missing scalar values are unavailable, not zero.
+message ContainerFan {
+ string component_id = 1;
+ google.protobuf.Timestamp observed_at = 2;
+ optional double speed_percent = 3;
+ optional double power_w = 4;
+ optional string direction = 5;
+ optional bool alarm_active = 6;
+ bool stale = 7;
+}
+// A successful independent read; absent capability flags mean unknown.
+message ContainerControls {
+ google.protobuf.Timestamp observed_at = 1;
+ optional bool supported = 2;
+ repeated ContainerControl controls = 3;
+ repeated ContainerSetpoint setpoints = 4;
+ optional bool main_circuit_breaker_supported = 5;
+ optional bool main_circuit_breaker_closed = 6;
+ optional bool alarm_reset_supported = 7;
+ optional bool alarm_mute_supported = 8;
+ optional bool dry_cooler_fan_reverse_supported = 9;
+ bool stale = 10;
+}
+message ContainerControl {
+ string name = 1;
+ optional bool enabled = 2;
+}
+message ContainerSetpoint {
+ string name = 1;
+ optional double value = 2;
+ string unit = 3;
 }

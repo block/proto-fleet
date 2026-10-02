@@ -26,6 +26,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 func TestRemoteFleetNodeMinerApplyCurtailmentConfigForwardsToDelegate(t *testing.T) {
@@ -810,4 +811,23 @@ func TestContainerClassSurvivesFleetNodeRouting(t *testing.T) {
 	require.NoError(t, err)
 	m := &RemoteFleetNodeMiner{route: route}
 	require.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, m.telemetryRequest(t.Context()).DeviceClass)
+}
+
+func TestFleetNodeEquipmentTelemetryRoundTrip(t *testing.T) {
+	now := time.Now().UTC()
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Fans: []sdk.ContainerFan{{ComponentID: "fan", ObservedAt: now.Add(-time.Minute), SpeedPercent: new(0.0)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}}}
+	data, err := json.Marshal(modelsV2.DeviceMetrics{Container: snapshot})
+	require.NoError(t, err)
+	result := telemetryResult("ct1")
+	result.DeviceMetricsJson = data
+	result.Timestamp = timestamppb.New(now)
+	require.NoError(t, validateTelemetryResult(result))
+	wire, err := proto.Marshal(result)
+	require.NoError(t, err)
+	decoded := &telemetrypb.FleetNodeTelemetryResult{}
+	require.NoError(t, proto.Unmarshal(wire, decoded))
+	metrics, err := telemetryResultToDeviceMetrics(decoded)
+	require.NoError(t, err)
+	require.Equal(t, snapshot, metrics.Container)
+	require.Equal(t, "ct1", metrics.DeviceIdentifier)
 }
