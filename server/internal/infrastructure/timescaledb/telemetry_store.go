@@ -405,13 +405,6 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 					return fmt.Errorf("store container plant: %w", err)
 				}
 			}
-			snapshot, err := json.Marshal(metrics.Container)
-			if err != nil {
-				return fmt.Errorf("encode container snapshot: %w", err)
-			}
-			if err = qtx.UpsertContainerSnapshot(ctx, sqlc.UpsertContainerSnapshotParams{DeviceIdentifier: metrics.DeviceIdentifier, ObservedAt: metrics.Container.ObservedAt, Snapshot: snapshot}); err != nil {
-				return fmt.Errorf("store container snapshot: %w", err)
-			}
 		}
 
 		params := sqlc.InsertDeviceMetricsParams{

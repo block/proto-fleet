@@ -148,7 +148,7 @@ const renderList = ({
             </>
           }
         />
-        <Route path="/miners/:id" element={<PathProbe />} />
+        <Route path="/containers/:id" element={<PathProbe />} />
         <Route path="/buildings/:id" element={<PathProbe />} />
         <Route path="/fleet/racks" element={<PathProbe />} />
         <Route path="/fleet/miners" element={<PathProbe />} />
@@ -241,7 +241,7 @@ describe("BuildingList row actions menu", () => {
 
 const container = create(ContainerSchema, {
   deviceIdentifier: "42",
-  embeddedWebViewAvailable: true,
+
   name: "A container",
   site: { id: 7n, label: "North" },
   hashrateHs: 100e12,
@@ -262,7 +262,7 @@ describe("combined building and container rows", () => {
     expect(within(rows[0]).getByText("1")).toBeInTheDocument();
     expect(within(rows[0]).getByRole("img", { name: /14 healthy, 2 need attention/ })).toBeInTheDocument();
     fireEvent.click(within(rows[0]).getByText("A container"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners/42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/containers/42");
   });
 
   it("keeps containers out of building bulk actions even when IDs overlap", () => {
@@ -284,21 +284,12 @@ describe("combined building and container rows", () => {
   });
 });
 
-it("uses the external URL for a FleetNode container", () => {
+it("opens native details without a controller web view", () => {
   const open = vi.spyOn(window, "open").mockImplementation(() => null);
-  renderList({ containers: [{ ...container, embeddedWebViewAvailable: false, url: "http://192.168.1.20:8080" }] });
-  fireEvent.click(screen.getByText("A container"));
-  expect(open).toHaveBeenCalledWith("http://192.168.1.20:8080", "_blank", "noopener,noreferrer");
-  expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
-  open.mockRestore();
-});
-
-it("does not navigate a container with no available view", () => {
-  const open = vi.spyOn(window, "open").mockImplementation(() => null);
-  renderList({ containers: [{ ...container, embeddedWebViewAvailable: false, url: "" }] });
+  renderList({ containers: [{ ...container }] });
   fireEvent.click(screen.getByText("A container"));
   expect(open).not.toHaveBeenCalled();
-  expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
+  expect(screen.getByTestId("probe-path")).toHaveTextContent("/containers/42");
   open.mockRestore();
 });
 

@@ -2058,9 +2058,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
-	if q.upsertContainerSnapshotStmt, err = db.PrepareContext(ctx, upsertContainerSnapshot); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertContainerSnapshot: %w", err)
-	}
 	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
 	}
@@ -5501,11 +5498,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
 		}
 	}
-	if q.upsertContainerSnapshotStmt != nil {
-		if cerr := q.upsertContainerSnapshotStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertContainerSnapshotStmt: %w", cerr)
-		}
-	}
 	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
@@ -6298,7 +6290,6 @@ type Queries struct {
 	upsertAlertRuleConfigStmt                                    *sql.Stmt
 	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
 	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
-	upsertContainerSnapshotStmt                                  *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
 	upsertCustomRoleForOrgStmt                                   *sql.Stmt
@@ -6998,7 +6989,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertAlertRuleConfigStmt:                                    q.upsertAlertRuleConfigStmt,
 		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
-		upsertContainerSnapshotStmt:                                  q.upsertContainerSnapshotStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,

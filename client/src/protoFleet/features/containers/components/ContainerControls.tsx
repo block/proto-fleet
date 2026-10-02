@@ -1,38 +1,25 @@
-import type { ComponentType } from "react";
-import { Fan, Immersion, LightBulb, Notification, Thermometer } from "@/shared/assets/icons";
-import type { IconProps } from "@/shared/assets/icons/types";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Switch from "@/shared/components/Switch";
-
-export type ContainerControlIcon = "fan" | "pump" | "thermometer" | "light";
 
 export interface ContainerToggleControl {
   id: string;
   label: string;
-  icon: ContainerControlIcon;
-  on: boolean;
+  on: boolean | undefined;
   /** Prominent operational readout, for example `75°F` or `60% speed`. */
   metric?: string;
 }
 
 export interface ContainerAlarmControl {
   label: string;
-  onReset: () => void;
-  onMute: () => void;
+  onReset?: () => void;
+  onMute?: () => void;
 }
 
 export interface ContainerControlsProps {
   controls: ContainerToggleControl[];
-  alarm: ContainerAlarmControl;
+  alarm?: ContainerAlarmControl;
   onToggle: (id: string, on: boolean) => void;
 }
-
-const CONTROL_ICONS: Record<ContainerControlIcon, ComponentType<IconProps>> = {
-  fan: Fan,
-  pump: Immersion,
-  thermometer: Thermometer,
-  light: LightBulb,
-};
 
 interface ControlCardProps {
   control: ContainerToggleControl;
@@ -40,22 +27,20 @@ interface ControlCardProps {
 }
 
 const ControlCard = ({ control, onToggle }: ControlCardProps) => {
-  const Icon = CONTROL_ICONS[control.icon];
-
   return (
     <div
-      className="flex min-h-28 min-w-0 items-center gap-5 rounded-xl bg-surface-overlay px-5 py-4"
+      className="flex min-h-24 min-w-0 items-center gap-5 rounded-2xl bg-surface-5 px-5 py-4"
       data-testid={`container-control-${control.id}`}
     >
-      <Icon className="shrink-0 text-text-primary-50" width="w-6" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-300 text-emphasis-300 text-text-primary">{control.label}</div>
-        {control.metric ? <div className="truncate text-300 text-text-primary-70">{control.metric}</div> : null}
+        <div className="text-emphasis-300 text-text-primary">{control.label}</div>
+        {control.metric ? <div className="text-300 text-text-primary-70">{control.metric}</div> : null}
       </div>
       <Switch
         ariaLabel={`${control.label} power`}
-        checked={control.on}
-        setChecked={(next) => onToggle(typeof next === "function" ? next(control.on) : next)}
+        checked={control.on ?? false}
+        disabled={control.on === undefined}
+        setChecked={(next) => onToggle(typeof next === "function" ? next(control.on ?? false) : next)}
       />
     </div>
   );
@@ -63,14 +48,15 @@ const ControlCard = ({ control, onToggle }: ControlCardProps) => {
 
 const AlarmCard = ({ label, onReset, onMute }: ContainerAlarmControl) => (
   <div
-    className="flex min-h-28 min-w-0 items-center gap-5 rounded-xl bg-surface-overlay px-5 py-4"
+    className="flex min-h-24 min-w-0 items-center gap-5 rounded-2xl bg-surface-5 px-5 py-4"
     data-testid="container-alarm"
   >
-    <Notification className="shrink-0 text-text-primary-50" width="w-6" />
-    <div className="min-w-0 flex-1 truncate text-300 text-emphasis-300 text-text-primary">{label}</div>
+    <div className="min-w-0 flex-1">
+      <div className="text-emphasis-300 text-text-primary">{label}</div>
+    </div>
     <div className="flex shrink-0 gap-2">
-      <Button text="Reset" variant={variants.secondary} size={sizes.compact} onClick={onReset} />
-      <Button text="Mute" variant={variants.secondary} size={sizes.compact} onClick={onMute} />
+      {onReset ? <Button text="Reset" variant={variants.secondary} size={sizes.compact} onClick={onReset} /> : null}
+      {onMute ? <Button text="Mute" variant={variants.secondary} size={sizes.compact} onClick={onMute} /> : null}
     </div>
   </div>
 );
@@ -81,6 +67,7 @@ const AlarmCard = ({ label, onReset, onMute }: ContainerAlarmControl) => (
  */
 const ContainerControls = ({ controls, alarm, onToggle }: ContainerControlsProps) => (
   <section
+    aria-label="Controls"
     className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-6 shadow-100"
     data-testid="container-controls"
   >
@@ -89,7 +76,7 @@ const ContainerControls = ({ controls, alarm, onToggle }: ContainerControlsProps
       {controls.map((control) => (
         <ControlCard key={control.id} control={control} onToggle={(on) => onToggle(control.id, on)} />
       ))}
-      <AlarmCard {...alarm} />
+      {alarm ? <AlarmCard {...alarm} /> : null}
     </div>
   </section>
 );

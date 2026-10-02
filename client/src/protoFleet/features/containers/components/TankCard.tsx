@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import type { ModuleActionType } from "./moduleActions";
-import TankModuleGrid, { type TankModuleState } from "./TankModuleGrid";
+import TankModuleGrid, { type ModuleSlot, type TankModuleState } from "./TankModuleGrid";
 import { InfoInverted } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Switch from "@/shared/components/Switch";
@@ -12,8 +12,11 @@ interface TankCardProps {
   rows: number;
   /** One entry per module bar (two-state: healthy vs needs-attention). */
   modules: TankModuleState[];
-  on: boolean;
-  onToggle: (on: boolean) => void;
+  on: boolean | undefined;
+  toggleDisabled?: boolean;
+  slots?: ModuleSlot[];
+  onSelectModule?: (id: string) => void;
+  onToggle?: (on: boolean) => void;
   onInfo?: () => void;
   /**
    * Footer readouts spread across the row, e.g.
@@ -48,6 +51,9 @@ const TankCard = ({
   stats,
   onClick,
   onModuleAction,
+  slots,
+  onSelectModule,
+  toggleDisabled,
 }: TankCardProps) => {
   return (
     <div
@@ -71,11 +77,14 @@ const TankCard = ({
           {label}
         </span>
         <div className="relative z-20 flex shrink-0 items-center gap-3">
-          <Switch
-            ariaLabel={`${label} power`}
-            checked={on}
-            setChecked={(next) => onToggle(typeof next === "function" ? next(on) : next)}
-          />
+          {onToggle ? (
+            <Switch
+              ariaLabel={`${label} power`}
+              checked={on ?? false}
+              disabled={!onToggle || toggleDisabled || on === undefined}
+              setChecked={(next) => onToggle?.(typeof next === "function" ? next(on ?? false) : next)}
+            />
+          ) : null}
           {onInfo ? (
             <button
               type="button"
@@ -90,20 +99,34 @@ const TankCard = ({
       </div>
 
       {/* Module bars */}
-      <div className={clsx("px-5 pt-6 pb-5", !on && "opacity-40", onModuleAction && "relative z-20")}>
-        <TankModuleGrid cols={cols} rows={rows} modules={modules} label={label} onModuleAction={onModuleAction} />
+      <div
+        className={clsx(
+          "px-5 pt-6 pb-5",
+          on === false && "opacity-40",
+          (onModuleAction || onSelectModule) && "relative z-20",
+        )}
+      >
+        <TankModuleGrid
+          cols={cols}
+          rows={rows}
+          modules={modules}
+          label={label}
+          onModuleAction={onModuleAction}
+          slots={slots}
+          onSelectModule={onSelectModule}
+        />
       </div>
 
       {/* Footer readouts, spread across the row in equal-width cells */}
       <div
         className={clsx(
-          "relative flex items-center gap-3 px-5 pb-5 text-300 text-text-primary-70",
-          !on && "opacity-40",
+          "relative flex items-center gap-3 px-5 pb-5 text-200 text-text-primary-70",
+          on === false && "opacity-40",
         )}
         data-testid="tank-card-stats"
       >
         {stats.map((stat, i) => (
-          <span key={i} className="flex-1 truncate text-center">
+          <span key={i} className="min-w-0 flex-1 text-center" title={stat}>
             {stat}
           </span>
         ))}

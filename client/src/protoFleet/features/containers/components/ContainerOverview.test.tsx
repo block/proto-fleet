@@ -10,7 +10,7 @@ vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSe
 }));
 
 const controls: NonNullable<ContainerOverviewProps["controls"]> = [
-  { id: "coolant-pump", label: "Coolant pump", icon: "pump", on: true },
+  { id: "coolant-pump", label: "Coolant pump", on: true },
 ];
 
 const TEST_TANK = {

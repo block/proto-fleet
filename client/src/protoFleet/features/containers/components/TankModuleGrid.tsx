@@ -1,18 +1,23 @@
 import type { ModuleActionType } from "./moduleActions";
 import ModuleTile from "./ModuleTile";
 
-/**
- * Composite health of a single tank module. Deliberately a two-state model
- * (unlike the fleet's five-state {@link SlotStatus}) — a container tank reads
- * as running vs needs-attention, not the full fleet status taxonomy.
- */
-export type TankModuleState = "healthy" | "attention";
+/** Module health and operational states used by Fleet container views. */
+export type TankModuleState = "healthy" | "attention" | "offline" | "sleeping" | "isolated" | "unknown";
 
+export interface ModuleSlot {
+  id: string;
+  label: string;
+  state: TankModuleState;
+  row: number;
+  column: number;
+}
 interface TankModuleGridProps {
+  slots?: ModuleSlot[];
+  onSelectModule?: (id: string) => void;
   /** Column count. A 16-module tank renders as 8 × 2. */
   cols: number;
   rows: number;
-  /** One entry per module bar, in row-major order. Missing entries read healthy. */
+  /** One entry per module bar, in row-major order. Missing entries read unknown. */
   modules: TankModuleState[];
   /** Human label for the tank, used to build per-module accessible labels. */
   label: string;
@@ -32,7 +37,7 @@ interface TankModuleGridProps {
  * brighter centre third) when the module needs attention. Each bar can carry a
  * popover action menu (see ModuleTile) when the caller wires onModuleAction.
  */
-const TankModuleGrid = ({ cols, rows, modules, label, onModuleAction }: TankModuleGridProps) => {
+const TankModuleGrid = ({ cols, rows, modules, label, onModuleAction, slots, onSelectModule }: TankModuleGridProps) => {
   const total = cols * rows;
 
   return (
@@ -41,18 +46,28 @@ const TankModuleGrid = ({ cols, rows, modules, label, onModuleAction }: TankModu
       className="grid w-full gap-x-2.5 gap-y-3"
       style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
-      {Array.from({ length: total }, (_, i) => {
-        const state = modules[i] ?? "healthy";
+      {slots
+        ? slots.map((slot) => (
+            <div key={slot.id} style={{ gridColumn: slot.column, gridRow: slot.row }}>
+              <ModuleTile
+                state={slot.state}
+                label={slot.label}
+                onView={onSelectModule ? () => onSelectModule(slot.id) : undefined}
+              />
+            </div>
+          ))
+        : Array.from({ length: total }, (_, i) => {
+            const state = modules[i] ?? "unknown";
 
-        return (
-          <ModuleTile
-            key={i}
-            state={state}
-            label={`${label} module ${i + 1}`}
-            onAction={onModuleAction ? (action) => onModuleAction(i, action) : undefined}
-          />
-        );
-      })}
+            return (
+              <ModuleTile
+                key={i}
+                state={state}
+                label={`${label} module ${i + 1}`}
+                onAction={onModuleAction ? (action) => onModuleAction(i, action) : undefined}
+              />
+            );
+          })}
     </div>
   );
 };

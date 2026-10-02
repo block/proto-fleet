@@ -513,12 +513,6 @@ type ContainerPlantMetric struct {
 	Metrics  json.RawMessage
 }
 
-type ContainerSnapshot struct {
-	DeviceID   int64
-	ObservedAt time.Time
-	Snapshot   json.RawMessage
-}
-
 type ContainerTank struct {
 	ID          int64
 	DeviceID    int64

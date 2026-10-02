@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
+import { ModuleStatus } from "../ModuleStatus";
 import { buildModuleActions, type ModuleActionType } from "./moduleActions";
 import type { TankModuleState } from "./TankModuleGrid";
 import ActionSheet from "@/shared/components/ActionSheet";
@@ -15,6 +16,7 @@ interface ModuleTileProps {
   /** Composite health of the module this tile represents, including a detail-only powered-off state. */
   state: TankModuleState | "offline";
   label: string;
+  onView?: () => void;
   /**
    * Fired with the chosen action when the caller wires an interactive tile.
    * When omitted the tile is a plain, non-interactive status bar.
@@ -36,6 +38,11 @@ const ModuleBar = ({ state }: { state: ModuleTileProps["state"] }) => {
       {/* Attention modules read as three equal-width cells: a bright centre
           third over the light body. */}
       {attention ? <span aria-hidden className="absolute inset-y-0 left-1/3 w-1/3 bg-core-accent-fill" /> : null}
+      {state === "sleeping" || state === "isolated" ? (
+        <span aria-hidden className="absolute inset-0 flex items-center justify-center">
+          <ModuleStatus state={state} indicatorOnly />
+        </span>
+      ) : null}
     </>
   );
 };
@@ -43,6 +50,7 @@ const ModuleBar = ({ state }: { state: ModuleTileProps["state"] }) => {
 const barClassName = (state: ModuleTileProps["state"]) =>
   clsx(
     "relative aspect-[4/7] overflow-hidden rounded-md",
+    state === "unknown" && "border border-dashed border-border-50",
     state === "attention" ? "bg-core-accent-50" : state === "offline" ? "bg-core-primary-20" : "bg-core-primary-10",
   );
 
@@ -141,11 +149,30 @@ const ModuleTileInner = ({
   );
 };
 
-const ModuleTile = ({ state, label, onAction }: ModuleTileProps) => {
+const ModuleTile = ({ state, label, onAction, onView }: ModuleTileProps) => {
+  if (onView)
+    return (
+      <button
+        type="button"
+        className={clsx(barClassName(state), "w-full focus-visible:outline-2 focus-visible:outline-core-accent-fill")}
+        data-testid="tank-module"
+        data-module-state={state}
+        aria-label={`${label}: ${state}. View module`}
+        onClick={onView}
+      >
+        <ModuleBar state={state} />
+      </button>
+    );
   // A non-interactive tile is just the status bar — no popover machinery.
   if (!onAction) {
     return (
-      <div className={barClassName(state)} data-testid="tank-module" data-module-state={state}>
+      <div
+        className={barClassName(state)}
+        role="img"
+        aria-label={`${label}: ${state}`}
+        data-testid="tank-module"
+        data-module-state={state}
+      >
         <ModuleBar state={state} />
       </div>
     );

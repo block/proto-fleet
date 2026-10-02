@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ContainerFan } from "./ContainerOverview";
 import ContainerStatusModal from "./ContainerStatusModal";
+import type { ContainerFan } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
 
 const runningFan: ContainerFan = { id: "f3", label: "Fan 3", on: true, speedPercent: 61, speedLabel: "2,870" };
 const offFan: ContainerFan = { id: "f4", label: "Fan 4", on: false, speedPercent: 0, speedLabel: "0" };

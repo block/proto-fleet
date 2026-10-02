@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { FleetShellStoryDecorator } from "./FleetShellStoryDecorator";
 import SubtankDetail, { type SubtankDetailProps } from "./SubtankDetail";
-import type { TankModuleState } from "./TankModuleGrid";
 import {
   AggregatedValueSchema,
   AggregationType,
@@ -10,6 +9,7 @@ import {
   type Metric,
   MetricSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 /** Deterministic shuffle so the module layout is stable across renders. */
 function seededShuffle<T>(arr: T[], seed: number): T[] {

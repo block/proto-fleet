@@ -173,6 +173,29 @@ npm run storybook
 - Fleet, UI, Auth, Onboarding slices
 - Fleet slice handles miner collection, device status counts, filtering, and streaming telemetry
 
+### Native container overview
+
+Fleet's Buildings cards and rows open `/containers/:identifier` inside Fleet's
+shell, including FleetNode-owned and unreachable controllers. The page reads
+collected data; it does not connect to the controller or require an embedded
+ProtoOS proxy. `ContainerService.GetContainer` authorizes the current site and
+returns the stable Fleet device ID used to load tanks and modules through the
+typed inventory API. All cursor pages are fetched before publishing a refresh.
+
+The page polls metadata and inventory every 15 seconds. Transient failures keep
+the topology visible with unavailable current readings and a retry; access
+denials or removal clear retained data. Navigation cancels outstanding loads.
+Tank cards open the scoped mining-assets list using the stable tank ID. Module
+tiles open stored module history. Container performance uses Fleet's telemetry
+API and existing performance charts, scoped to the controller and its site.
+Container-reported power remains distinct from summed module equipment power.
+
+`protoFleet/features/containers` owns the page and container presentation;
+Fleet's dashboard owns `ChartWidget`. App-neutral primitives and telemetry
+formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
+and controls. Fan readings and equipment-control states are not collected by
+Fleet yet, so this page identifies those gaps and offers no device commands.
+
 ### API Integration
 
 CT1 health uses `ProtoOSStatusModal` with an optional `scope` (`tank` or `module`)

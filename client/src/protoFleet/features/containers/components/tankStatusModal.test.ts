@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { TankModuleState } from "./TankModuleGrid";
 import { type TankStatusInput, toTankComponentStatus } from "./tankStatusModal";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 /** 16 modules with `attention` needing-attention entries, rest healthy. */
 function modules(total: number, attention: number): TankModuleState[] {
@@ -76,7 +76,7 @@ describe("toTankComponentStatus", () => {
     expect(status.metadata?.offline).toEqual({ label: "Offline modules", value: "16" });
   });
 
-  it("uses the rendered grid size and the grid's healthy default for sparse module data", () => {
+  it("uses the rendered grid size and the grid's unknown default for sparse module data", () => {
     const status = toTankComponentStatus({
       ...healthyTank,
       cols: 2,
@@ -85,7 +85,7 @@ describe("toTankComponentStatus", () => {
     });
 
     expect(status.summary).toBe("Tank 1 has 1 module needing attention");
-    expect(status.metrics?.[0]).toEqual({ label: "Modules online", value: "3/4" });
+    expect(status.metrics?.[0]).toEqual({ label: "Modules online", value: "1/4" });
     expect(status.metrics?.[1]).toEqual({ label: "Needs attention", value: "1" });
     expect(status.metadata?.offline).toEqual({ label: "Offline modules", value: "0" });
   });
@@ -109,4 +109,23 @@ describe("toTankComponentStatus", () => {
     expect(status.metrics?.[2]).toEqual({ label: "Temperature", value: "—" });
     expect(status.metrics?.[3]).toEqual({ label: "Power", value: "—" });
   });
+});
+
+it("keeps unknown power distinct from off and preserves known readings", () => {
+  const status = toTankComponentStatus({ ...healthyTank, on: undefined });
+  expect(status.metadata?.status.value).toBe("Unknown");
+  expect(status.metrics?.[0].value).toBe("16/16");
+  expect(status.metrics?.[3].value).toBe("12.3 kW");
+  expect(status.summary).not.toContain("powered off");
+});
+it.each(["offline", "sleeping", "isolated", "unknown"] as const)("does not count %s modules as healthy", (state) => {
+  const status = toTankComponentStatus({ ...healthyTank, cols: 2, rows: 1, modules: ["healthy", state] });
+  expect(status.metrics?.[0].value).toBe("1/2");
+  expect(status.summary).not.toContain("operating normally");
+});
+it("does not invent healthy modules from an empty observation", () => {
+  const status = toTankComponentStatus({ ...healthyTank, modules: [] });
+  expect(status.metrics?.[0].value).toBe("0/16");
+  expect(status.metadata?.status.value).toBe("Unknown");
+  expect(status.metadata?.unknown.value).toBe("16");
 });

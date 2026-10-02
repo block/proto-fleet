@@ -41,7 +41,7 @@ func (h *Handler) ListInventory(ctx context.Context, req *connect.Request[pb.Lis
 		if scopeErr != nil {
 			return nil, scopeErr
 		}
-		scopes = append(scopes, fleetinventory.Scope{OrgWide: orgWide, Sites: sites})
+		scopes = append(scopes, fleetinventory.Scope{OrgWide: orgWide, Sites: sites, RackOnly: true})
 	}
 	result, err := h.service.List(ctx, orgID, req.Msg, scopes)
 	if err != nil {

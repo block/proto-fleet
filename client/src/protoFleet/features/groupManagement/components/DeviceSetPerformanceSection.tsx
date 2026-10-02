@@ -338,7 +338,7 @@ export function DeviceSetPerformanceSection({
         formatStat={temperatureFormatStat}
       />
       <ChartPanel
-        label="Avg efficiency"
+        label="Efficiency"
         metrics={efficiencyMetrics}
         units="J/TH"
         duration={duration}

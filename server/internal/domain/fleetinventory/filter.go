@@ -97,7 +97,8 @@ func listParams(orgID int64, req *pb.ListInventoryRequest, scopes []Scope) (list
 func marshalScopes(scopes []Scope) ([]byte, error) {
 	normalized := make([]Scope, len(scopes))
 	for i, s := range scopes {
-		normalized[i] = Scope{OrgWide: s.OrgWide, Sites: append([]int64{}, s.Sites...), TelemetryOnly: s.TelemetryOnly}
+		normalized[i] = s
+		normalized[i].Sites = append([]int64{}, s.Sites...)
 	}
 	encoded, err := json.Marshal(normalized)
 	if err != nil {

@@ -7,11 +7,13 @@ import Switch from "@/shared/components/Switch";
 interface FanCardProps {
   label: string;
   /** Fan speed as a percentage of max (drives the donut fill and PWM readout), 0–100. */
-  speedPercent: number;
+  speedPercent: number | undefined;
   /** Human-readable RPM readout, e.g. "3,200". */
   speedLabel: string;
-  on: boolean;
-  onToggle: (on: boolean) => void;
+  on: boolean | undefined;
+  toggleDisabled?: boolean;
+  faulted?: boolean;
+  onToggle?: (on: boolean) => void;
   onInfo?: () => void;
 }
 
@@ -31,19 +33,25 @@ const GAUGE_VALUE_STROKE = 12;
  * when the fan is off. Reuses the shared Switch, RadialGauge, and the stroked
  * InfoInverted icon.
  */
-const FanCard = ({ label, speedPercent, speedLabel, on, onToggle, onInfo }: FanCardProps) => {
-  const pwm = Math.round(Math.max(0, Math.min(100, speedPercent)));
+const FanCard = ({ label, speedPercent, speedLabel, on, toggleDisabled, onToggle, onInfo, faulted }: FanCardProps) => {
+  const pwm = speedPercent === undefined ? undefined : Math.round(Math.max(0, Math.min(100, speedPercent)));
 
   return (
     <div className="flex min-w-0 flex-col rounded-2xl bg-surface-overlay px-5 pt-5 pb-6">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <span className="truncate text-300 text-emphasis-300">{label}</span>
+        <span className="truncate text-300 text-emphasis-300">
+          {label}
+          {faulted ? <span className="block text-200 text-text-critical">Needs attention</span> : null}
+        </span>
         <div className="flex shrink-0 items-center gap-3">
-          <Switch
-            ariaLabel={`${label} power`}
-            checked={on}
-            setChecked={(next) => onToggle(typeof next === "function" ? next(on) : next)}
-          />
+          {onToggle ? (
+            <Switch
+              ariaLabel={`${label} power`}
+              checked={on ?? false}
+              disabled={!onToggle || toggleDisabled || on === undefined}
+              setChecked={(next) => onToggle(typeof next === "function" ? next(on ?? false) : next)}
+            />
+          ) : null}
           {onInfo ? (
             <button
               type="button"
@@ -58,14 +66,14 @@ const FanCard = ({ label, speedPercent, speedLabel, on, onToggle, onInfo }: FanC
       </div>
       <div className="flex flex-1 items-center justify-center py-2">
         <RadialGauge
-          value={on ? pwm : 0}
+          value={pwm ?? 0}
           sweep={360}
           size={GAUGE_SIZE}
           strokeWidth={GAUGE_TRACK_STROKE}
           valueStrokeWidth={GAUGE_VALUE_STROKE}
           strokeLinecap="butt"
-          trackOpacity={on ? 0.2 : 0.1}
-          colorClassName={on ? "text-core-accent-fill" : "text-core-primary-20"}
+          trackOpacity={0.2}
+          colorClassName={faulted ? "text-intent-critical-fill" : "text-core-accent-fill"}
           dataTestId="fan-gauge"
         />
       </div>
@@ -73,8 +81,8 @@ const FanCard = ({ label, speedPercent, speedLabel, on, onToggle, onInfo }: FanC
         className={clsx("mt-4 flex items-center gap-3 text-300 text-text-primary-70", !on && "text-text-primary-30")}
         data-testid="fan-card-stats"
       >
-        <span className="flex-1 truncate text-center">{on ? `${speedLabel} RPM` : "0 RPM"}</span>
-        <span className="flex-1 truncate text-center">{on ? `${pwm}% PWM` : "0% PWM"}</span>
+        <span className="flex-1 truncate text-center">{`${speedLabel} RPM`}</span>
+        <span className="flex-1 truncate text-center">{pwm === undefined ? "— PWM" : `${pwm}% PWM`}</span>
       </div>
     </div>
   );

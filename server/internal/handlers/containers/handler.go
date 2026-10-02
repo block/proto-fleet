@@ -20,21 +20,33 @@ func (h *Handler) ListContainers(ctx context.Context, req *connect.Request[pb.Li
 	if err != nil {
 		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
-	canRead := func(siteID *int64) (bool, error) {
-		resource := authz.ResourceContext{SiteID: siteID}
-		allowed, err := middleware.HasPermission(ctx, authz.PermSiteRead, resource)
-		if err != nil || !allowed {
-			return allowed, err
-		}
-		allowed, err = middleware.HasPermission(ctx, authz.PermFleetRead, resource)
-		if err != nil || !allowed {
-			return allowed, err
-		}
-		return middleware.HasPermission(ctx, authz.PermMinerRead, resource)
-	}
-	rows, err := h.service.List(ctx, info.OrganizationID, req.Msg.SiteIds, req.Msg.IncludeUnassigned, canRead)
+
+	rows, err := h.service.List(ctx, info.OrganizationID, req.Msg.SiteIds, req.Msg.IncludeUnassigned, canReadContainer(ctx))
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.ListContainersResponse{Containers: rows}), nil
+}
+
+func canReadContainer(ctx context.Context) func(*int64) (bool, error) {
+	return func(siteID *int64) (bool, error) {
+		for _, permission := range []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead} {
+			allowed, err := middleware.HasPermission(ctx, permission, authz.ResourceContext{SiteID: siteID})
+			if err != nil || !allowed {
+				return allowed, err
+			}
+		}
+		return true, nil
+	}
+}
+func (h *Handler) GetContainer(ctx context.Context, req *connect.Request[pb.GetContainerRequest]) (*connect.Response[pb.GetContainerResponse], error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	container, err := h.service.Get(ctx, info.OrganizationID, req.Msg.DeviceIdentifier, canReadContainer(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetContainerResponse{Container: container}), nil
 }

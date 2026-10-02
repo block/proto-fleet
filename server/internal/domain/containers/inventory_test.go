@@ -10,6 +10,7 @@ import (
 	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/containers"
 	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -372,6 +373,12 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	snapshot.Tanks[0].Modules = snapshot.Tanks[0].Modules[:1]
 	write()
 	require.Equal(t, 2, count("SELECT count(*) FROM container_module WHERE retired_at IS NULL"))
+	cardReader := containers.NewService(sqlstores.NewSQLContainerStore(db))
+	card, err := cardReader.Get(ctx, org, d.DeviceIdentifier, func(*int64) (bool, error) { return true, nil })
+	require.NoError(t, err)
+	require.Len(t, card.Tanks, 1)
+	require.EqualValues(t, 1, card.Tanks[0].HashingCount)
+	require.EqualValues(t, 1, card.Tanks[0].SleepingCount, "a partial poll must retain the same module membership as inventory")
 
 	// An older source sample enters history without replacing the latest value.
 	snapshot.ObservedAt = now.Add(2 * time.Second)
@@ -387,6 +394,10 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	var currentState string
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT state FROM container_module WHERE id = $1", moduleID).Scan(&currentState))
 	require.Equal(t, string(sdk.ModuleHashing), currentState, "older state evidence must not replace newer state")
+	card, err = cardReader.Get(ctx, org, d.DeviceIdentifier, func(*int64) (bool, error) { return true, nil })
+	require.NoError(t, err)
+	require.EqualValues(t, 1, card.Tanks[0].HashingCount, "cards must use reconciled state rather than the latest raw observation")
+	require.Zero(t, card.Tanks[0].OfflineCount)
 
 	// Only a newer complete inventory retires absent members.
 	snapshot.TopologyComplete = true
@@ -394,6 +405,10 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	snapshot.Tanks[0].Modules[0].Metrics = nil
 	write()
 	require.Equal(t, 1, count("SELECT count(*) FROM container_module WHERE retired_at IS NULL"))
+	card, err = cardReader.Get(ctx, org, d.DeviceIdentifier, func(*int64) (bool, error) { return true, nil })
+	require.NoError(t, err)
+	require.EqualValues(t, 1, card.Tanks[0].HashingCount)
+	require.Zero(t, card.Tanks[0].SleepingCount, "retired modules must not count toward card health")
 
 	// A known hardware replacement in the same selector gets a new Fleet ID.
 	snapshot.ObservedAt = now.Add(4 * time.Second)

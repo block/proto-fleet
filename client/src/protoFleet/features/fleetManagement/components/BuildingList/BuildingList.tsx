@@ -9,7 +9,7 @@ import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleet
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { containerHealth } from "@/protoFleet/features/containers/containerHealth";
-import { containerViewTarget, useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
+import { useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -219,9 +219,6 @@ const BuildingList = ({
         <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
           <div className="min-w-0">
             <span className="block truncate text-emphasis-300">{buildingName}</span>
-            {item.kind === "container" && !containerViewTarget(item.container) ? (
-              <span className="text-200 text-text-primary-70">Web view unavailable</span>
-            ) : null}
           </div>
           {item.kind === "building" && buildingId !== undefined && buildingId !== 0n ? (
             <FleetGroupActionsMenu

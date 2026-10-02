@@ -1,14 +1,8 @@
 import { useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ContainerToggleControl } from "./ContainerControls";
-import ContainerOverview, {
-  type ContainerFan,
-  type ContainerOverviewProps,
-  type ContainerTank,
-} from "./ContainerOverview";
+import ContainerOverview, { type ContainerOverviewProps } from "./ContainerOverview";
 import { FleetShellStoryDecorator } from "./FleetShellStoryDecorator";
-import type { TankModuleState } from "./TankModuleGrid";
 import {
   AggregatedValueSchema,
   AggregationType,
@@ -16,6 +10,9 @@ import {
   type Metric,
   MetricSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { ContainerToggleControl } from "@/protoFleet/features/containers/components/ContainerControls";
+import type { ContainerFan, ContainerTank } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 /** Deterministic shuffle so the module layout is stable across renders. */
 function seededShuffle<T>(arr: T[], seed: number): T[] {
@@ -125,15 +122,15 @@ const initialFans: ContainerFan[] = [
 ];
 
 const initialControls: ContainerToggleControl[] = [
-  { id: "ac-1", label: "AC 1", metric: "75°F", icon: "fan", on: true },
-  { id: "ac-2", label: "AC 2", metric: "75°F", icon: "fan", on: true },
-  { id: "cdu-fans", label: "CDU cooling fans", metric: "60% speed", icon: "fan", on: true },
-  { id: "coolant-pump", label: "Coolant pump", metric: "50 Hz", icon: "pump", on: true },
-  { id: "dry-cooler", label: "Dry cooler", metric: "118°F, 50% speed", icon: "thermometer", on: true },
-  { id: "dry-cooler-auto", label: "Dry cooler auto", icon: "thermometer", on: true },
-  { id: "tank-a-light", label: "Tank A light", icon: "light", on: true },
-  { id: "tank-b-light", label: "Tank B light", icon: "light", on: true },
-  { id: "logo-light", label: "Logo light", icon: "light", on: true },
+  { id: "ac-1", label: "AC 1", metric: "75°F", on: true },
+  { id: "ac-2", label: "AC 2", metric: "75°F", on: true },
+  { id: "cdu-fans", label: "CDU cooling fans", metric: "60% speed", on: true },
+  { id: "coolant-pump", label: "Coolant pump", metric: "50 Hz", on: true },
+  { id: "dry-cooler", label: "Dry cooler", metric: "118°F, 50% speed", on: true },
+  { id: "dry-cooler-auto", label: "Dry cooler auto", on: true },
+  { id: "tank-a-light", label: "Tank A light", on: true },
+  { id: "tank-b-light", label: "Tank B light", on: true },
+  { id: "logo-light", label: "Logo light", on: true },
 ];
 
 const breadcrumb = [
@@ -215,8 +212,6 @@ function InteractiveContainerOverview() {
       // tank (ⓘ) is a quick tank-level summary; onSelectTank (card-body click)
       // is the full Subtank drill-down.
       onModuleAction: () => {},
-      onViewMiners: () => {},
-      onViewDetails: () => {},
     }),
     [tanks, fans, controls],
   );

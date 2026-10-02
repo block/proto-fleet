@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { TankModuleState } from "./TankModuleGrid";
 import { toTankRackView } from "./tankRackView";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 describe("toTankRackView", () => {
   it("maps a fully healthy powered-on tank to all-healthy slots", () => {

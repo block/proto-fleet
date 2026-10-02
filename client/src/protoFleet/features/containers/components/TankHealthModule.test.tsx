@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import TankHealthModule from "./TankHealthModule";
-import type { TankModuleState } from "./TankModuleGrid";
+import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 
 // 16-module tank read as 8 × 2, with modules 13 & 16 needing attention.
 const COLS = 8;

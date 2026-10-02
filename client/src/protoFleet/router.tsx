@@ -8,6 +8,7 @@ import {
   importActivityPage,
   importAuth,
   importBuildingPage,
+  importContainerPage,
   importDashboard,
   importEnergyPage,
   importFleetBuildingsPage,
@@ -95,6 +96,7 @@ const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
+const ContainerPage = lazy(importContainerPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
@@ -255,6 +257,7 @@ const router = createBrowserRouter([
   { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),
 

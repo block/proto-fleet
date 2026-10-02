@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-	"github.com/sqlc-dev/pqtype"
 )
 
 const insertContainerPlantMetrics = `-- name: InsertContainerPlantMetrics :exec
@@ -35,21 +34,33 @@ func (q *Queries) InsertContainerPlantMetrics(ctx context.Context, arg InsertCon
 }
 
 const listContainers = `-- name: ListContainers :many
-SELECT d.device_identifier, d.site_id, d.serial_number,
-       dd.ip_address, dd.port, dd.url_scheme, dd.is_active,
-       COALESCE((dd.is_active AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-        AND dd.driver_name = 'proto'
-        AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id)), FALSE)::boolean AS embedded_web_view_available,
+SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,
        COALESCE(s.name, '')::text AS site_name,
-       dp.pairing_status,
-       cs.observed_at, cs.snapshot,
+       ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
        COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hash_rate_hs, dm.power_w, dm.temp_c
 FROM device d
 JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
 LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
-LEFT JOIN container_snapshot cs ON cs.device_id = d.id
+LEFT JOIN container_inventory ci ON ci.device_id = d.id
+LEFT JOIN LATERAL (
+    SELECT jsonb_agg(to_jsonb(tank) ORDER BY tank.position) AS tanks
+    FROM (
+        SELECT t.position,
+               count(*) FILTER (WHERE a.state = 'hashing') AS hashing_count,
+               count(*) FILTER (WHERE a.state = 'attention') AS attention_count,
+               count(*) FILTER (WHERE a.state = 'offline') AS offline_count,
+               count(*) FILTER (WHERE a.state = 'sleeping') AS sleeping_count,
+               count(*) FILTER (WHERE a.state = 'isolated') AS isolated_count,
+               count(*) FILTER (WHERE a.state = 'unknown') AS unknown_count
+        FROM container_tank t
+        LEFT JOIN fleet_mining_asset a ON a.kind = 6 AND a.group_kind = 4 AND a.group_id = t.id
+          AND a.facility_kind = 2 AND a.facility_id = d.id AND a.org_id = d.org_id
+        WHERE t.device_id = d.id AND t.present
+        GROUP BY t.id, t.position
+    ) tank
+) health ON TRUE
 LEFT JOIN LATERAL (
     SELECT time, hash_rate_hs, power_w, temp_c
     FROM device_metrics
@@ -75,25 +86,22 @@ type ListContainersParams struct {
 }
 
 type ListContainersRow struct {
-	DeviceIdentifier         string
-	SiteID                   sql.NullInt64
-	SerialNumber             sql.NullString
-	IpAddress                string
-	Port                     string
-	UrlScheme                string
-	IsActive                 bool
-	EmbeddedWebViewAvailable bool
-	Name                     string
-	SiteName                 string
-	PairingStatus            PairingStatusEnum
-	ObservedAt               sql.NullTime
-	Snapshot                 pqtype.NullRawMessage
-	MetricsAt                time.Time
-	HashRateHs               sql.NullFloat64
-	PowerW                   sql.NullFloat64
-	TempC                    sql.NullFloat64
+	ID               int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	SerialNumber     sql.NullString
+	Name             string
+	SiteName         string
+	ObservedAt       sql.NullTime
+	TankHealth       json.RawMessage
+	MetricsAt        time.Time
+	HashRateHs       sql.NullFloat64
+	PowerW           sql.NullFloat64
+	TempC            sql.NullFloat64
 }
 
+// Reuse the inventory state projection so cards agree with module lists about
+// freshness, retained partial topology, and retired/replaced hardware.
 func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error) {
 	rows, err := q.query(ctx, q.listContainersStmt, listContainers,
 		arg.OrgID,
@@ -109,19 +117,14 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 	for rows.Next() {
 		var i ListContainersRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.DeviceIdentifier,
 			&i.SiteID,
 			&i.SerialNumber,
-			&i.IpAddress,
-			&i.Port,
-			&i.UrlScheme,
-			&i.IsActive,
-			&i.EmbeddedWebViewAvailable,
 			&i.Name,
 			&i.SiteName,
-			&i.PairingStatus,
 			&i.ObservedAt,
-			&i.Snapshot,
+			&i.TankHealth,
 			&i.MetricsAt,
 			&i.HashRateHs,
 			&i.PowerW,
@@ -138,27 +141,4 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 		return nil, err
 	}
 	return items, nil
-}
-
-const upsertContainerSnapshot = `-- name: UpsertContainerSnapshot :exec
-INSERT INTO container_snapshot (device_id, observed_at, snapshot)
-SELECT d.id, $1::timestamptz, $2::jsonb
-FROM device d
-JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
-WHERE d.device_identifier = $3
-  AND d.deleted_at IS NULL AND dd.device_class = 2
-ON CONFLICT (device_id) DO UPDATE
-SET observed_at = EXCLUDED.observed_at, snapshot = EXCLUDED.snapshot
-WHERE container_snapshot.observed_at < EXCLUDED.observed_at
-`
-
-type UpsertContainerSnapshotParams struct {
-	ObservedAt       time.Time
-	Snapshot         json.RawMessage
-	DeviceIdentifier string
-}
-
-func (q *Queries) UpsertContainerSnapshot(ctx context.Context, arg UpsertContainerSnapshotParams) error {
-	_, err := q.exec(ctx, q.upsertContainerSnapshotStmt, upsertContainerSnapshot, arg.ObservedAt, arg.Snapshot, arg.DeviceIdentifier)
-	return err
 }
