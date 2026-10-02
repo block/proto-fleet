@@ -373,6 +373,19 @@ func deviceToProto(d *rollout.RolloutDevice) *pb.RolloutDevice {
 	}
 }
 
+func minerFirmwareHistoryToProto(entry *rollout.MinerFirmwareHistoryEntry) *pb.MinerFirmwareHistoryEntry {
+	return &pb.MinerFirmwareHistoryEntry{
+		RolloutId: entry.RolloutID, ChannelId: entry.ChannelID, ChannelName: entry.ChannelName,
+		Manufacturer: entry.Manufacturer, Model: entry.Model,
+		FirmwareVersion: entry.FirmwareVersion, FirmwareChecksum: entry.FirmwareChecksum,
+		RolloutStatus: statusToProto[entry.RolloutStatus], CancelReason: cancelReasonToProto[entry.CancelReason],
+		Paused: entry.Paused, Phase: phaseToProto[entry.Phase], Attempts: entry.Attempts,
+		LastError: entry.LastError, SkipNote: entry.SkipNote,
+		CreatedAt: timestamppb.New(entry.CreatedAt), FinishedAt: optionalTimestamp(entry.FinishedAt),
+		LastSentAt: optionalTimestamp(entry.LastSentAt), VerifiedAt: optionalTimestamp(entry.VerifiedAt),
+	}
+}
+
 func metricToProto(m rollout.Metric) *pb.MetricComparison {
 	return &pb.MetricComparison{Baseline: m.Baseline, Current: m.Current}
 }

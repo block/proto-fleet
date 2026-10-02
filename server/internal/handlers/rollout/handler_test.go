@@ -26,29 +26,31 @@ type fakeService struct {
 	group   rollout.ModelGroup
 	rollout *rollout.Rollout
 	preview *rollout.ScopePreview
+	history []rollout.MinerFirmwareHistoryEntry
 	events  []rollout.Event
 
 	nextChannelCursor string
 	nextEventCursor   string
 	dispatched        []string
 
-	lastOrgID        int64
-	lastUserID       int64
-	lastActor        rollout.Actor
-	lastMutation     rollout.Mutation
-	lastSpec         rollout.ChannelSpec
-	lastScope        rollout.Scope
-	lastAssigned     []rollout.Assignment
-	lastOverride     *rollout.Behavior
-	lastID           int64
-	lastFilter       rollout.RolloutFilter
-	lastEventFilter  rollout.EventFilter
-	lastSelection    rollout.DeviceSelection
-	lastIdentifiers  []string
-	lastManufacturer string
-	lastModel        string
-	lastPage         int32
-	lastCursor       string
+	lastDeviceIdentifier string
+	lastOrgID            int64
+	lastUserID           int64
+	lastActor            rollout.Actor
+	lastMutation         rollout.Mutation
+	lastSpec             rollout.ChannelSpec
+	lastScope            rollout.Scope
+	lastAssigned         []rollout.Assignment
+	lastOverride         *rollout.Behavior
+	lastID               int64
+	lastFilter           rollout.RolloutFilter
+	lastEventFilter      rollout.EventFilter
+	lastSelection        rollout.DeviceSelection
+	lastIdentifiers      []string
+	lastManufacturer     string
+	lastModel            string
+	lastPage             int32
+	lastCursor           string
 	// err, when set, is returned by every mutation.
 	err error
 }
@@ -135,6 +137,11 @@ func (f *fakeService) GetRollout(_ context.Context, orgID, rolloutID int64) (*ro
 func (f *fakeService) ListRolloutDevices(_ context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]rollout.RolloutDevice, string, error) {
 	f.lastOrgID, f.lastID, f.lastPage, f.lastCursor = orgID, rolloutID, pageSize, cursor
 	return f.rollout.Devices, "more-devices", nil
+}
+
+func (f *fakeService) ListMinerFirmwareHistory(_ context.Context, orgID int64, deviceIdentifier string, pageSize int32, cursor string) ([]rollout.MinerFirmwareHistoryEntry, string, error) {
+	f.lastOrgID, f.lastDeviceIdentifier, f.lastPage, f.lastCursor = orgID, deviceIdentifier, pageSize, cursor
+	return f.history, "more-history", f.err
 }
 
 func (f *fakeService) ListRolloutEvents(_ context.Context, orgID int64, filter rollout.EventFilter) ([]rollout.Event, string, error) {
@@ -268,6 +275,10 @@ func TestHandlerGatesEveryRPC(t *testing.T) {
 		}},
 		{"ListRolloutDevices", func() error {
 			_, err := h.ListRolloutDevices(ctx, connect.NewRequest(&pb.ListRolloutDevicesRequest{}))
+			return err
+		}},
+		{"ListMinerFirmwareHistory", func() error {
+			_, err := h.ListMinerFirmwareHistory(ctx, connect.NewRequest(&pb.ListMinerFirmwareHistoryRequest{}))
 			return err
 		}},
 		{"ListRolloutEvents", func() error {

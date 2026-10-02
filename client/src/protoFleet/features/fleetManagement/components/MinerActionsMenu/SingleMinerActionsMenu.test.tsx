@@ -1,9 +1,13 @@
 import { Fragment, type ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceActions, settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useFleetStore } from "@/protoFleet/store";
+
+const initialAuth = useFleetStore.getState().auth;
 
 const {
   mockAuthenticateFleetModal,
@@ -181,6 +185,15 @@ vi.mock("./FirmwareUpdateModal", () => ({
   default: vi.fn(() => null),
 }));
 
+vi.mock("../MinerFirmwareHistoryModal/MinerFirmwareHistoryModal", () => ({
+  default: ({ deviceIdentifier, onClose }: { deviceIdentifier: string; onClose: () => void }) => (
+    <div data-testid="firmware-history">
+      {deviceIdentifier}
+      <button onClick={onClose}>Close history</button>
+    </div>
+  ),
+}));
+
 vi.mock("./CoolingModeModal", () => ({
   default: vi.fn(() => null),
 }));
@@ -232,9 +245,35 @@ vi.mock("@/protoFleet/components/SingleMinerWrapper/useOpenMinerView", () => ({
 describe("SingleMinerActionsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useFleetStore.setState({ auth: initialAuth });
     mockPushToast.mockReturnValue(1);
     mockStreamCommandBatchUpdates.mockResolvedValue(undefined);
     mockRefreshMiners.mockResolvedValue({ snapshots: [], errors: {} });
+  });
+  afterEach(() => useFleetStore.setState({ auth: initialAuth }));
+
+  it("opens history only on demand, including offline miners needing device authentication", () => {
+    useFleetStore.setState({ auth: { ...initialAuth, permissions: ["miner:firmware_update"] } });
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="offline-miner"
+        deviceStatus={DeviceStatus.OFFLINE}
+        needsAuthentication
+      />,
+    );
+    expect(screen.queryByTestId("firmware-history")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByText("Firmware update history"));
+    expect(screen.getByTestId("firmware-history")).toHaveTextContent("offline-miner");
+    fireEvent.click(screen.getByText("Close history"));
+    expect(screen.queryByTestId("firmware-history")).not.toBeInTheDocument();
+  });
+
+  it("hides firmware history without the firmware-update permission", () => {
+    useFleetStore.setState({ auth: { ...initialAuth, permissions: ["miner:read"] } });
+    render(<SingleMinerActionsMenu deviceIdentifier="test-miner" />);
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    expect(screen.queryByText("Firmware update history")).not.toBeInTheDocument();
   });
 
   it("renders 'Update worker name' when pool editing is available", () => {
