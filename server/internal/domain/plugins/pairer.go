@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -71,10 +72,25 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 		return nil, fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
 
-	result, err := plugin.Driver.NewDevice(ctx, device.DeviceIdentifier, deviceInfo, secretBundle)
+	// Discovery candidates have no persisted identifier. Each identity probe needs
+	// its own SDK handle so concurrent scans cannot overwrite each other or a
+	// telemetry handle in the plugin's device registry.
+	probeID := "pairing-info:" + id.GenerateID()
+	result, err := plugin.Driver.NewDevice(ctx, probeID, deviceInfo, secretBundle)
 	if err != nil {
 		return nil, classifyPairingDriverError(err, "failed to create device")
 	}
+
+	if result.Device == nil {
+		return nil, fleeterror.NewInternalError("device client was not returned by plugin")
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pairerDeviceCloseTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Debug("failed to close identity probe", "probe_id", probeID, "error", closeErr)
+		}
+	}()
 
 	newDeviceInfo, _, err := result.Device.DescribeDevice(ctx)
 	if err != nil {

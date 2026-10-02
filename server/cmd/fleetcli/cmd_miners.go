@@ -101,7 +101,7 @@ func generatedMinersCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "identifier", Usage: "(required) identifier", Required: true},
-					&cli.StringFlag{Name: "identifier-type", Usage: "identifier type. Valid options: mac-address, serial-number"},
+					&cli.StringFlag{Name: "identifier-type", Usage: "identifier type. Valid options: mac-address, serial-number, device-identifier"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &fleetmanagementv1.LookupMinerByIdentifierRequest{}
@@ -114,8 +114,10 @@ func generatedMinersCommand() *cli.Command {
 							req.IdentifierType = fleetmanagementv1.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS
 						case "serial_number":
 							req.IdentifierType = fleetmanagementv1.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER
+						case "device_identifier":
+							req.IdentifierType = fleetmanagementv1.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER
 						default:
-							return nil, fmt.Errorf("invalid value for identifier-type: %s. Valid options: mac-address, serial-number", cmd.String("identifier-type"))
+							return nil, fmt.Errorf("invalid value for identifier-type: %s. Valid options: mac-address, serial-number, device-identifier", cmd.String("identifier-type"))
 						}
 					}
 					if err := generatedValidateRequest(req); err != nil {

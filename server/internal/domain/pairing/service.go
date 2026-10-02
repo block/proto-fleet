@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
@@ -129,6 +130,7 @@ type Service struct {
 	deviceStore           interfaces.DeviceStore
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
+	encryptService        *encrypt.Service
 	discoverer            minerdiscovery.Discoverer
 	capabilitiesProvider  CapabilitiesProvider
 	pairer                Pairer
@@ -147,6 +149,7 @@ func NewService(
 	deviceStore interfaces.DeviceStore,
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
+	encryptService *encrypt.Service,
 	discoverer minerdiscovery.Discoverer,
 	capabilitiesProvider CapabilitiesProvider,
 	listener Listener,
@@ -157,6 +160,7 @@ func NewService(
 		deviceStore:           deviceStore,
 		transactor:            transactor,
 		tokenService:          tokenService,
+		encryptService:        encryptService,
 		discoverer:            discoverer,
 		capabilitiesProvider:  capabilitiesProvider,
 		pairer:                pairer,
@@ -755,11 +759,16 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	pairedDeviceCredentials, err := s.deviceStore.GetMinerCredentials(ctx, pairedDevice, orgID)
 	if err != nil {
-		// log and continue without credentials
 		slog.Debug("failed to get paired device credentials", "error", err)
+		return false
+	}
+	credentials, err := s.decryptMinerCredentials(pairedDeviceCredentials)
+	if err != nil {
+		slog.Error("failed to decrypt paired device credentials", "device_identifier", pairedDeviceIdentifier, "error", err)
+		return false
 	}
 
-	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
+	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, credentials)
 	if err != nil {
 		// A recovery scan probes multiple same-driver candidates. Authentication
 		// failure identifies the paired miner only when credential-free discovery
@@ -783,6 +792,25 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
 		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+}
+
+// Stored credentials are encrypted at rest; the pairing driver accepts only
+// plaintext credentials. A read or decryption failure must not be mistaken for
+// the miner rejecting its password or downgrade its pairing status.
+func (s *Service) decryptMinerCredentials(credentials *pb.Credentials) (*pb.Credentials, error) {
+	if credentials == nil || credentials.Password == nil || s.encryptService == nil {
+		return nil, fleeterror.NewInternalError("stored miner credentials and encryption service are required")
+	}
+	username, err := s.encryptService.Decrypt(credentials.Username)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt miner username: %w", err)
+	}
+	password, err := s.encryptService.Decrypt(*credentials.Password)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt miner password: %w", err)
+	}
+	plainPassword := string(password)
+	return &pb.Credentials{Username: string(username), Password: &plainPassword}, nil
 }
 
 func (s *Service) reconcileCloudAuthenticationNeeded(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error) {

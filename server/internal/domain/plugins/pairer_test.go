@@ -388,6 +388,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 
 	// Create mock device
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(deviceInfo, sdk.Capabilities{}, nil)
@@ -395,7 +396,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	// Create mock driver
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(expectedSecretBundle)).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	// Add mock plugin with pairing capability
@@ -462,7 +463,7 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromNewDevice_ReturnsForbidde
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{}, status.Error(codes.PermissionDenied, "default password must be changed"))
 
 	mockPlugin := &LoadedPlugin{
@@ -505,13 +506,14 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromDescribeDevice_ReturnsFor
 	manager := NewManager(&Config{})
 
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(sdk.DeviceInfo{}, sdk.Capabilities{}, status.Error(codes.PermissionDenied, "default password must be changed"))
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	mockPlugin := &LoadedPlugin{
@@ -555,7 +557,7 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromNewDevice_ReturnsUnauthenti
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{}, status.Error(codes.Unauthenticated, "authentication failed"))
 
 	mockPlugin := &LoadedPlugin{
@@ -593,13 +595,14 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromDescribeDevice_ReturnsUnaut
 	manager := NewManager(&Config{})
 
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(sdk.DeviceInfo{}, sdk.Capabilities{}, status.Error(codes.Unauthenticated, "authentication failed"))
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	mockPlugin := &LoadedPlugin{
@@ -1667,4 +1670,53 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 	// Should fail with "credentials required" error because driver doesn't provide defaults
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials are required", "Should require credentials when driver doesn't implement DefaultCredentialsProvider")
+}
+
+// Recovery scans probe multiple unpersisted candidates concurrently. Their SDK
+// handles must be distinct even though both candidates have an empty identifier.
+func TestPairer_GetDeviceInfo_ConcurrentDiscoveryProbesUseDistinctHandles(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := NewManager(&Config{})
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	handles := make(chan string, 2)
+	mockDriver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
+		func(_ context.Context, handleID string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			handles <- handleID
+			mockDevice := sdkMocks.NewMockDevice(ctrl)
+			mockDevice.EXPECT().DescribeDevice(gomock.Any()).Return(info, sdk.Capabilities{}, nil)
+			mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
+		})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{
+		Name: "proto", Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: mockDriver,
+		Caps: sdk.Capabilities{sdk.CapabilityPairing: true},
+	}
+	pairer := createTestPairer(ctrl, manager)
+	credentials := &pb.Credentials{Username: "admin", Password: stringPtr("proto")}
+	type outcome struct {
+		device *pb.Device
+		err    error
+	}
+	results := make(chan outcome, 2)
+	for _, address := range []string{"192.168.94.4", "192.168.94.15"} {
+		candidate := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+			IpAddress: address, Port: "8080", UrlScheme: "http", DriverName: "proto", SerialNumber: address,
+		}}
+		go func() {
+			device, err := pairer.GetDeviceInfo(t.Context(), candidate, credentials)
+			results <- outcome{device, err}
+		}()
+	}
+	seen := make(map[string]bool)
+	for range 2 {
+		result := <-results
+		require.NoError(t, result.err)
+		require.Equal(t, result.device.IpAddress, result.device.SerialNumber)
+		seen[result.device.IpAddress] = true
+	}
+	require.Len(t, seen, 2)
+	first, second := <-handles, <-handles
+	require.NotEmpty(t, first)
+	require.NotEmpty(t, second)
+	require.NotEqual(t, first, second, "concurrent probes must not overwrite a shared SDK registry entry")
 }

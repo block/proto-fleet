@@ -41,7 +41,7 @@ func newScanTestService(t *testing.T, discover discoverFunc) *Service {
 			d.DeviceIdentifier = id.DeviceIdentifier
 			return d, nil
 		}).AnyTimes()
-	return NewService(store, nil, nil, nil, discover, caps, nil, nil)
+	return NewService(store, nil, nil, nil, nil, discover, caps, nil, nil)
 }
 
 func testIdentifiedDevice() *discoverymodels.DiscoveredDevice {

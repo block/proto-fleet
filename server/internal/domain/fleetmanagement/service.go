@@ -482,13 +482,14 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 }
 
 // LookupMinerByIdentifier resolves a single paired miner from a scanned
-// identifier — a MAC address or a manufacturer serial number — and returns a
-// fully hydrated snapshot. Backs the rack QR scan flow. The caller strips any
-// scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
+// identifier — an internal device ID, MAC address or manufacturer serial number —
+// and returns a fully hydrated snapshot. Backs maintenance links and rack QR
+// scans. The caller strips any scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
 //
 // Routing: when identifier_type is MAC or SERIAL the matching store lookup is
 // used directly. When UNSPECIFIED the kind is inferred from the value shape
-// (a normalizable MAC pattern → MAC, else serial). Returns NotFound when no
+// (a normalizable MAC pattern → MAC, else serial). DEVICE_IDENTIFIER uses the
+// organization-scoped snapshot lookup directly. Returns NotFound when no
 // paired device in the caller's organization matches.
 func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMinerByIdentifierRequest) (*pb.LookupMinerByIdentifierResponse, error) {
 	identifier := strings.TrimSpace(req.GetIdentifier())
@@ -503,14 +504,18 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 
 	// The store lookups return a NotFound fleeterror when nothing matches,
 	// which surfaces to the client as connect.CodeNotFound.
-	device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
-	if err != nil {
-		return nil, err
+	deviceIdentifier := identifier
+	if req.GetIdentifierType() != pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER {
+		device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		deviceIdentifier = device.DeviceIdentifier
 	}
 
-	// Reuse the shared hydration path so the returned snapshot matches
-	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	// Reuse the organization-scoped hydration path for internal identifiers too.
+	// No list search or MAC/serial inference is needed for a Fleet selection.
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{deviceIdentifier})
 	if err != nil {
 		return nil, err
 	}
@@ -520,6 +525,11 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
 	}
 
+	if req.GetIdentifierType() == pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER &&
+		!isPairedLikePairingStatus(snapshots[0].PairingStatus) &&
+		snapshots[0].PairingStatus != pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
+	}
 	return &pb.LookupMinerByIdentifierResponse{Snapshot: snapshots[0]}, nil
 }
 
@@ -537,6 +547,8 @@ func (s *Service) resolvePairedDeviceByIdentifier(
 		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
 		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER:
+		return nil, fleeterror.NewInvalidArgumentError("internal device identifiers require the snapshot lookup")
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_UNSPECIFIED:
 		fallthrough
 	default:

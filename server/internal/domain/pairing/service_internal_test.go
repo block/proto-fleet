@@ -2,9 +2,12 @@ package pairing
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 
 	"connectrpc.com/authn"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -27,17 +30,17 @@ func TestIsSameDevice_AuthenticationFailureRequiresIdentityEvidence(t *testing.T
 	ctrl := gomock.NewController(t)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	pairer := pairingmocks.NewMockPairer(ctrl)
-	service := &Service{deviceStore: deviceStore, pairer: pairer}
+	encryptService, credentials, plainCredentials := recoveryTestCredentials(t)
+	service := &Service{deviceStore: deviceStore, pairer: pairer, encryptService: encryptService}
 
 	paired := &pb.Device{
 		DeviceIdentifier: "miner-1",
 		MacAddress:       "AA:BB:CC:DD:EE:FF",
 		SerialNumber:     "serial-1",
 	}
-	credentials := &pb.Credentials{}
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
 	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
-	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), credentials).
+	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), plainCredentials).
 		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
 
 	matched := service.IsSameDevice(t.Context(), &discoverymodels.DiscoveredDevice{
@@ -52,17 +55,17 @@ func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	transactor := mocks.NewMockTransactor(ctrl)
 	pairer := pairingmocks.NewMockPairer(ctrl)
-	service := &Service{deviceStore: deviceStore, transactor: transactor, pairer: pairer}
+	encryptService, credentials, plainCredentials := recoveryTestCredentials(t)
+	service := &Service{deviceStore: deviceStore, transactor: transactor, pairer: pairer, encryptService: encryptService}
 
 	paired := &pb.Device{
 		DeviceIdentifier: "miner-1",
 		MacAddress:       "AA:BB:CC:DD:EE:FF",
 		SerialNumber:     "serial-1",
 	}
-	credentials := &pb.Credentials{}
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(7)).Return(paired, nil)
 	deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), paired, int64(7)).Return(credentials, nil)
-	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), credentials).
+	pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), plainCredentials).
 		Return(nil, fleeterror.NewUnauthenticatedError("credentials rejected"))
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
@@ -510,4 +513,16 @@ func TestCanonicalCIDR_IPv6Extended(t *testing.T) {
 			}
 		})
 	}
+}
+
+func recoveryTestCredentials(t *testing.T) (*encrypt.Service, *pb.Credentials, *pb.Credentials) {
+	t.Helper()
+	service, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
+	require.NoError(t, err)
+	username, err := service.Encrypt([]byte("admin"))
+	require.NoError(t, err)
+	password, err := service.Encrypt([]byte("existing-miner-password"))
+	require.NoError(t, err)
+	plainPassword := "existing-miner-password"
+	return service, &pb.Credentials{Username: username, Password: &password}, &pb.Credentials{Username: "admin", Password: &plainPassword}
 }
