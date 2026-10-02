@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -198,7 +200,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	// Mock device store operations
 	// GetDeviceByDeviceIdentifier returns nil (device doesn't exist yet)
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -307,7 +309,7 @@ func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *tes
 	)
 
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), "00:11:22:33:44:55").Return(nil)
@@ -388,6 +390,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 
 	// Create mock device
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(deviceInfo, sdk.Capabilities{}, nil)
@@ -395,7 +398,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	// Create mock driver
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(expectedSecretBundle)).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	// Add mock plugin with pairing capability
@@ -462,7 +465,7 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromNewDevice_ReturnsForbidde
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{}, status.Error(codes.PermissionDenied, "default password must be changed"))
 
 	mockPlugin := &LoadedPlugin{
@@ -505,13 +508,14 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromDescribeDevice_ReturnsFor
 	manager := NewManager(&Config{})
 
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(sdk.DeviceInfo{}, sdk.Capabilities{}, status.Error(codes.PermissionDenied, "default password must be changed"))
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	mockPlugin := &LoadedPlugin{
@@ -555,7 +559,7 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromNewDevice_ReturnsUnauthenti
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{}, status.Error(codes.Unauthenticated, "authentication failed"))
 
 	mockPlugin := &LoadedPlugin{
@@ -593,13 +597,14 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromDescribeDevice_ReturnsUnaut
 	manager := NewManager(&Config{})
 
 	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
 	mockDevice.EXPECT().
 		DescribeDevice(gomock.Any()).
 		Return(sdk.DeviceInfo{}, sdk.Capabilities{}, status.Error(codes.Unauthenticated, "authentication failed"))
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 
 	mockPlugin := &LoadedPlugin{
@@ -908,7 +913,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 
 	// Mock device store operations
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1009,7 +1014,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 	)
 
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1223,7 +1228,7 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 
 	// Mock device store operations
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1414,7 +1419,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 		GetDeviceByDeviceIdentifier(gomock.Any(), "retry-id", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "retry-id"}, nil)
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), int64(1)).
+		GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), int64(1), gomock.Any()).
 		Return(&stores.PairedDeviceInfo{
 			DeviceIdentifier:           "retry-id",
 			DiscoveredDeviceIdentifier: "retry-id",
@@ -1544,7 +1549,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 		GetDeviceByDeviceIdentifier(gomock.Any(), "device-123", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "device-123"}, nil)
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1)).
+		GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), gomock.Any()).
 		Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().
 		UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
@@ -1667,4 +1672,127 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 	// Should fail with "credentials required" error because driver doesn't provide defaults
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials are required", "Should require credentials when driver doesn't implement DefaultCredentialsProvider")
+}
+
+// Recovery scans probe multiple unpersisted candidates concurrently. Their SDK
+// handles must be distinct even though both candidates have an empty identifier.
+func TestPairer_GetDeviceInfo_ConcurrentDiscoveryProbesUseDistinctHandles(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := NewManager(&Config{})
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	handles := make(chan string, 2)
+	mockDriver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
+		func(_ context.Context, handleID string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			handles <- handleID
+			mockDevice := sdkMocks.NewMockDevice(ctrl)
+			mockDevice.EXPECT().DescribeDevice(gomock.Any()).Return(info, sdk.Capabilities{}, nil)
+			mockDevice.EXPECT().Close(gomock.Any()).Return(nil)
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
+		})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{
+		Name: "proto", Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: mockDriver,
+		Caps: sdk.Capabilities{sdk.CapabilityPairing: true},
+	}
+	pairer := createTestPairer(ctrl, manager)
+	credentials := &pb.Credentials{Username: "admin", Password: stringPtr("proto")}
+	type outcome struct {
+		device *pb.Device
+		err    error
+	}
+	results := make(chan outcome, 2)
+	for _, address := range []string{"192.168.94.4", "192.168.94.15"} {
+		candidate := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+			IpAddress: address, Port: "8080", UrlScheme: "http", DriverName: "proto", SerialNumber: address,
+		}}
+		go func() {
+			device, err := pairer.GetDeviceInfo(t.Context(), candidate, credentials)
+			results <- outcome{device, err}
+		}()
+	}
+	seen := make(map[string]bool)
+	for range 2 {
+		result := <-results
+		require.NoError(t, result.err)
+		require.Equal(t, result.device.IpAddress, result.device.SerialNumber)
+		seen[result.device.IpAddress] = true
+	}
+	require.Len(t, seen, 2)
+	first, second := <-handles, <-handles
+	require.NotEmpty(t, first)
+	require.NotEmpty(t, second)
+	require.NotEqual(t, first, second, "concurrent probes must not overwrite a shared SDK registry entry")
+}
+
+type probeCleanupDriver struct {
+	sdk.Driver
+	close func(context.Context, string) error
+}
+
+func (d *probeCleanupDriver) CloseDevice(ctx context.Context, id string) error {
+	return d.close(ctx, id)
+}
+
+func TestPairer_GetDeviceInfo_UncertainNewDeviceCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		err         error
+		cancel      bool
+		wantCleanup bool
+	}{
+		{"context cancellation", context.Canceled, true, true},
+		{"context deadline", context.DeadlineExceeded, false, true},
+		{"gRPC cancellation", status.Error(codes.Canceled, "reply lost"), false, true},
+		{"gRPC deadline", status.Error(codes.DeadlineExceeded, "reply lost"), false, true},
+		{"canceled parent with wrapped driver error", fmt.Errorf("transport closed"), true, true},
+		{"authentication failure", status.Error(codes.Unauthenticated, "bad password"), false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			var probeID string
+			mockDriver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+				probeID = id
+				return sdk.NewDeviceResult{}, tc.err
+			})
+			calls := 0
+			driver := &probeCleanupDriver{Driver: mockDriver, close: func(ctx context.Context, id string) error {
+				calls++
+				require.NoError(t, ctx.Err(), "cleanup must outlive the canceled request")
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok)
+				require.LessOrEqual(t, time.Until(deadline), time.Second)
+				require.Equal(t, probeID, id)
+				require.Contains(t, id, "pairing-info:")
+				if calls == 1 {
+					return status.Error(codes.NotFound, "registration still in flight")
+				}
+				return nil
+			}}
+			manager := NewManager(&Config{})
+			manager.pluginsByDriverName["proto"] = &LoadedPlugin{Driver: driver, Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+			pairer := createTestPairer(ctrl, manager)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+			_, err := pairer.GetDeviceInfo(ctx, &discoverymodels.DiscoveredDevice{Device: pb.Device{DriverName: "proto"}}, &pb.Credentials{Username: "admin", Password: stringPtr("password")})
+			require.Error(t, err)
+			if tc.wantCleanup {
+				require.Equal(t, 2, calls)
+			} else {
+				require.Zero(t, calls)
+			}
+		})
+	}
+}
+
+func TestCloseUncertainProbeIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		calls := 0
+		closeUncertainProbe(t.Context(), &probeCleanupDriver{close: func(context.Context, string) error { calls++; return status.Error(codes.Unavailable, "plugin stopped") }}, "probe")
+		require.Equal(t, time.Second, time.Since(start))
+		require.Greater(t, calls, 1)
+	})
 }

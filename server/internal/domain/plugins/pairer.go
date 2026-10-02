@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -71,10 +72,33 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 		return nil, fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
 
-	result, err := plugin.Driver.NewDevice(ctx, device.DeviceIdentifier, deviceInfo, secretBundle)
+	// Discovery candidates have no persisted identifier. Each identity probe needs
+	// its own SDK handle so concurrent scans cannot overwrite each other or a
+	// telemetry handle in the plugin's device registry.
+	probeID := "pairing-info:" + id.GenerateID()
+	result, err := plugin.Driver.NewDevice(ctx, probeID, deviceInfo, secretBundle)
 	if err != nil {
+		// A canceled RPC may have registered the device before its reply was lost.
+		// Compensate by ID even though NewDevice returned no usable handle.
+		code := status.Code(err)
+		uncertain := ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+			code == codes.Canceled || code == codes.DeadlineExceeded
+		if cleaner, ok := plugin.Driver.(probeDeviceCleaner); ok && uncertain {
+			closeUncertainProbe(ctx, cleaner, probeID)
+		}
 		return nil, classifyPairingDriverError(err, "failed to create device")
 	}
+
+	if result.Device == nil {
+		return nil, fleeterror.NewInternalError("device client was not returned by plugin")
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pairerDeviceCloseTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Debug("failed to close identity probe", "probe_id", probeID, "error", closeErr)
+		}
+	}()
 
 	newDeviceInfo, _, err := result.Device.DescribeDevice(ctx)
 	if err != nil {
@@ -84,6 +108,28 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port, plugin.Identifier.DriverName)
 
 	return updatedDevice, nil
+}
+
+type probeDeviceCleaner interface {
+	CloseDevice(ctx context.Context, deviceID string) error
+}
+
+func closeUncertainProbe(ctx context.Context, cleaner probeDeviceCleaner, probeID string) {
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	for {
+		if err := cleaner.CloseDevice(closeCtx, probeID); err == nil {
+			return
+		}
+		// Registration can finish after the first close attempt. Retry within a
+		// bounded budget, detached from the canceled discovery request.
+		select {
+		case <-closeCtx.Done():
+			slog.Debug("failed to close uncertain identity probe", "probe_id", probeID, "error", closeCtx.Err())
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // PairDevice handles the entire pairing process using the plugin
@@ -415,7 +461,7 @@ func (p *Pairer) reconcileDeviceBySerial(ctx context.Context, discoveredDevice *
 func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
-	pairedDevice, err := p.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, discoveredDevice.OrgID)
+	pairedDevice, err := p.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, nil

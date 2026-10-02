@@ -91,18 +91,20 @@ const TicketDetailModal = ({
     if (!minerIdentifier || !canReadMiners) return;
     let active = true;
     const controller = new AbortController();
-    void lookupMinerByIdentifier(minerIdentifier, MinerIdentifierType.UNSPECIFIED, controller.signal).then((result) => {
-      if (!active) return;
-      if (result.status === "found") {
-        setMinerLookup({ identifier: minerIdentifier, snapshot: result.snapshot, error: null });
-      } else {
-        setMinerLookup({
-          identifier: minerIdentifier,
-          snapshot: null,
-          error: result.status === "notFound" ? "Miner is no longer available." : result.message,
-        });
-      }
-    });
+    void lookupMinerByIdentifier(minerIdentifier, MinerIdentifierType.DEVICE_IDENTIFIER, controller.signal).then(
+      (result) => {
+        if (!active) return;
+        if (result.status === "found") {
+          setMinerLookup({ identifier: minerIdentifier, snapshot: result.snapshot, error: null });
+        } else {
+          setMinerLookup({
+            identifier: minerIdentifier,
+            snapshot: null,
+            error: result.status === "notFound" ? "Miner is no longer available." : result.message,
+          });
+        }
+      },
+    );
     return () => {
       active = false;
       controller.abort();

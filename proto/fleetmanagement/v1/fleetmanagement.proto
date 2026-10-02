@@ -25,8 +25,8 @@ service FleetManagementService {
   // Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
   rpc RefreshMiners(RefreshMinersRequest) returns (RefreshMinersResponse);
 
-  // Resolve a single paired miner from a scanned identifier — either a MAC
-  // address or a manufacturer serial number. Backs the rack-assignment QR
+  // Resolve a single paired miner by internal device identifier, MAC address
+  // or manufacturer serial number. Backs maintenance links and rack-assignment QR
   // scan flow: an operator scans a miner's sticker and the client uses the
   // returned snapshot to confirm the device before dropping it into a rack
   // slot. Returns NotFound when no paired device in the caller's
@@ -467,7 +467,7 @@ message RefreshMinersResponse {
   map<string, string> errors = 2;
 }
 
-// How to interpret a scanned lookup identifier.
+// How to interpret a miner lookup identifier.
 enum MinerIdentifierType {
   // Let the server infer the kind from the value's shape (MAC pattern vs.
   // anything else falls back to serial). Used when a QR payload carries no
@@ -477,9 +477,11 @@ enum MinerIdentifierType {
   MINER_IDENTIFIER_TYPE_MAC_ADDRESS   = 1;
   // Match against device.serial_number verbatim.
   MINER_IDENTIFIER_TYPE_SERIAL_NUMBER = 2;
+  // Match the internal device_identifier selected from a Fleet miner list.
+  MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER = 3;
 }
 
-// Request to resolve a paired miner by a scanned identifier.
+// Request to resolve a paired miner by a scanned or internal identifier.
 message LookupMinerByIdentifierRequest {
   // The scanned value. The client strips any label prefix (e.g. "SN:",
   // "MAC:") and surrounding whitespace before sending. For MAC lookups the
@@ -491,7 +493,8 @@ message LookupMinerByIdentifierRequest {
 
   // How to interpret `identifier`. When UNSPECIFIED the server infers the
   // kind from the value shape. Clients that read a discriminating sticker
-  // prefix (SN:/MAC:) should set this explicitly.
+  // prefix (SN:/MAC:) should set this explicitly. Fleet list selections must
+  // use DEVICE_IDENTIFIER; internal identifiers are not inferred from shape.
   MinerIdentifierType identifier_type = 2 [(buf.validate.field).enum.defined_only = true];
 }
 

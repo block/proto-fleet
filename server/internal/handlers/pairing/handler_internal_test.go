@@ -329,8 +329,10 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 				}()
 				runner = credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
 			}
+			deviceStore := storemocks.NewMockDeviceStore(ctrl)
+			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "server", gomock.Any()).Return(nil, fleeterror.NewNotFoundError("not paired"))
 			client := discoveryClientForHandler(t, &Handler{
-				pairingSvc: domainpairing.NewService(store, nil, nil, nil, discoverer, caps, nil, nil),
+				pairingSvc: domainpairing.NewService(store, deviceStore, nil, nil, discoverer, caps, nil, nil),
 				discovery:  runner,
 			})
 			stream, err := client.Discover(ctx, connect.NewRequest(tc.req))
