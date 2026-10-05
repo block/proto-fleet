@@ -47,6 +47,10 @@ func run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+	// The stock migration runner uses background contexts; leave migrate on
+	// default signal handling so an operator can actually terminate it.
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	conn, err := db.ConnectToDatabase(&command.DB)
 	if err != nil {
 		return err
@@ -74,10 +78,7 @@ func run(ctx context.Context, args []string) error {
 }
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.Args[1:])
-	cancel()
-	if err != nil {
+	if err := run(context.Background(), os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
