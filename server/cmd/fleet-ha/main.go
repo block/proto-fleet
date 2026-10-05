@@ -46,6 +46,7 @@ type cli struct {
 	RequirePassive    requirePassiveCmd    `cmd:"" help:"verify that the local Fleet instance is passive"`
 	RequireActive     requireActiveCmd     `cmd:"" help:"verify that the local Fleet instance is active"`
 	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
+	SchemaCheck       schemaCheckCmd       `cmd:"" help:"check target database compatibility before stopping Fleet"`
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
@@ -245,6 +246,16 @@ func (c *requireActiveCmd) Run(ctx context.Context) error {
 }
 
 type updatePreflightCmd struct{}
+
+type schemaCheckCmd struct{}
+
+func (*schemaCheckCmd) Run(ctx context.Context) error {
+	root, err := deployment.ReleaseRoot()
+	if err != nil {
+		return err
+	}
+	return deployment.CheckApplicationSchema(ctx, root)
+}
 
 func (*updatePreflightCmd) Run(ctx context.Context) error {
 	root, err := deployment.ReleaseRoot()
