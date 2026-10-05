@@ -47,22 +47,27 @@ func TestBaselineFreshAndUnsafeStates(t *testing.T) {
 			t.Fatalf("bookkeeping changed: %d columns", columns)
 		}
 	})
-	t.Run("untracked objects", func(t *testing.T) {
-		conn, _ := newMigrationBridgeTestDB(t)
-		if _, err := conn.ExecContext(t.Context(), `CREATE TABLE existing_data(id bigint); INSERT INTO existing_data VALUES (7)`); err != nil {
-			t.Fatal(err)
-		}
-		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
-			t.Fatal("accepted populated untracked database")
-		}
-		var tracked bool
-		if err := conn.QueryRowContext(t.Context(), `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&tracked); err != nil {
-			t.Fatal(err)
-		}
-		if tracked {
-			t.Fatal("refused database was mutated")
-		}
-	})
+	for _, ddl := range []string{
+		`CREATE TABLE existing_data(id bigint); INSERT INTO existing_data VALUES (7)`,
+		`CREATE TYPE public.legacy_pair AS (value bigint)`,
+	} {
+		t.Run("untracked "+ddl, func(t *testing.T) {
+			conn, _ := newMigrationBridgeTestDB(t)
+			if _, err := conn.ExecContext(t.Context(), ddl); err != nil {
+				t.Fatal(err)
+			}
+			if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
+				t.Fatal("accepted populated untracked database")
+			}
+			var tracked bool
+			if err := conn.QueryRowContext(t.Context(), `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&tracked); err != nil {
+				t.Fatal(err)
+			}
+			if tracked {
+				t.Fatal("refused database was mutated")
+			}
+		})
+	}
 }
 
 // The public sequence is the shared subset of legacy files. The two repositories
@@ -227,6 +232,42 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 				t.Fatal("refusal changed version")
 			}
 		})
+	}
+}
+
+func TestBaselineRefusesCompositeSchemaDrift(t *testing.T) {
+	requireBaselineDB(t)
+	conn, _ := newMigrationBridgeTestDB(t)
+	baselinePublicFixture(t, conn, 152)
+	if _, err := CheckBaseline(t.Context(), conn, "source", "public", 152); err != nil {
+		t.Fatal(err)
+	}
+	before, err := readBaselineCatalog(t.Context(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ddl := range []string{
+		`CREATE TYPE public.legacy_pair AS (value bigint)`,
+		`ALTER TYPE public.legacy_pair ALTER ATTRIBUTE value TYPE text`,
+	} {
+		if _, err := conn.ExecContext(t.Context(), ddl); err != nil {
+			t.Fatal(err)
+		}
+		after, err := readBaselineCatalog(t.Context(), conn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before == after {
+			t.Fatalf("catalog ignored composite change: %s", ddl)
+		}
+		before = after
+		if err := ApplyBaseline(t.Context(), conn, "public", 152); err == nil {
+			t.Fatal("accepted source with unknown composite type")
+		}
+		status, err := readBaselineStatus(t.Context(), conn)
+		if err != nil || status.Version != 152 || status.Dirty {
+			t.Fatalf("refusal changed migration state: %+v, %v", status, err)
+		}
 	}
 }
 

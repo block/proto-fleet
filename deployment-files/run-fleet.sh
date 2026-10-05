@@ -1254,19 +1254,24 @@ compose_config_hash() {
         return 1
     fi
 
-    # Compose resolves bind/build paths to the staging directory. The updater
-    # renames that directory into place between preflight and activation, so
-    # redact only that literal prefix before hashing the normalized model.
-    hash=$(awk -v root="$PROJECT_ROOT" '
-        {
-            line = $0
-            normalized = ""
-            while ((position = index(line, root)) > 0) {
-                normalized = normalized substr(line, 1, position - 1) "<PROJECT_ROOT>"
-                line = substr(line, position + length(root))
+    # Deployment-local paths and the sibling artifact directory relocate together
+    # in Compose's model when the updater activates the staged deployment.
+    hash=$(awk -v root="$PROJECT_ROOT" -v artifacts="$(dirname "$PROJECT_ROOT")/artifacts" '
+        function normalize(line, path, label,    result, position, tail, boundary) {
+            result = ""
+            while ((position = index(line, path)) > 0) {
+                tail = substr(line, position + length(path))
+                boundary = substr(tail, 1, 1)
+                result = result substr(line, 1, position - 1)
+                if (boundary == "" || boundary ~ /[\/"\047]/)
+                    result = result label
+                else
+                    result = result path
+                line = tail
             }
-            print normalized line
+            return result line
         }
+        { print normalize(normalize($0, artifacts, "<ARTIFACT_ROOT>"), root, "<PROJECT_ROOT>") }
     ' "$rendered" | sha256)
     status=$?
     rm -f "$rendered"

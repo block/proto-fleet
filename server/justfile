@@ -78,7 +78,7 @@ db-up:
 
 # run a db migration
 db-migrate:
-  go run ./cmd/fleet-db-transition migrate
+  DB_PASSWORD="${DB_PASSWORD:-fleet}" go run ./cmd/fleet-db-transition migrate
 
 # stop the db
 db-down:

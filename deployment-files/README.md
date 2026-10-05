@@ -129,7 +129,8 @@ three artifact directories. Allow space for that copy and back up the artifacts.
 Configuration and auth keys keep their existing preservation paths; HA retains
 its `HA_DATA_DIR/artifacts` mounts.
 
-Copy failure stops replacement and retains the old container. Identical copies
+Copy failure stops replacement and retains the old container. Before attempting to commit
+the copy, failure restarts it only if it was previously running. Identical copies
 allow retry; conflicting files, symlinks or unexpected mounts require review.
 Do not delete the old container or either copy to bypass a refusal.
 

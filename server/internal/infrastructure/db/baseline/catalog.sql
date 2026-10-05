@@ -4,11 +4,11 @@ WITH objects AS (
  WHERE n.nspname='public' AND c.relname<>'schema_migrations'
  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e')
 ), entries AS (
- SELECT 'relation/'||relname AS key, jsonb_build_array(relkind,relrowsecurity,relforcerowsecurity,reloptions) AS definition FROM objects WHERE relkind IN ('r','p','v','m','S')
+ SELECT 'relation/'||relname AS key, jsonb_build_array(relkind,relrowsecurity,relforcerowsecurity,reloptions) AS definition FROM objects WHERE relkind IN ('r','p','v','m','S','c')
  UNION ALL
  SELECT 'column/'||c.relname||'/'||a.attname, jsonb_build_array(format_type(a.atttypid,a.atttypmod),a.attnotnull,pg_get_expr(d.adbin,d.adrelid),a.attidentity,a.attgenerated)
  FROM objects c JOIN pg_attribute a ON a.attrelid=c.oid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
- WHERE c.relkind IN ('r','p','v','m') AND a.attnum>0 AND NOT a.attisdropped
+ WHERE c.relkind IN ('r','p','v','m','c') AND a.attnum>0 AND NOT a.attisdropped
  UNION ALL
  SELECT 'constraint/'||c.relname||'/'||x.conname, to_jsonb(pg_get_constraintdef(x.oid,true)) FROM objects c JOIN pg_constraint x ON x.conrelid=c.oid WHERE c.relkind IN ('r','p')
  UNION ALL
