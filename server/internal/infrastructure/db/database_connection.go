@@ -172,7 +172,10 @@ type checkpointDriver struct {
 }
 
 func (d checkpointDriver) SetVersion(version int, dirty bool) error {
-	return d.Driver.SetVersion(version, dirty || !d.checkpoints[version])
+	if err := d.Driver.SetVersion(version, dirty || !d.checkpoints[version]); err != nil {
+		return fmt.Errorf("record migration checkpoint: %w", err)
+	}
+	return nil
 }
 
 func runCurrentMigrations(ctx context.Context, pool *sql.DB, files fs.FS) error {
@@ -194,7 +197,7 @@ func runCurrentMigrations(ctx context.Context, pool *sql.DB, files fs.FS) error 
 		}
 		m, err := migrate.NewWithInstance("current", source, "", checkpointDriver{driver, checkpoints})
 		if err != nil {
-			return err
+			return fmt.Errorf("initialize current migrations: %w", err)
 		}
 		if err = runMigrations(m); err != nil {
 			return err
