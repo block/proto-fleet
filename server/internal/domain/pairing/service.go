@@ -800,8 +800,9 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		return false
 	}
 
-	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
-		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+	return stableidentity.New(newDiscoveredDeviceInfo.GetSerialNumber(), newDiscoveredDeviceInfo.GetMacAddress()).Matches(
+		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
+	)
 }
 
 // Stored credentials are encrypted at rest; the pairing driver accepts only
