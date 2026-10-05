@@ -16,8 +16,8 @@ coordinated restore and those acceptance checks succeed on the intended runtime.
 
 The public baseline is 1000. The internal release adds its private baseline and
 ends at 1001. Ordinary subsequent migrations use one coordinated sequence and
-retain prior-release schema admissions. Equal version numbers are not evidence
-of repository compatibility.
+end at repository-owned checkpoints; they do not maintain catalog history.
+Checkpoints alone do not establish application or runtime compatibility.
 
 ## Prepare and back up
 
@@ -62,7 +62,7 @@ verifying these cases and the retained curtailment authorization envelopes.
 
 ## Reconcile
 
-Use the target release's `server/fleet-db-transition` host binary with the existing
+Use the qualified baseline release's `server/fleet-db-transition` host binary with the existing
 protected `DB_*` environment (including `DB_DSN` when configured). For example,
 on a qualified public-152 source:
 
@@ -79,7 +79,8 @@ existing grants/schedules, applies only the reviewed missing changes, validates
 the destination, and updates the existing row last in the same transaction.
 A validated completed target makes repeated `apply` a no-op.
 
-After success, check the target through a new connection. In HA also check the
+After success, check the target through a new connection. Subsequent releases
+use `fleet-db-transition migrate`, which invokes the stock migration runner. In HA also check the
 local standby, including its replay and runtime, before either target application
 starts. Restore the recorded job settings. Validate existing-password login,
 custom and built-in permissions, denied operations, Node reconnection without
@@ -90,6 +91,11 @@ read-only startup admission succeed.
 ## Interrupted execution and recovery
 
 An error before commit rolls back reconciliation SQL and the version update.
+Ordinary internal migrations keep shared steps dirty until the next private
+checkpoint. If interrupted there, both applications refuse startup. Keep writers
+stopped and restore the coordinated backup, or use a separately reviewed repair
+that verifies the interrupted SQL and all remaining changes. The baseline
+reconciliation command does not repair arbitrary future dirty migrations.
 A lost commit acknowledgement is uncertain: keep applications fenced, establish
 that the original command has ended, rediscover the writer and run fresh source/
 target checks. Retry only an exact intact source; an exact target is complete;

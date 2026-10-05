@@ -1,10 +1,5 @@
 {
   "target": 1000,
-  "admissions": {
-    "1000": [
-      "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce"
-    ]
-  },
   "targets": [
     "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce"
   ],
@@ -16,10 +11,6 @@
       ]
     },
     "public-153": {
-      "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
-      "sql": []
-    },
-    "public-1000": {
       "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
       "sql": []
     }

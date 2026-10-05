@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -116,13 +119,92 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 
 	slog.Info("connected to database", "target", config.ConnectionTarget(), "database", config.Name)
 
-	err = runCurrentMigrations(context.Background(), connection)
+	err = runCurrentMigrations(context.Background(), connection, migrations.Current)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	success = true
 	return connection, nil
+}
+
+// migrationCheckpoints derives provenance from the immutable migration filenames,
+// not a second schema-version history. Public releases end at a shared version;
+// internal releases must end at a private version (a no-op checkpoint is enough).
+func migrationCheckpoints(files fs.FS) (map[int]bool, int, error) {
+	paths, err := fs.Glob(files, "current/*.up.sql")
+	if err != nil || len(paths) == 0 {
+		return nil, 0, fmt.Errorf("current migration source is missing: %v", err)
+	}
+	checkpoints := make(map[int]bool, len(paths))
+	latest, internal := 0, false
+	for _, path := range paths {
+		parts := strings.SplitN(strings.TrimPrefix(path, "current/"), "_", 3)
+		version, err := strconv.Atoi(parts[0])
+		if err != nil || len(parts) != 3 || version < 1000 || (parts[1] != "shared" && parts[1] != "internal") {
+			return nil, 0, fmt.Errorf("invalid current migration: %s", path)
+		}
+		if _, duplicate := checkpoints[version]; duplicate {
+			return nil, 0, fmt.Errorf("duplicate current migration: %d", version)
+		}
+		private := parts[1] == "internal"
+		checkpoints[version], internal = private, internal || private
+		latest = max(latest, version)
+	}
+	if internal && !checkpoints[latest] {
+		return nil, 0, fmt.Errorf("internal releases must end at a private checkpoint")
+	}
+	if !internal {
+		for version := range checkpoints {
+			checkpoints[version] = true
+		}
+	}
+	return checkpoints, latest, nil
+}
+
+// Internal shared steps remain dirty until a private checkpoint completes. A
+// crash between files must never leave a clean shared version that the public
+// application could mistake for its own database. All SQL, locking and version
+// writes still belong to golang-migrate's stock PostgreSQL driver.
+type checkpointDriver struct {
+	migratedatabase.Driver
+	checkpoints map[int]bool
+}
+
+func (d checkpointDriver) SetVersion(version int, dirty bool) error {
+	return d.Driver.SetVersion(version, dirty || !d.checkpoints[version])
+}
+
+func runCurrentMigrations(ctx context.Context, pool *sql.DB, files fs.FS) error {
+	checkpoints, latest, err := migrationCheckpoints(files)
+	if err != nil {
+		return err
+	}
+	return withBaselineLock(ctx, pool, func(conn *sql.Conn) error {
+		if _, err := checkBaselineStartup(ctx, conn, files); err != nil {
+			return err
+		}
+		source, err := iofs.New(files, "current")
+		if err != nil {
+			return fmt.Errorf("open current migrations: %w", err)
+		}
+		driver, err := postgres.WithConnection(ctx, conn, &postgres.Config{})
+		if err != nil {
+			return fmt.Errorf("initialize PostgreSQL migrator: %w", err)
+		}
+		m, err := migrate.NewWithInstance("current", source, "", checkpointDriver{driver, checkpoints})
+		if err != nil {
+			return err
+		}
+		if err = runMigrations(m); err != nil {
+			return err
+		}
+		status, err := checkBaselineStartup(ctx, conn, files)
+		if err == nil && status.Version != latest {
+			return fmt.Errorf("migration stopped before release checkpoint %d", latest)
+		}
+		return err
+	})
 }
 
 // runMigrationsWithCompatibilityBridges runs immutable migrations around the
