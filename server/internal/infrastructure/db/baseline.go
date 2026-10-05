@@ -302,7 +302,12 @@ func ApplyBaseline(ctx context.Context, pool *sql.DB, source string, version int
 			return err
 		}
 		recipe := assertions.Sources[source+"-"+strconv.Itoa(version)]
-		if _, err = tx.ExecContext(ctx, `LOCK TABLE "user",role,permission,role_permission,user_organization,user_organization_role,api_key,fleet_node,fleet_node_device,fleet_node_session,fleet_node_auth_challenge,pending_enrollment,miner_credentials,device_pairing,device,discovered_device IN SHARE MODE`); err != nil {
+		tables := make([]string, 0, len(assertions.Preserve))
+		for _, table := range assertions.Preserve {
+			tables = append(tables, `public."`+strings.ReplaceAll(table, `"`, `""`)+`"`)
+		}
+		sort.Strings(tables)
+		if _, err = tx.ExecContext(ctx, `LOCK TABLE `+strings.Join(tables, ",")+` IN SHARE MODE`); err != nil {
 			return fmt.Errorf("lock protected application tables: %w", err)
 		}
 		settings, err := baselineSettings(ctx, tx)
