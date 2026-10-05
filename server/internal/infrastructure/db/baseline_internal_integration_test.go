@@ -38,6 +38,9 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 				}
 				migrateTestDBTo(t, conn, config.Name, uint(sourceVersion))
 			}
+			if version == 153 || version == 158 {
+				roundTripBaselineConstraints(t, conn)
+			}
 			before, err := protectedBaselineData(t.Context(), conn, false)
 			if err != nil {
 				t.Fatal(err)
@@ -107,6 +110,7 @@ func TestBaselineInternalConvertsCleanPublicBaseline(t *testing.T) {
 	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 		t.Fatal("startup ran private baseline against existing shared data")
 	}
+	roundTripBaselineConstraints(t, conn)
 	if err := ApplyBaseline(t.Context(), conn, "public", 1000); err != nil {
 		t.Fatal(err)
 	}

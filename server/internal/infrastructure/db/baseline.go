@@ -28,9 +28,11 @@ import (
 //go:embed baseline/*
 var baselineFiles embed.FS
 
+// Catalogs admit only verified migration-created and dump/restored forms.
+// PostgreSQL can reparse equivalent CHECK casts differently during restore.
 type baselineRecipe struct {
-	Catalog string   `json:"catalog"`
-	SQL     []string `json:"sql"`
+	Catalogs []string `json:"catalogs"`
+	SQL      []string `json:"sql"`
 }
 
 type baselineAssertions struct {
@@ -180,7 +182,7 @@ func checkBaselineState(ctx context.Context, q baselineQuerier, state, source st
 			return status, fmt.Errorf("expected source version %d, found %d", version, status.Version)
 		}
 		recipe, ok := assertions.Sources[source+"-"+strconv.Itoa(version)]
-		if !ok || recipe.Catalog != digest {
+		if !ok || !slices.Contains(recipe.Catalogs, digest) {
 			return status, fmt.Errorf("source schema is not the qualified %s/%d schema; refusing reconciliation", source, version)
 		}
 	case "target":

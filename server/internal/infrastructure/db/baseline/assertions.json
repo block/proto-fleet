@@ -2,11 +2,16 @@
   "target": 1001,
   "targets": [
     "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
-    "237ebb0b9c9eff7886ce8a42ab25f879f3d7ab82791c10e8db913f03e58f0dd5"
+    "237ebb0b9c9eff7886ce8a42ab25f879f3d7ab82791c10e8db913f03e58f0dd5",
+    "8617d536adedb2d9042783e48209a0ac216980534347a7f22b6b673b43ffb51f",
+    "f27816e8965ff6655acf40785c0524dfafd5910e6887e86f61962b07571f0acb"
   ],
   "sources": {
     "public-152": {
-      "catalog": "bd63a7d057409ed495d53002c04340cce5fe68c80632bed4e1789f8263122094",
+      "catalogs": [
+        "bd63a7d057409ed495d53002c04340cce5fe68c80632bed4e1789f8263122094",
+        "3eb12d55b46c39a6bff263e77578d3c7a45a4559c10ca4afdd1889315071bec4"
+      ],
       "sql": [
         "000157_delegated_rollout_events.up.sql",
         "000150_device_class.up.sql",
@@ -16,7 +21,10 @@
       ]
     },
     "public-153": {
-      "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+      "catalogs": [
+        "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+        "d54cc7e8e31e507ca609dc8452fa4f1ea31ce520f063c2d460c5cb810b1bcd34"
+      ],
       "sql": [
         "000150_device_class.up.sql",
         "baseline/plant.sql",
@@ -25,7 +33,10 @@
       ]
     },
     "public-1000": {
-      "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+      "catalogs": [
+        "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
+        "d54cc7e8e31e507ca609dc8452fa4f1ea31ce520f063c2d460c5cb810b1bcd34"
+      ],
       "sql": [
         "000150_device_class.up.sql",
         "baseline/plant.sql",
@@ -34,7 +45,10 @@
       ]
     },
     "internal-153": {
-      "catalog": "701e5314404b8ab558923689278dfd89d21d055619d17100c1b6c7c81addc546",
+      "catalogs": [
+        "701e5314404b8ab558923689278dfd89d21d055619d17100c1b6c7c81addc546",
+        "eeae373bbf537adc439be54f9b38cf7c837a6fa62c4327e0f7aa779de46ea526"
+      ],
       "sql": [
         "000155_curtailment_rig_config_targets.up.sql",
         "baseline/queue_index.sql",
@@ -43,7 +57,10 @@
       ]
     },
     "internal-158": {
-      "catalog": "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
+      "catalogs": [
+        "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
+        "8617d536adedb2d9042783e48209a0ac216980534347a7f22b6b673b43ffb51f"
+      ],
       "sql": []
     }
   },
