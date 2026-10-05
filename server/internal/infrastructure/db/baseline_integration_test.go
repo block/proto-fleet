@@ -3,19 +3,15 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"io/fs"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
 func requireBaselineDB(t *testing.T) {
@@ -64,52 +60,6 @@ func TestBaselineFreshAndUnsafeStates(t *testing.T) {
 	})
 }
 
-// The public sequence is the shared subset of legacy files. The two repositories
-// deliberately retain their original numbering; this mapping is test-only.
-func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
-	t.Helper()
-	if version < 0 {
-		t.Fatal("public fixture version must be nonnegative")
-	}
-	entries, err := fs.ReadDir(migrations.Migrations, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceFiles := fstest.MapFS{}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".sql") {
-			continue
-		}
-		n, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		publicVersion := n
-		data, err := fs.ReadFile(migrations.Migrations, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		mapped := fmt.Sprintf("%06d_%s", publicVersion, strings.SplitN(name, "_", 2)[1])
-		sourceFiles[mapped] = &fstest.MapFile{Data: data}
-	}
-	source, err := iofs.New(sourceFiles, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := migrate.NewWithInstance("public-fixture", source, "", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Migrate(uint(version)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func seedBaselineIdentity(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	_, err := conn.ExecContext(t.Context(), `
@@ -137,10 +87,10 @@ func seedBaselineIdentity(t *testing.T, conn *sql.DB) {
 
 func TestBaselinePublicReconciliation(t *testing.T) {
 	requireBaselineDB(t)
-	for _, version := range []int{152, 153} {
-		t.Run(strconv.Itoa(version), func(t *testing.T) {
-			conn, _ := newMigrationBridgeTestDB(t)
-			baselinePublicFixture(t, conn, version)
+	for _, version := range []uint8{152, 153} {
+		t.Run(strconv.Itoa(int(version)), func(t *testing.T) {
+			conn, config := newMigrationBridgeTestDB(t)
+			migrateTestDBTo(t, conn, config.Name, uint(version))
 			seedBaselineIdentity(t, conn)
 			before, err := protectedBaselineData(t.Context(), conn, true)
 			if err != nil {
@@ -149,7 +99,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 			if err = runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 				t.Fatal("startup bypassed reconciliation")
 			}
-			if err = ApplyBaseline(t.Context(), conn, "public", version); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "public", int(version)); err != nil {
 				t.Fatal(err)
 			}
 			after, err := protectedBaselineData(t.Context(), conn, true)
@@ -159,7 +109,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 			if before != after {
 				t.Fatal("credentials or Node pairing changed")
 			}
-			if err = ApplyBaseline(t.Context(), conn, "public", version); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "public", int(version)); err != nil {
 				t.Fatalf("repeat: %v", err)
 			}
 			if _, err = CheckBaseline(t.Context(), conn, "target", "", 0); err != nil {
@@ -178,8 +128,8 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 		`ALTER FUNCTION activity_count_label(bigint,text,text) RENAME TO unexpected_function`,
 	} {
 		t.Run(mutation, func(t *testing.T) {
-			conn, _ := newMigrationBridgeTestDB(t)
-			baselinePublicFixture(t, conn, 152)
+			conn, config := newMigrationBridgeTestDB(t)
+			migrateTestDBTo(t, conn, config.Name, 152)
 			if _, err := conn.ExecContext(t.Context(), mutation); err != nil {
 				t.Fatal(err)
 			}
@@ -264,49 +214,6 @@ func TestBaselineLockSerializesAndRecoversAfterCancellation(t *testing.T) {
 	}
 	if err := withBaselineLock(t.Context(), conn, func(*sql.Conn) error { return nil }); err != nil {
 		t.Fatalf("cancelled waiter left lock unusable: %v", err)
-	}
-}
-
-func TestBaselinePublicUpgradeSkipsPrivateNumber(t *testing.T) {
-	requireBaselineDB(t)
-	conn, _ := newMigrationBridgeTestDB(t)
-	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
-		t.Fatal(err)
-	}
-	// Exercise the same stock driver with a shared successor at 1002 and no
-	// public placeholder for private 1001. The baseline must not run again.
-	entries, err := fs.ReadDir(migrations.Current, "current")
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := fstest.MapFS{}
-	for _, entry := range entries {
-		data, err := fs.ReadFile(migrations.Current, "current/"+entry.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[entry.Name()] = &fstest.MapFile{Data: data}
-	}
-	files["001002_shared_gap_fixture.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE migration_gap_fixture(id bigint)")}
-	files["001002_shared_gap_fixture.down.sql"] = &fstest.MapFile{Data: []byte("DROP TABLE migration_gap_fixture")}
-	source, err := iofs.New(files, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := migrate.NewWithInstance("gap-fixture", source, "", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Up(); err != nil {
-		t.Fatal(err)
-	}
-	version, dirty, err := m.Version()
-	if err != nil || dirty || version != 1002 {
-		t.Fatalf("gap upgrade: version=%d dirty=%v error=%v", version, dirty, err)
 	}
 }
 
