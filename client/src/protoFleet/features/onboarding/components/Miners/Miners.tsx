@@ -421,13 +421,6 @@ const Miners = ({
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
               {coverageWarning}
-              <Callout
-                className="mb-6"
-                intent="information"
-                prefixIcon={<Alert />}
-                title="Verify miner addresses before adding them"
-                subtitle="Adding a selected miner approves its address for authentication and polling. Confirm that each address belongs to your miner."
-              />
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}

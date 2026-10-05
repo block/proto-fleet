@@ -484,13 +484,6 @@ const AuthenticateMiners = ({
           : undefined
       }
     >
-      <Callout
-        className="mt-6"
-        intent={intents.information}
-        prefixIcon={<Alert />}
-        title="Verify miner addresses before authenticating"
-        subtitle="Review the miner list and confirm each IP address belongs to your miner before sending credentials. Discovery cannot verify a miner's identity."
-      />
       {errorMessage !== null ? (
         <Callout
           testId="authentication-error-callout"

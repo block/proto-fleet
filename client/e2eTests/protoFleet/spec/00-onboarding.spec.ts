@@ -108,7 +108,6 @@ test.describe("Proto Fleet - Onboarding", () => {
         await homePage.validateCompleteSetupTitle();
         await homePage.clickAuthenticateMinersButton();
         await homePage.validateAuthenticateMinersModalTitle();
-        await homePage.validateTextInModal("Verify miner addresses before authenticating");
       });
 
       await test.step("Validate 4 miners need authentication - S17, S19, S19, S21", async () => {
@@ -162,7 +161,6 @@ test.describe("Proto Fleet - Onboarding", () => {
       await test.step("Validate S21 miner successfully authenticated", async () => {
         await homePage.validateTextInToast("1 miner authenticated.");
         await homePage.validateNoAuthenticationError();
-        await homePage.validateTextInModal("Verify miner addresses before authenticating");
       });
 
       await test.step("Bulk authenticate last miner - S17", async () => {

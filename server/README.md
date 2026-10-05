@@ -2,21 +2,22 @@
 
 Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
-## Recovering a cloud miner after an address change
+## Automatic miner recovery
 
-Cloud recovery scans do not send stored credentials to new endpoints or change a
-paired miner's approved address. Discovery MAC addresses and serial numbers are
-public identifiers; another endpoint can advertise the same values.
+Miner discovery and recovery assume an operator-controlled LAN or VPN. Keep miner
+endpoints and discovery targets within that trusted network; MAC addresses and
+serial numbers are reconciliation identifiers, not cryptographic authentication.
 
-To recover a moved miner, use **Add miners** to discover its new address and select
-that candidate. If it needs authentication, open **Authenticate miners**, show the
-miner list, verify the IP address, and enter the miner's credentials. Successful
-explicit pairing reconciles the candidate with the original miner ID and resumes
-polling at the approved address. Discovery and failed authentication leave the
-original endpoint and saved credentials unchanged.
+A cloud recovery scan checks the candidate's discovery identity before reading
+stored credentials, decrypts those credentials for the driver, and confirms the
+identity returned by the authenticated probe. Matching miners recover at their new
+address without being added or authenticated again. Rediscovery preserves the
+original miner ID, handles stale discovery rows, and refuses to replace another
+paired miner occupying the endpoint.
 
-Fleet Node recovery retains its existing trusted-LAN behavior. Cloud miners do not
-have an authenticated device key or certificate pin for automatic address changes.
+If the miner rejects its saved credentials, it becomes authentication-needed.
+Missing or corrupt stored credentials do not change its pairing status. Fleet Node
+recovery continues to use the existing local-network workflow.
 
 ## Development Commands
 

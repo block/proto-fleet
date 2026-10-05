@@ -14,10 +14,10 @@ import (
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/stretchr/testify/require"
@@ -41,9 +41,7 @@ func newScanTestService(t *testing.T, discover discoverFunc) *Service {
 			d.DeviceIdentifier = id.DeviceIdentifier
 			return d, nil
 		}).AnyTimes()
-	devices := storemocks.NewMockDeviceStore(ctrl)
-	devices.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fleeterror.NewNotFoundError("not paired")).AnyTimes()
-	return NewService(store, devices, nil, nil, discover, caps, nil, nil)
+	return NewService(store, nil, nil, nil, nil, discover, caps, nil, nil)
 }
 
 func testIdentifiedDevice() *discoverymodels.DiscoveredDevice {
@@ -382,9 +380,10 @@ func TestNetworkScanRetainsFallbackAfterCollisionSkip(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	devices := storemocks.NewMockDeviceStore(ctrl)
 	s.deviceStore = devices
+	devices.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), "").Return(
+		&interfaces.PairedDeviceInfo{DeviceIdentifier: "reconciled", DiscoveredDeviceIdentifier: "reconciled"}, nil)
 	store, ok := s.discoveredDeviceStore.(*storemocks.MockDiscoveredDeviceStore)
 	require.True(t, ok)
-	devices.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "miner-1", int64(1)).Return(nil, fleeterror.NewNotFoundError("not paired"))
 	store.EXPECT().GetByIPAndPort(gomock.Any(), int64(1), "192.168.1.1", "4028").Return(
 		&discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "occupant"}}, nil)
 	devices.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "occupant", int64(1)).DoAndReturn(
