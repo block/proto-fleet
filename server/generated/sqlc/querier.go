@@ -294,6 +294,7 @@ type Querier interface {
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
+	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
 	// u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
 	// guards: a role only assigned to deactivated users is not actually
@@ -918,6 +919,7 @@ type Querier interface {
 	// 'canceled' (operator canceled the remaining updates) or 'skipped' (a caller
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
+	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
@@ -1488,6 +1490,8 @@ type Querier interface {
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
 	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
+	// Lock current ownership/site through dispatch; child inventory IDs are never targets.
+	LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)

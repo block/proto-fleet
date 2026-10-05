@@ -1,7 +1,5 @@
 pub mod capabilities;
 pub mod errors;
-// Tonic's generated async-trait methods add #[must_use] to already must-use futures.
-#[allow(clippy::double_must_use)]
 pub mod pb;
 
 #[cfg(feature = "http-client")]

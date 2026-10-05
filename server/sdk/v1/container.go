@@ -55,14 +55,15 @@ type ContainerModuleMetrics struct {
 // ContainerPlant retains the firmware's own plant aggregate, independently
 // timestamped from topology. Absent values are unavailable, never inferred zero.
 type ContainerPlant struct {
-	ObservedAt          time.Time `json:"observed_at"`
-	TotalPowerW         *float64  `json:"total_power_w,omitempty"`
-	FacilityPowerW      *float64  `json:"facility_power_w,omitempty"`
-	PUE                 *float64  `json:"pue,omitempty"`
-	InletTemperatureC   *float64  `json:"inlet_temperature_c,omitempty"`
-	OutletTemperatureC  *float64  `json:"outlet_temperature_c,omitempty"`
-	AlarmActive         bool      `json:"alarm_active"`
-	CriticalAlarmActive bool      `json:"critical_alarm_active"`
+	DryCoolerInletTemperatureC *float64  `json:"dry_cooler_inlet_temperature_c,omitempty"`
+	ObservedAt                 time.Time `json:"observed_at"`
+	TotalPowerW                *float64  `json:"total_power_w,omitempty"`
+	FacilityPowerW             *float64  `json:"facility_power_w,omitempty"`
+	PUE                        *float64  `json:"pue,omitempty"`
+	InletTemperatureC          *float64  `json:"inlet_temperature_c,omitempty"`
+	OutletTemperatureC         *float64  `json:"outlet_temperature_c,omitempty"`
+	AlarmActive                bool      `json:"alarm_active"`
+	CriticalAlarmActive        bool      `json:"critical_alarm_active"`
 }
 
 // ContainerFan retains the controller's component identity and source timestamp.

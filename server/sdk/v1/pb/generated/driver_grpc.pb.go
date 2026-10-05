@@ -35,6 +35,7 @@ const (
 	Driver_StopMining_FullMethodName              = "/sdk.v1.Driver/StopMining"
 	Driver_BlinkLED_FullMethodName                = "/sdk.v1.Driver/BlinkLED"
 	Driver_Reboot_FullMethodName                  = "/sdk.v1.Driver/Reboot"
+	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
 	Driver_SetCoolingMode_FullMethodName          = "/sdk.v1.Driver/SetCoolingMode"
 	Driver_GetCoolingMode_FullMethodName          = "/sdk.v1.Driver/GetCoolingMode"
 	Driver_SetPowerTarget_FullMethodName          = "/sdk.v1.Driver/SetPowerTarget"
@@ -81,6 +82,8 @@ type DriverClient interface {
 	StopMining(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	BlinkLED(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only equipment command. Backend support is checked at execution.
+	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetCoolingMode(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetCoolingModeResponse, error)
@@ -239,6 +242,15 @@ func (c *driverClient) BlinkLED(ctx context.Context, in *DeviceRef, opts ...grpc
 func (c *driverClient) Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_Reboot_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetContainerControl_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -464,6 +476,8 @@ type DriverServer interface {
 	StopMining(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	BlinkLED(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error)
+	// Optional controller-only equipment command. Backend support is checked at execution.
+	SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error)
 	GetCoolingMode(context.Context, *DeviceRef) (*GetCoolingModeResponse, error)
@@ -540,6 +554,9 @@ func (UnimplementedDriverServer) BlinkLED(context.Context, *DeviceRef) (*emptypb
 }
 func (UnimplementedDriverServer) Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Reboot not implemented")
+}
+func (UnimplementedDriverServer) SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetContainerControl not implemented")
 }
 func (UnimplementedDriverServer) SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetCoolingMode not implemented")
@@ -859,6 +876,24 @@ func _Driver_Reboot_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).Reboot(ctx, req.(*DeviceRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_SetContainerControl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetContainerControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetContainerControl(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetContainerControl_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetContainerControl(ctx, req.(*SetContainerControlRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1270,6 +1305,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Reboot",
 			Handler:    _Driver_Reboot_Handler,
+		},
+		{
+			MethodName: "SetContainerControl",
+			Handler:    _Driver_SetContainerControl_Handler,
 		},
 		{
 			MethodName: "SetCoolingMode",

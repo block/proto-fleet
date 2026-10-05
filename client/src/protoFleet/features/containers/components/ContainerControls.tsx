@@ -1,4 +1,5 @@
 import Button, { sizes, variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 import Switch from "@/shared/components/Switch";
 
 export interface ContainerToggleControl {
@@ -8,6 +9,8 @@ export interface ContainerToggleControl {
   /** Prominent operational readout, for example `75°F` or `60% speed`. */
   metric?: string;
   stateLabel?: string;
+  disabled?: boolean;
+  pending?: boolean;
 }
 
 export interface ContainerAlarmControl {
@@ -18,6 +21,7 @@ export interface ContainerAlarmControl {
 
 export interface ContainerControlsProps {
   controls: ContainerToggleControl[];
+  kind?: "cooling" | "auxiliary";
   alarm?: ContainerAlarmControl;
   onToggle?: (id: string, on: boolean) => void;
 }
@@ -30,18 +34,30 @@ interface ControlCardProps {
 const ControlCard = ({ control, onToggle }: ControlCardProps) => {
   return (
     <div
-      className="flex min-h-24 min-w-0 items-center gap-5 rounded-2xl bg-surface-5 px-5 py-4"
+      className="flex min-h-24 min-w-0 items-center gap-3 rounded-xl bg-surface-overlay p-6"
       data-testid={`container-control-${control.id}`}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-emphasis-300 text-text-primary">{control.label}</div>
+        <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
+          {control.label}
+          {control.pending ? (
+            <span role="status" aria-label={`Updating ${control.label}`} className="inline-flex shrink-0">
+              <ProgressCircular size={14} indeterminate />
+            </span>
+          ) : null}
+        </div>
+        {control.stateLabel && onToggle ? (
+          <div role="status" className="text-200 text-text-primary-70">
+            {control.stateLabel}
+          </div>
+        ) : null}
         {control.metric ? <div className="text-300 text-text-primary-70">{control.metric}</div> : null}
       </div>
-      {onToggle ? (
+      {onToggle && control.on !== undefined ? (
         <Switch
-          ariaLabel={`${control.label} power`}
+          ariaLabel={`${control.label} ${control.id === "main_circuit_breaker" ? "closed" : control.id === "dry_cooler_auto" ? "enabled" : "power"}`}
           checked={control.on ?? false}
-          disabled={control.on === undefined}
+          disabled={control.disabled}
           setChecked={(next) => onToggle(typeof next === "function" ? next(control.on ?? false) : next)}
         />
       ) : (
@@ -55,7 +71,7 @@ const ControlCard = ({ control, onToggle }: ControlCardProps) => {
 
 const AlarmCard = ({ label, onReset, onMute }: ContainerAlarmControl) => (
   <div
-    className="flex min-h-24 min-w-0 items-center gap-5 rounded-2xl bg-surface-5 px-5 py-4"
+    className="flex min-h-24 min-w-0 items-center gap-3 rounded-xl bg-surface-overlay p-6"
     data-testid="container-alarm"
   >
     <div className="min-w-0 flex-1">
@@ -72,19 +88,23 @@ const AlarmCard = ({ label, onReset, onMute }: ContainerAlarmControl) => (
  * Container-only auxiliary equipment controls. The parent owns every state and
  * command callback; this composition has no device detection or store access.
  */
-const ContainerControls = ({ controls, alarm, onToggle }: ContainerControlsProps) => (
+const ContainerControls = ({ controls, kind = "auxiliary", alarm, onToggle }: ContainerControlsProps) => (
   <section
-    aria-label="Controls"
-    className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-6 shadow-100"
-    data-testid="container-controls"
+    aria-label={kind === "cooling" ? "Cooling controls" : "Equipment controls"}
+    data-testid={kind === "cooling" ? "container-cooling-controls" : "container-controls"}
   >
-    <h2 className="text-heading-200 text-text-primary">Controls</h2>
-    <div className="grid grid-cols-2 gap-1 phone:grid-cols-1" data-testid="container-controls-grid">
+    <div
+      className={
+        kind === "cooling"
+          ? "grid grid-cols-1 gap-1 tablet:grid-cols-2"
+          : "grid grid-cols-1 gap-1 tablet:grid-cols-2 laptop:grid-cols-4"
+      }
+    >
       {controls.map((control) => (
         <ControlCard
           key={control.id}
           control={control}
-          onToggle={onToggle ? (on) => onToggle(control.id, on) : undefined}
+          onToggle={onToggle && control.on !== undefined ? (on) => onToggle(control.id, on) : undefined}
         />
       ))}
       {alarm ? <AlarmCard {...alarm} /> : null}

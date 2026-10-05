@@ -34,6 +34,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ContainerServiceGetEquipmentCommandResultProcedure is the fully-qualified name of the
+	// ContainerService's GetEquipmentCommandResult RPC.
+	ContainerServiceGetEquipmentCommandResultProcedure = "/containers.v1.ContainerService/GetEquipmentCommandResult"
+	// ContainerServiceSetEquipmentControlProcedure is the fully-qualified name of the
+	// ContainerService's SetEquipmentControl RPC.
+	ContainerServiceSetEquipmentControlProcedure = "/containers.v1.ContainerService/SetEquipmentControl"
 	// ContainerServiceGetContainerProcedure is the fully-qualified name of the ContainerService's
 	// GetContainer RPC.
 	ContainerServiceGetContainerProcedure = "/containers.v1.ContainerService/GetContainer"
@@ -44,6 +50,8 @@ const (
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
 type ContainerServiceClient interface {
+	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
+	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 }
@@ -58,6 +66,16 @@ type ContainerServiceClient interface {
 func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ContainerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &containerServiceClient{
+		getEquipmentCommandResult: connect.NewClient[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse](
+			httpClient,
+			baseURL+ContainerServiceGetEquipmentCommandResultProcedure,
+			opts...,
+		),
+		setEquipmentControl: connect.NewClient[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse](
+			httpClient,
+			baseURL+ContainerServiceSetEquipmentControlProcedure,
+			opts...,
+		),
 		getContainer: connect.NewClient[v1.GetContainerRequest, v1.GetContainerResponse](
 			httpClient,
 			baseURL+ContainerServiceGetContainerProcedure,
@@ -73,8 +91,20 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // containerServiceClient implements ContainerServiceClient.
 type containerServiceClient struct {
-	getContainer   *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
-	listContainers *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
+	setEquipmentControl       *connect.Client[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse]
+	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
+	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+}
+
+// GetEquipmentCommandResult calls containers.v1.ContainerService.GetEquipmentCommandResult.
+func (c *containerServiceClient) GetEquipmentCommandResult(ctx context.Context, req *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error) {
+	return c.getEquipmentCommandResult.CallUnary(ctx, req)
+}
+
+// SetEquipmentControl calls containers.v1.ContainerService.SetEquipmentControl.
+func (c *containerServiceClient) SetEquipmentControl(ctx context.Context, req *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error) {
+	return c.setEquipmentControl.CallUnary(ctx, req)
 }
 
 // GetContainer calls containers.v1.ContainerService.GetContainer.
@@ -89,6 +119,8 @@ func (c *containerServiceClient) ListContainers(ctx context.Context, req *connec
 
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
+	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
+	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 }
@@ -99,6 +131,16 @@ type ContainerServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	containerServiceGetEquipmentCommandResultHandler := connect.NewUnaryHandler(
+		ContainerServiceGetEquipmentCommandResultProcedure,
+		svc.GetEquipmentCommandResult,
+		opts...,
+	)
+	containerServiceSetEquipmentControlHandler := connect.NewUnaryHandler(
+		ContainerServiceSetEquipmentControlProcedure,
+		svc.SetEquipmentControl,
+		opts...,
+	)
 	containerServiceGetContainerHandler := connect.NewUnaryHandler(
 		ContainerServiceGetContainerProcedure,
 		svc.GetContainer,
@@ -111,6 +153,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ContainerServiceGetEquipmentCommandResultProcedure:
+			containerServiceGetEquipmentCommandResultHandler.ServeHTTP(w, r)
+		case ContainerServiceSetEquipmentControlProcedure:
+			containerServiceSetEquipmentControlHandler.ServeHTTP(w, r)
 		case ContainerServiceGetContainerProcedure:
 			containerServiceGetContainerHandler.ServeHTTP(w, r)
 		case ContainerServiceListContainersProcedure:
@@ -123,6 +169,14 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 
 // UnimplementedContainerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedContainerServiceHandler struct{}
+
+func (UnimplementedContainerServiceHandler) GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetEquipmentCommandResult is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetEquipmentControl is not implemented"))
+}
 
 func (UnimplementedContainerServiceHandler) GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetContainer is not implemented"))

@@ -225,6 +225,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
 	}
+	if q.containerOwnsCommandBatchStmt, err = db.PrepareContext(ctx, containerOwnsCommandBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ContainerOwnsCommandBatch: %w", err)
+	}
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
 	}
@@ -1056,6 +1059,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.haltFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, haltFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query HaltFirmwareRolloutDevices: %w", err)
 	}
+	if q.hasPendingContainerControlStmt, err = db.PrepareContext(ctx, hasPendingContainerControl); err != nil {
+		return nil, fmt.Errorf("error preparing query HasPendingContainerControl: %w", err)
+	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
 	}
@@ -1493,6 +1499,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockCommandBatchStmt, err = db.PrepareContext(ctx, lockCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCommandBatch: %w", err)
+	}
+	if q.lockContainerCommandTargetStmt, err = db.PrepareContext(ctx, lockContainerCommandTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query LockContainerCommandTarget: %w", err)
 	}
 	if q.lockCurtailmentAdmissionEventForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentAdmissionEventForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentAdmissionEventForWrite: %w", err)
@@ -2516,6 +2525,11 @@ func (q *Queries) Close() error {
 	if q.consumeReservedInventoryPartStmt != nil {
 		if cerr := q.consumeReservedInventoryPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing consumeReservedInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.containerOwnsCommandBatchStmt != nil {
+		if cerr := q.containerOwnsCommandBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing containerOwnsCommandBatchStmt: %w", cerr)
 		}
 	}
 	if q.countActiveAssignmentsForRoleStmt != nil {
@@ -3903,6 +3917,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing haltFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
+	if q.hasPendingContainerControlStmt != nil {
+		if cerr := q.hasPendingContainerControlStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasPendingContainerControlStmt: %w", cerr)
+		}
+	}
 	if q.hasUserStmt != nil {
 		if cerr := q.hasUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
@@ -4631,6 +4650,11 @@ func (q *Queries) Close() error {
 	if q.lockCommandBatchStmt != nil {
 		if cerr := q.lockCommandBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCommandBatchStmt: %w", cerr)
+		}
+	}
+	if q.lockContainerCommandTargetStmt != nil {
+		if cerr := q.lockContainerCommandTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockContainerCommandTargetStmt: %w", cerr)
 		}
 	}
 	if q.lockCurtailmentAdmissionEventForWriteStmt != nil {
@@ -5879,6 +5903,7 @@ type Queries struct {
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	consumeReservedInventoryPartStmt                             *sql.Stmt
+	containerOwnsCommandBatchStmt                                *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
 	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
@@ -6156,6 +6181,7 @@ type Queries struct {
 	getUserRoleNameForUpdateStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
+	hasPendingContainerControlStmt                               *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
 	insertAlertChannelStmt                                       *sql.Stmt
@@ -6302,6 +6328,7 @@ type Queries struct {
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
+	lockContainerCommandTargetStmt                               *sql.Stmt
 	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
 	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
 	lockCurtailmentAutomationRuleMutationStmt                    *sql.Stmt
@@ -6603,6 +6630,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
+		containerOwnsCommandBatchStmt:                                q.containerOwnsCommandBatchStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
 		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
@@ -6880,6 +6908,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
+		hasPendingContainerControlStmt:                               q.hasPendingContainerControlStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
@@ -7026,6 +7055,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
+		lockContainerCommandTargetStmt:                               q.lockContainerCommandTargetStmt,
 		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
 		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
 		lockCurtailmentAutomationRuleMutationStmt:                    q.lockCurtailmentAutomationRuleMutationStmt,

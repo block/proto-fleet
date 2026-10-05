@@ -1425,3 +1425,18 @@ func TestAdmitCommandArtifactRequiresDownloadArtifactID(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrArtifactNotExpected)
 }
+
+func TestRegistryEquipmentRejectsV1BeforeEnqueue(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, &gatewaypb.ControlCommand{CommandId: "equipment"})
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.ErrorContains(t, err, "requires version 2")
+	select {
+	case <-stream.Outgoing:
+		t.Fatal("unsupported command enqueued")
+	default:
+	}
+}

@@ -2,13 +2,23 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampNow } from "@bufbuild/protobuf/wkt";
 import type { useContainerOverview } from "../hooks/useContainerOverview";
+import type { useEquipmentCommand } from "../hooks/useEquipmentCommand";
 import ContainerPage from "./ContainerPage";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
-const mocks = vi.hoisted(() => ({ load: vi.fn<typeof useContainerOverview>(), sync: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  load: vi.fn<typeof useContainerOverview>(),
+  sync: vi.fn(),
+  command: vi.fn<typeof useEquipmentCommand>(),
+}));
+vi.mock("../hooks/useEquipmentCommand", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useEquipmentCommand: mocks.command,
+}));
 vi.mock("../hooks/useContainerOverview", () => ({ useContainerOverview: mocks.load }));
 vi.mock("../components/ContainerPerformance", () => ({ default: () => <section aria-label="Performance" /> }));
 vi.mock("../ModuleHistoryDialog", () => ({
@@ -50,6 +60,13 @@ function renderPage() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.command.mockReturnValue({
+    submit: vi.fn(),
+    busy: false,
+    pendingName: undefined,
+    message: undefined,
+    failed: false,
+  });
   mocks.load.mockReturnValue({
     loading: false,
     retry: vi.fn(),
@@ -75,6 +92,69 @@ beforeEach(() => {
 });
 
 describe("native container detail", () => {
+  it("shows activity beside the affected control until readback, then clears it or reports failure", () => {
+    const container = mocks.load("ct1").data!.container;
+    Object.assign(
+      container,
+      create(ContainerSchema, {
+        name: "CT1 North",
+        canControlEquipment: true,
+        controls: {
+          supported: true,
+          observedAt: timestampNow(),
+          controls: [
+            { name: "dry_cooler", enabled: true },
+            { name: "coolant_pump", enabled: true },
+          ],
+        },
+      }),
+    );
+    const command = {
+      submit: vi.fn(),
+      busy: true,
+      pendingName: "dry_cooler",
+      message: "Equipment command pending…",
+      failed: false,
+    };
+    mocks.command.mockReturnValue(command);
+    const { rerender } = renderPage();
+    const update = () =>
+      rerender(
+        <MemoryRouter>
+          <ContainerPage />
+        </MemoryRouter>,
+      );
+    const cooler = () => within(screen.getByTestId("container-control-dry_cooler"));
+    expect(cooler().getByRole("status", { name: "Updating Dry cooler" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("container-control-coolant_pump")).queryByRole("status")).not.toBeInTheDocument();
+    expect(cooler().getByRole("checkbox")).toBeDisabled();
+    expect(screen.queryByText(command.message)).not.toBeInTheDocument();
+    command.message = "Write acknowledged; waiting for controller readback…";
+    update();
+    expect(cooler().getByRole("status", { name: "Updating Dry cooler" })).toBeInTheDocument();
+    expect(screen.queryByText(command.message)).not.toBeInTheDocument();
+    mocks.command.mockReturnValue({
+      ...command,
+      busy: false,
+      pendingName: undefined,
+      message: "Equipment state confirmed by the controller.",
+    });
+    update();
+    expect(cooler().queryByRole("status")).not.toBeInTheDocument();
+    expect(cooler().getByRole("checkbox")).toBeEnabled();
+    expect(screen.queryByText("Equipment state confirmed by the controller.")).not.toBeInTheDocument();
+    mocks.command.mockReturnValue({
+      ...command,
+      busy: false,
+      pendingName: undefined,
+      failed: true,
+      message: "Controller rejected the command.",
+    });
+    update();
+    expect(screen.getByRole("alert")).toHaveTextContent("Controller rejected the command.");
+    expect(cooler().queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("uses site breadcrumbs, Fleet scope and read-only collected module history", () => {
     renderPage();
     const breadcrumb = within(screen.getByTestId("container-overview-breadcrumb"));

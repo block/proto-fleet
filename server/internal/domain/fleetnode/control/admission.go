@@ -65,6 +65,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionDeferrableRead, "get_cooling_mode"
 	case *gatewaypb.MinerCommand_GetErrors:
 		return CommandAdmissionDeferrableRead, "get_errors"
+	case *gatewaypb.MinerCommand_SetContainerControl:
+		return CommandAdmissionGeneral, "set_container_control"
 	case *gatewaypb.MinerCommand_Reboot:
 		return CommandAdmissionGeneral, "reboot"
 	case *gatewaypb.MinerCommand_StartMining:

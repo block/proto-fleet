@@ -868,6 +868,22 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
+	case commandtype.SetContainerControl:
+		var payload sdk.ContainerControlRequest
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid equipment payload")
+		}
+		if validationErr := payload.Validate(); validationErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError(validationErr.Error())
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerController)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("equipment commands unsupported")
+		}
+		if writeErr := controller.SetContainerControl(ctx, payload); writeErr != nil {
+			// An ambiguous timeout/disconnect must not enqueue a second physical write.
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("equipment state unconfirmed: %v", writeErr)
+		}
 	case commandtype.ApplyCurtailmentConfig:
 		var queuePayload curtailmentConfigQueuePayload
 		if configExtractErr := json.Unmarshal(message.Payload, &queuePayload); configExtractErr != nil {

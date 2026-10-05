@@ -3,11 +3,14 @@ package containers.v1;
 
 import "buf/validate/validate.proto";
 import "common/v1/common.proto";
+import "minercommand/v1/command.proto";
 import "google/protobuf/timestamp.proto";
 
 // Containers are paired controllers with observed internal topology. Their
 // modules are not Fleet miners, and tanks are not user-managed racks.
 service ContainerService {
+  rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
+  rpc SetEquipmentControl(SetEquipmentControlRequest) returns (SetEquipmentControlResponse);
   rpc GetContainer(GetContainerRequest) returns (GetContainerResponse);
   rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
 }
@@ -28,6 +31,10 @@ message ListContainersResponse {
   repeated Container containers = 1;
 }
 message Container {
+ ContainerPlant plant = 15;
+ // Current caller has plant-write permissions at this controller's current site.
+ // Dispatch rechecks authorization. Firmware support is independently observed.
+ bool can_control_equipment = 14;
  repeated ContainerFan fans = 12;
  ContainerControls controls = 13;
   // Stable Fleet device ID used by typed inventory ancestor filters.
@@ -87,4 +94,32 @@ message ContainerSetpoint {
  string name = 1;
  optional double value = 2;
  string unit = 3;
+}
+
+// A single named desired state, never a toggle or an arbitrary HTTP request.
+message SetEquipmentControlRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string name = 2 [(buf.validate.field).string = {in: ["dry_cooler", "dry_cooler_auto", "tank_led_light", "coolant_pump", "air_conditioner_1", "air_conditioner_2", "main_circuit_breaker"]}];
+  // For main_circuit_breaker true means closed, false means open.
+  optional bool enabled = 3 [(buf.validate.field).required = true];
+}
+message SetEquipmentControlResponse {
+  // Completion acknowledges the write, not refreshed physical state.
+  string batch_identifier = 1;
+}
+
+message GetEquipmentCommandResultRequest {
+ string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+ string batch_identifier = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+
+message GetEquipmentCommandResultResponse {
+ minercommand.v1.GetCommandBatchDeviceResultsResponse result = 1;
+}
+
+// Plant telemetry has its own source timestamp, independent of control reads.
+message ContainerPlant {
+ google.protobuf.Timestamp observed_at = 1;
+ optional double dry_cooler_inlet_temperature_c = 2;
+ bool stale = 3;
 }

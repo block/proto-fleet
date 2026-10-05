@@ -106,6 +106,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.SetContainerControl = channel.unary_unary(
+                '/sdk.v1.Driver/SetContainerControl',
+                request_serializer=pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
         self.SetCoolingMode = channel.unary_unary(
                 '/sdk.v1.Driver/SetCoolingMode',
                 request_serializer=pb_dot_driver__pb2.SetCoolingModeRequest.SerializeToString,
@@ -294,6 +299,13 @@ class DriverServicer(object):
 
     def Reboot(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetContainerControl(self, request, context):
+        """Optional controller-only equipment command. Backend support is checked at execution.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -492,6 +504,11 @@ def add_DriverServicer_to_server(servicer, server):
             'Reboot': grpc.unary_unary_rpc_method_handler(
                     servicer.Reboot,
                     request_deserializer=pb_dot_driver__pb2.DeviceRef.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'SetContainerControl': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetContainerControl,
+                    request_deserializer=pb_dot_driver__pb2.SetContainerControlRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'SetCoolingMode': grpc.unary_unary_rpc_method_handler(
@@ -968,6 +985,33 @@ class Driver(object):
             target,
             '/sdk.v1.Driver/Reboot',
             pb_dot_driver__pb2.DeviceRef.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetContainerControl(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/SetContainerControl',
+            pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,

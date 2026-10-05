@@ -882,7 +882,7 @@ func start(config *Config) (result error) {
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
-	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))), li))
+	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(

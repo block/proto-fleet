@@ -3,6 +3,7 @@ package containers
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
@@ -37,6 +38,29 @@ func projectEquipment(c *pb.Container, fansJSON, controlsJSON []byte, now time.T
 		for _, sp := range v.Setpoints {
 			c.Controls.Setpoints = append(c.Controls.Setpoints, &pb.ContainerSetpoint{Name: sp.Name, Value: sp.Value, Unit: sp.Unit})
 		}
+	}
+	return nil
+}
+
+func projectPlant(c *pb.Container, plantJSON []byte, now time.Time) error {
+	var plant *sdk.ContainerPlant
+	if len(plantJSON) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(plantJSON, &plant); err != nil {
+		return fmt.Errorf("decode container plant: %w", err)
+	}
+	if plant == nil {
+		return nil
+	}
+	temperature := plant.DryCoolerInletTemperatureC
+	if temperature != nil && (math.IsNaN(*temperature) || math.IsInf(*temperature, 0)) {
+		temperature = nil
+	}
+	c.Plant = &pb.ContainerPlant{
+		ObservedAt:                 timestamppb.New(plant.ObservedAt),
+		DryCoolerInletTemperatureC: temperature,
+		Stale:                      plant.ObservedAt.IsZero() || now.Sub(plant.ObservedAt) > 2*time.Minute || plant.ObservedAt.After(now.Add(5*time.Second)),
 	}
 	return nil
 }

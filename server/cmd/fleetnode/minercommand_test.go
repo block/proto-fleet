@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1431,4 +1432,37 @@ func TestRunMinerActionEnumConverters(t *testing.T) {
 			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, code)
 		}
 	})
+}
+
+type equipmentControlDevice struct {
+	sdk.Device
+	received sdk.ContainerControlRequest
+	err      error
+}
+
+func (d *equipmentControlDevice) SetContainerControl(_ context.Context, req sdk.ContainerControlRequest) error {
+	d.received = req
+	return d.err
+}
+func TestEquipmentCommandBuildsControllerAndPreservesDesiredState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := mocks.NewMockDriver(ctrl)
+	base := mocks.NewMockDevice(ctrl)
+	base.EXPECT().Close(gomock.Any()).Return(nil)
+	device := &equipmentControlDevice{Device: base}
+	driver.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+		require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+		return sdk.NewDeviceResult{Device: device}, nil
+	})
+	run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	acker := &captureAcker{}
+	run.handleMinerCommand(t.Context(), nil, acker, "equipment", withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(false)}}}), slog.Default())
+	require.True(t, acker.only(t).Succeeded)
+	require.NotNil(t, device.received.Enabled)
+	require.False(t, *device.received.Enabled)
+}
+func TestEquipmentCommandUnsupportedOldPlugin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	_, err := runMinerAction(t.Context(), nil, "equipment", "", nil, mocks.NewMockDevice(ctrl), &pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(true)}}})
+	require.Error(t, err)
 }

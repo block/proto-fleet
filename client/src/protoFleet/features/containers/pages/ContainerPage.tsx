@@ -5,6 +5,7 @@ import { buildEquipmentOverview } from "../buildEquipmentOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
 import { useContainerOverview } from "../hooks/useContainerOverview";
+import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentCommand";
 import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
@@ -21,6 +22,8 @@ export default function ContainerPage() {
   const unit = useTemperatureUnit();
   const [selected, setSelected] = useState<{ container: string; module: string }>();
   const container = data?.container;
+  const equipmentCommand = useEquipmentCommand(identifier, container, retry);
+  const canWrite = container?.canControlEquipment === true;
   const target = container ? entityScopeTarget(container.site?.id, sites) : undefined;
   useSyncScopeToEntity(target);
   if (loading)
@@ -42,7 +45,7 @@ export default function ContainerPage() {
       </div>
     );
   const view = buildContainerOverview(data, unit, !!error);
-  const equipment = buildEquipmentOverview(container, !!error);
+  const equipment = buildEquipmentOverview(container, !!error, unit);
   const module =
     selected?.container === identifier
       ? data.modules.find((item) => item.ref?.id.toString() === selected.module)
@@ -64,7 +67,19 @@ export default function ContainerPage() {
         kpis={view.kpis}
         tanks={view.tanks}
         fans={equipment.fans}
-        controls={equipment.controls.length ? equipment.controls : undefined}
+        controls={
+          equipment.controls.length
+            ? equipment.controls.map((control) => ({
+                ...control,
+                on: !error && canWrite ? equipmentState(container, control.id) : control.on,
+                disabled: equipmentCommand.busy || !!error,
+                pending: equipmentCommand.pendingName === control.id,
+              }))
+            : undefined
+        }
+        onToggleControl={
+          canWrite && !error ? (name, enabled) => void equipmentCommand.submit(name, enabled) : undefined
+        }
         notice={
           view.stale || error ? (
             <div className="flex flex-wrap items-center justify-between gap-3 text-200 text-text-primary-70">
@@ -81,9 +96,12 @@ export default function ContainerPage() {
         onSelectTank={(tankId) => navigate(moduleList(tankId))}
         onSelectModule={(module) => setSelected({ container: identifier, module })}
         plantControls={
-          equipment.controlsNotice ? (
-            <p className="text-200 text-text-primary-70">{equipment.controlsNotice}</p>
-          ) : undefined
+          <div className="text-200 text-text-primary-70">
+            {equipment.controlsNotice ? <p>{equipment.controlsNotice}</p> : null}
+            {equipmentCommand.failed && equipmentCommand.message ? (
+              <p role="alert">{equipmentCommand.message}</p>
+            ) : null}
+          </div>
         }
         performance={<ContainerPerformance key={identifier} identifier={identifier} siteId={container.site?.id} />}
       />

@@ -762,6 +762,18 @@ func (q *retryingQuerier) ConsumeReservedInventoryPart(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "ContainerOwnsCommandBatch", func() error {
+		callResult, callErr := q.next.ContainerOwnsCommandBatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveAssignmentsForRole", func() error {
@@ -3948,6 +3960,18 @@ func (q *retryingQuerier) HaltFirmwareRolloutDevices(ctx context.Context, arg Ha
 	})
 }
 
+func (q *retryingQuerier) HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasPendingContainerControl", func() error {
+		callResult, callErr := q.next.HasPendingContainerControl(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasUser(ctx context.Context) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasUser", func() error {
@@ -5608,6 +5632,18 @@ func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (Ba
 	var result BatchStatusEnum
 	err := q.retrier.RetryQuery(ctx, "LockCommandBatch", func() error {
 		callResult, callErr := q.next.LockCommandBatch(ctx, uuid)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error) {
+	var result LockContainerCommandTargetRow
+	err := q.retrier.RetryQuery(ctx, "LockContainerCommandTarget", func() error {
+		callResult, callErr := q.next.LockContainerCommandTarget(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

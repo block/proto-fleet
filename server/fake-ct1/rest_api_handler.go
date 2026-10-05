@@ -66,6 +66,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register("GET /api/v2/container/map", h.handleContainerMap)
 	register("GET /api/v2/telemetry/container", h.handleContainerTelemetry)
 	register("GET /api/v2/telemetry/timeseries", h.handleTimeSeries)
+	register("GET /api/v2/power/container/controls", h.handleContainerControls)
 	register("POST /api/v2/power/container/controls/{name}", h.handleContainerControl)
 	register("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
 
@@ -338,6 +339,13 @@ type containerControl struct {
 	StateKnown bool   `json:"stateKnown"`
 }
 
+type containerControlsResponse struct {
+	Supported                   bool                `json:"supported"`
+	Controls                    []containerControl  `json:"controls"`
+	Setpoints                   []containerSetpoint `json:"setpoints"`
+	MainCircuitBreakerSupported bool                `json:"mainCircuitBreakerSupported"`
+}
+
 type containerSetpoint struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
@@ -465,6 +473,7 @@ type phaseTel struct {
 }
 
 type plantTelemetry struct {
+	DryCoolerInletTemperatureC    float64 `json:"dryCoolerInletTemperatureC"`
 	OperatingState                string  `json:"operatingState"`
 	Powered                       bool    `json:"powered"`
 	InletTemperatureC             float64 `json:"inletTemperatureC"`
@@ -857,6 +866,19 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 	resp := s.containerTelemetry()
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *RESTApiHandler) handleContainerControls(w http.ResponseWriter, r *http.Request) {
+	h.state.mu.RLock()
+	telemetry := h.state.containerTelemetry()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, containerControlsResponse{
+		Supported: true,
+		Controls:  telemetry.Controls,
+		Setpoints: telemetry.Setpoints,
+		// The simulator has no dedicated breaker operation or physical readback.
+		MainCircuitBreakerSupported: false,
+	})
 }
 
 func (h *RESTApiHandler) handleContainerControl(w http.ResponseWriter, r *http.Request) {

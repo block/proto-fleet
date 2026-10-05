@@ -157,7 +157,7 @@ Container cards and rows open the native Fleet detail at `/containers/:identifie
 It reads collected container metadata, tank/module inventory and controller history,
 including for FleetNode-owned controllers. Tank navigation scopes the mining list
 using the typed tank ancestor; module tiles open the same stored-history dialog
-as module rows. Fan telemetry and read-only equipment states are collected for this view. Container-reported power stays separate from tank/module equipment power.
+as module rows. Fan telemetry and equipment states are collected for this view. Container-reported power stays separate from tank/module equipment power.
 Existing read-only roles lacking telemetry permissions retain their existing
 metadata-only list paths. Rack rows additionally require rack-read scope. Tanks, modules, and module
 history use their container’s current-site read permissions; tank rows do not
@@ -197,7 +197,8 @@ whole-container JSON cache. Both direct and FleetNode JSON telemetry use this pa
 The container API projects these observations after current-site authorization.
 Fans and controls become stale independently after two minutes. Fleet displays
 stale labels and hides retained measurements, preserves measured zero, and
-provides no equipment command affordances. Viewing requires no controller URL.
+enables equipment commands only with current known state, advertised support, and
+current-site write permission. Viewing requires no controller URL.
 
 Backend support was verified against Frigate main commit
 `61f1f4c3a073f65d71dcb506e74d5db5a485bb47`: `pkg/api/power_container_controls.go`,
@@ -205,3 +206,54 @@ Backend support was verified against Frigate main commit
 these reads. This verifies backend implementation, not deployment to a specific
 physical controller. Unsupported backends and unavailable endpoints remain valid
 collection outcomes.
+
+## Equipment commands
+
+`ContainerService.SetEquipmentControl` accepts a controller identifier, one of
+six named boolean controls (`dry_cooler`, `dry_cooler_auto`, `tank_led_light`,
+`coolant_pump`, `air_conditioner_1`, `air_conditioner_2`), or the dedicated
+`main_circuit_breaker`, and a required desired state. For the breaker, true means
+closed and false means open. Alarm actions, reverse procedures, setpoints, and
+module mining commands are excluded.
+
+Dispatch resolves an organization-owned, paired controller and locks its current
+site assignment through batch creation and enqueue. It requires site/fleet/miner
+read access and **both** `miner:set_cooling_mode` and `miner:set_power_target` at
+that site. The container response reports this permission decision for UI gating;
+dispatch rechecks it. A locator-LED grant alone does not authorize plant lighting.
+Only one equipment command can be pending per controller. Existing command
+batches, actor attribution, device results, and activity completion records are
+reused. The container-scoped results endpoint verifies current-site read access
+and single-controller batch ownership, including for site-scoped operators.
+
+Direct workers use the optional SDK equipment interface and plugin RPC. FleetNode
+commands require protocol V2, with V1 retained for existing actions; older nodes
+return an upgrade-required error before enqueueing transport work. The node
+constructs a container-class device. The CT1 driver rereads capabilities and known
+state immediately before each write. Missing support or readback blocks dispatch;
+the PLC retains authority over interlocks and acceptance. Breaker writes require
+the dedicated advertised capability and endpoint, never an AC-control alias.
+
+Equipment write failures, including ambiguous disconnects and timeouts, are
+terminal: Fleet does not automatically retry a potentially applied plant write.
+The UI keeps observed state while pending and distinguishes write acknowledgment
+from a fresh equipment observation newer than the server-recorded command
+completion. It waits up to two minutes for matching readback, then reports an
+unconfirmed physical state. Viewing and refreshing use Fleet APIs, with no browser
+connection to the controller. Physical firmware deployment must still be verified
+on the actual controller; contract and simulator tests are not device certification.
+
+
+## Dry-cooler readouts
+
+The dry-cooler card shows MDK's dedicated
+`plant.dryCoolerInletTemperatureC` observation, retained in the existing
+plant-metrics JSON, and the mean of the reported cooling-fan `speedPercent`
+values. The percentage is labeled average fan speed; it is not the manual speed
+target. The average is hidden unless every advertised fan has a current, valid
+speed. Inlet temperature has its own freshness check, independent of equipment
+switch observations. Missing or stale readings are hidden.
+
+Auto mode's `dry_cooler_auto_temp_c` value is shown as a temperature target,
+distinct from the measured inlet temperature. Both temperatures honor the
+user's Celsius/Fahrenheit preference.

@@ -3,6 +3,7 @@ SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,
        COALESCE(s.name, '')::text AS site_name,
        COALESCE(fans.readings, '[]'::jsonb)::jsonb AS fans,
+       COALESCE(plant.metrics, 'null'::jsonb)::jsonb AS plant,
        COALESCE(to_jsonb(controls) || jsonb_build_object('controls', COALESCE(control_states.readings, '[]'::jsonb), 'setpoints', COALESCE(setpoints.readings, '[]'::jsonb)), 'null'::jsonb)::jsonb AS controls,
        ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
        COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hash_rate_hs, dm.power_w, dm.temp_c
@@ -11,6 +12,10 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 JOIN device_pairing dp ON dp.device_id = d.id
 LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
 LEFT JOIN container_inventory ci ON ci.device_id = d.id
+LEFT JOIN LATERAL (
+ SELECT metrics FROM container_plant_metrics WHERE device_id = d.id
+ ORDER BY time DESC LIMIT 1
+) plant ON TRUE
 LEFT JOIN LATERAL (
  SELECT jsonb_agg(to_jsonb(f) ORDER BY f.component_id) AS readings
  FROM container_fan_observation f WHERE f.device_id = d.id
@@ -65,3 +70,28 @@ SELECT d.id, sqlc.arg('time')::timestamptz, sqlc.arg('metrics')::jsonb
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
 WHERE d.device_identifier=sqlc.arg('device_identifier') AND d.deleted_at IS NULL AND dd.device_class=2
 ON CONFLICT (device_id,time) DO NOTHING;
+
+-- name: LockContainerCommandTarget :one
+-- Lock current ownership/site through dispatch; child inventory IDs are never targets.
+SELECT d.id, d.site_id
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+WHERE d.device_identifier=sqlc.arg('device_identifier') AND d.org_id=sqlc.arg('org_id')
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2
+  AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+FOR UPDATE OF d, dp;
+
+-- name: HasPendingContainerControl :one
+SELECT EXISTS (
+ SELECT 1 FROM queue_message
+ WHERE device_id=sqlc.arg('device_id') AND command_type='SetContainerControl'
+ AND status IN ('PENDING','PROCESSING')
+)::boolean;
+
+-- name: ContainerOwnsCommandBatch :one
+SELECT EXISTS (
+ SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
+ WHERE b.uuid=sqlc.arg('batch_identifier') AND b.organization_id=sqlc.arg('org_id')
+ AND b.type='SetContainerControl' AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
+)::boolean;

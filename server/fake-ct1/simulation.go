@@ -192,7 +192,9 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 			PumpActive: pump, CoolerActive: cooler, TotalWattage: ac,
 		},
 		Plant: plantTelemetry{
-			OperatingState: plantState(mining), Powered: true,
+			// The dry cooler receives the mixed return from both tank outlets.
+			DryCoolerInletTemperatureC: (outletA + outletB) / 2,
+			OperatingState:             plantState(mining), Powered: true,
 			InletTemperatureC: inlet, OutletTemperatureC: outlet,
 			OutletATemperatureC: outletA, OutletBTemperatureC: outletB,
 			AmbientTemperatureC: ambient, OutsideAmbientTemperatureC: ambient,

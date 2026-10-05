@@ -36,24 +36,26 @@ elapsed times reproduce it, independent of request order.
 
 ## Implemented endpoints
 
-| Method     | Path                                              | Notes                                                                                                                       |
-| ---------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| GET        | `/api/v2/system/info`                             | `product: "CT1"`, version, control board                                                                                    |
-| GET        | `/api/v2/system/status`                           | health, active/total boards, HA role                                                                                        |
-| GET        | `/api/v2/container/map`                           | full Tank→Module→Slot→Hashboard tree                                                                                        |
-| GET        | `/api/v2/mining/status`                           | aggregate hashrate/power/efficiency + per-state counts                                                                      |
-| POST       | `/api/v2/mining/start` · `/stop`                  | container-wide mining intent                                                                                                |
-| GET/PUT    | `/api/v2/mining/target-power`                     | read/set miner-wide per-board power target                                                                                  |
-| GET        | `/api/v2/pools` · `/pools/diagnostics`            | primary pool plus two standby backups and live connection state                                                             |
-| GET        | `/api/v2/telemetry/shares/history`                | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
-| GET        | `/api/v2/telemetry/container`                     | plant (PUE), phase, fan, distribution, and feed telemetry                                                                   |
-| GET        | `/api/v2/telemetry/timeseries`                    | recorded board and plant history, including fans, PDUs, phases and feed power/voltage                                       |
-| GET        | `/api/v2/hashboards/{identifier}/asics`           | 312 ASICs + layout (`identifier` = MAC or serial)                                                                           |
-| POST       | `/api/v2/mining/scoped/power` · `/power/clear`    | set/clear per-board power target                                                                                            |
-| POST       | `/api/v2/mining/scoped/start` · `/stop`           | scoped board lifecycle                                                                                                      |
-| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage                                                                                              |
-| POST       | `/api/v2/modules/{moduleId}/run-in`               | accept a run-in request; returns queued, execution remains unimplemented                                                    |
-| GET        | `/health`                                         | liveness                                                                                                                    |
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v2/system/info` | `product: "CT1"`, version, control board |
+| GET | `/api/v2/system/status` | health, active/total boards, HA role |
+| GET | `/api/v2/container/map` | full Tank→Module→Slot→Hashboard tree |
+| GET | `/api/v2/mining/status` | aggregate hashrate/power/efficiency + per-state counts |
+| POST | `/api/v2/mining/start` · `/stop` | container-wide mining intent |
+| GET/PUT | `/api/v2/mining/target-power` | read/set miner-wide per-board power target |
+| GET | `/api/v2/pools` · `/pools/diagnostics` | primary pool plus two standby backups and live connection state |
+| GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
+| GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
+| GET | `/api/v2/power/container/controls` | six supported boolean controls and current known states, plus setpoints; dedicated main breaker unsupported |
+| POST | `/api/v2/power/container/controls/{name}` | explicit desired state; subsequent equipment and telemetry reads return the same state |
+| GET | `/api/v2/telemetry/timeseries` | recorded board and plant history, including fans, PDUs, phases and feed power/voltage |
+| GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
+| POST | `/api/v2/mining/scoped/power` · `/power/clear` | set/clear per-board power target |
+| POST | `/api/v2/mining/scoped/start` · `/stop` | scoped board lifecycle |
+| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage |
+| POST | `/api/v2/modules/{moduleId}/run-in` | accept a run-in request; returns queued, execution remains unimplemented |
+| GET | `/health` | liveness |
 
 **Scopes.** The scoped write endpoints accept a `scope` of `identifiers`
 (MAC/serial) and/or `modules` (`{tank, module}` coordinates). An empty scope
@@ -225,3 +227,5 @@ GOWORK=off go test ./...
 > **Note:** This fixture is consumed by the CT1 adapter (#34), device bundle
 > (#36), and local fleet testing. See the `fake-rig-fixtures` skill — a change
 > here can ripple into contract and E2E suites.
+
+The dry-cooler inlet temperature models the mixed return from the two tank outlets. Fleet can display this dedicated plant reading alongside the average of current individual fan speeds; the automatic temperature setpoint is a target, not a measured temperature.

@@ -7,6 +7,8 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { ResourceRef } from "../../common/v1/common_pb";
 import { file_common_v1_common } from "../../common/v1/common_pb";
+import type { GetCommandBatchDeviceResultsResponse } from "../../minercommand/v1/command_pb";
+import { file_minercommand_v1_command } from "../../minercommand/v1/command_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -17,8 +19,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_containers_v1_containers: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiPAoTR2V0Q29udGFpbmVyUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASJDChRHZXRDb250YWluZXJSZXNwb25zZRIrCgljb250YWluZXIYASABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJWChVMaXN0Q29udGFpbmVyc1JlcXVlc3QSIQoIc2l0ZV9pZHMYASADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYAiABKAgiRgoWTGlzdENvbnRhaW5lcnNSZXNwb25zZRIsCgpjb250YWluZXJzGAEgAygLMhguY29udGFpbmVycy52MS5Db250YWluZXIi2QMKCUNvbnRhaW5lchIpCgRmYW5zGAwgAygLMhsuY29udGFpbmVycy52MS5Db250YWluZXJGYW4SMgoIY29udHJvbHMYDSABKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lckNvbnRyb2xzEgoKAmlkGAsgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEgwKBG5hbWUYAiABKAkSJAoEc2l0ZRgDIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIvCgtvYnNlcnZlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKAoFdGFua3MYBSADKAsyGS5jb250YWluZXJzLnYxLlRhbmtIZWFsdGgSLgoKbWV0cmljc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoLaGFzaHJhdGVfaHMYByABKAFIAIgBARIUCgdwb3dlcl93GAggASgBSAGIAQESGgoNdGVtcGVyYXR1cmVfYxgJIAEoAUgCiAEBEg0KBXN0YWxlGAogASgIQg4KDF9oYXNocmF0ZV9oc0IKCghfcG93ZXJfd0IQCg5fdGVtcGVyYXR1cmVfYyKsAQoKVGFua0hlYWx0aBIQCghwb3NpdGlvbhgBIAEoBRIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhcKD2F0dGVudGlvbl9jb3VudBgDIAEoBRIVCg1vZmZsaW5lX2NvdW50GAQgASgFEhYKDnNsZWVwaW5nX2NvdW50GAUgASgFEhYKDmlzb2xhdGVkX2NvdW50GAYgASgFEhUKDXVua25vd25fY291bnQYByABKAUihgIKDENvbnRhaW5lckZhbhIUCgxjb21wb25lbnRfaWQYASABKAkSLwoLb2JzZXJ2ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhoKDXNwZWVkX3BlcmNlbnQYAyABKAFIAIgBARIUCgdwb3dlcl93GAQgASgBSAGIAQESFgoJZGlyZWN0aW9uGAUgASgJSAKIAQESGQoMYWxhcm1fYWN0aXZlGAYgASgISAOIAQESDQoFc3RhbGUYByABKAhCEAoOX3NwZWVkX3BlcmNlbnRCCgoIX3Bvd2VyX3dCDAoKX2RpcmVjdGlvbkIPCg1fYWxhcm1fYWN0aXZlIskEChFDb250YWluZXJDb250cm9scxIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJc3VwcG9ydGVkGAIgASgISACIAQESMQoIY29udHJvbHMYAyADKAsyHy5jb250YWluZXJzLnYxLkNvbnRhaW5lckNvbnRyb2wSMwoJc2V0cG9pbnRzGAQgAygLMiAuY29udGFpbmVycy52MS5Db250YWluZXJTZXRwb2ludBIrCh5tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWQYBSABKAhIAYgBARIoChttYWluX2NpcmN1aXRfYnJlYWtlcl9jbG9zZWQYBiABKAhIAogBARIiChVhbGFybV9yZXNldF9zdXBwb3J0ZWQYByABKAhIA4gBARIhChRhbGFybV9tdXRlX3N1cHBvcnRlZBgIIAEoCEgEiAEBEi0KIGRyeV9jb29sZXJfZmFuX3JldmVyc2Vfc3VwcG9ydGVkGAkgASgISAWIAQESDQoFc3RhbGUYCiABKAhCDAoKX3N1cHBvcnRlZEIhCh9fbWFpbl9jaXJjdWl0X2JyZWFrZXJfc3VwcG9ydGVkQh4KHF9tYWluX2NpcmN1aXRfYnJlYWtlcl9jbG9zZWRCGAoWX2FsYXJtX3Jlc2V0X3N1cHBvcnRlZEIXChVfYWxhcm1fbXV0ZV9zdXBwb3J0ZWRCIwohX2RyeV9jb29sZXJfZmFuX3JldmVyc2Vfc3VwcG9ydGVkIkIKEENvbnRhaW5lckNvbnRyb2wSDAoEbmFtZRgBIAEoCRIUCgdlbmFibGVkGAIgASgISACIAQFCCgoIX2VuYWJsZWQiTQoRQ29udGFpbmVyU2V0cG9pbnQSDAoEbmFtZRgBIAEoCRISCgV2YWx1ZRgCIAEoAUgAiAEBEgwKBHVuaXQYAyABKAlCCAoGX3ZhbHVlMsoBChBDb250YWluZXJTZXJ2aWNlElcKDEdldENvbnRhaW5lchIiLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVxdWVzdBojLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVzcG9uc2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
-    [file_buf_validate_validate, file_common_v1_common, file_google_protobuf_timestamp],
+    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiPAoTR2V0Q29udGFpbmVyUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASJDChRHZXRDb250YWluZXJSZXNwb25zZRIrCgljb250YWluZXIYASABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJWChVMaXN0Q29udGFpbmVyc1JlcXVlc3QSIQoIc2l0ZV9pZHMYASADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYAiABKAgiRgoWTGlzdENvbnRhaW5lcnNSZXNwb25zZRIsCgpjb250YWluZXJzGAEgAygLMhguY29udGFpbmVycy52MS5Db250YWluZXIipgQKCUNvbnRhaW5lchIsCgVwbGFudBgPIAEoCzIdLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhbnQSHQoVY2FuX2NvbnRyb2xfZXF1aXBtZW50GA4gASgIEikKBGZhbnMYDCADKAsyGy5jb250YWluZXJzLnYxLkNvbnRhaW5lckZhbhIyCghjb250cm9scxgNIAEoCzIgLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbHMSCgoCaWQYCyABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgAiAEBEhQKB3Bvd2VyX3cYCCABKAFIAYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAKIAQESDQoFc3RhbGUYCiABKAhCDgoMX2hhc2hyYXRlX2hzQgoKCF9wb3dlcl93QhAKDl90ZW1wZXJhdHVyZV9jIqwBCgpUYW5rSGVhbHRoEhAKCHBvc2l0aW9uGAEgASgFEhUKDWhhc2hpbmdfY291bnQYAiABKAUSFwoPYXR0ZW50aW9uX2NvdW50GAMgASgFEhUKDW9mZmxpbmVfY291bnQYBCABKAUSFgoOc2xlZXBpbmdfY291bnQYBSABKAUSFgoOaXNvbGF0ZWRfY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKGAgoMQ29udGFpbmVyRmFuEhQKDGNvbXBvbmVudF9pZBgBIAEoCRIvCgtvYnNlcnZlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGgoNc3BlZWRfcGVyY2VudBgDIAEoAUgAiAEBEhQKB3Bvd2VyX3cYBCABKAFIAYgBARIWCglkaXJlY3Rpb24YBSABKAlIAogBARIZCgxhbGFybV9hY3RpdmUYBiABKAhIA4gBARINCgVzdGFsZRgHIAEoCEIQCg5fc3BlZWRfcGVyY2VudEIKCghfcG93ZXJfd0IMCgpfZGlyZWN0aW9uQg8KDV9hbGFybV9hY3RpdmUiyQQKEUNvbnRhaW5lckNvbnRyb2xzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCglzdXBwb3J0ZWQYAiABKAhIAIgBARIxCghjb250cm9scxgDIAMoCzIfLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbBIzCglzZXRwb2ludHMYBCADKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lclNldHBvaW50EisKHm1haW5fY2lyY3VpdF9icmVha2VyX3N1cHBvcnRlZBgFIAEoCEgBiAEBEigKG21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZBgGIAEoCEgCiAEBEiIKFWFsYXJtX3Jlc2V0X3N1cHBvcnRlZBgHIAEoCEgDiAEBEiEKFGFsYXJtX211dGVfc3VwcG9ydGVkGAggASgISASIAQESLQogZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQYCSABKAhIBYgBARINCgVzdGFsZRgKIAEoCEIMCgpfc3VwcG9ydGVkQiEKH19tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWRCHgocX21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZEIYChZfYWxhcm1fcmVzZXRfc3VwcG9ydGVkQhcKFV9hbGFybV9tdXRlX3N1cHBvcnRlZEIjCiFfZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQiQgoQQ29udGFpbmVyQ29udHJvbBIMCgRuYW1lGAEgASgJEhQKB2VuYWJsZWQYAiABKAhIAIgBAUIKCghfZW5hYmxlZCJNChFDb250YWluZXJTZXRwb2ludBIMCgRuYW1lGAEgASgJEhIKBXZhbHVlGAIgASgBSACIAQESDAoEdW5pdBgDIAEoCUIICgZfdmFsdWUi+gEKGlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEooBCgRuYW1lGAIgASgJQny6SHlyd1IKZHJ5X2Nvb2xlclIPZHJ5X2Nvb2xlcl9hdXRvUg50YW5rX2xlZF9saWdodFIMY29vbGFudF9wdW1wUhFhaXJfY29uZGl0aW9uZXJfMVIRYWlyX2NvbmRpdGlvbmVyXzJSFG1haW5fY2lyY3VpdF9icmVha2VyEhwKB2VuYWJsZWQYAyABKAhCBrpIA8gBAUgAiAEBQgoKCF9lbmFibGVkIjcKG1NldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIm8KIEdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEiQKEGJhdGNoX2lkZW50aWZpZXIYAiABKAlCCrpIB3IFEAEYgAEiagohR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEkUKBnJlc3VsdBgBIAEoCzI1Lm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hEZXZpY2VSZXN1bHRzUmVzcG9uc2UioAEKDkNvbnRhaW5lclBsYW50Ei8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCh5kcnlfY29vbGVyX2lubGV0X3RlbXBlcmF0dXJlX2MYAiABKAFIAIgBARINCgVzdGFsZRgDIAEoCEIhCh9fZHJ5X2Nvb2xlcl9pbmxldF90ZW1wZXJhdHVyZV9jMrgDChBDb250YWluZXJTZXJ2aWNlEn4KGUdldEVxdWlwbWVudENvbW1hbmRSZXN1bHQSLy5jb250YWluZXJzLnYxLkdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0GjAuY29udGFpbmVycy52MS5HZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0UmVzcG9uc2USbAoTU2V0RXF1aXBtZW50Q29udHJvbBIpLmNvbnRhaW5lcnMudjEuU2V0RXF1aXBtZW50Q29udHJvbFJlcXVlc3QaKi5jb250YWluZXJzLnYxLlNldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRJXCgxHZXRDb250YWluZXISIi5jb250YWluZXJzLnYxLkdldENvbnRhaW5lclJlcXVlc3QaIy5jb250YWluZXJzLnYxLkdldENvbnRhaW5lclJlc3BvbnNlEl0KDkxpc3RDb250YWluZXJzEiQuY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyc1JlcXVlc3QaJS5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVzcG9uc2VCyAEKEWNvbS5jb250YWluZXJzLnYxQg9Db250YWluZXJzUHJvdG9QAVpNZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29udGFpbmVycy92MTtjb250YWluZXJzdjGiAgNDWFiqAg1Db250YWluZXJzLlYxygINQ29udGFpbmVyc1xWMeICGUNvbnRhaW5lcnNcVjFcR1BCTWV0YWRhdGHqAg5Db250YWluZXJzOjpWMWIGcHJvdG8z",
+    [file_buf_validate_validate, file_common_v1_common, file_minercommand_v1_command, file_google_protobuf_timestamp],
   );
 
 /**
@@ -102,6 +104,19 @@ export const ListContainersResponseSchema: GenMessage<ListContainersResponse> =
  * @generated from message containers.v1.Container
  */
 export type Container = Message<"containers.v1.Container"> & {
+  /**
+   * @generated from field: containers.v1.ContainerPlant plant = 15;
+   */
+  plant?: ContainerPlant | undefined;
+
+  /**
+   * Current caller has plant-write permissions at this controller's current site.
+   * Dispatch rechecks authorization. Firmware support is independently observed.
+   *
+   * @generated from field: bool can_control_equipment = 14;
+   */
+  canControlEquipment: boolean;
+
   /**
    * @generated from field: repeated containers.v1.ContainerFan fans = 12;
    */
@@ -390,12 +405,151 @@ export const ContainerSetpointSchema: GenMessage<ContainerSetpoint> =
   messageDesc(file_containers_v1_containers, 9);
 
 /**
+ * A single named desired state, never a toggle or an arbitrary HTTP request.
+ *
+ * @generated from message containers.v1.SetEquipmentControlRequest
+ */
+export type SetEquipmentControlRequest = Message<"containers.v1.SetEquipmentControlRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * For main_circuit_breaker true means closed, false means open.
+   *
+   * @generated from field: optional bool enabled = 3;
+   */
+  enabled?: boolean | undefined;
+};
+
+/**
+ * Describes the message containers.v1.SetEquipmentControlRequest.
+ * Use `create(SetEquipmentControlRequestSchema)` to create a new message.
+ */
+export const SetEquipmentControlRequestSchema: GenMessage<SetEquipmentControlRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 10);
+
+/**
+ * @generated from message containers.v1.SetEquipmentControlResponse
+ */
+export type SetEquipmentControlResponse = Message<"containers.v1.SetEquipmentControlResponse"> & {
+  /**
+   * Completion acknowledges the write, not refreshed physical state.
+   *
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
+
+/**
+ * Describes the message containers.v1.SetEquipmentControlResponse.
+ * Use `create(SetEquipmentControlResponseSchema)` to create a new message.
+ */
+export const SetEquipmentControlResponseSchema: GenMessage<SetEquipmentControlResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 11);
+
+/**
+ * @generated from message containers.v1.GetEquipmentCommandResultRequest
+ */
+export type GetEquipmentCommandResultRequest = Message<"containers.v1.GetEquipmentCommandResultRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string batch_identifier = 2;
+   */
+  batchIdentifier: string;
+};
+
+/**
+ * Describes the message containers.v1.GetEquipmentCommandResultRequest.
+ * Use `create(GetEquipmentCommandResultRequestSchema)` to create a new message.
+ */
+export const GetEquipmentCommandResultRequestSchema: GenMessage<GetEquipmentCommandResultRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 12);
+
+/**
+ * @generated from message containers.v1.GetEquipmentCommandResultResponse
+ */
+export type GetEquipmentCommandResultResponse = Message<"containers.v1.GetEquipmentCommandResultResponse"> & {
+  /**
+   * @generated from field: minercommand.v1.GetCommandBatchDeviceResultsResponse result = 1;
+   */
+  result?: GetCommandBatchDeviceResultsResponse | undefined;
+};
+
+/**
+ * Describes the message containers.v1.GetEquipmentCommandResultResponse.
+ * Use `create(GetEquipmentCommandResultResponseSchema)` to create a new message.
+ */
+export const GetEquipmentCommandResultResponseSchema: GenMessage<GetEquipmentCommandResultResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 13);
+
+/**
+ * Plant telemetry has its own source timestamp, independent of control reads.
+ *
+ * @generated from message containers.v1.ContainerPlant
+ */
+export type ContainerPlant = Message<"containers.v1.ContainerPlant"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 1;
+   */
+  observedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: optional double dry_cooler_inlet_temperature_c = 2;
+   */
+  dryCoolerInletTemperatureC?: number | undefined;
+
+  /**
+   * @generated from field: bool stale = 3;
+   */
+  stale: boolean;
+};
+
+/**
+ * Describes the message containers.v1.ContainerPlant.
+ * Use `create(ContainerPlantSchema)` to create a new message.
+ */
+export const ContainerPlantSchema: GenMessage<ContainerPlant> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 14);
+
+/**
  * Containers are paired controllers with observed internal topology. Their
  * modules are not Fleet miners, and tanks are not user-managed racks.
  *
  * @generated from service containers.v1.ContainerService
  */
 export const ContainerService: GenService<{
+  /**
+   * @generated from rpc containers.v1.ContainerService.GetEquipmentCommandResult
+   */
+  getEquipmentCommandResult: {
+    methodKind: "unary";
+    input: typeof GetEquipmentCommandResultRequestSchema;
+    output: typeof GetEquipmentCommandResultResponseSchema;
+  };
+  /**
+   * @generated from rpc containers.v1.ContainerService.SetEquipmentControl
+   */
+  setEquipmentControl: {
+    methodKind: "unary";
+    input: typeof SetEquipmentControlRequestSchema;
+    output: typeof SetEquipmentControlResponseSchema;
+  };
   /**
    * @generated from rpc containers.v1.ContainerService.GetContainer
    */

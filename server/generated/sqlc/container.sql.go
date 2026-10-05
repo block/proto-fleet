@@ -14,6 +14,42 @@ import (
 	"github.com/lib/pq"
 )
 
+const containerOwnsCommandBatch = `-- name: ContainerOwnsCommandBatch :one
+SELECT EXISTS (
+ SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
+ WHERE b.uuid=$1 AND b.organization_id=$2
+ AND b.type='SetContainerControl' AND b.devices_count=1 AND m.device_id=$3
+)::boolean
+`
+
+type ContainerOwnsCommandBatchParams struct {
+	BatchIdentifier string
+	OrgID           sql.NullInt64
+	DeviceID        int64
+}
+
+func (q *Queries) ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error) {
+	row := q.queryRow(ctx, q.containerOwnsCommandBatchStmt, containerOwnsCommandBatch, arg.BatchIdentifier, arg.OrgID, arg.DeviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const hasPendingContainerControl = `-- name: HasPendingContainerControl :one
+SELECT EXISTS (
+ SELECT 1 FROM queue_message
+ WHERE device_id=$1 AND command_type='SetContainerControl'
+ AND status IN ('PENDING','PROCESSING')
+)::boolean
+`
+
+func (q *Queries) HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingContainerControlStmt, hasPendingContainerControl, deviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const insertContainerPlantMetrics = `-- name: InsertContainerPlantMetrics :exec
 INSERT INTO container_plant_metrics (device_id, time, metrics)
 SELECT d.id, $1::timestamptz, $2::jsonb
@@ -38,6 +74,7 @@ SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,
        COALESCE(s.name, '')::text AS site_name,
        COALESCE(fans.readings, '[]'::jsonb)::jsonb AS fans,
+       COALESCE(plant.metrics, 'null'::jsonb)::jsonb AS plant,
        COALESCE(to_jsonb(controls) || jsonb_build_object('controls', COALESCE(control_states.readings, '[]'::jsonb), 'setpoints', COALESCE(setpoints.readings, '[]'::jsonb)), 'null'::jsonb)::jsonb AS controls,
        ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
        COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hash_rate_hs, dm.power_w, dm.temp_c
@@ -46,6 +83,10 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 JOIN device_pairing dp ON dp.device_id = d.id
 LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
 LEFT JOIN container_inventory ci ON ci.device_id = d.id
+LEFT JOIN LATERAL (
+ SELECT metrics FROM container_plant_metrics WHERE device_id = d.id
+ ORDER BY time DESC LIMIT 1
+) plant ON TRUE
 LEFT JOIN LATERAL (
  SELECT jsonb_agg(to_jsonb(f) ORDER BY f.component_id) AS readings
  FROM container_fan_observation f WHERE f.device_id = d.id
@@ -108,6 +149,7 @@ type ListContainersRow struct {
 	Name             string
 	SiteName         string
 	Fans             json.RawMessage
+	Plant            json.RawMessage
 	Controls         json.RawMessage
 	ObservedAt       sql.NullTime
 	TankHealth       json.RawMessage
@@ -141,6 +183,7 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 			&i.Name,
 			&i.SiteName,
 			&i.Fans,
+			&i.Plant,
 			&i.Controls,
 			&i.ObservedAt,
 			&i.TankHealth,
@@ -160,4 +203,33 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockContainerCommandTarget = `-- name: LockContainerCommandTarget :one
+SELECT d.id, d.site_id
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+WHERE d.device_identifier=$1 AND d.org_id=$2
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2
+  AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+FOR UPDATE OF d, dp
+`
+
+type LockContainerCommandTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type LockContainerCommandTargetRow struct {
+	ID     int64
+	SiteID sql.NullInt64
+}
+
+// Lock current ownership/site through dispatch; child inventory IDs are never targets.
+func (q *Queries) LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error) {
+	row := q.queryRow(ctx, q.lockContainerCommandTargetStmt, lockContainerCommandTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i LockContainerCommandTargetRow
+	err := row.Scan(&i.ID, &i.SiteID)
+	return i, err
 }

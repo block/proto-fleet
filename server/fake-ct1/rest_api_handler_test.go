@@ -1092,3 +1092,45 @@ func TestModulePsuSnapshots(t *testing.T) {
 		t.Fatal("expected live PSU power and valid thermal status")
 	}
 }
+
+func TestContainerControlsReadback(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var response struct {
+		Supported                   bool                `json:"supported"`
+		Controls                    []containerControl  `json:"controls"`
+		Setpoints                   []containerSetpoint `json:"setpoints"`
+		MainCircuitBreakerSupported bool                `json:"mainCircuitBreakerSupported"`
+	}
+	getJSON(t, srv, "/api/v2/power/container/controls", &response)
+	if !response.Supported || len(response.Controls) != 6 || response.MainCircuitBreakerSupported {
+		t.Fatalf("unexpected equipment capabilities: %+v", response)
+	}
+	for _, control := range response.Controls {
+		for _, enabled := range []bool{false, true} {
+			if status := postJSON(t, srv, "/api/v2/power/container/controls/"+control.Name, setContainerControlRequest{Enabled: enabled}, nil); status != http.StatusOK {
+				t.Fatalf("write %s: status %d", control.Name, status)
+			}
+			getJSON(t, srv, "/api/v2/power/container/controls", &response)
+			var telemetry containerTelemetryResponse
+			getJSON(t, srv, "/api/v2/telemetry/container", &telemetry)
+			found := false
+			for i, observed := range response.Controls {
+				if observed != telemetry.Controls[i] {
+					t.Fatalf("equipment readback differs from telemetry: %+v vs %+v", observed, telemetry.Controls[i])
+				}
+				if observed.Name == control.Name {
+					found = true
+					if !observed.StateKnown || observed.Enabled != enabled {
+						t.Fatalf("incorrect readback: %+v, wanted %t", observed, enabled)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("missing control %s", control.Name)
+			}
+		}
+	}
+	if len(response.Setpoints) != 1 || response.Setpoints[0].Name != "dry_cooler_auto_temp_c" {
+		t.Fatalf("missing existing setpoint: %+v", response.Setpoints)
+	}
+}

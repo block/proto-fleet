@@ -138,13 +138,18 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
-	result, err := driver.NewDevice(cmdCtx, target.GetDeviceIdentifier(), sdk.DeviceInfo{
+	deviceInfo := sdk.DeviceInfo{
 		Host:         target.GetIpAddress(),
 		Port:         port,
 		URLScheme:    target.GetUrlScheme(),
 		SerialNumber: target.GetSerialNumber(),
 		MacAddress:   target.GetMacAddress(),
-	}, bundle)
+	}
+	// This action addresses the controller, never a derived module or a rig.
+	if mc.GetSetContainerControl() != nil {
+		deviceInfo.DeviceClass = sdk.DeviceClassContainer
+	}
+	result, err := driver.NewDevice(cmdCtx, target.GetDeviceIdentifier(), deviceInfo, bundle)
 	if err != nil {
 		code, msg := classifyMinerCommandError("connect to miner", err)
 		r.sendAck(stream, commandID, code, msg, logger)
@@ -310,6 +315,16 @@ func (r *RunCmd) firmwareTempRootForDownloads() string {
 
 func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwareTempRoot string, caps sdk.Capabilities, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
 	switch a := mc.GetAction().(type) {
+	case *pb.MinerCommand_SetContainerControl:
+		controller, ok := dev.(sdk.DeviceContainerController)
+		if !ok {
+			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityContainerControl)
+		}
+		req := sdk.ContainerControlRequest{Name: a.SetContainerControl.GetName(), Enabled: a.SetContainerControl.Enabled}
+		if err := req.Validate(); err != nil {
+			return nil, err
+		}
+		return nil, controller.SetContainerControl(ctx, req)
 	case *pb.MinerCommand_Reboot:
 		return nil, dev.Reboot(ctx)
 	case *pb.MinerCommand_StartMining:

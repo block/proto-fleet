@@ -779,6 +779,15 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn set_container_control(
+        &self,
+        _request: Request<pb::SetContainerControlRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "container equipment controls are unsupported",
+        ))
+    }
+
     async fn set_cooling_mode(
         &self,
         _req: Request<pb::SetCoolingModeRequest>,

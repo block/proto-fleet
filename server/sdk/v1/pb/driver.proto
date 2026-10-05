@@ -724,6 +724,9 @@ service Driver {
   rpc BlinkLED(DeviceRef) returns (google.protobuf.Empty);
   rpc Reboot(DeviceRef) returns (google.protobuf.Empty);
 
+  // Optional controller-only equipment command. Backend support is checked at execution.
+  rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
+
   // CoreV1 - Configuration methods - Required methods
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
   rpc GetCoolingMode(DeviceRef) returns (GetCoolingModeResponse);
@@ -791,6 +794,7 @@ message ContainerModuleMetrics {
 }
 
 message ContainerPlant {
+ optional double dry_cooler_inlet_temperature_c = 9;
  google.protobuf.Timestamp observed_at = 1;
  optional double total_power_w = 2;
  optional double facility_power_w = 3;
@@ -830,4 +834,10 @@ message ContainerSetpoint {
  string name = 1;
  optional double value = 2;
  string unit = 3;
+}
+
+message SetContainerControlRequest {
+  DeviceRef ref = 1;
+  string name = 2;
+  optional bool enabled = 3;
 }

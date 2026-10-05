@@ -38,7 +38,7 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 			require.NoError(t, err)
 			now := time.Now().UTC().Truncate(time.Microsecond)
-			snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
+			snapshot := &sdk.ContainerSnapshot{Plant: &sdk.ContainerPlant{ObservedAt: now, DryCoolerInletTemperatureC: new(0.0)}, ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
 			write := func() {
 				t.Helper()
 				metrics := telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}
@@ -56,6 +56,9 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			write() // transport retries are idempotent
 			got, err := read.Get(ctx, org, d.DeviceIdentifier, allow)
 			require.NoError(t, err)
+			require.NotNil(t, got.Plant)
+			require.False(t, got.Plant.Stale)
+			require.Equal(t, 0.0, *got.Plant.DryCoolerInletTemperatureC)
 			require.Len(t, got.Fans, 2)
 			require.False(t, got.Fans[0].Stale)
 			require.True(t, got.Fans[1].Stale)

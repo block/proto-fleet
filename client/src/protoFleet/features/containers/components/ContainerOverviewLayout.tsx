@@ -62,6 +62,12 @@ export interface ContainerOverviewLayoutProps {
 /** Display-only Fleet composition. Callers own polling, confirmations and history. */
 export default function ContainerOverviewLayout(props: ContainerOverviewLayoutProps) {
   const { breadcrumb, title, kpis, tanks, fans, controls, performance } = props;
+  const coolingControls = ["dry_cooler", "dry_cooler_auto"].flatMap(
+    (id) => controls?.filter((control) => control.id === id) ?? [],
+  );
+  const auxiliaryControls = controls?.filter(
+    (control) => control.id !== "dry_cooler" && control.id !== "dry_cooler_auto",
+  );
   return (
     <div className="flex min-w-0 flex-col gap-8 p-4 tablet:p-8" data-testid="container-overview">
       <div className="flex flex-col gap-3">
@@ -106,27 +112,32 @@ export default function ContainerOverviewLayout(props: ContainerOverviewLayoutPr
             <p>No tanks reported.</p>
           )}
         </section>
-        <section aria-label="Cooling fans">
-          {props.fanCards ??
-            (fans.length ? (
-              <div className="grid grid-cols-2 gap-3 tablet:grid-cols-3 desktop:grid-cols-5">
-                {fans.map((fan) => (
-                  <FanCard
-                    key={fan.id}
-                    {...fan}
-                    toggleDisabled={fan.toggleDisabled}
-                    onToggle={props.onToggleFan ? (on) => props.onToggleFan?.(fan.id, on) : undefined}
-                    onInfo={props.onFanInfo ? () => props.onFanInfo?.(fan.id) : undefined}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p>No fan readings available.</p>
-            ))}
-        </section>
-        {controls ? (
+        <div className="flex flex-col gap-1">
+          {coolingControls.length ? (
+            <ContainerControls kind="cooling" controls={coolingControls} onToggle={props.onToggleControl} />
+          ) : null}
+          <section aria-label="Cooling fans">
+            {props.fanCards ??
+              (fans.length ? (
+                <div className="grid grid-cols-2 gap-1 tablet:grid-cols-3 desktop:grid-cols-5">
+                  {fans.map((fan) => (
+                    <FanCard
+                      key={fan.id}
+                      {...fan}
+                      toggleDisabled={fan.toggleDisabled}
+                      onToggle={props.onToggleFan ? (on) => props.onToggleFan?.(fan.id, on) : undefined}
+                      onInfo={props.onFanInfo ? () => props.onFanInfo?.(fan.id) : undefined}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p>No fan readings available.</p>
+              ))}
+          </section>
+        </div>
+        {auxiliaryControls && (auxiliaryControls.length || props.onResetAlarm || props.onMuteAlarm) ? (
           <ContainerControls
-            controls={controls}
+            controls={auxiliaryControls}
             onToggle={props.onToggleControl}
             alarm={
               props.onResetAlarm || props.onMuteAlarm

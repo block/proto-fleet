@@ -1236,9 +1236,11 @@ const RacksPage = () => {
           title="You haven't set up any racks"
           description="Add a rack and assign miners to rack positions to get started."
           action={
-            <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
-              Add rack
-            </Button>
+            canEditRack ? (
+              <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
+                Add rack
+              </Button>
+            ) : undefined
           }
         />
         {rackModalSurfaces}
@@ -1253,11 +1255,17 @@ const RacksPage = () => {
           {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
           <div className="flex flex-col gap-2 pb-6">
             {/* Action button — full-width on tablet/phone */}
-            <div className="block laptop:hidden">
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
-                Add rack
-              </Button>
-            </div>
+            {canEditRack ? (
+              <div className="block laptop:hidden">
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => setShowRackSettingsModal(true)}
+                >
+                  Add rack
+                </Button>
+              </div>
+            ) : null}
             {/* View toggle — full width on tablet/phone */}
             <div className="block laptop:hidden">
               <SegmentedControl
@@ -1302,14 +1310,16 @@ const RacksPage = () => {
                   closeOnSelect
                 />
               ) : null}
-              <Button
-                className="ml-auto"
-                variant={variants.secondary}
-                size={sizes.compact}
-                onClick={() => setShowRackSettingsModal(true)}
-              >
-                Add rack
-              </Button>
+              {canEditRack ? (
+                <Button
+                  className="ml-auto"
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => setShowRackSettingsModal(true)}
+                >
+                  Add rack
+                </Button>
+              ) : null}
             </div>
             {/* Filters — shown separately on tablet/phone */}
             <div className="flex flex-row flex-wrap items-center gap-2 laptop:hidden">

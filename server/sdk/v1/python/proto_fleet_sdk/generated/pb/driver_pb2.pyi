@@ -933,7 +933,8 @@ class ContainerModuleMetrics(_message.Message):
     def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., temperature_c: _Optional[float] = ...) -> None: ...
 
 class ContainerPlant(_message.Message):
-    __slots__ = ("observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active")
+    __slots__ = ("dry_cooler_inlet_temperature_c", "observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active")
+    DRY_COOLER_INLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     TOTAL_POWER_W_FIELD_NUMBER: _ClassVar[int]
     FACILITY_POWER_W_FIELD_NUMBER: _ClassVar[int]
@@ -942,6 +943,7 @@ class ContainerPlant(_message.Message):
     OUTLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
     ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     CRITICAL_ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    dry_cooler_inlet_temperature_c: float
     observed_at: _timestamp_pb2.Timestamp
     total_power_w: float
     facility_power_w: float
@@ -950,7 +952,7 @@ class ContainerPlant(_message.Message):
     outlet_temperature_c: float
     alarm_active: bool
     critical_alarm_active: bool
-    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., total_power_w: _Optional[float] = ..., facility_power_w: _Optional[float] = ..., pue: _Optional[float] = ..., inlet_temperature_c: _Optional[float] = ..., outlet_temperature_c: _Optional[float] = ..., alarm_active: bool = ..., critical_alarm_active: bool = ...) -> None: ...
+    def __init__(self, dry_cooler_inlet_temperature_c: _Optional[float] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., total_power_w: _Optional[float] = ..., facility_power_w: _Optional[float] = ..., pue: _Optional[float] = ..., inlet_temperature_c: _Optional[float] = ..., outlet_temperature_c: _Optional[float] = ..., alarm_active: bool = ..., critical_alarm_active: bool = ...) -> None: ...
 
 class ContainerFan(_message.Message):
     __slots__ = ("component_id", "observed_at", "speed_percent", "power_w", "direction", "alarm_active")
@@ -1007,3 +1009,13 @@ class ContainerSetpoint(_message.Message):
     value: float
     unit: str
     def __init__(self, name: _Optional[str] = ..., value: _Optional[float] = ..., unit: _Optional[str] = ...) -> None: ...
+
+class SetContainerControlRequest(_message.Message):
+    __slots__ = ("ref", "name", "enabled")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    name: str
+    enabled: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., name: _Optional[str] = ..., enabled: bool = ...) -> None: ...

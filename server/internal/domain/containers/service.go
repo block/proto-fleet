@@ -98,6 +98,9 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 		if err := projectEquipment(c, r.Fans, r.Controls, now); err != nil {
 			return nil, err
 		}
+		if err := projectPlant(c, r.Plant, now); err != nil {
+			return nil, err
+		}
 		result = append(result, c)
 	}
 	return result, nil
