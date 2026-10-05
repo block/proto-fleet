@@ -14,6 +14,7 @@ import (
 
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
+	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
@@ -29,10 +30,10 @@ func TestBaselineFreshAndUnsafeStates(t *testing.T) {
 	requireBaselineDB(t)
 	t.Run("fresh and repeated startup", func(t *testing.T) {
 		conn, _ := newMigrationBridgeTestDB(t)
-		if err := runCurrentMigrations(t.Context(), conn); err != nil {
+		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 			t.Fatal(err)
 		}
-		if err := runCurrentMigrations(t.Context(), conn); err != nil {
+		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := CheckBaseline(t.Context(), conn, "target", "", 0); err != nil {
@@ -51,7 +52,7 @@ func TestBaselineFreshAndUnsafeStates(t *testing.T) {
 		if _, err := conn.ExecContext(t.Context(), `CREATE TABLE existing_data(id bigint); INSERT INTO existing_data VALUES (7)`); err != nil {
 			t.Fatal(err)
 		}
-		if err := runCurrentMigrations(t.Context(), conn); err == nil {
+		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 			t.Fatal("accepted populated untracked database")
 		}
 		var tracked bool
@@ -155,7 +156,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = runCurrentMigrations(t.Context(), conn); err == nil {
+			if err = runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 				t.Fatal("startup bypassed reconciliation")
 			}
 			if err = ApplyBaseline(t.Context(), conn, "public", version); err != nil {
@@ -180,7 +181,12 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 
 func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 	requireBaselineDB(t)
-	for _, mutation := range []string{`UPDATE schema_migrations SET dirty=true`, `ALTER TABLE device ADD COLUMN unexpected_private integer`} {
+	for _, mutation := range []string{
+		`UPDATE schema_migrations SET dirty=true`,
+		`ALTER TABLE device ADD COLUMN unexpected_private integer`,
+		`DROP INDEX idx_queue_message_pending_created`,
+		`ALTER FUNCTION activity_count_label(bigint,text,text) RENAME TO unexpected_function`,
+	} {
 		t.Run(mutation, func(t *testing.T) {
 			conn, _ := newMigrationBridgeTestDB(t)
 			baselinePublicFixture(t, conn, 152)
@@ -234,7 +240,7 @@ func TestBaselineInterruptedReconciliationRollsBack(t *testing.T) {
 func TestBaselineLegacyRunnerRefusesAdoptedVersion(t *testing.T) {
 	requireBaselineDB(t)
 	conn, config := newMigrationBridgeTestDB(t)
-	if err := runCurrentMigrations(t.Context(), conn); err != nil {
+	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 		t.Fatal(err)
 	}
 	m, _, err := newMigrator(conn, config)
@@ -255,7 +261,7 @@ func TestBaselineRefusesMalformedEmptyTrackingTable(t *testing.T) {
 	if _, err := conn.ExecContext(t.Context(), `CREATE TABLE schema_migrations(version bigint PRIMARY KEY, dirty boolean NOT NULL, unexpected text)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCurrentMigrations(t.Context(), conn); err == nil {
+	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 		t.Fatal("accepted altered bookkeeping structure")
 	}
 	var objects int
@@ -299,4 +305,107 @@ func TestBaselineLockSerializesAndRecoversAfterCancellation(t *testing.T) {
 	if err := withBaselineLock(t.Context(), conn, func(*sql.Conn) error { return nil }); err != nil {
 		t.Fatalf("cancelled waiter left lock unusable: %v", err)
 	}
+}
+
+// Future migrations do not require edits to the frozen baseline assertions.
+func TestCheckpointMigrations(t *testing.T) {
+	requireBaselineDB(t)
+	files := fstest.MapFS{}
+	entries, err := fs.ReadDir(migrations.Current, "current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		path := "current/" + entry.Name()
+		body, err := fs.ReadFile(migrations.Current, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[path] = &fstest.MapFile{Data: body}
+	}
+	files["current/001002_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
+	files["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("-- requires-shared: 1002\nSELECT 1;")}
+	t.Run("ordinary framework upgrade and repeat", func(t *testing.T) {
+		conn, _ := newMigrationBridgeTestDB(t)
+		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err := runCurrentMigrations(t.Context(), conn, files); err != nil {
+				t.Fatal(err)
+			}
+		}
+		status, err := readBaselineStatus(t.Context(), conn)
+		if err != nil || status.Version != 1003 || status.Dirty {
+			t.Fatalf("status=%+v error=%v", status, err)
+		}
+		var exists bool
+		if err := conn.QueryRowContext(t.Context(), "SELECT to_regclass('checkpoint_probe') IS NOT NULL").Scan(&exists); err != nil || !exists {
+			t.Fatalf("migration missing: %v", err)
+		}
+		if _, err := checkBaselineStartup(t.Context(), conn, migrations.Current); err == nil {
+			t.Fatal("older release accepted future database")
+		}
+		publicFiles := fstest.MapFS{}
+		for path, file := range files {
+			if !strings.Contains(path, "_internal_") {
+				publicFiles[path] = file
+			}
+		}
+		if err := runCurrentMigrations(t.Context(), conn, publicFiles); err == nil {
+			t.Fatal("public application accepted private checkpoint")
+		}
+	})
+	t.Run("interrupted shared step cannot impersonate public", func(t *testing.T) {
+		conn, _ := newMigrationBridgeTestDB(t)
+		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
+			t.Fatal(err)
+		}
+		checkpoints, _, err := migrationCheckpoints(files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		driver, err := postgres.WithInstance(conn, &postgres.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		source, err := iofs.New(files, "current")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := migrate.NewWithInstance("interruption", source, "", stopAfterSharedCheckpoint{checkpointDriver{driver, checkpoints}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = m.Up(); err == nil {
+			t.Fatal("did not interrupt after shared step")
+		}
+		status, err := readBaselineStatus(t.Context(), conn)
+		if err != nil || status.Version != 1002 || !status.Dirty {
+			t.Fatalf("unsafe interrupted state: %+v %v", status, err)
+		}
+		if err := runCurrentMigrations(t.Context(), conn, files); err == nil {
+			t.Fatal("internal restart accepted dirty checkpoint")
+		}
+		// Public files contain the same shared number, but must still reject the
+		// interrupted internal database before changing it.
+		delete(files, "current/001001_internal_baseline.up.sql")
+		delete(files, "current/001001_internal_baseline.down.sql")
+		delete(files, "current/001003_internal_checkpoint.up.sql")
+		if err := runCurrentMigrations(t.Context(), conn, files); err == nil {
+			t.Fatal("public switch accepted dirty shared step")
+		}
+	})
+}
+
+type stopAfterSharedCheckpoint struct{ migratedatabase.Driver }
+
+func (d stopAfterSharedCheckpoint) SetVersion(version int, dirty bool) error {
+	if err := d.Driver.SetVersion(version, dirty); err != nil {
+		return err
+	}
+	if version == 1002 && !dirty {
+		return fmt.Errorf("simulated process exit between migrations")
+	}
+	return nil
 }

@@ -2,7 +2,6 @@
 """Check immutable SQL history and unchanged, ordered shared promotion."""
 
 import argparse
-import json
 import pathlib
 import re
 import subprocess
@@ -10,7 +9,6 @@ import sys
 
 MIGRATIONS = "server/migrations/"
 CURRENT = MIGRATIONS + "current/"
-ASSERTIONS = "server/internal/infrastructure/db/baseline/assertions.json"
 NAME = re.compile(r"([0-9]{6})_(shared|internal)_[a-z0-9_]+\.(up|down)\.sql")
 REQUIRES = re.compile(rb"^-- requires-shared: ([0-9]+)\r?$", re.MULTILINE)
 
@@ -81,27 +79,6 @@ def active_migrations(files, public_only=False):
     return versions
 
 
-def check_assertions(repo, base_ref, target):
-    in_base = bool(git(repo, "ls-tree", "--name-only", base_ref, "--", ASSERTIONS))
-    path = repo / ASSERTIONS
-    if not path.exists():
-        if in_base:
-            raise ValueError("schema assertions cannot be deleted")
-        return
-    assertions = json.loads(path.read_text())
-    if type(assertions.get("target")) is not int or assertions["target"] != target:
-        raise ValueError(
-            f"schema assertion target must equal active migration version {target}"
-        )
-    if in_base:
-        previous = json.loads(git(repo, "show", f"{base_ref}:{ASSERTIONS}"))
-        admitted = assertions.get("admissions", {}).get(str(previous["target"]), [])
-        if not admitted or not set(previous["targets"]).issubset(admitted):
-            raise ValueError(
-                f"retain previous release catalog admissions for version {previous['target']}"
-            )
-
-
 def check(repo, base_ref, public_ref=None, public_only=False):
     base = revision_sql(repo, base_ref)
     local = {}
@@ -118,7 +95,11 @@ def check(repo, base_ref, public_ref=None, public_only=False):
     current = active_migrations(local, public_only)
     if not current:
         raise ValueError("active migration source is empty")
-    check_assertions(repo, base_ref, max(current))
+    if (
+        any(pair["up"][2] == "internal" for pair in current.values())
+        and current[max(current)]["up"][2] != "internal"
+    ):
+        raise ValueError("internal releases must end at a private checkpoint")
     previous = active_migrations(base, public_only)
     high_water = max(previous, default=-1)
     for version in current.keys() - previous.keys():

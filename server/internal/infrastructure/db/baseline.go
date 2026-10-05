@@ -17,8 +17,6 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	migratedatabase "github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"github.com/block/proto-fleet/server/migrations"
 )
@@ -40,7 +38,6 @@ type baselineAssertions struct {
 	Target       int                       `json:"target"`
 	Sources      map[string]baselineRecipe `json:"sources"`
 	Targets      []string                  `json:"targets"`
-	Admissions   map[int][]string          `json:"admissions"`
 }
 
 // BaselineStatus intentionally contains no credentials, connection strings, or
@@ -159,7 +156,7 @@ func readBaselineCatalog(ctx context.Context, q baselineQuerier) (string, error)
 
 func checkBaselineState(ctx context.Context, q baselineQuerier, state, source string, version int) (BaselineStatus, error) {
 	if state == "startup" {
-		return checkBaselineStartup(ctx, q)
+		return checkBaselineStartup(ctx, q, migrations.Current)
 	}
 	status, err := readBaselineStatus(ctx, q)
 	if err != nil {
@@ -210,6 +207,20 @@ func CheckBaseline(ctx context.Context, conn *sql.DB, state, source string, vers
 		return BaselineStatus{}, fmt.Errorf("begin baseline inspection: %w", err)
 	}
 	defer tx.Rollback()
+	if state == "target" {
+		status, err := checkBaselineStartup(ctx, tx, migrations.Current)
+		if err != nil {
+			return status, err
+		}
+		_, latest, err := migrationCheckpoints(migrations.Current)
+		if err != nil {
+			return status, err
+		}
+		if status.Version != latest {
+			return status, fmt.Errorf("expected release migration %d, found %d", latest, status.Version)
+		}
+		return status, nil
+	}
 	return checkBaselineState(ctx, tx, state, source, version)
 }
 
@@ -261,31 +272,6 @@ func withBaselineLock(ctx context.Context, pool *sql.DB, run func(*sql.Conn) err
 		}
 	}()
 	return run(conn)
-}
-
-func runCurrentMigrations(ctx context.Context, pool *sql.DB) error {
-	return withBaselineLock(ctx, pool, func(conn *sql.Conn) error {
-		if _, err := checkBaselineStartup(ctx, conn); err != nil {
-			return err
-		}
-		source, err := iofs.New(migrations.Current, "current")
-		if err != nil {
-			return fmt.Errorf("open current migration source: %w", err)
-		}
-		driver, err := postgres.WithConnection(ctx, conn, &postgres.Config{})
-		if err != nil {
-			return fmt.Errorf("initialize current migration driver: %w", err)
-		}
-		m, err := migrate.NewWithInstance("current", source, "", driver)
-		if err != nil {
-			return fmt.Errorf("initialize current migrations: %w", err)
-		}
-		if err = runMigrations(m); err != nil {
-			return err
-		}
-		_, err = checkBaselineState(ctx, conn, "target", "", 0)
-		return err
-	})
 }
 
 // ApplyBaseline reconciles only enumerated source schemas. Every schema/data
@@ -417,7 +403,7 @@ func protectedBaselineData(ctx context.Context, q baselineQuerier, omitAddedColu
 	return fmt.Sprintf("%x", digest.Sum(nil)), nil
 }
 
-func checkBaselineStartup(ctx context.Context, q baselineQuerier) (BaselineStatus, error) {
+func checkBaselineStartup(ctx context.Context, q baselineQuerier, files fs.FS) (BaselineStatus, error) {
 	var status BaselineStatus
 	var tracked bool
 	if err := q.QueryRowContext(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL`).Scan(&tracked); err != nil {
@@ -453,32 +439,19 @@ func checkBaselineStartup(ctx context.Context, q baselineQuerier) (BaselineStatu
 	if status.Dirty {
 		return status, fmt.Errorf("database migration %d is dirty", status.Version)
 	}
-	assertions, err := loadBaselineAssertions()
+	checkpoints, _, err := migrationCheckpoints(files)
 	if err != nil {
 		return status, err
 	}
-	catalog, err := readBaselineCatalog(ctx, q)
-	if err != nil {
-		return status, err
+	if !checkpoints[status.Version] {
+		return status, fmt.Errorf("version %d is not a checkpoint owned by this application; use the offline transition procedure", status.Version)
 	}
-	for _, expected := range assertions.Admissions[status.Version] {
-		if expected == catalog {
-			return status, nil
-		}
+	// Exact catalog validation belongs to baseline adoption only. Future
+	// migrations use the stock runner and repository-owned checkpoints.
+	if status.Version <= 1001 {
+		return checkBaselineState(ctx, q, "target", "", 0)
 	}
-	return status, fmt.Errorf("schema version %d is not admitted by this release; run the qualified offline reconciliation before starting Fleet", status.Version)
-}
-
-// BaselineCatalog reports a development assertion digest, not an adoption token.
-// It is read-only; accepting a new digest remains a reviewed release change.
-func BaselineCatalog(ctx context.Context, conn *sql.DB) (string, error) {
-	//nolint:forbidigo // Catalog evidence uses one consistent snapshot.
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
-	if err != nil {
-		return "", fmt.Errorf("begin catalog inspection: %w", err)
-	}
-	defer tx.Rollback()
-	return readBaselineCatalog(ctx, tx)
+	return status, nil
 }
 
 func checkBaselineGrants(ctx context.Context, q baselineQuerier) error {

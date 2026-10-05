@@ -74,6 +74,7 @@ class MigrationHistoryTest(unittest.TestCase):
     def test_internal_prerequisite_and_public_prefix(self):
         self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
         self.pair("001002_shared_pending")
+        self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
         self.check("--public-ref", self.base)
 
     def test_missing_direction(self):
@@ -166,51 +167,21 @@ class MigrationHistoryTest(unittest.TestCase):
         )
         self.check(error="requires-shared")
 
-    def assertions(self, target, admissions=None, targets=None):
+    def test_internal_release_requires_private_checkpoint(self):
+        self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
+        self.pair("001002_shared_next")
+        self.check(error="private checkpoint")
+        self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
+        self.check()
+
+    def test_future_migration_does_not_require_catalog_history(self):
         self.write(
             ASSERTIONS,
-            json.dumps(
-                {
-                    "target": target,
-                    "admissions": admissions or {},
-                    "targets": targets or ["fixture-catalog"],
-                }
-            ),
+            json.dumps({"target": 1000, "targets": ["frozen-transition-catalog"]}),
         )
-
-    def test_initial_assertions_match_active_target(self):
-        self.assertions(1000)
-        self.check()
-
-    def test_new_migration_requires_updated_assertion_target(self):
-        self.assertions(1000)
         self.base = self.commit()
-        self.pair("001003_shared_next")
-        self.check(error="assertion target must equal active migration version 1003")
-
-    def test_next_assertions_retain_previous_release_catalog_admission(self):
-        self.assertions(1000, targets=["fresh", "upgraded"])
-        self.base = self.commit()
-        self.pair("001003_shared_next")
-        self.assertions(1003, {"1000": ["fresh", "upgraded"]})
-        self.check()
-
-    def test_missing_previous_release_admission_is_refused(self):
-        self.assertions(1000, targets=["fresh", "upgraded"])
-        self.base = self.commit()
-        self.pair("001003_shared_next")
-        for admissions in ({}, {"1000": ["fresh"]}, {"1000": ["wrong"]}):
-            with self.subTest(admissions=admissions):
-                self.assertions(1003, admissions)
-                self.check(
-                    error="retain previous release catalog admissions for version 1000"
-                )
-
-    def test_existing_assertions_cannot_be_deleted(self):
-        self.assertions(1000)
-        self.base = self.commit()
-        (self.repo / ASSERTIONS).unlink()
-        self.check(error="schema assertions cannot be deleted")
+        self.pair("001002_shared_next")
+        self.check("--public-only")
 
 
 if __name__ == "__main__":

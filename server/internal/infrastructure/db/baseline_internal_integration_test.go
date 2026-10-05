@@ -3,6 +3,8 @@ package db
 import (
 	"strconv"
 	"testing"
+
+	"github.com/block/proto-fleet/server/migrations"
 )
 
 func TestBaselineInternalReconciliation(t *testing.T) {
@@ -22,11 +24,24 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			sourceVersion := int(version)
+			if version != 153 && version != 158 {
+				if err := ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err == nil {
+					t.Fatal("non-entry-point source was accepted directly")
+				}
+				// The stock legacy runner reaches one of two entry points. Never
+				// cross destructive migration 154 from a database retaining snapshots.
+				sourceVersion = 158
+				if version < 153 {
+					sourceVersion = 153
+				}
+				migrateTestDBTo(t, conn, config.Name, uint(sourceVersion))
+			}
 			before, err := protectedBaselineData(t.Context(), conn, false)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = ApplyBaseline(t.Context(), conn, "internal", int(version)); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err != nil {
 				t.Fatal(err)
 			}
 			after, err := protectedBaselineData(t.Context(), conn, false)
@@ -36,7 +51,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 			if before != after {
 				t.Fatal("protected data changed")
 			}
-			if err = ApplyBaseline(t.Context(), conn, "internal", int(version)); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err != nil {
 				t.Fatal(err)
 			}
 			if version == 158 {
@@ -52,7 +67,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 					t.Fatal("equipment observations changed")
 				}
 			}
-			if err = runCurrentMigrations(t.Context(), conn); err != nil {
+			if err = runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -66,7 +81,7 @@ func TestBaselineInternalRefusesSkippedPrivateMigration(t *testing.T) {
 	if _, err := conn.ExecContext(t.Context(), `UPDATE schema_migrations SET version=1001`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCurrentMigrations(t.Context(), conn); err == nil {
+	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 		t.Fatal("same version admitted a shared-only schema")
 	}
 	if err := ApplyBaseline(t.Context(), conn, "public", 1001); err == nil {
@@ -81,20 +96,20 @@ func TestBaselineInternalRefusesSkippedPrivateMigration(t *testing.T) {
 	}
 }
 
-func TestBaselineInternalResumesInterruptedFreshAtSharedBaseline(t *testing.T) {
+func TestBaselineInternalConvertsCleanPublicBaseline(t *testing.T) {
 	requireBaselineDB(t)
 	conn, _ := newMigrationBridgeTestDB(t)
 	baselinePublicFixture(t, conn, 153)
 	if _, err := conn.ExecContext(t.Context(), `UPDATE schema_migrations SET version=1000`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCurrentMigrations(t.Context(), conn); err == nil {
+	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 		t.Fatal("startup ran private baseline against existing shared data")
 	}
 	if err := ApplyBaseline(t.Context(), conn, "public", 1000); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCurrentMigrations(t.Context(), conn); err != nil {
+	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -1,11 +1,5 @@
 {
   "target": 1001,
-  "admissions": {
-    "1001": [
-      "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
-      "237ebb0b9c9eff7886ce8a42ab25f879f3d7ab82791c10e8db913f03e58f0dd5"
-    ]
-  },
   "targets": [
     "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
     "237ebb0b9c9eff7886ce8a42ab25f879f3d7ab82791c10e8db913f03e58f0dd5"
@@ -39,39 +33,6 @@
         "000158_container_equipment.up.sql"
       ]
     },
-    "internal-150": {
-      "catalog": "6e3dadc69b51065393a81325df170f7caf8c787d4860e9ed2994041f2d7bc4b2",
-      "sql": [
-        "000151_rollout_activity_labels.up.sql",
-        "baseline/plant.sql",
-        "baseline/inventory.sql",
-        "000155_curtailment_rig_config_targets.up.sql",
-        "baseline/queue_index.sql",
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-151": {
-      "catalog": "1aa91a3f91d94ae949f62067d70ef45add89e455344b47430d79db26803aca8b",
-      "sql": [
-        "baseline/plant.sql",
-        "baseline/inventory.sql",
-        "000155_curtailment_rig_config_targets.up.sql",
-        "baseline/queue_index.sql",
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-152": {
-      "catalog": "9de9fa62fadc688767a3798b6491097546a643ada797fd4b0fa41fc49e77c748",
-      "sql": [
-        "baseline/inventory.sql",
-        "000155_curtailment_rig_config_targets.up.sql",
-        "baseline/queue_index.sql",
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
     "internal-153": {
       "catalog": "701e5314404b8ab558923689278dfd89d21d055619d17100c1b6c7c81addc546",
       "sql": [
@@ -80,40 +41,6 @@
         "000157_delegated_rollout_events.up.sql",
         "000158_container_equipment.up.sql"
       ]
-    },
-    "internal-154": {
-      "catalog": "8913f337a8e97b4a8efe902d058d9eabf853d30345fe19f439ec929593a02afa",
-      "sql": [
-        "000155_curtailment_rig_config_targets.up.sql",
-        "baseline/queue_index.sql",
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-155": {
-      "catalog": "ade28e70c6c0d8f267d3b407a3152e3c346b630fd6e66c254a6f16cd2d2d9038",
-      "sql": [
-        "baseline/queue_index.sql",
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-156": {
-      "catalog": "b94f59dfe0abd58cee5f5bc53cd3ae672cec002bb0a090c48ddb65158553d0bd",
-      "sql": [
-        "000157_delegated_rollout_events.up.sql",
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-157": {
-      "catalog": "f898a6da1f9d47a1d3a5be3464dc47e0b1b8ccc576e088bf27cfb5c11f265a37",
-      "sql": [
-        "000158_container_equipment.up.sql"
-      ]
-    },
-    "internal-1001": {
-      "catalog": "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
-      "sql": []
     },
     "internal-158": {
       "catalog": "627c699eaa50e9786d3cf006aa1e2fb649174f1ca89f7982260bfd4e89d3fbb6",
