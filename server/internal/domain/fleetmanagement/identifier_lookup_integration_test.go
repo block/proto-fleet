@@ -28,7 +28,7 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 	// Reconciliation preserves independent device and discovery identifiers.
 	_, err = testContext.ServiceProvider.DB.ExecContext(t.Context(),
 		"UPDATE discovered_device SET device_identifier = $1 WHERE device_identifier = $2 AND org_id = $3",
-		created.ID+"-discovery", created.ID, admin.OrganizationID)
+		"independent-discovery-row", created.ID, admin.OrganizationID)
 	require.NoError(t, err)
 	collections := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	group, err := collections.CreateCollection(t.Context(), admin.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP, "Recovery group", "")
@@ -54,6 +54,17 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 				require.Len(t, result.Snapshot.Placement.Groups, 1)
 				require.Equal(t, group.Id, result.Snapshot.Placement.Groups[0].Id)
 			}
+		})
+	}
+
+	for _, query := range []string{created.ID, "independent-discovery-row"} {
+		t.Run("search "+query, func(t *testing.T) {
+			require.NoError(t, store.UpsertDevicePairing(t.Context(), device, admin.OrganizationID, pairing.StatusPaired))
+			result, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{Filter: &pb.MinerListFilter{SearchQuery: query}, PageSize: 10})
+			require.NoError(t, err)
+			require.Len(t, result.Miners, 1)
+			require.Equal(t, created.ID, result.Miners[0].DeviceIdentifier)
+			require.Equal(t, int32(1), result.TotalMiners)
 		})
 	}
 	otherCtx := testutil.MockAuthContextForTesting(t.Context(), otherAdmin.DatabaseID, otherAdmin.OrganizationID)

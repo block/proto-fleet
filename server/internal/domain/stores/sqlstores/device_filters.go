@@ -274,11 +274,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		fmt.Fprintf(sb, ` AND (
 			%s ILIKE $%d ESCAPE '\'
 			OR discovered_device.device_identifier ILIKE $%d ESCAPE '\'
+			OR device.device_identifier ILIKE $%d ESCAPE '\'
 			OR device.serial_number ILIKE $%d ESCAPE '\'
 			OR device.mac_address ILIKE $%d ESCAPE '\'
 			OR discovered_device.ip_address ILIKE $%d ESCAPE '\'
 			OR device.worker_name ILIKE $%d ESCAPE '\'
-		)`, sortExpressions[stores.SortFieldName], argNum, argNum, argNum, argNum, argNum, argNum)
+		)`, sortExpressions[stores.SortFieldName], argNum, argNum, argNum, argNum, argNum, argNum, argNum)
 		args = append(args, fp.searchQueryFilter.String)
 		argNum++
 	}

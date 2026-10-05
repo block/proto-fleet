@@ -261,10 +261,37 @@ func (p *Pairer) handlePairViaStore(
 			return fleeterror.NewInternalErrorf("failed to check if device exists: %v", err)
 		}
 
+		excludeIdentifier := ""
+		if existingDevice != nil {
+			// The store's recovery lock locks the device row. Hold it while checking
+			// placeholder eligibility so concurrent pairing cannot change that decision.
+			locked, err := p.deviceStore.LockDeviceForCloudRecoveryByIdentifier(ctx, existingDevice.DeviceIdentifier, discoveredDevice.OrgID)
+			if err != nil {
+				return err
+			}
+			if !locked {
+				return fleeterror.NewNotFoundError("selected device is no longer available")
+			}
+			pairingStatus, err := p.deviceStore.GetDevicePairingStatusByIdentifier(ctx, existingDevice.DeviceIdentifier, discoveredDevice.OrgID)
+			if err != nil {
+				return fleeterror.NewInternalErrorf("failed to check selected device pairing status: %v", err)
+			}
+			// Only an authentication-needed placeholder without saved credentials may
+			// exclude itself. An established miner (including one needing reauth) must
+			// remain in the lookup so duplicate MACs are rejected as ambiguous.
+			if pairingStatus == pairing.StatusAuthenticationNeeded {
+				_, err := p.deviceStore.GetMinerCredentials(ctx, existingDevice, discoveredDevice.OrgID)
+				if fleeterror.IsNotFoundError(err) {
+					excludeIdentifier = existingDevice.DeviceIdentifier
+				} else if err != nil {
+					return fleeterror.NewInternalErrorf("failed to check selected device credentials: %v", err)
+				}
+			}
+		}
 		// Reconciliation still matters even when a row already exists under the current
 		// discovered identifier. That covers AUTHENTICATION_NEEDED retries after a subnet move,
 		// where the first unauthenticated attempt may have inserted a placeholder device row.
-		reconciledDevice, err := p.reconcileExistingDevice(ctx, discoveredDevice)
+		reconciledDevice, err := p.reconcileExistingDevice(ctx, discoveredDevice, excludeIdentifier)
 		if err != nil {
 			return err
 		}
@@ -413,9 +440,9 @@ func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
 // discovered device, first by MAC address, then by serial number as fallback.
 // This handles re-pairing after subnet migration for both Proto (MAC available) and
 // Antminer (only serial available after callPluginPairDevice) devices.
-func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, excludeIdentifier string) (*pb.Device, error) {
 	// Try MAC-based reconciliation first
-	result, err := p.reconcileDeviceByMAC(ctx, discoveredDevice)
+	result, err := p.reconcileDeviceByMAC(ctx, discoveredDevice, excludeIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -458,10 +485,10 @@ func (p *Pairer) reconcileDeviceBySerial(ctx context.Context, discoveredDevice *
 }
 
 // reconcileDeviceByMAC checks if a paired device with the same MAC address already exists.
-func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, excludeIdentifier string) (*pb.Device, error) {
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
-	pairedDevice, err := p.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
+	pairedDevice, err := p.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, discoveredDevice.OrgID, excludeIdentifier)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, nil

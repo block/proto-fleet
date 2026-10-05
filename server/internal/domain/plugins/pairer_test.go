@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -200,7 +201,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	// Mock device store operations
 	// GetDeviceByDeviceIdentifier returns nil (device doesn't exist yet)
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -309,7 +310,7 @@ func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *tes
 	)
 
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), "00:11:22:33:44:55").Return(nil)
@@ -913,7 +914,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 
 	// Mock device store operations
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1014,7 +1015,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 	)
 
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1228,7 +1229,7 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 
 	// Mock device store operations
 	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
-	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, device.DeviceIdentifier).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(
@@ -1424,6 +1425,9 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 			deviceStore.EXPECT().
 				GetDeviceByDeviceIdentifier(gomock.Any(), "retry-id", int64(1)).
 				Return(&pb.Device{DeviceIdentifier: "retry-id"}, nil)
+			deviceStore.EXPECT().LockDeviceForCloudRecoveryByIdentifier(gomock.Any(), "retry-id", int64(1)).Return(true, nil)
+			deviceStore.EXPECT().GetDevicePairingStatusByIdentifier(gomock.Any(), "retry-id", int64(1)).Return(pairing.StatusAuthenticationNeeded, nil)
+			deviceStore.EXPECT().GetMinerCredentials(gomock.Any(), gomock.Any(), int64(1)).Return(nil, fleeterror.NewNotFoundError("pending credentials"))
 			if byMAC {
 
 				deviceStore.EXPECT().
@@ -1563,6 +1567,8 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 	deviceStore.EXPECT().
 		GetDeviceByDeviceIdentifier(gomock.Any(), "device-123", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "device-123"}, nil)
+	deviceStore.EXPECT().LockDeviceForCloudRecoveryByIdentifier(gomock.Any(), "device-123", int64(1)).Return(true, nil)
+	deviceStore.EXPECT().GetDevicePairingStatusByIdentifier(gomock.Any(), "device-123", int64(1)).Return(pairing.StatusPaired, nil)
 	deviceStore.EXPECT().
 		GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), gomock.Any()).
 		Return(nil, fleeterror.NewNotFoundError("no paired device"))
