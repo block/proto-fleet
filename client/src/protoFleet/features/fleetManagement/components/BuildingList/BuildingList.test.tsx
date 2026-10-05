@@ -241,7 +241,6 @@ describe("BuildingList row actions menu", () => {
 
 const container = create(ContainerSchema, {
   deviceIdentifier: "42",
-
   name: "A container",
   site: { id: 7n, label: "North" },
   hashrateHs: 100e12,
@@ -250,6 +249,18 @@ const container = create(ContainerSchema, {
 });
 
 describe("combined building and container rows", () => {
+  it("opens container actions without navigating or offering miner-only commands", async () => {
+    const fetchStatus = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ mining: true })));
+    renderList({ containers: [container] });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for A container" }));
+    expect(await screen.findByRole("button", { name: "Sleep container" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wake container" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reboot miners" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
+    fetchStatus.mockRestore();
+  });
   it("sorts both types together and shares columns and a count", () => {
     renderList({ containers: [container] });
     const rows = screen.getAllByTestId("list-row");

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
+import ContainerActionsMenu from "./ContainerActionsMenu";
 import { containerHealth } from "./containerHealth";
 import { InventoryCell } from "./InventoryCell";
 import { containerDetailPath } from "./useOpenContainerView";
@@ -12,7 +13,7 @@ export default function ContainerCard({ container, inventory }: { container: Con
   const className = "flex h-full flex-col rounded-2xl bg-surface-overlay p-5";
   const content = (
     <>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 pr-10">
         <span className="truncate text-emphasis-300">{container.name}</span>
         <span className="text-200 text-text-primary-70">Container</span>
       </div>
@@ -70,12 +71,17 @@ export default function ContainerCard({ container, inventory }: { container: Con
     </>
   );
   return (
-    <Link
-      className={`${className} transition-opacity hover:opacity-80`}
-      data-testid={`container-card-${container.deviceIdentifier}`}
-      to={containerDetailPath(container)}
-    >
-      {content}
-    </Link>
+    <div className="relative h-full">
+      <Link
+        className={`${className} transition-opacity hover:opacity-80`}
+        data-testid={`container-card-${container.deviceIdentifier}`}
+        to={containerDetailPath(container)}
+      >
+        {content}
+      </Link>
+      <div className="absolute top-4 right-5">
+        <ContainerActionsMenu container={container} />
+      </div>
+    </div>
   );
 }

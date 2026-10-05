@@ -216,6 +216,34 @@ work. Storybook examples live under **Proto OS / Containers / Health drill-down*
 
 **ProtoFleet** — gRPC-Web with Connect-RPC. Generated TypeScript code in `src/protoFleet/api/generated/` from Protobuf definitions. Supports server-to-client streaming for real-time telemetry. Custom hooks in `src/protoFleet/api/`.
 
+Container entries in the building list and grid share an actions menu. For directly
+paired controllers, it exposes sleep or wake, plus manage power. Opening the menu
+reads the controller's current mining status: stopped containers offer wake, active
+containers offer sleep, and unknown or transitioning states offer neither. Commands require confirmation and
+the corresponding Fleet permission, then issue one MDK v2 request through the
+authenticated miner proxy. Sleep/wake changes container mining intent and leaves
+isolated boards under individual control. Power limits come from the controller,
+with a minimum of 1 W because zero can remove the controller's power limit.
+The menu uses the miner menu’s icons and navigation, operations, and settings groups.
+View container, the card, and the list row open Fleet's native container details,
+including for FleetNode-owned and unreachable controllers. The menu checks proxy
+availability on open and disables controller actions when that check fails;
+navigation remains available. Power controls wait for a successful status read,
+even for operators who only have power-management permission.
+
+The action contract is `proto-rig-api/openapi/MDK-v2-API.json`, checked against
+Frigate revision `7a033dbff47e3521d8b87358c1be63bb337ea636`. Host reboot and firmware
+update remain unimplemented in that revision's SystemService. Update firmware is
+visible but disabled; the CT1 Fleet driver also lacks the firmware capability. Edit
+pool and Update worker name are visible but disabled because the CT1 Fleet driver
+lacks pool configuration support. Worker-name updates require reapplying pools, and
+the authenticated proxy intentionally rejects direct pool writes. These settings
+follow the corresponding miner action permissions. Host reboot, cooling, lighting,
+alarm controls, streaming logs, module/feed operations, and advanced plant procedures
+are not part of this menu. This surface does not change miner bulk selection,
+scheduled commands, or curtailment dispatch. Interactive examples are under
+**Proto Fleet / Containers / Actions** in Storybook.
+
 ### Observability
 
 Client observability lives in `src/shared/observability/` as a vendor-neutral provider

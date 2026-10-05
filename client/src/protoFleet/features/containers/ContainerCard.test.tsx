@@ -1,14 +1,21 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import ContainerCard from "./ContainerCard";
 import { tankHealth } from "./containerHealth";
 import { ContainerSchema, TankHealthSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { healthHeatBand } from "@/protoFleet/features/buildings/components/cardHealth";
 
+vi.mock("@/protoFleet/store", () => ({
+  usePermissions: () => ["miner:stop_mining", "miner:start_mining", "miner:set_power_target", "miner:read"],
+}));
+
 describe("ContainerCard", () => {
-  it("uses the same proportion bands as building racks", () => {
+  it("uses the same proportion bands as building racks", async () => {
+    const fetchStatus = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ mining: true })));
     const tank = create(TankHealthSchema, { position: 1, hashingCount: 15, attentionCount: 1 });
     expect(tankHealth(tank, false).band).toBe(healthHeatBand(1 / 16));
     const container = create(ContainerSchema, {
@@ -26,6 +33,12 @@ describe("ContainerCard", () => {
       "2",
     );
     expect(screen.getByRole("link")).toHaveAttribute("href", "/containers/ct1");
+    const trigger = screen.getByRole("button", { name: "Actions for Container 1" });
+    expect(trigger.closest("a")).toBeNull();
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText("Sleep container")).toBeInTheDocument();
+    fetchStatus.mockRestore();
   });
   it("never renders incomplete or stale observations as healthy", () => {
     expect(tankHealth(create(TankHealthSchema, { hashingCount: 15, unknownCount: 1 }), false).incomplete).toBe(true);

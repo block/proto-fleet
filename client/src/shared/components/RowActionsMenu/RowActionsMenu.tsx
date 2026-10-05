@@ -180,7 +180,7 @@ const RowActionsMenuInner = ({
         >
           {visibleActions.map((action, index) => (
             <Fragment key={action.testId ?? `${action.label}-${index}`}>
-              <div className="px-4">
+              <div className={action.disabled ? "px-4 opacity-50" : "px-4"}>
                 <Row
                   className={clsx("text-emphasis-300", action.danger && "text-intent-critical-fill")}
                   prefixIcon={action.icon}

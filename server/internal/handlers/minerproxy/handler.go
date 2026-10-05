@@ -590,6 +590,8 @@ var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
 	{method: http.MethodGet, rest: "hashboards/*/asics", requiresAuth: false},
 	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false},
+	{method: http.MethodPost, rest: "mining/start", requiresAuth: false},
+	{method: http.MethodPost, rest: "mining/stop", requiresAuth: false},
 	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false},
 	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false},
 	{method: http.MethodPost, rest: "hashboards/identify-led", requiresAuth: false},
@@ -683,9 +685,9 @@ func permissionsFor(method string, proxyPath string) []string {
 	}
 
 	switch {
-	case proxyPath == "/api/v2/mining/scoped/start":
+	case proxyPath == "/api/v2/mining/scoped/start" || proxyPath == "/api/v2/mining/start":
 		return []string{authz.PermMinerStartMining}
-	case proxyPath == "/api/v2/mining/scoped/stop":
+	case proxyPath == "/api/v2/mining/scoped/stop" || proxyPath == "/api/v2/mining/stop":
 		return []string{authz.PermMinerStopMining}
 	case proxyPath == "/api/v2/hashboards/identify-led":
 		return []string{authz.PermMinerBlinkLED}

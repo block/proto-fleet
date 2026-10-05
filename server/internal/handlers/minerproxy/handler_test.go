@@ -53,6 +53,8 @@ func TestPermissionsFor(t *testing.T) {
 		proxyPath string
 		want      []string
 	}{
+		{name: "CT1 container start", method: http.MethodPost, proxyPath: "/api/v2/mining/start", want: []string{authz.PermMinerStartMining}},
+		{name: "CT1 container stop", method: http.MethodPost, proxyPath: "/api/v2/mining/stop", want: []string{authz.PermMinerStopMining}},
 		{name: "CT1 scoped start", method: http.MethodPost, proxyPath: "/api/v2/mining/scoped/start", want: []string{authz.PermMinerStartMining}},
 		{name: "CT1 scoped stop", method: http.MethodPost, proxyPath: "/api/v2/mining/scoped/stop", want: []string{authz.PermMinerStopMining}},
 		{name: "CT1 identify", method: http.MethodPost, proxyPath: "/api/v2/hashboards/identify-led", want: []string{authz.PermMinerBlinkLED}},
@@ -811,6 +813,8 @@ func TestCT1ModuleActions(t *testing.T) {
 	const scope = `"scope":{"identifiers":["02:00:00:00:01:01","02:00:00:00:01:02"]}`
 	const boardResults = `{"results":[{"macAddress":"02:00:00:00:01:01","applied":true},{"macAddress":"02:00:00:00:01:02","applied":false,"message":"disconnected"}]}`
 	for _, endpoint := range []struct{ rest, body, response string }{
+		{"mining/start", "{}", "{}"},
+		{"mining/stop", "{}", "{}"},
 		{"mining/scoped/start", "{" + scope + "}", boardResults},
 		{"mining/scoped/stop", "{" + scope + "}", boardResults},
 		{"hashboards/identify-led", "{" + scope + `,"mode":"HASHBOARD_IDENTIFY_LED_MODE_BLINK"}`, `{"boardsUpdated":2}`},

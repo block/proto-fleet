@@ -8,6 +8,7 @@ import type { Container } from "@/protoFleet/api/generated/containers/v1/contain
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
+import ContainerActionsMenu from "@/protoFleet/features/containers/ContainerActionsMenu";
 import { containerHealth } from "@/protoFleet/features/containers/containerHealth";
 import { useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
@@ -220,7 +221,9 @@ const BuildingList = ({
           <div className="min-w-0">
             <span className="block truncate text-emphasis-300">{buildingName}</span>
           </div>
-          {item.kind === "building" && buildingId !== undefined && buildingId !== 0n ? (
+          {item.kind === "container" ? (
+            <ContainerActionsMenu container={item.container} />
+          ) : buildingId !== undefined && buildingId !== 0n ? (
             <FleetGroupActionsMenu
               scopes={[{ kind: "building", id: buildingId, name: buildingName }]}
               ariaLabel={`Actions for ${buildingName}`}
