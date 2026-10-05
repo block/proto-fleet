@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io/fs"
+	"maps"
 	"os"
 	"strconv"
 	"testing"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/stretchr/testify/require"
 )
 
 func requireBaselineDB(t *testing.T) {
@@ -259,6 +263,65 @@ func TestCheckpointMigrations(t *testing.T) {
 		files[path] = &fstest.MapFile{Data: body}
 	}
 	files["current/001002_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
+	t.Run("internal checkpoints", func(t *testing.T) {
+		for _, test := range []struct {
+			name       string
+			privateSQL string
+			stopShared bool
+			wantDirty  bool
+		}{
+			{name: "interrupted after shared step", privateSQL: "SELECT 1;", stopShared: true, wantDirty: true},
+			{name: "failed private step", privateSQL: "SELECT missing_checkpoint_function();", wantDirty: true},
+			{name: "completed private checkpoint", privateSQL: "SELECT 1;"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				conn, _ := newMigrationBridgeTestDB(t)
+				internal := maps.Clone(files)
+				delete(internal, "current/001002_shared_probe.up.sql")
+				internal["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+				require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				internal["current/001004_shared_probe.up.sql"] = files["current/001002_shared_probe.up.sql"]
+				internal["current/001005_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte(test.privateSQL)}
+				// Begin at a private checkpoint, then exercise the same stock
+				// migrator and checkpoint driver used by runCurrentMigrations.
+				checkpoints, _, err := migrationCheckpoints(internal)
+				require.NoError(t, err)
+				source, err := iofs.New(internal, "current")
+				require.NoError(t, err)
+				driver, err := postgres.WithInstance(conn, &postgres.Config{})
+				require.NoError(t, err)
+				m, err := migrate.NewWithInstance("current", source, "", checkpointDriver{driver, checkpoints})
+				require.NoError(t, err)
+				// The test database cleanup owns conn; m.Close would close it too.
+				wantVersion := 1005
+				if test.stopShared {
+					require.NoError(t, m.Steps(1))
+					wantVersion = 1004
+				} else if test.wantDirty {
+					require.ErrorContains(t, m.Up(), "missing_checkpoint_function")
+				} else {
+					require.NoError(t, m.Up())
+					require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				}
+				status, err := readBaselineStatus(t.Context(), conn)
+				require.NoError(t, err)
+				require.Equal(t, wantVersion, status.Version)
+				require.Equal(t, test.wantDirty, status.Dirty)
+				// Public knows shared 1004, but must refuse it while dirty, and
+				// must also refuse the private checkpoint even when clean.
+				public := maps.Clone(files)
+				public["current/001004_shared_probe.up.sql"] = internal["current/001004_shared_probe.up.sql"]
+				_, err = checkBaselineStartup(t.Context(), conn, public)
+				require.Error(t, err)
+				_, err = checkBaselineStartup(t.Context(), conn, internal)
+				if test.wantDirty {
+					require.ErrorContains(t, err, "dirty")
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	})
 	t.Run("ordinary framework upgrade and repeat", func(t *testing.T) {
 		conn, _ := newMigrationBridgeTestDB(t)
 		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {

@@ -167,13 +167,23 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 	return recordActiveInstall(ctx, deps)
 }
 
+// CheckApplicationSchema admits a staged release before a rolling update stops Fleet.
+// Maintenance staging remains separate so it can precede offline reconciliation.
+func CheckApplicationSchema(ctx context.Context, root string) error {
+	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
+	if err != nil {
+		return err
+	}
+	return checkApplicationSchema(ctx, root, profile, RunCompose)
+}
+
 // Rolling updates and their recovery must never perform a schema transition.
 // This read-only check also rejects equal version numbers from another schema.
 func checkApplicationSchema(ctx context.Context, root string, profile fleetApplicationProfile, runCompose func(context.Context, []string) error) error {
 	args := fleetComposeArgsAtProfile(root, installedFleetEnvironment, profile, "run",
 		"--rm", "--no-deps", "--entrypoint", "/app/fleet-db-transition", "fleet-api", "check", "--state", "target")
 	if err := runCompose(ctx, args); err != nil {
-		return fmt.Errorf("HA application schema is not ready; keep Fleet stopped and use the offline database transition procedure: %w", err)
+		return fmt.Errorf("HA application schema is not ready; use the offline database transition procedure before updating: %w", err)
 	}
 	return nil
 }
