@@ -9,27 +9,27 @@
       "catalog": "bd63a7d057409ed495d53002c04340cce5fe68c80632bed4e1789f8263122094",
       "sql": [
         "000157_delegated_rollout_events.up.sql",
-        "baseline/device_class.sql",
+        "000150_device_class.up.sql",
         "baseline/plant.sql",
-        "baseline/inventory.sql",
+        "000153_container_inventory.up.sql",
         "000158_container_equipment.up.sql"
       ]
     },
     "public-153": {
       "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
       "sql": [
-        "baseline/device_class.sql",
+        "000150_device_class.up.sql",
         "baseline/plant.sql",
-        "baseline/inventory.sql",
+        "000153_container_inventory.up.sql",
         "000158_container_equipment.up.sql"
       ]
     },
     "public-1000": {
       "catalog": "0b52c3019c5f405ce48a5602d7a3c5eb08212caaa142e8a7eeca124999b6e8ce",
       "sql": [
-        "baseline/device_class.sql",
+        "000150_device_class.up.sql",
         "baseline/plant.sql",
-        "baseline/inventory.sql",
+        "000153_container_inventory.up.sql",
         "000158_container_equipment.up.sql"
       ]
     },
