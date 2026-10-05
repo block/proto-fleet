@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -186,10 +187,8 @@ func checkBaselineState(ctx context.Context, q baselineQuerier, state, source st
 		if status.Version != assertions.Target {
 			return status, fmt.Errorf("expected target version %d, found %d", assertions.Target, status.Version)
 		}
-		for _, expected := range assertions.Targets {
-			if digest == expected {
-				return status, nil
-			}
+		if slices.Contains(assertions.Targets, digest) {
+			return status, nil
 		}
 		return status, fmt.Errorf("target schema does not match this release; refusing startup")
 	default:
@@ -346,11 +345,7 @@ func ApplyBaseline(ctx context.Context, pool *sql.DB, source string, version int
 		if err != nil {
 			return err
 		}
-		valid := false
-		for _, expected := range assertions.Targets {
-			valid = valid || expected == digest
-		}
-		if !valid {
+		if !slices.Contains(assertions.Targets, digest) {
 			return fmt.Errorf("reconciled schema does not match target; rolling back")
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE public.schema_migrations SET version=$1,dirty=false WHERE version=$2 AND NOT dirty`, assertions.Target, version)

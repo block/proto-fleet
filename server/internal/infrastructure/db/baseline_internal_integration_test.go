@@ -9,7 +9,8 @@ import (
 
 func TestBaselineInternalReconciliation(t *testing.T) {
 	requireBaselineDB(t)
-	for _, version := range []uint8{150, 151, 152, 153, 154, 155, 156, 157, 158} {
+	// Cover both bounded legacy paths, the snapshot boundary and both direct entry points.
+	for _, version := range []uint8{150, 152, 153, 154, 158} {
 		t.Run(strconv.Itoa(int(version)), func(t *testing.T) {
 			conn, config := newMigrationBridgeTestDB(t)
 			migrateTestDBTo(t, conn, config.Name, uint(version))

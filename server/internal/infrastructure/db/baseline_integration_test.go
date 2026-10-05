@@ -76,8 +76,6 @@ func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, internalErr := fs.Stat(migrations.Current, "current/001001_internal_baseline.up.sql")
-	isInternal := internalErr == nil
 	sourceFiles := fstest.MapFS{}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -89,7 +87,7 @@ func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
 			t.Fatal(err)
 		}
 		publicVersion := n
-		if isInternal && n >= 150 {
+		if n >= 150 {
 			mapped, ok := map[int]int{151: 150, 155: 151, 156: 152, 157: 153}[n]
 			if !ok {
 				continue
@@ -209,9 +207,6 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 
 func TestBaselineInterruptedReconciliationRollsBack(t *testing.T) {
 	requireBaselineDB(t)
-	if _, err := fs.Stat(migrations.Current, "current/001001_internal_baseline.up.sql"); err != nil {
-		t.Skip("private transition interruption exercised internally")
-	}
 	conn, _ := newMigrationBridgeTestDB(t)
 	baselinePublicFixture(t, conn, 152)
 	// Block the event table after the shared ALTER has executed. Cancellation

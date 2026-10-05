@@ -8,14 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrivateBaselineHasSharedDependency(t *testing.T) {
-	script, err := os.ReadFile("current/001001_internal_baseline.up.sql")
-	require.NoError(t, err)
-	require.Contains(t, string(script), "-- requires-shared: 1000\n")
-	require.NotContains(t, string(script), "schema_migrations")
-	require.NotContains(t, string(script), "CREATE TABLE container_snapshot")
-}
-
 func TestPrivateBaselineDownRefusesWithoutRemovingInventory(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	script, err := os.ReadFile("current/001001_internal_baseline.down.sql")

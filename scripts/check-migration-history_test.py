@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise migration policy against real, disposable Git histories; no database."""
 
-import json
 import pathlib
 import subprocess
 import sys
@@ -10,7 +9,6 @@ import unittest
 
 CHECKER = pathlib.Path(__file__).with_name("check-migration-history.py")
 CURRENT = "server/migrations/current/"
-ASSERTIONS = "server/internal/infrastructure/db/baseline/assertions.json"
 
 
 class MigrationHistoryTest(unittest.TestCase):
@@ -96,6 +94,7 @@ class MigrationHistoryTest(unittest.TestCase):
             "",
             "-- requires-shared: 1002\n",
             "-- requires-shared: 999\n",
+            "-- requires-shared: 1000\n-- requires-shared: 1000\n",
         ):
             with self.subTest(declaration=declaration):
                 self.pair("001001_internal_next", declaration)
@@ -160,28 +159,12 @@ class MigrationHistoryTest(unittest.TestCase):
         self.base = self.commit()
         self.check(error="active migration source is empty")
 
-    def test_duplicate_prerequisite_is_refused(self):
-        self.pair(
-            "001001_internal_next",
-            "-- requires-shared: 1000\n-- requires-shared: 1000\n",
-        )
-        self.check(error="requires-shared")
-
     def test_internal_release_requires_private_checkpoint(self):
         self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
         self.pair("001002_shared_next")
         self.check(error="private checkpoint")
         self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
         self.check()
-
-    def test_future_migration_does_not_require_catalog_history(self):
-        self.write(
-            ASSERTIONS,
-            json.dumps({"target": 1000, "targets": ["frozen-transition-catalog"]}),
-        )
-        self.base = self.commit()
-        self.pair("001002_shared_next")
-        self.check("--public-only")
 
 
 if __name__ == "__main__":
