@@ -116,26 +116,22 @@ Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
 ## Database admission and retained artifacts
 
-Baseline releases include `server/fleet-db-transition`. Existing installations
-must complete the qualified offline reconciliation before switching migration
-histories or repositories. The standalone runner checks startup admission before
-replacing containers; ordinary pending migrations within the admitted history
-still run at application startup. HA application replacement and recovery require
-the exact target schema. A failed deployment does not undo a database migration.
+Existing databases need [offline baseline adoption](../docs/development/baseline-upgrade.md)
+before switching histories or repositories. Standalone replacement checks startup
+admission before replacing containers; ordinary pending migrations run at startup.
+HA replacement/recovery requires the exact target schema. Deployment failure does
+not undo database changes.
 
-Standalone installations retain firmware, command artifacts and application logs
-in `artifacts/` beside `deployment/`, outside the updater's tree swap. On the first
-replacement, the runner stops the old API container and copies its `/app` tree to
-a private temporary directory, then retains only those three artifact directories.
-Allow temporary disk space for that one-time copy. Configuration and authentication
-keys keep their existing preservation paths. Include the artifact directory in
-your coordinated backup.
+Standalone firmware, command artifacts and logs live in `artifacts/` beside
+`deployment/`, outside updater tree swaps. The first replacement stops the old API
+container, copies `/app` to a private temporary directory, and retains only those
+three artifact directories. Allow space for that copy and back up the artifacts.
+Configuration and auth keys keep their existing preservation paths; HA retains
+its `HA_DATA_DIR/artifacts` mounts.
 
-A failed copy leaves the old container available and stops replacement. A retry
-accepts an identical completed copy; conflicting files, symlinks or unexpected
-mounts require operator review. Do not remove the old container or either copy
-to work around a refusal. HA external deployments retain their existing
-`HA_DATA_DIR/artifacts` mounts and are unaffected by the standalone copy.
+Copy failure stops replacement and retains the old container. Identical copies
+allow retry; conflicting files, symlinks or unexpected mounts require review.
+Do not delete the old container or either copy to bypass a refusal.
 
 ## Release repositories and forks
 

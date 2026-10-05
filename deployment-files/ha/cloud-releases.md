@@ -39,21 +39,17 @@ Version rules, repository pins, locks, fencing and HA recovery are unchanged.
 Repository switches, nightlies and downgrades require a separate operator maintenance
 procedure; neither CI upgrades nor the ordinary updater perform those transitions.
 
-Manifest-covered `cloud-release.json` records `schema_version` and a
-`compatibility_sha256` fingerprint of active and retained up/down migrations,
-bridge SQL, baseline assertions and reconciliation inputs, and the
-listed database/Patroni/etcd build and configuration sources. Cloud deployment
-requires a match before automated database retention; a mismatch stops that path.
-The schema version comes only from `server/migrations/current/`; retained history
-is hashed but does not select the current version. The metadata format is unchanged.
+Manifest-covered `cloud-release.json` records `schema_version` from
+`server/migrations/current/` and a `compatibility_sha256` over current/retained
+migrations, bridge SQL, baseline assertions/reconciliation inputs and listed
+DB/Patroni/etcd sources. The format is unchanged. Automated database retention
+requires an exact match; retained history affects the hash, not the version.
 
-Release bundles include `server/fleet-db-transition` for offline reconciliation.
-`fleet-ha app-start` (including updater recovery) runs its read-only target check
-before starting containers. `update-preflight` checks the candidate's release,
-profile and Compose model before the operator changes the database; it does not
-require that the target schema already exists. Never restart an old application
-after reconciliation to recover a failed target startup. Complete the qualified
-target deployment or restore the coordinated backup.
+Bundles include `server/fleet-db-transition` for [offline adoption](../../docs/development/baseline-upgrade.md).
+`update-preflight` validates the candidate release, profile and Compose model
+before reconciliation; `fleet-ha app-start`, including recovery, checks the target
+schema before starting containers. After reconciliation, recover by completing
+the qualified target deployment or restoring the coordinated backup.
 
 A match does not account for floating image or installed package versions and
 does not certify compatibility. Operators must still manually qualify migrations

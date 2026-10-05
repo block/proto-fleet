@@ -1,70 +1,57 @@
 # Adopting the compacted migration baseline
 
-This is an offline operator procedure. Do not start the new application on an
-existing legacy database until reconciliation succeeds. The command never runs
-baseline SQL against existing data, clears an unknown dirty state, or runs a down
-migration. `schema_migrations` retains its original two columns and one row.
+Reconcile existing databases offline before starting the baseline release.
+Never replay fresh-install baseline SQL, force a version, clear dirty state or
+run down migrations. The existing `schema_migrations` table stays unchanged.
 
-## Release qualification
+**Release gate:** qualify fresh installs and restored source databases on the
+exact PostgreSQL, TimescaleDB and toolkit versions. Catalog assertions and
+synthetic fixtures do not prove real login, Node reconnection or recovery.
+Complete the acceptance and restore checks below before release. See
+[migration policy](migrations.md) for subsequent releases.
 
-Before publishing a baseline release, qualify its exact PostgreSQL, TimescaleDB
-and toolkit versions, fresh installation and restored previous-release fixtures.
-The checked-in catalog assertions were derived from isolated legacy replay and
-compacted SQL, not a production dump. Synthetic fixtures do not prove real login,
-Node reconnection or artifact recovery. A release remains unqualified until a
-coordinated restore and those acceptance checks succeed on the intended runtime.
+## Prepare
 
-The public baseline is 1000. The internal release adds its private baseline and
-ends at 1001. Ordinary subsequent migrations use one coordinated sequence and
-end at repository-owned checkpoints; they do not maintain catalog history.
-Checkpoints alone do not establish application or runtime compatibility.
+1. Verify source/target archives, manifests, checksums and runtime. Record the
+   installed version, dirty state and schema check. Keep evidence and backups
+   restricted and outside Git; keep credentials out of arguments and logs.
+2. Stop all application writers and automatic replacements. In HA, close ingress
+   and use the maintenance stop barrier. Discover the database writer separately
+   from the active Fleet host. Record Timescale job settings, pause scheduled
+   writers and wait for running jobs to finish.
+3. Back up the database, PostgreSQL globals, configuration, TLS/auth/encryption/Node
+   keys, both hosts' artifacts, source runtime and release bundle. Preserve
+   firmware, command artifacts and logs from standalone container layers before
+   an intermediate upgrade removes them; `pg_dump` does not cover local files or
+   globals.
+4. Rehearse restoring the complete set in isolation with the runtime's Timescale
+   pre/post-restore hooks. Verify login, permissions, Node keys and artifact bytes.
+   Never restore one member of a live Patroni cluster independently.
 
-## Prepare and back up
+## Supported sources
 
-1. Verify the exact installed and target release archives, manifests, checksums
-   and supported runtime. Record the installed migration version/dirty state and
-   schema check. Keep this evidence and all dumps outside Git with restricted
-   permissions. Do not expose credentials in command arguments or logs.
-2. Stop application writers on every host and disable automatic replacement.
-   For HA, close ingress and use the existing maintenance stop barrier. Discover
-   the current database writer independently of the active Fleet host.
-3. Record affected Timescale job schedules and pause scheduled writers, waiting
-   for running jobs to finish. Preserve their original settings for restoration.
-4. Capture a full database backup, PostgreSQL globals, configuration, TLS/auth/
-   encryption/Node keys, both hosts' artifact trees, the exact source runtime and
-   source bundle. `pg_dump` alone omits cluster globals and local files. Preserve
-   firmware, command artifacts and logs from old standalone container layers
-   before any intermediate upgrade removes the container.
-5. Rehearse the complete restore in isolation using the runtime's supported
-   Timescale pre/post-restore hooks. Prove existing login, permissions, Node keys
-   and artifact bytes survive. Never restore one member of a live Patroni cluster
-   independently.
+Clean public 152/153 reconcile directly to shared baseline 1000. Conversion from
+public 152/153/1000 to internal requires the private release's command and
+procedure. Internal-to-public, unknown/dirty/future states and unqualified later
+repository switches refuse.
 
-## Supported starting states
+Older public installations (including 130, 142, recognized dirty 143 and 149)
+first need a verified legacy waypoint ending at 152, such as `v0.3.2-beta.3`.
+Rehearse it on a restore; retained SQL and the narrow migration-143 repair do not
+qualify an upgrade by themselves. Before crossing:
 
-Clean public legacy 152/153 can reconcile directly. Public 1000 can be explicitly
-converted with the internal command. Internal installations use their private release procedure. Internal-to-public,
-unknown/dirty states, future versions and unqualified later repository switches
-refuse before mutation.
+- **133:** record policy schedules for restoration.
+- **136:** export all `notification_active` rows, including oversized labels and
+  separator characters that this migration removes.
 
-For older public installations (including 130, 142, recognized dirty 143 and 149),
-first use a verified legacy release waypoint ending at 152, such as public
-`v0.3.2-beta.3`, against a restored copy. The immutable legacy SQL and narrowly
-recognized migration-143 repair remain in the source. The baseline command does
-not apply arbitrary old history automatically.
+Keep these exports with the recovery set and verify retained curtailment
+authorization envelopes during waypoint qualification.
 
-Before crossing migration 136, retain a protected full export of
-`notification_active`, including rows with oversized labels or the separator
-character that the legacy migration removes. Before crossing 133, record all
-policy schedules so the operator can restore intentional settings. Keep these
-exports with the recovery set. Do not claim older-waypoint qualification without
-verifying these cases and the retained curtailment authorization envelopes.
+## Reconcile and verify
 
-## Reconcile
-
-Use the qualified baseline release's `server/fleet-db-transition` host binary with the existing
-protected `DB_*` environment (including `DB_DSN` when configured). For example,
-on a qualified public-152 source:
+Use the qualified target release's host binary with protected `DB_*` environment
+variables (`DB_DSN` when configured). Supply the actual source and recorded
+version; for public 152:
 
 ```sh
 server/fleet-db-transition check --state source --source public --source-version 152
@@ -72,38 +59,33 @@ server/fleet-db-transition apply --source public --source-version 152
 server/fleet-db-transition check --state target
 ```
 
-Choose the actual source application and recorded version, not the target's
-number. The command validates the complete expected catalog and required grants,
-locks the normal migration advisory key, preserves protected identities and
-existing grants/schedules, applies only the reviewed missing changes, validates
-the destination, and updates the existing row last in the same transaction.
-A validated completed target makes repeated `apply` a no-op.
+Under the normal migration advisory lock, `apply` validates the source catalog
+and grants, applies missing changes, checks protected data, grants, schedules and
+target schema, then updates the version row last in the same transaction.
+Repeating it against a validated completed target is a no-op.
 
-After success, check the target through a new connection. Subsequent releases
-use `fleet-db-transition migrate`, which invokes the stock migration runner. In HA also check the
-local standby, including its replay and runtime, before either target application
-starts. Restore the recorded job settings. Validate existing-password login,
-custom and built-in permissions, denied operations, Node reconnection without
-re-enrollment, device pairings, and usable artifact bytes before reopening.
-Standalone replacement retains the old container until its artifact copy and
-read-only startup admission succeed.
+Check the target through a new connection; in HA, also verify the local standby's
+replay and runtime before either application starts. Restore job settings and
+verify existing-password login, built-in/custom permissions, denied operations,
+Node reconnection without re-enrollment, pairings and usable artifacts before
+reopening. Standalone replacement retains the old container until artifact copy
+and startup admission succeed. Later releases use `fleet-db-transition migrate`
+(the stock runner).
 
-## Interrupted execution and recovery
+## Recovery
 
-An error before commit rolls back reconciliation SQL and the version update.
-Ordinary internal migrations keep shared steps dirty until the next private
-checkpoint. If interrupted there, both applications refuse startup. Keep writers
-stopped and restore the coordinated backup, or use a separately reviewed repair
-that verifies the interrupted SQL and all remaining changes. The baseline
-reconciliation command does not repair arbitrary future dirty migrations.
-A lost commit acknowledgement is uncertain: keep applications fenced, establish
-that the original command has ended, rediscover the writer and run fresh source/
-target checks. Retry only an exact intact source; an exact target is complete;
-a mixed or dirty state requires investigation. Do not force the version or clear
-pending cloud/SSM receipts to make a retry possible.
+- **Failure before commit:** reconciliation SQL and the version update roll back.
+- **Lost commit acknowledgement:** keep applications fenced, prove the command
+  has ended, rediscover the writer and run fresh source/target checks. Retry only
+  an exact intact source; an exact target is complete. Investigate mixed/dirty
+  states. Never clear pending cloud/SSM receipts or blindly resend a mutation.
+- **Interrupted ordinary migration:** keep writers stopped. Restore the complete
+  backup or use a reviewed repair that verifies executed and remaining SQL.
+  Internal shared steps stay dirty until a private checkpoint; both applications
+  refuse startup. Baseline reconciliation does not repair future dirty migrations.
+- **Application failure after commit:** complete the qualified target deployment
+  or restore the matching database, globals, runtime, configuration and artifacts.
+  An older image cannot undo migrations. Decide explicitly how to handle writes
+  made after the backup.
 
-After commit, an application failure requires qualified forward completion or a
-coordinated restore of the matching database, globals, runtime, configuration and
-artifacts. Reverting an image cannot undo the migration. Any writes after the
-backup require an explicit recovery-point decision. Production rollout is outside
-this procedure's development qualification.
+This procedure covers development qualification, not production rollout.
