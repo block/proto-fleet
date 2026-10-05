@@ -24,9 +24,9 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			sourceVersion := int(version)
+			sourceVersion := version
 			if version != 153 && version != 158 {
-				if err := ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err == nil {
+				if err := ApplyBaseline(t.Context(), conn, "internal", int(sourceVersion)); err == nil {
 					t.Fatal("non-entry-point source was accepted directly")
 				}
 				// The stock legacy runner reaches one of two entry points. Never
@@ -41,7 +41,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "internal", int(sourceVersion)); err != nil {
 				t.Fatal(err)
 			}
 			after, err := protectedBaselineData(t.Context(), conn, false)
@@ -51,7 +51,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 			if before != after {
 				t.Fatal("protected data changed")
 			}
-			if err = ApplyBaseline(t.Context(), conn, "internal", sourceVersion); err != nil {
+			if err = ApplyBaseline(t.Context(), conn, "internal", int(sourceVersion)); err != nil {
 				t.Fatal(err)
 			}
 			if version == 158 {

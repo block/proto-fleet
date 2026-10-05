@@ -402,7 +402,7 @@ type stopAfterSharedCheckpoint struct{ migratedatabase.Driver }
 
 func (d stopAfterSharedCheckpoint) SetVersion(version int, dirty bool) error {
 	if err := d.Driver.SetVersion(version, dirty); err != nil {
-		return err
+		return fmt.Errorf("record test checkpoint: %w", err)
 	}
 	if version == 1002 && !dirty {
 		return fmt.Errorf("simulated process exit between migrations")
