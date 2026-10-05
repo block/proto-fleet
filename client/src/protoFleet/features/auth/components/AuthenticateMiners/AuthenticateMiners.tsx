@@ -493,6 +493,7 @@ const AuthenticateMiners = ({
       />
       {errorMessage !== null ? (
         <Callout
+          testId="authentication-error-callout"
           className="mt-6"
           intent={intents.information}
           prefixIcon={<Alert className="text-text-critical" />}

@@ -134,7 +134,7 @@ test-contract: _asicrs-build
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
       (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
-      (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
+      (cd tests/plugin-contract && go test ./harness && go test -c -o bin/miners.test ./miners/)
     '
 
   # Run each test suite in its own container (isolated network namespace)
