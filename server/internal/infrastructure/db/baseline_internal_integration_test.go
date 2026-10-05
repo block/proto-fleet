@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/migrations"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
 func TestBaselineInternalReconciliation(t *testing.T) {
@@ -103,10 +106,24 @@ func TestBaselineInternalRefusesSkippedPrivateMigration(t *testing.T) {
 func TestBaselineInternalConvertsCleanPublicBaseline(t *testing.T) {
 	requireBaselineDB(t)
 	conn, _ := newMigrationBridgeTestDB(t)
-	baselinePublicFixture(t, conn, 153)
-	if _, err := conn.ExecContext(t.Context(), `UPDATE schema_migrations SET version=1000`); err != nil {
+	// Apply the real shared baseline with the stock runner, stopping before the
+	// private baseline. The connection remains owned by the test cleanup.
+	source, err := iofs.New(migrations.Current, "current")
+	if err != nil {
 		t.Fatal(err)
 	}
+	driver, err := postgres.WithInstance(conn, &postgres.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := migrate.NewWithInstance("public-baseline", source, "", driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.Migrate(1000); err != nil {
+		t.Fatal(err)
+	}
+	seedBaselineIdentity(t, conn)
 	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
 		t.Fatal("startup ran private baseline against existing shared data")
 	}

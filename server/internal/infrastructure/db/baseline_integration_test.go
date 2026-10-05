@@ -241,12 +241,43 @@ func TestBaselineInterruptedReconciliationRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer blocker.Rollback()
-	if _, err = blocker.ExecContext(t.Context(), `LOCK TABLE release_channel IN ACCESS EXCLUSIVE MODE`); err != nil {
+	if _, err = blocker.ExecContext(t.Context(), `LOCK TABLE release_channel IN SHARE MODE`); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
-	defer cancel()
-	if err = ApplyBaseline(ctx, conn, "public", 152); err == nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	done := make(chan struct{})
+	var applyErr error
+	go func() {
+		applyErr = ApplyBaseline(ctx, conn, "public", 152)
+		close(done)
+	}()
+	defer func() { cancel(); <-done }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var blockedAfterAlter bool
+		err = conn.QueryRowContext(ctx, `SELECT EXISTS (
+            SELECT 1 FROM pg_locks waiting JOIN pg_locks altered ON altered.pid=waiting.pid
+            WHERE waiting.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND waiting.relation='release_channel'::regclass AND NOT waiting.granted
+              AND altered.relation='firmware_rollout'::regclass
+              AND altered.mode='AccessExclusiveLock' AND altered.granted
+        )`).Scan(&blockedAfterAlter)
+		if err != nil {
+			t.Fatalf("wait for reconciliation DDL: %v", err)
+		}
+		if blockedAfterAlter {
+			break
+		}
+		select {
+		case <-done:
+			t.Fatalf("reconciliation ended before its DDL lock wait: %v", applyErr)
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	<-done
+	if applyErr == nil {
 		t.Fatal("interrupted transition succeeded")
 	}
 	if err = blocker.Rollback(); err != nil {
