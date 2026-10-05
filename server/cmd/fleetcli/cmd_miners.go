@@ -96,7 +96,7 @@ func generatedMinersCommand() *cli.Command {
 			),
 			generatedRequestCommand(
 				"lookup",
-				"Look up a paired miner by MAC address or serial number",
+				"Look up a paired miner by device identifier, MAC address or serial number",
 				"/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
 				generatedAuthAuthenticated,
 				[]cli.Flag{

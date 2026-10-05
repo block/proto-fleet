@@ -10,14 +10,20 @@ serial numbers are reconciliation identifiers, not cryptographic authentication.
 
 A cloud recovery scan checks the candidate's discovery identity before reading
 stored credentials, decrypts those credentials for the driver, and confirms the
-identity returned by the authenticated probe. Matching miners recover at their new
-address without being added or authenticated again. Rediscovery preserves the
+identity returned by the authenticated probe. Stock Antminers cannot report MAC or
+serial during unauthenticated discovery, so cloud scans may probe identity-free
+Antminer candidates with stored Antminer credentials on the trusted network. The
+probe must return matching stable identity before an address change is accepted;
+conflicting discovery identity is always rejected. Matching miners recover at their
+new address without being added or authenticated again. Rediscovery preserves the
 original miner ID, handles stale discovery rows, and refuses to replace another
 paired miner occupying the endpoint.
 
-If the miner rejects its saved credentials, it becomes authentication-needed.
-Missing or corrupt stored credentials do not change its pairing status. Fleet Node
-recovery continues to use the existing local-network workflow.
+If an identity-confirmed miner rejects its saved credentials, it becomes
+authentication-needed. An identity-free Antminer probe cannot attribute a rejection
+to the stored miner, so it leaves that miner's pairing status unchanged. Missing or
+corrupt stored credentials also leave pairing status unchanged. Fleet Node recovery
+continues to use the existing local-network workflow.
 
 ## Development Commands
 

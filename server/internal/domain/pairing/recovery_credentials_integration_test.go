@@ -2,17 +2,22 @@ package pairing_test
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkmocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -177,6 +182,95 @@ func TestIsSameDeviceAuthenticatedPartialIdentity(t *testing.T) {
 			status, err := store.GetDevicePairingStatusByIdentifier(ctx, deviceID, admin.OrganizationID)
 			require.NoError(t, err)
 			require.Equal(t, pairing.StatusPaired, status)
+		})
+	}
+}
+
+func TestStockAntminerRecoveryAtNewIP(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	admin := testContext.DatabaseService.CreateSuperAdminUser()
+	store := testContext.ServiceProvider.DeviceStore
+	encryption := testContext.ServiceProvider.EncryptService
+	discoveredStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for _, tc := range []struct {
+		name                           string
+		authFailure, identityMismatch  bool
+		driverName                     string
+		storedDriverName, discoveryMAC string
+		want                           bool
+	}{
+		{name: "matching authenticated miner recovers", driverName: "antminer", want: true},
+		{name: "different authenticated miner does not recover", driverName: "antminer", identityMismatch: true},
+		{name: "unidentified rejection does not demote original", driverName: "antminer", authFailure: true},
+		{name: "other drivers still require discovery identity", driverName: "proto"},
+		{name: "stored driver must also be Antminer", driverName: "antminer", storedDriverName: "proto"},
+		{name: "conflicting Antminer discovery remains rejected", driverName: "antminer", discoveryMAC: "AA:BB:CC:DD:EE:02"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deviceID := id.GenerateID()
+			storedDriver := tc.driverName
+			if tc.storedDriverName != "" {
+				storedDriver = tc.storedDriverName
+			}
+			serial := "stock-antminer-" + deviceID
+			const mac = "AA:BB:CC:DD:EE:01"
+			device := &pb.Device{DeviceIdentifier: deviceID, MacAddress: mac, SerialNumber: serial,
+				IpAddress: "192.168.94.5", Port: "4028", UrlScheme: "http", DriverName: storedDriver}
+			_, err := discoveredStore.Save(t.Context(), discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: deviceID, OrgID: admin.OrganizationID},
+				&discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: deviceID, MacAddress: mac, SerialNumber: serial,
+					IpAddress: "192.168.94.5", Port: "4028", UrlScheme: "http", DriverName: storedDriver}, OrgID: admin.OrganizationID})
+			require.NoError(t, err)
+			require.NoError(t, store.InsertDevice(t.Context(), device, admin.OrganizationID, deviceID))
+			require.NoError(t, store.UpsertDevicePairing(t.Context(), device, admin.OrganizationID, pairing.StatusPaired))
+			userEnc, err := encryption.Encrypt([]byte("admin"))
+			require.NoError(t, err)
+			passwordEnc, err := encryption.Encrypt([]byte("existing-miner-password"))
+			require.NoError(t, err)
+			require.NoError(t, store.UpsertMinerCredentials(t.Context(), device, admin.OrganizationID, userEnc, secrets.NewText(passwordEnc)))
+			ctrl := gomock.NewController(t)
+			driver := sdkmocks.NewMockDriver(ctrl)
+			// This is the stock Antminer DiscoverDevice contract: identity is unavailable
+			// until authentication. The contract suite checks this against the real driver.
+			driver.EXPECT().DiscoverDevice(gomock.Any(), "192.168.94.15", "4028").Return(sdk.DeviceInfo{
+				Host: "192.168.94.15", Port: 4028, URLScheme: "http", Model: "Antminer S19", Manufacturer: "Bitmain", MacAddress: tc.discoveryMAC}, nil)
+			if tc.driverName == "antminer" && tc.storedDriverName != "proto" && tc.discoveryMAC == "" {
+				driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, probeID string, info sdk.DeviceInfo, access sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+						require.True(t, strings.HasPrefix(probeID, "pairing-info:"))
+						require.Equal(t, "192.168.94.15", info.Host)
+						require.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "existing-miner-password"}, access.Kind)
+						if tc.authFailure {
+							return sdk.NewDeviceResult{}, sdk.NewErrorAuthenticationFailed(probeID)
+						}
+						handle := sdkmocks.NewMockDevice(ctrl)
+						probeSerial := serial
+						if tc.identityMismatch {
+							probeSerial = "unrelated-miner"
+						}
+						handle.EXPECT().DescribeDevice(gomock.Any()).Return(sdk.DeviceInfo{MacAddress: mac, SerialNumber: probeSerial}, sdk.Capabilities{}, nil)
+						handle.EXPECT().Close(gomock.Any()).Return(nil)
+						return sdk.NewDeviceResult{Device: handle}, nil
+					})
+			}
+			manager := plugins.NewManager(&plugins.Config{})
+			require.NoError(t, manager.RegisterPluginForTest(&plugins.LoadedPlugin{Name: "stock-recovery", Identifier: sdk.DriverIdentifier{DriverName: tc.driverName},
+				Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true}}))
+			pairer := plugins.NewPairer(manager, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB), discoveredStore, store, encryption)
+			service, ctx := setupTestService(t, testContext, admin, pairer, &MockDiscoverer{})
+			scanner := ipscanner.NewNetworkScanner(plugins.NewMultiTypeDiscoverer(manager), service, 1, slog.Default())
+			matches, err := scanner.ScanSubnetForDevices(ctx, "192.168.94.15/32", []ipscanner.TargetDevice{{DeviceIdentifier: deviceID,
+				DiscoveredDeviceIdentifier: deviceID, DriverName: tc.driverName, Port: "4028", OrgID: admin.OrganizationID}})
+			require.NoError(t, err)
+			if tc.want {
+				require.Len(t, matches, 1)
+				require.Equal(t, deviceID, matches[0].TargetDevice.DeviceIdentifier)
+				require.Equal(t, "192.168.94.15", matches[0].DiscoveredIP)
+			} else {
+				require.Empty(t, matches)
+			}
+			status, err := store.GetDevicePairingStatusByIdentifier(ctx, deviceID, admin.OrganizationID)
+			require.NoError(t, err)
+			require.Equal(t, pairing.StatusPaired, status, "an identity-free probe cannot attribute an auth rejection to this miner")
 		})
 	}
 }

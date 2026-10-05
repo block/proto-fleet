@@ -1365,137 +1365,152 @@ func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t 
 	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
 }
 
-func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
+	for _, byMAC := range []bool{false, true} {
+		name := "serial fallback"
+		if byMAC {
+			name = "MAC match"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	manager := NewManager(&Config{})
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	manager.pluginsByDriverName["antminer"] = &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     mockDriver,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true,
-		},
+			manager := NewManager(&Config{})
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			manager.pluginsByDriverName["antminer"] = &LoadedPlugin{
+				Name:       "antminer-plugin",
+				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Driver:     mockDriver,
+				Caps: sdk.Capabilities{
+					sdk.CapabilityPairing: true,
+				},
+			}
+
+			transactor := mocks.NewMockTransactor(ctrl)
+			discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+			deviceStore := mocks.NewMockDeviceStore(ctrl)
+			encryptService, err := encrypt.NewService(&encrypt.Config{
+				ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+			})
+			require.NoError(t, err)
+
+			pairer := NewPairer(manager, transactor, discoveredDeviceStore, deviceStore, encryptService)
+
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{
+					DeviceIdentifier: "retry-id",
+					IpAddress:        "192.168.1.100",
+					Port:             "80",
+					UrlScheme:        "http",
+					DriverName:       "antminer",
+					MacAddress:       "AA:BB:CC:DD:EE:FF",
+					SerialNumber:     "SN-001",
+				},
+				OrgID: 1,
+			}
+			credentials := &pb.Credentials{
+				Username: "admin",
+				Password: stringPtr("password"),
+			}
+
+			ctx := t.Context()
+
+			transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, fn func(context.Context) error) error {
+					return fn(ctx)
+				},
+			)
+
+			deviceStore.EXPECT().
+				GetDeviceByDeviceIdentifier(gomock.Any(), "retry-id", int64(1)).
+				Return(&pb.Device{DeviceIdentifier: "retry-id"}, nil)
+			if byMAC {
+
+				deviceStore.EXPECT().
+					GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), "retry-id").
+					Return(&stores.PairedDeviceInfo{DeviceIdentifier: "paired-id", DiscoveredDeviceIdentifier: "paired-discovered-id",
+						MacAddress: "AA:BB:CC:DD:EE:FF", SerialNumber: "SN-001"}, nil)
+
+			} else {
+
+				deviceStore.EXPECT().
+					GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), "retry-id").
+					Return(nil, fleeterror.NewNotFoundError("no other miner with this MAC"))
+				deviceStore.EXPECT().
+					GetPairedDeviceBySerialNumber(gomock.Any(), "SN-001", int64(1)).
+					Return(&stores.PairedDeviceInfo{
+						DeviceIdentifier:           "paired-id",
+						DiscoveredDeviceIdentifier: "paired-discovered-id",
+						MacAddress:                 "AA:BB:CC:DD:EE:FF",
+						SerialNumber:               "SN-001",
+					}, nil)
+			}
+
+			discoveredDeviceStore.EXPECT().
+				GetDevice(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
+					DeviceIdentifier: "paired-discovered-id",
+					OrgID:            1,
+				}).
+				Return(&discoverymodels.DiscoveredDevice{
+					Device: pb.Device{
+						DeviceIdentifier: "paired-discovered-id",
+						IpAddress:        "192.168.1.10",
+						Port:             "80",
+						UrlScheme:        "http",
+						DriverName:       "antminer",
+					},
+					OrgID: 1,
+				}, nil)
+			discoveredDeviceStore.EXPECT().
+				Save(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
+					DeviceIdentifier: "paired-discovered-id",
+					OrgID:            1,
+				}, gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, updated *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					require.Equal(t, "192.168.1.100", updated.IpAddress)
+					require.Equal(t, "80", updated.Port)
+					require.Equal(t, "http", updated.UrlScheme)
+					return updated, nil
+				})
+			discoveredDeviceStore.EXPECT().
+				SoftDelete(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
+					DeviceIdentifier: "retry-id",
+					OrgID:            1,
+				}).
+				Return(nil)
+
+			deviceStore.EXPECT().
+				UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
+				DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64) error {
+					require.Equal(t, "paired-id", updated.DeviceIdentifier)
+					require.Equal(t, "SN-001", updated.SerialNumber)
+					return nil
+				})
+			deviceStore.EXPECT().
+				UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("paired-id"), "worker-01").
+				Return(nil)
+			deviceStore.EXPECT().
+				UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64, _ string, _ any) error {
+					require.Equal(t, "paired-id", updated.DeviceIdentifier)
+					return nil
+				})
+			deviceStore.EXPECT().
+				UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").
+				DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64, _ string) error {
+					require.Equal(t, "paired-id", updated.DeviceIdentifier)
+					return nil
+				})
+			deviceStore.EXPECT().
+				UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("paired-id"), models.MinerStatusActive, "").
+				Return(nil)
+
+			err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["antminer"])
+			require.NoError(t, err)
+			require.Equal(t, "paired-id", device.DeviceIdentifier)
+
+		})
 	}
-
-	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	encryptService, err := encrypt.NewService(&encrypt.Config{
-		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-	})
-	require.NoError(t, err)
-
-	pairer := NewPairer(manager, transactor, discoveredDeviceStore, deviceStore, encryptService)
-
-	device := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "retry-id",
-			IpAddress:        "192.168.1.100",
-			Port:             "80",
-			UrlScheme:        "http",
-			DriverName:       "antminer",
-			MacAddress:       "AA:BB:CC:DD:EE:FF",
-			SerialNumber:     "SN-001",
-		},
-		OrgID: 1,
-	}
-	credentials := &pb.Credentials{
-		Username: "admin",
-		Password: stringPtr("password"),
-	}
-
-	ctx := t.Context()
-
-	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, fn func(context.Context) error) error {
-			return fn(ctx)
-		},
-	)
-
-	deviceStore.EXPECT().
-		GetDeviceByDeviceIdentifier(gomock.Any(), "retry-id", int64(1)).
-		Return(&pb.Device{DeviceIdentifier: "retry-id"}, nil)
-	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), int64(1), gomock.Any()).
-		Return(&stores.PairedDeviceInfo{
-			DeviceIdentifier:           "retry-id",
-			DiscoveredDeviceIdentifier: "retry-id",
-			MacAddress:                 "AA:BB:CC:DD:EE:FF",
-		}, nil)
-	deviceStore.EXPECT().
-		GetPairedDeviceBySerialNumber(gomock.Any(), "SN-001", int64(1)).
-		Return(&stores.PairedDeviceInfo{
-			DeviceIdentifier:           "paired-id",
-			DiscoveredDeviceIdentifier: "paired-discovered-id",
-			MacAddress:                 "AA:BB:CC:DD:EE:FF",
-			SerialNumber:               "SN-001",
-		}, nil)
-
-	discoveredDeviceStore.EXPECT().
-		GetDevice(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: "paired-discovered-id",
-			OrgID:            1,
-		}).
-		Return(&discoverymodels.DiscoveredDevice{
-			Device: pb.Device{
-				DeviceIdentifier: "paired-discovered-id",
-				IpAddress:        "192.168.1.10",
-				Port:             "80",
-				UrlScheme:        "http",
-				DriverName:       "antminer",
-			},
-			OrgID: 1,
-		}, nil)
-	discoveredDeviceStore.EXPECT().
-		Save(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: "paired-discovered-id",
-			OrgID:            1,
-		}, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, updated *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-			require.Equal(t, "192.168.1.100", updated.IpAddress)
-			require.Equal(t, "80", updated.Port)
-			require.Equal(t, "http", updated.UrlScheme)
-			return updated, nil
-		})
-	discoveredDeviceStore.EXPECT().
-		SoftDelete(gomock.Any(), discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: "retry-id",
-			OrgID:            1,
-		}).
-		Return(nil)
-
-	deviceStore.EXPECT().
-		UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
-		DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64) error {
-			require.Equal(t, "paired-id", updated.DeviceIdentifier)
-			require.Equal(t, "SN-001", updated.SerialNumber)
-			return nil
-		})
-	deviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("paired-id"), "worker-01").
-		Return(nil)
-	deviceStore.EXPECT().
-		UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64, _ string, _ any) error {
-			require.Equal(t, "paired-id", updated.DeviceIdentifier)
-			return nil
-		})
-	deviceStore.EXPECT().
-		UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").
-		DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64, _ string) error {
-			require.Equal(t, "paired-id", updated.DeviceIdentifier)
-			return nil
-		})
-	deviceStore.EXPECT().
-		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("paired-id"), models.MinerStatusActive, "").
-		Return(nil)
-
-	err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["antminer"])
-	require.NoError(t, err)
-	require.Equal(t, "paired-id", device.DeviceIdentifier)
 }
 
 func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *testing.T) {

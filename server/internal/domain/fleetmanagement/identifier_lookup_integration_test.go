@@ -1,11 +1,18 @@
 package fleetmanagement_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetryv2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +25,18 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 	store := testContext.ServiceProvider.DeviceStore
 	device, err := store.GetDeviceByDeviceIdentifier(t.Context(), created.ID, admin.OrganizationID)
 	require.NoError(t, err)
-	service := testContext.ServiceProvider.FleetManagementService
+	// Reconciliation preserves independent device and discovery identifiers.
+	_, err = testContext.ServiceProvider.DB.ExecContext(t.Context(),
+		"UPDATE discovered_device SET device_identifier = $1 WHERE device_identifier = $2 AND org_id = $3",
+		created.ID+"-discovery", created.ID, admin.OrganizationID)
+	require.NoError(t, err)
+	collections := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
+	group, err := collections.CreateCollection(t.Context(), admin.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP, "Recovery group", "")
+	require.NoError(t, err)
+	_, err = collections.AddDevicesToCollection(t.Context(), admin.OrganizationID, group.Id, []string{created.ID})
+	require.NoError(t, err)
+	telemetry := &identifierLookupTelemetry{TelemetryCollector: fleetmanagement.NewMockTelemetryCollector(), t: t, deviceID: created.ID}
+	service := fleetmanagement.NewService(store, nil, telemetry, nil, testContext.ServiceProvider.PluginService, nil, nil, collections, nil, nil, nil)
 	ctx := testutil.MockAuthContextForTesting(t.Context(), admin.DatabaseID, admin.OrganizationID)
 	request := &pb.LookupMinerByIdentifierRequest{
 		Identifier: created.ID, IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER,
@@ -31,6 +49,10 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 			require.Equal(t, created.ID, result.GetSnapshot().GetDeviceIdentifier())
 			if status != pairing.StatusAuthenticationNeeded {
 				require.Equal(t, device.MacAddress, result.GetSnapshot().GetMacAddress())
+				require.Len(t, result.Snapshot.Hashrate, 1)
+				require.InDelta(t, 100, result.Snapshot.Hashrate[0].Value, 0.001)
+				require.Len(t, result.Snapshot.Placement.Groups, 1)
+				require.Equal(t, group.Id, result.Snapshot.Placement.Groups[0].Id)
 			}
 		})
 	}
@@ -40,4 +62,17 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 	require.NoError(t, store.UpsertDevicePairing(t.Context(), device, admin.OrganizationID, pairing.StatusUnpaired))
 	_, err = service.LookupMinerByIdentifier(ctx, request)
 	require.True(t, fleeterror.IsNotFoundError(err), "an unpaired miner cannot resolve as a linked paired miner")
+}
+
+type identifierLookupTelemetry struct {
+	fleetmanagement.TelemetryCollector
+	t        *testing.T
+	deviceID string
+}
+
+func (c *identifierLookupTelemetry) GetLatestDeviceMetrics(_ context.Context, ids []minermodels.DeviceIdentifier) (map[minermodels.DeviceIdentifier]telemetryv2.DeviceMetrics, error) {
+	require.Equal(c.t, []minermodels.DeviceIdentifier{minermodels.DeviceIdentifier(c.deviceID)}, ids)
+	return map[minermodels.DeviceIdentifier]telemetryv2.DeviceMetrics{minermodels.DeviceIdentifier(c.deviceID): {
+		DeviceIdentifier: c.deviceID, Timestamp: time.Now(), HashrateHS: &telemetryv2.MetricValue{Value: 100e12},
+	}}, nil
 }

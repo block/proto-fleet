@@ -754,13 +754,16 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		slog.Error("failed to get paired device", "error", err)
 		return false
 	}
-	identityConfirmed := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress()).Matches(
-		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
-	)
-	// Never disclose stored credentials to a candidate that discovery cannot
-	// identify as this miner. Reject conflicts or absent shared identity before
-	// reading or decrypting the credentials, not after authenticating.
-	if !identityConfirmed {
+	candidateIdentity := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress())
+	pairedIdentity := stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress())
+	identityConfirmed := candidateIdentity.Matches(pairedIdentity)
+	// Stock Antminer discovery cannot report MAC/serial before authentication.
+	// On the trusted miner network, permit that driver's identity-free probe,
+	// then require matching authenticated identity before accepting the move.
+	// Never relax the guard for conflicting or non-overlapping discovery evidence.
+	identityFreeAntminer := newDiscoveredDevice.DriverName == "antminer" && pairedDevice.DriverName == "antminer" &&
+		strings.TrimSpace(newDiscoveredDevice.MacAddress) == "" && strings.TrimSpace(newDiscoveredDevice.SerialNumber) == "" && pairedIdentity.Usable()
+	if !identityConfirmed && !identityFreeAntminer {
 		slog.Debug("skipping recovery candidate without matching discovery identity", "device_identifier", pairedDeviceIdentifier)
 		return false
 	}

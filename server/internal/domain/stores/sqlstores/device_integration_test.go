@@ -3399,6 +3399,13 @@ func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
 	require.Error(t, err)
 	require.ErrorContains(t, err, "multiple paired devices found")
+	_, err = conn.Exec("UPDATE device_pairing SET pairing_status = 'AUTHENTICATION_NEEDED' WHERE device_id = 412")
+	require.NoError(t, err)
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
+	require.ErrorContains(t, err, "multiple paired devices found")
+	paired, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "duplicate-mac-2")
+	require.NoError(t, err)
+	require.Equal(t, "duplicate-mac-1", paired.DeviceIdentifier)
 }
 
 func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
