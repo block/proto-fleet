@@ -85,6 +85,27 @@ func seedBaselineIdentity(t *testing.T, conn *sql.DB) {
 	}
 }
 
+// roundTripBaselineConstraints reproduces pg_dump/restore reparsing CHECK SQL.
+// PostgreSQL can move an array's text cast onto its literals without changing
+// the constraint. Keep this DB-backed regression independent of a pg_dump binary.
+func roundTripBaselineConstraints(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	_, err := conn.ExecContext(t.Context(), `DO $$
+DECLARE c record;
+BEGIN
+ FOR c IN SELECT n.nspname, t.relname, x.conname, pg_get_constraintdef(x.oid) AS definition
+  FROM pg_constraint x JOIN pg_class t ON t.oid=x.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+  WHERE n.nspname='public' AND x.contype='c'
+ LOOP
+  EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I, ADD CONSTRAINT %I %s',
+   c.nspname,c.relname,c.conname,c.conname,c.definition);
+ END LOOP;
+END $$;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBaselinePublicReconciliation(t *testing.T) {
 	requireBaselineDB(t)
 	for _, version := range []uint8{152, 153} {
@@ -92,6 +113,9 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 			conn, config := newMigrationBridgeTestDB(t)
 			migrateTestDBTo(t, conn, config.Name, uint(version))
 			seedBaselineIdentity(t, conn)
+			if version == 153 {
+				roundTripBaselineConstraints(t, conn)
+			}
 			before, err := protectedBaselineData(t.Context(), conn, true)
 			if err != nil {
 				t.Fatal(err)
@@ -112,6 +136,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 			if err = ApplyBaseline(t.Context(), conn, "public", int(version)); err != nil {
 				t.Fatalf("repeat: %v", err)
 			}
+			roundTripBaselineConstraints(t, conn)
 			if _, err = CheckBaseline(t.Context(), conn, "target", "", 0); err != nil {
 				t.Fatal(err)
 			}
