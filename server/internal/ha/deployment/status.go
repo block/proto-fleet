@@ -35,6 +35,7 @@ type StatusReport struct {
 type ControlReasonCode string
 
 const (
+	ReasonEtcdSpacePressure          ControlReasonCode = "etcd_space_pressure"
 	ReasonEtcdQuorumUnavailable      ControlReasonCode = "etcd_quorum_unavailable"
 	ReasonEtcdRedundancyDegraded     ControlReasonCode = "etcd_redundancy_degraded"
 	ReasonWriterUnavailable          ControlReasonCode = "writer_unavailable"
@@ -46,6 +47,7 @@ const (
 )
 
 type ControlStatus struct {
+	EtcdMembers   []EtcdMemberStatus  `json:"etcd_members"`
 	ControlReady  bool                `json:"control_ready"`
 	FailoverReady bool                `json:"failover_ready"`
 	ReasonCodes   []ControlReasonCode `json:"reason_codes"`
@@ -169,8 +171,11 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 	localRuntimeReady := report.Runtime.Observation == ha.ObservationCurrent &&
 		(report.Runtime.Role == ha.RoleActive || report.Runtime.Role == ha.RolePassive)
 	controlReady := etcdStatus.quorum && primary == 1 && writerReady && publicPathReady && fleetActive == 1
-	failoverReady := controlReady && etcdStatus.redundant && synchronous == 1 && fleetReady && localRuntimeReady
-	control := &ControlStatus{ControlReady: controlReady, FailoverReady: failoverReady}
+	failoverReady := controlReady && etcdStatus.redundant && etcdStatus.spaceHealthy && synchronous == 1 && fleetReady && localRuntimeReady
+	control := &ControlStatus{ControlReady: controlReady, FailoverReady: failoverReady, EtcdMembers: etcdStatus.members}
+	if !etcdStatus.spaceHealthy {
+		control.ReasonCodes = append(control.ReasonCodes, ReasonEtcdSpacePressure)
+	}
 	if !etcdStatus.quorum {
 		control.ReasonCodes = append(control.ReasonCodes, ReasonEtcdQuorumUnavailable)
 	} else if !etcdStatus.redundant {
@@ -211,12 +216,19 @@ type etcdMemberIdentity struct {
 }
 
 type etcdReadiness struct {
-	quorum    bool
-	redundant bool
+	quorum       bool
+	redundant    bool
+	spaceHealthy bool
+	members      []EtcdMemberStatus
 }
 
 func probeEtcdMembers(ctx context.Context, config clientv3.Config) etcdReadiness {
-	identities := gather(config.Endpoints, func(endpoint string) etcdMemberIdentity {
+	type observation struct {
+		identity etcdMemberIdentity
+		space    EtcdMemberStatus
+	}
+	observations := gather(config.Endpoints, func(endpoint string) observation {
+		failed := observation{space: EtcdMemberStatus{Endpoint: endpoint, Warning: true}}
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		memberConfig := config
@@ -226,19 +238,28 @@ func probeEtcdMembers(ctx context.Context, config clientv3.Config) etcdReadiness
 		}
 		client, err := clientv3.New(memberConfig)
 		if err != nil {
-			return etcdMemberIdentity{}
+			return failed
 		}
 		defer client.Close()
 		response, err := client.Status(probeCtx, endpoint)
 		if err != nil || response.Header == nil {
-			return etcdMemberIdentity{}
+			return failed
 		}
 		if _, err := client.Get(probeCtx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1)); err != nil {
-			return etcdMemberIdentity{}
+			return failed
 		}
-		return etcdMemberIdentity{clusterID: response.Header.ClusterId, memberID: response.Header.MemberId}
+		return observation{identity: etcdMemberIdentity{clusterID: response.Header.ClusterId, memberID: response.Header.MemberId}, space: etcdMemberSpace(endpoint, response)}
 	})
-	return summarizeEtcdMembers(identities, len(config.Endpoints))
+	identities := make([]etcdMemberIdentity, len(observations))
+	members := make([]EtcdMemberStatus, len(observations))
+	healthy := true
+	for i, observed := range observations {
+		identities[i], members[i] = observed.identity, observed.space
+		healthy = healthy && (!observed.space.Available || !observed.space.Warning)
+	}
+	result := summarizeEtcdMembers(identities, len(config.Endpoints))
+	result.members, result.spaceHealthy = members, healthy
+	return result
 }
 
 func summarizeEtcdMembers(identities []etcdMemberIdentity, expected int) etcdReadiness {

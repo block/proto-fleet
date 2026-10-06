@@ -30,6 +30,7 @@ const (
 )
 
 type cli struct {
+	EtcdStatus        etcdStatusCmd        `cmd:"" help:"check etcd quorum and quota without Fleet; nonzero on warning"`
 	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
 	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
 	RenderKeepalived  renderKeepalivedCmd  `cmd:"" help:"render the keepalived configuration"`
@@ -488,4 +489,22 @@ func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigg
 		case <-time.After(updatePollInterval):
 		}
 	}
+}
+
+type etcdStatusCmd struct {
+	NodeEnv string `name:"node-env" default:"/etc/proto-fleet/ha/node.env" type:"path" help:"protected node environment file"`
+}
+
+func (c *etcdStatusCmd) Run(ctx context.Context) error {
+	report, err := deployment.EtcdStatus(ctx, c.NodeEnv)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		return fmt.Errorf("write etcd status: %w", err)
+	}
+	if !report.Healthy {
+		return errors.New("etcd health or space check failed; inspect member capacity and alarms")
+	}
+	return nil
 }

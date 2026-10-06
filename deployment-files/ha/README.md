@@ -415,3 +415,8 @@ A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
+
+## etcd capacity
+
+See [retention, capacity monitoring, existing-cluster adoption and supervised
+recovery](etcd-maintenance.md). Application updates do not apply etcd settings.
