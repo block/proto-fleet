@@ -139,6 +139,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
+	lease, err := r.getDeviceHandlePool().acquire()
+	if err != nil {
+		code, msg := classifyMinerCommandError("reserve device handle", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
+
 	// SDK IDs own a registration, not a physical miner. Concurrent commands and
 	// telemetry must not replace or close each other's device handles.
 	handleID := "command-" + uuid.NewString()
@@ -151,19 +158,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	}, bundle)
 	if err != nil {
 		cleanupUncertainDeviceCreation(cmdCtx, driver, handleID, err)
+		lease.release()
 		code, msg := classifyMinerCommandError("connect to miner", err)
 		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
 	dev := result.Device
-	defer func() {
-		// Best-effort release on a ctx that outlives a timed-out command.
-		closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer closeCancel()
-		if cerr := dev.Close(closeCtx); cerr != nil {
-			logger.Warn("closing device after command", "command_id", commandID, "err", cerr)
-		}
-	}()
+	defer lease.closeAndWait(dev)
 
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {

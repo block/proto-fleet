@@ -780,9 +780,13 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCancel()
 		return nil, nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
+	var deviceHandles *deviceHandlePool
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
 	cleanup := func() {
+		if deviceHandles != nil {
+			deviceHandles.shutdown()
+		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		_ = manager.Shutdown(shutdownCtx)
@@ -793,6 +797,7 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		cleanup()
 		return nil, nil, nil, func() {}, fmt.Errorf("init telemetry fetcher: %w", err)
 	}
+	deviceHandles = tf.deviceHandles
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),

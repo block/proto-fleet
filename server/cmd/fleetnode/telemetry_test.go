@@ -440,30 +440,19 @@ func (c blockingTelemetryCloser) Close(ctx context.Context) error {
 	}
 }
 
-func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
-	tokens := make(chan struct{}, 1)
-	oldTokens := telemetryDeviceCloseTokens
-	telemetryDeviceCloseTokens = tokens
-	t.Cleanup(func() { telemetryDeviceCloseTokens = oldTokens })
-
+func TestTelemetryDeviceHandleCleanupDoesNotBlock(t *testing.T) {
+	pool := newDeviceHandlePool(t.Context(), 1)
+	t.Cleanup(pool.shutdown)
+	lease, err := pool.acquire()
+	require.NoError(t, err)
 	closer := blockingTelemetryCloser{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	// Runs before the token-channel restore above (cleanups are LIFO). The
-	// worker reads the package-level knobs right up to its exit, so wait for
-	// it to hand its token back or it races the next test's setup.
-	t.Cleanup(func() {
-		close(closer.release)
-		select {
-		case tokens <- struct{}{}:
-		case <-time.After(time.Second):
-			t.Error("async close worker did not release its token")
-		}
-	})
+	t.Cleanup(func() { close(closer.release) })
 
 	start := time.Now()
-	require.True(t, closeTelemetryDeviceAsync(closer))
+	lease.close(closer)
 
 	require.Less(t, time.Since(start), 50*time.Millisecond)
 	select {
@@ -473,35 +462,24 @@ func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
 	}
 }
 
-func TestCloseTelemetryDeviceAsyncClosesSynchronouslyWhenCloseWorkersAreExhausted(t *testing.T) {
-	tokens := make(chan struct{}, 1)
-	tokens <- struct{}{}
-	oldTokens := telemetryDeviceCloseTokens
-	oldTimeout := telemetryDeviceCloseTimeout
-	oldGrace := telemetryDeviceCloseSupervisorGrace
-	telemetryDeviceCloseTokens = tokens
-	telemetryDeviceCloseTimeout = 10 * time.Millisecond
-	telemetryDeviceCloseSupervisorGrace = 5 * time.Millisecond
-	t.Cleanup(func() {
-		telemetryDeviceCloseTokens = oldTokens
-		telemetryDeviceCloseTimeout = oldTimeout
-		telemetryDeviceCloseSupervisorGrace = oldGrace
-	})
-
+func TestTelemetryDeviceHandleCapacityStaysReservedDuringCleanup(t *testing.T) {
+	pool := newDeviceHandlePool(t.Context(), 1)
+	t.Cleanup(pool.shutdown)
+	lease, err := pool.acquire()
+	require.NoError(t, err)
 	closer := blockingTelemetryCloser{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
 	t.Cleanup(func() { close(closer.release) })
+	lease.close(closer)
 
-	start := time.Now()
-	assert.False(t, closeTelemetryDeviceAsync(closer))
-	assert.Less(t, time.Since(start), 200*time.Millisecond)
-	select {
-	case <-closer.started:
-	case <-time.After(time.Second):
-		t.Fatal("close should start synchronously when close worker capacity is exhausted")
-	}
+	_, err = pool.acquire()
+
+	require.Error(t, err)
+	var ce *commandError
+	require.ErrorAs(t, err, &ce)
+	assert.Equal(t, pb.AckCode_ACK_CODE_BUSY, ce.code)
 }
 
 func TestValidateTelemetryMetricsIdentity(t *testing.T) {

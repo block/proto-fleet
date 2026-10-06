@@ -37,6 +37,12 @@ Fleet Node commands and telemetry use separate temporary plugin handles. Closing
 one operation cannot remove another operation's handle; gateway requests and
 reported telemetry continue to use the miner's stable Fleet identifier.
 
+Successful registrations retain their handle budget until the plugin confirms
+removal. Failed closes retry with backoff across control-stream reconnects, with
+one cleanup worker per owned handle. Commands and telemetry share a limit of
+1,024 active or pending handles; when it is full, new operations return busy before
+registering another handle. Plugin shutdown cancels cleanup retries.
+
 ## Development Commands
 
 ### Build and Run

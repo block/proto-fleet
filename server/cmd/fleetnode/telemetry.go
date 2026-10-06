@@ -36,10 +36,6 @@ var telemetrySupervisorGrace = 100 * time.Millisecond
 const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
 const maxTelemetryFirmwareVersionBytes = 255
 
-var telemetryDeviceCloseTimeout = 5 * time.Second
-var telemetryDeviceCloseSupervisorGrace = 100 * time.Millisecond
-var telemetryDeviceCloseTokens = make(chan struct{}, commandPoolSize)
-
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
 }
@@ -54,11 +50,12 @@ type telemetryFetchOutcome struct {
 }
 
 type pluginTelemetryFetcher struct {
-	manager      *plugins.Manager
-	minerSecrets secretProvider
-	mu           sync.Mutex
-	inflight     map[string]*telemetrySlot
-	workerTokens chan struct{}
+	manager       *plugins.Manager
+	minerSecrets  secretProvider
+	mu            sync.Mutex
+	inflight      map[string]*telemetrySlot
+	workerTokens  chan struct{}
+	deviceHandles *deviceHandlePool
 }
 
 type telemetrySlot struct {
@@ -75,8 +72,9 @@ func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProv
 		return nil, fmt.Errorf("miner secret provider is required")
 	}
 	return &pluginTelemetryFetcher{
-		manager:      manager,
-		minerSecrets: minerSecrets,
+		manager:       manager,
+		minerSecrets:  minerSecrets,
+		deviceHandles: newDeviceHandlePool(context.Background(), maxOwnedDeviceHandles),
 	}, nil
 }
 
@@ -182,6 +180,11 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	}
 	defer slot.releaseWorker()
 
+	lease, err := f.deviceHandles.acquire()
+	if err != nil {
+		return nil, err
+	}
+
 	redactions := telemetrySecretRedactions(secret)
 	// A sample owns its registration through asynchronous close. A later sample
 	// or command for this miner must have a different SDK handle.
@@ -189,10 +192,11 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	created, err := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
 	if err != nil {
 		cleanupUncertainDeviceCreation(ctx, plugin.Driver, handleID, err)
+		lease.release()
 		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
-	defer closeTelemetryDeviceAsync(created.Device)
+	defer lease.close(created.Device)
 
 	sdkMetrics, err := created.Device.Status(ctx)
 	if err != nil {
@@ -260,45 +264,6 @@ func (s *telemetrySlot) releaseWorker() {
 		delete(s.fetcher.inflight, s.deviceIdentifier)
 	}
 	<-s.fetcher.workerTokens
-}
-
-type telemetryDeviceCloser interface {
-	Close(ctx context.Context) error
-}
-
-func closeTelemetryDeviceAsync(device telemetryDeviceCloser) bool {
-	select {
-	case telemetryDeviceCloseTokens <- struct{}{}:
-	default:
-		slog.Warn("telemetry device close worker capacity is exhausted; closing synchronously")
-		closeTelemetryDevice(device)
-		return false
-	}
-	go func() {
-		defer func() { <-telemetryDeviceCloseTokens }()
-		closeTelemetryDevice(device)
-	}()
-	return true
-}
-
-func closeTelemetryDevice(device telemetryDeviceCloser) {
-	closeCtx, cancel := context.WithTimeout(context.Background(), telemetryDeviceCloseTimeout)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- device.Close(closeCtx)
-	}()
-
-	timer := time.NewTimer(telemetryDeviceCloseTimeout + telemetryDeviceCloseSupervisorGrace)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		if err != nil {
-			slog.Warn("telemetry device close failed", "err", err)
-		}
-	case <-timer.C:
-		slog.Warn("telemetry device close exceeded supervisor budget")
-	}
 }
 
 func validateTelemetryMetricsIdentity(requestedDeviceIdentifier, handleID string, metrics modelsV2.DeviceMetrics) error {

@@ -44,6 +44,7 @@ type RunCmd struct {
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
 	pairer                   pairer                                                                   `kong:"-"`
 	telemetry                telemetryFetcher                                                         `kong:"-"`
+	deviceHandles            *deviceHandlePool                                                        `kong:"-"`
 	scanner                  portScanner                                                              `kong:"-"`
 	resolver                 netscan.Resolver                                                         `kong:"-"`
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
@@ -56,6 +57,7 @@ type RunCmd struct {
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
 	scannerOnce                sync.Once      `kong:"-"`
+	deviceHandlesOnce          sync.Once      `kong:"-"`
 	controlConcurrencyOnce     sync.Once      `kong:"-"`
 	controlCommandSlots        chan struct{}  `kong:"-"`
 	controlDeferrableReadSlots chan struct{}  `kong:"-"`
@@ -223,6 +225,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		}
 		r.pairer = prr
 		r.telemetry = tf
+		r.deviceHandles = tf.deviceHandles
 	}
 
 	tokenSource := func() string {
