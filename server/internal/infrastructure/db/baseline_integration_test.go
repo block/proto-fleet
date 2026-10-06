@@ -265,22 +265,24 @@ func TestCheckpointMigrations(t *testing.T) {
 	files["current/001002_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
 	t.Run("internal checkpoints", func(t *testing.T) {
 		for _, test := range []struct {
-			name       string
-			privateSQL string
-			stopShared bool
-			wantDirty  bool
+			name         string
+			privateSQL   string
+			stopShared   bool
+			disconnect   bool
+			wantRollback bool
 		}{
-			{name: "interrupted after shared step", privateSQL: "SELECT 1;", stopShared: true, wantDirty: true},
-			{name: "failed private step", privateSQL: "SELECT missing_checkpoint_function();", wantDirty: true},
+			{name: "interrupted after shared step", privateSQL: "SELECT 1;", stopShared: true, wantRollback: true},
+			{name: "connection lost before checkpoint", privateSQL: "SELECT pg_sleep(2);", disconnect: true, wantRollback: true},
+			{name: "failed private step", privateSQL: "SELECT missing_checkpoint_function();", wantRollback: true},
 			{name: "completed private checkpoint", privateSQL: "SELECT 1;"},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				conn, _ := newMigrationBridgeTestDB(t)
 				internal := maps.Clone(files)
 				delete(internal, "current/001002_shared_probe.up.sql")
-				internal["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+				internal["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_data(value int); INSERT INTO checkpoint_data VALUES (7);")}
 				require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
-				internal["current/001004_shared_probe.up.sql"] = files["current/001002_shared_probe.up.sql"]
+				internal["current/001004_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint); UPDATE checkpoint_data SET value=value+1;")}
 				internal["current/001005_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte(test.privateSQL)}
 				// Begin at a private checkpoint, then exercise the same stock
 				// migrator and checkpoint driver used by runCurrentMigrations.
@@ -288,17 +290,35 @@ func TestCheckpointMigrations(t *testing.T) {
 				require.NoError(t, err)
 				source, err := iofs.New(internal, "current")
 				require.NoError(t, err)
-				driver, err := postgres.WithInstance(conn, &postgres.Config{})
+				session, err := conn.Conn(t.Context())
 				require.NoError(t, err)
-				m, err := migrate.NewWithInstance("current", source, "", checkpointDriver{driver, checkpoints})
+				t.Cleanup(func() { _ = session.Close() })
+				driver, err := postgres.WithConnection(t.Context(), session, &postgres.Config{})
+				require.NoError(t, err)
+				m, err := migrate.NewWithInstance("current", source, "", &checkpointDriver{Driver: driver, checkpoints: checkpoints, conn: session, ctx: t.Context()})
 				require.NoError(t, err)
 				// The test database cleanup owns conn; m.Close would close it too.
 				wantVersion := 1005
 				if test.stopShared {
 					require.NoError(t, m.Steps(1))
-					wantVersion = 1004
-				} else if test.wantDirty {
+					wantVersion = 1003
+				} else if test.disconnect {
+					var pid int
+					require.NoError(t, session.QueryRowContext(t.Context(), `SELECT pg_backend_pid()`).Scan(&pid))
+					finished := make(chan error, 1)
+					go func() { finished <- m.Up() }()
+					require.Eventually(t, func() bool {
+						var sleeping bool
+						err := conn.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event='PgSleep')`, pid).Scan(&sleeping)
+						return err == nil && sleeping
+					}, 5*time.Second, 10*time.Millisecond)
+					_, err = conn.ExecContext(t.Context(), `SELECT pg_terminate_backend($1)`, pid)
+					require.NoError(t, err)
+					require.Error(t, <-finished)
+					wantVersion = 1003
+				} else if test.wantRollback {
 					require.ErrorContains(t, m.Up(), "missing_checkpoint_function")
+					wantVersion = 1003
 				} else {
 					require.NoError(t, m.Up())
 					require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
@@ -306,19 +326,37 @@ func TestCheckpointMigrations(t *testing.T) {
 				status, err := readBaselineStatus(t.Context(), conn)
 				require.NoError(t, err)
 				require.Equal(t, wantVersion, status.Version)
-				require.Equal(t, test.wantDirty, status.Dirty)
-				// Public knows shared 1004, but must refuse it while dirty, and
-				// must also refuse the private checkpoint even when clean.
+				require.False(t, status.Dirty)
+				var exists bool
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('checkpoint_probe') IS NOT NULL`).Scan(&exists))
+				require.Equal(t, !test.wantRollback, exists)
+				var value int
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT value FROM checkpoint_data`).Scan(&value))
+				if test.wantRollback {
+					require.Equal(t, 7, value)
+				} else {
+					require.Equal(t, 8, value)
+				}
+				// Public must refuse both the previous and completed private checkpoints.
 				public := maps.Clone(files)
 				public["current/001004_shared_probe.up.sql"] = internal["current/001004_shared_probe.up.sql"]
 				_, err = checkBaselineStartup(t.Context(), conn, public)
 				require.Error(t, err)
 				_, err = checkBaselineStartup(t.Context(), conn, internal)
-				if test.wantDirty {
-					require.ErrorContains(t, err, "dirty")
-				} else {
+				require.NoError(t, err)
+				if test.wantRollback && !test.stopShared && !test.disconnect {
+					_, err = conn.ExecContext(t.Context(), `CREATE FUNCTION missing_checkpoint_function() RETURNS int LANGUAGE sql AS 'SELECT 1'`)
 					require.NoError(t, err)
 				}
+				for range 2 {
+					require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				}
+				status, err = readBaselineStatus(t.Context(), conn)
+				require.NoError(t, err)
+				require.Equal(t, 1005, status.Version)
+				require.False(t, status.Dirty)
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT value FROM checkpoint_data`).Scan(&value))
+				require.Equal(t, 8, value)
 			})
 		}
 	})

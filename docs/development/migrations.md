@@ -27,6 +27,10 @@ files in `server/migrations/current/`. Numbers increase but need not be contiguo
 
 Merged or released SQL is immutable: corrections use a new migration pair.
 Legacy SQL and the migration-143 bridge remain available for upgrade waypoints.
+The runner owns transaction boundaries: all files up to the next completed
+checkpoint share one transaction. Their SQL must work together without an
+intervening commit and must not contain transaction-control statements such as
+`BEGIN` or `COMMIT`.
 
 ## Startup checks
 
@@ -34,6 +38,12 @@ Startup accepts only clean versions in this application's migration history.
 Unknown, dirty and unsupported versions are rejected. Updates and rollback never
 automatically run down migrations; changing version metadata alone does not
 make a database compatible.
+
+Pending SQL and its completed checkpoint commit atomically. An interrupted or
+failed transaction leaves the previous checkpoint intact; retrying runs the
+uncommitted SQL again. A lost commit acknowledgement requires a fresh connection
+to establish which checkpoint committed. Previously dirty databases remain
+blocked.
 
 Checkpoints identify completed migration history, not application compatibility
 or manual schema drift. Keep checksum, runtime, HA, health and restored-data

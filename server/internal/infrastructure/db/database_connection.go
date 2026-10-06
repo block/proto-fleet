@@ -162,18 +162,65 @@ func migrationCheckpoints(files fs.FS) (map[int]bool, int, error) {
 	return checkpoints, latest, nil
 }
 
-// Internal shared steps remain dirty until a private checkpoint completes. A
-// crash between files must never leave a clean shared version that the public
-// application could mistake for its own database. All SQL, locking and version
-// writes still belong to golang-migrate's stock PostgreSQL driver.
+// Migration SQL and its completed checkpoint commit together. Stopping between
+// files rolls back to the previous checkpoint, which the normal runner can retry.
+// The stock driver still creates/reads the version table and owns the advisory lock.
 type checkpointDriver struct {
 	migratedatabase.Driver
 	checkpoints map[int]bool
+	conn        *sql.Conn
+	ctx         context.Context //nolint:containedctx // The migration driver API has no context parameters; preserve cancellation for this run.
+	tx          *sql.Tx
 }
 
-func (d checkpointDriver) SetVersion(version int, dirty bool) error {
-	if err := d.Driver.SetVersion(version, dirty || !d.checkpoints[version]); err != nil {
+func (d *checkpointDriver) SetVersion(version int, dirty bool) error {
+	if dirty {
+		if d.tx == nil {
+			//nolint:forbidigo // Migration DDL and its checkpoint must commit atomically.
+			tx, err := d.conn.BeginTx(d.ctx, nil)
+			if err != nil {
+				return fmt.Errorf("begin migration checkpoint: %w", err)
+			}
+			d.tx = tx
+		}
+		return nil
+	}
+	if !d.checkpoints[version] {
+		return nil
+	}
+	if _, err := d.tx.ExecContext(d.ctx, `DELETE FROM public.schema_migrations`); err != nil {
+		return fmt.Errorf("replace migration checkpoint: %w", err)
+	}
+	if _, err := d.tx.ExecContext(d.ctx, `INSERT INTO public.schema_migrations(version,dirty) VALUES ($1,false)`, version); err != nil {
 		return fmt.Errorf("record migration checkpoint: %w", err)
+	}
+	if err := d.tx.Commit(); err != nil {
+		return fmt.Errorf("checkpoint commit acknowledgement failed; reconnect and check before retrying: %w", err)
+	}
+	d.tx = nil
+	return nil
+}
+
+func (d *checkpointDriver) Run(migration io.Reader) error {
+	body, err := io.ReadAll(migration)
+	if err != nil {
+		return fmt.Errorf("read checkpoint migration: %w", err)
+	}
+	if _, err := d.tx.ExecContext(d.ctx, string(body)); err != nil {
+		return fmt.Errorf("run checkpoint migration: %w", err)
+	}
+	return nil
+}
+
+func (d *checkpointDriver) Unlock() error {
+	if d.tx != nil {
+		// Also covers a graceful stop between files and failed SQL. Roll back
+		// before the stock driver queries PostgreSQL to release its lock.
+		_ = d.tx.Rollback()
+		d.tx = nil
+	}
+	if err := d.Driver.Unlock(); err != nil {
+		return fmt.Errorf("unlock migration checkpoint: %w", err)
 	}
 	return nil
 }
@@ -195,7 +242,7 @@ func runCurrentMigrations(ctx context.Context, pool *sql.DB, files fs.FS) error 
 		if err != nil {
 			return fmt.Errorf("initialize PostgreSQL migrator: %w", err)
 		}
-		m, err := migrate.NewWithInstance("current", source, "", checkpointDriver{driver, checkpoints})
+		m, err := migrate.NewWithInstance("current", source, "", &checkpointDriver{Driver: driver, checkpoints: checkpoints, conn: conn, ctx: ctx})
 		if err != nil {
 			return fmt.Errorf("initialize current migrations: %w", err)
 		}
