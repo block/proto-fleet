@@ -212,7 +212,7 @@ func (s *Service) RevokeForFleetNode(ctx context.Context, fleetNodeID, orgID int
 		return 0, logInternalError("failed to revoke fleet node api keys", revokeAPIKeyClientError, err, "fleet_node_id", fleetNodeID, "org_id", orgID)
 	}
 	for _, keyID := range keyIDs {
-		s.lastUsedCache.Delete(keyID)
+		s.ForgetRevokedKey(keyID)
 	}
 	return int64(len(keyIDs)), nil
 }
@@ -229,7 +229,7 @@ func (s *Service) Revoke(ctx context.Context, keyID string, orgID int64, externa
 	}
 
 	// Evict from debounce cache so revoked keys don't accumulate
-	s.lastUsedCache.Delete(keyID)
+	s.ForgetRevokedKey(keyID)
 
 	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryAuth,
@@ -319,4 +319,10 @@ func logInternalError(logMessage, clientMessage string, err error, attrs ...any)
 	attrs = append(attrs, "error", err)
 	slog.Error(logMessage, attrs...)
 	return fleeterror.NewInternalError(clientMessage)
+}
+
+// ForgetRevokedKey releases successful-use bookkeeping after an external
+// transactional revocation commits. It does not change persisted credentials.
+func (s *Service) ForgetRevokedKey(keyID string) {
+	s.lastUsedCache.Delete(keyID)
 }

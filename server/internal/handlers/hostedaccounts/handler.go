@@ -469,11 +469,7 @@ func (h *Handler) RevokeAccountKey(ctx context.Context, req *connect.Request[pb.
 }
 func keyDTO(key domain.AccountKey) *pb.AccountKey {
 	result := &pb.AccountKey{KeyId: key.KeyID, Name: key.Name, Prefix: key.Prefix, Capabilities: uint64(key.Capabilities), DescendantAccountIds: key.DescendantAccountIds, IncludeFutureDescendants: key.IncludeFutureDescendants, CreatedAt: timestamppb.New(key.CreatedAt), IssuerUserId: key.IssuerUserID, IssuerUsername: key.IssuerUsername} // #nosec G115 -- stored account-key capability masks are constrained to 1..7.
-	if key.ExpiresAt.Valid {
-		result.ExpiresAt = timestamppb.New(key.ExpiresAt.Time)
-	}
-	if key.LastUsedAt.Valid {
-		result.LastUsedAt = timestamppb.New(key.LastUsedAt.Time)
-	}
+	result.ExpiresAt = nullableTimestamp(key.ExpiresAt)
+	result.LastUsedAt = nullableTimestamp(key.LastUsedAt)
 	return result
 }

@@ -180,7 +180,7 @@ func (s *KeyService) List(ctx context.Context, actorID, orgID int64, accountID s
 }
 
 func (s *KeyService) Revoke(ctx context.Context, actorID, orgID int64, accountID, keyID string) error {
-	return db.WithTransactionNoResult(ctx, s.accounts.conn, func(q sqlc.Querier) error {
+	err := db.WithTransactionNoResult(ctx, s.accounts.conn, func(q sqlc.Querier) error {
 		actor, err := lockActor(ctx, q, orgID, actorID)
 		if err != nil {
 			return err
@@ -210,6 +210,10 @@ func (s *KeyService) Revoke(ctx context.Context, actorID, orgID int64, accountID
 		}
 		return audit(ctx, q, actor, account, "revoke_hosted_account_key", map[string]any{"key_id": keyID})
 	})
+	if err == nil {
+		s.credentials.ForgetRevokedKey(keyID)
+	}
+	return err
 }
 
 type machineScopeKey struct{}
