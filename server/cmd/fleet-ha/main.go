@@ -30,6 +30,7 @@ const (
 )
 
 type cli struct {
+	RecoverEtcdRoot   recoverEtcdRootCmd   `cmd:"" help:"rotate the etcd administrator password using the installed signing key"`
 	EtcdStatus        etcdStatusCmd        `cmd:"" help:"check etcd quorum and quota without Fleet; nonzero on warning"`
 	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
 	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
@@ -50,6 +51,15 @@ type cli struct {
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
+}
+
+type recoverEtcdRootCmd struct {
+	PasswordFile string `arg:"" type:"path" help:"existing protected file containing the replacement password; retained on failure"`
+	NodeEnv      string `default:"/etc/proto-fleet/ha/node.env" type:"path" help:"installed node environment file"`
+}
+
+func (c *recoverEtcdRootCmd) Run(ctx context.Context) error {
+	return deployment.RecoverEtcdRoot(ctx, c.NodeEnv, c.PasswordFile)
 }
 
 type prepareExternalCmd struct {

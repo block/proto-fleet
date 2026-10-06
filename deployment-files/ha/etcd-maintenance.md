@@ -91,6 +91,40 @@ release's whole Compose file**, which can upgrade datastore images.
    recreates members serially; disabling retention cannot restore discarded
    history. Current keys need no restore.
 
+## Administrator credential
+
+New guided VIP installs export a mode-0600 `etcd-root-password` in the protected
+bundle directory printed by the installer. Copy it to encrypted off-host storage,
+verify the copy, then remove that local export. Peer bundles and the installed
+bootstrap password are still deleted. External-endpoint installs retain their
+existing `offline/etcd-root-password` export.
+
+Older guided installs may have deleted every root-password copy. In an approved
+single-operator maintenance window, use a verified release's matching-architecture
+`fleet-ha` on an installed host to rotate only the root password:
+
+```bash
+sudo sh -c 'umask 077; set -C; openssl rand -base64 32 > /root/etcd-root-recovered'
+sudo /secure/verified-release/ha/fleet-ha recover-etcd-root /root/etcd-root-recovered
+```
+
+The replacement file must exist with mode 0600 and belong to the invoking user.
+The command uses the installed JWT signing key to sign a one-minute root token
+in memory, deriving the authentication revision from a verified observer login.
+It verifies TLS,
+requires authentication already enabled, changes the password, and verifies the
+new login. It does not restart etcd, change service accounts, or print secrets.
+Treat the signing key as administrator access; never copy it off-host.
+
+Keep the replacement file even on failure: a timed-out change may have committed.
+Verify that password before retrying; do not generate another one over the file.
+Stop if the installed signing key is missing or does not match the cluster, or
+if the installed observer credential no longer authenticates.
+Do not disable authentication, reset data, or rerun bootstrap. Escrow the verified
+password off-host and remove its local copy after the approved work. Existing
+tokens become stale when the authentication revision changes; verify that
+Fleet and Patroni re-authenticate and remain ready before proceeding.
+
 ## Recover capacity (separate approval)
 
 Use matching etcd 3.6 `etcdctl`/`etcdutl` on a trusted administration host.

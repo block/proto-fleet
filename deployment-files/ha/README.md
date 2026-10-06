@@ -212,7 +212,9 @@ keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
 Only allowlisted host secret files are installed. A successful peer install
 consumes its prepared host bundle. The one-time etcd root password is removed
-from `/etc/proto-fleet/ha` after authentication is enabled.
+from `/etc/proto-fleet/ha` after authentication is enabled. Keep the separately
+exported administrator credential in encrypted off-host storage; see
+[credential recovery and capacity maintenance](etcd-maintenance.md#administrator-credential).
 
 If installation fails after changing the host, its inputs are retained
 for diagnosis. The installer intentionally has no resume or rollback state
