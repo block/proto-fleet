@@ -21,14 +21,15 @@ type Handler struct {
 	accounts    *domain.Service
 	invitations *domain.InvitationService
 	keys        *domain.KeyService
+	pools       *domain.PoolService
 	users       interfaces.UserStore
 	permissions *authz.PermissionResolver
 }
 
 var _ hostedv1connect.HostedAccountServiceHandler = (*Handler)(nil)
 
-func NewHandler(accounts *domain.Service, invitations *domain.InvitationService, keys *domain.KeyService, users interfaces.UserStore, permissions *authz.PermissionResolver) *Handler {
-	return &Handler{accounts: accounts, invitations: invitations, keys: keys, users: users, permissions: permissions}
+func NewHandler(accounts *domain.Service, invitations *domain.InvitationService, keys *domain.KeyService, pools *domain.PoolService, users interfaces.UserStore, permissions *authz.PermissionResolver) *Handler {
+	return &Handler{accounts: accounts, invitations: invitations, keys: keys, pools: pools, users: users, permissions: permissions}
 }
 
 func principal(ctx context.Context, accountID string) (*session.Info, error) {

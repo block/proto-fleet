@@ -354,6 +354,7 @@ func start(config *Config) (result error) {
 	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
 	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
 	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
+	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -882,7 +883,7 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, hostedPoolsSvc, userStore, permissionResolver), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))

@@ -155,7 +155,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
 		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
 	}
-	// Only explicitly classified account reads accept bounded machine keys.
+	// Only explicitly classified account operations accept bounded machine keys.
 	// Exemption lists cannot widen account or interactive credential access.
 	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) && !publicHostedInvitation(procedure) {
 		authed, err := i.authenticateRequest(ctx, requestHeader, !allowsAccountKey(procedure))
@@ -203,7 +203,14 @@ func publicHostedInvitation(procedure string) bool {
 
 func allowsAccountKey(procedure string) bool {
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
+	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
+		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
+		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
+		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
 		return true
 	default:
 		return false
@@ -215,7 +222,14 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Token-bound invitation acceptance precedes selection and is excluded.
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
+		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
+		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
+		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
 		hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
 		hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
 		hostedv1connect.HostedAccountServiceListAccountsProcedure,

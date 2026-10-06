@@ -72,6 +72,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.applyFleetNodeRecoveryAuthenticationNeededStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveryAuthenticationNeeded); err != nil {
 		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveryAuthenticationNeeded: %w", err)
 	}
+	if q.archiveHostedAccountPoolStmt, err = db.PrepareContext(ctx, archiveHostedAccountPool); err != nil {
+		return nil, fmt.Errorf("error preparing query ArchiveHostedAccountPool: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
@@ -386,6 +389,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createHostedAccountInvitationStmt, err = db.PrepareContext(ctx, createHostedAccountInvitation); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateHostedAccountInvitation: %w", err)
+	}
+	if q.createHostedAccountPoolStmt, err = db.PrepareContext(ctx, createHostedAccountPool); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedAccountPool: %w", err)
+	}
+	if q.createHostedAccountPoolRevisionStmt, err = db.PrepareContext(ctx, createHostedAccountPoolRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedAccountPoolRevision: %w", err)
 	}
 	if q.createInfrastructureDeviceStmt, err = db.PrepareContext(ctx, createInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInfrastructureDevice: %w", err)
@@ -893,6 +902,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getHostedAccountPathStmt, err = db.PrepareContext(ctx, getHostedAccountPath); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountPath: %w", err)
+	}
+	if q.getHostedAccountPoolStmt, err = db.PrepareContext(ctx, getHostedAccountPool); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountPool: %w", err)
+	}
+	if q.getHostedAccountPoolProfileStmt, err = db.PrepareContext(ctx, getHostedAccountPoolProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountPoolProfile: %w", err)
+	}
+	if q.getHostedAccountPoolRevisionStmt, err = db.PrepareContext(ctx, getHostedAccountPoolRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountPoolRevision: %w", err)
+	}
+	if q.getHostedAccountPoolRevisionByIDStmt, err = db.PrepareContext(ctx, getHostedAccountPoolRevisionByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountPoolRevisionByID: %w", err)
 	}
 	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
@@ -1449,6 +1470,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountMembersStmt, err = db.PrepareContext(ctx, listHostedAccountMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountMembers: %w", err)
 	}
+	if q.listHostedAccountPoolsStmt, err = db.PrepareContext(ctx, listHostedAccountPools); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountPools: %w", err)
+	}
 	if q.listHostedAccountSitesStmt, err = db.PrepareContext(ctx, listHostedAccountSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountSites: %w", err)
 	}
@@ -1995,6 +2019,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setHostedAccountMembershipStmt, err = db.PrepareContext(ctx, setHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountMembership: %w", err)
 	}
+	if q.setHostedAccountPoolProfileStmt, err = db.PrepareContext(ctx, setHostedAccountPoolProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query SetHostedAccountPoolProfile: %w", err)
+	}
 	if q.setHostedAccountSitesRestrictedStmt, err = db.PrepareContext(ctx, setHostedAccountSitesRestricted); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountSitesRestricted: %w", err)
 	}
@@ -2450,6 +2477,11 @@ func (q *Queries) Close() error {
 	if q.applyFleetNodeRecoveryAuthenticationNeededStmt != nil {
 		if cerr := q.applyFleetNodeRecoveryAuthenticationNeededStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing applyFleetNodeRecoveryAuthenticationNeededStmt: %w", cerr)
+		}
+	}
+	if q.archiveHostedAccountPoolStmt != nil {
+		if cerr := q.archiveHostedAccountPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing archiveHostedAccountPoolStmt: %w", cerr)
 		}
 	}
 	if q.assignBuildingToSiteStmt != nil {
@@ -2975,6 +3007,16 @@ func (q *Queries) Close() error {
 	if q.createHostedAccountInvitationStmt != nil {
 		if cerr := q.createHostedAccountInvitationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createHostedAccountInvitationStmt: %w", cerr)
+		}
+	}
+	if q.createHostedAccountPoolStmt != nil {
+		if cerr := q.createHostedAccountPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedAccountPoolStmt: %w", cerr)
+		}
+	}
+	if q.createHostedAccountPoolRevisionStmt != nil {
+		if cerr := q.createHostedAccountPoolRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedAccountPoolRevisionStmt: %w", cerr)
 		}
 	}
 	if q.createInfrastructureDeviceStmt != nil {
@@ -3820,6 +3862,26 @@ func (q *Queries) Close() error {
 	if q.getHostedAccountPathStmt != nil {
 		if cerr := q.getHostedAccountPathStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountPathStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountPoolStmt != nil {
+		if cerr := q.getHostedAccountPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountPoolStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountPoolProfileStmt != nil {
+		if cerr := q.getHostedAccountPoolProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountPoolProfileStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountPoolRevisionStmt != nil {
+		if cerr := q.getHostedAccountPoolRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountPoolRevisionStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountPoolRevisionByIDStmt != nil {
+		if cerr := q.getHostedAccountPoolRevisionByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountPoolRevisionByIDStmt: %w", cerr)
 		}
 	}
 	if q.getInfrastructureControlSubnetsStmt != nil {
@@ -4747,6 +4809,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountMembersStmt: %w", cerr)
 		}
 	}
+	if q.listHostedAccountPoolsStmt != nil {
+		if cerr := q.listHostedAccountPoolsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountPoolsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountSitesStmt != nil {
 		if cerr := q.listHostedAccountSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountSitesStmt: %w", cerr)
@@ -5657,6 +5724,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setHostedAccountMembershipStmt: %w", cerr)
 		}
 	}
+	if q.setHostedAccountPoolProfileStmt != nil {
+		if cerr := q.setHostedAccountPoolProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setHostedAccountPoolProfileStmt: %w", cerr)
+		}
+	}
 	if q.setHostedAccountSitesRestrictedStmt != nil {
 		if cerr := q.setHostedAccountSitesRestrictedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setHostedAccountSitesRestrictedStmt: %w", cerr)
@@ -6332,6 +6404,7 @@ type Queries struct {
 	appendFirmwareRolloutDevicesStmt                             *sql.Stmt
 	applyFleetNodeRecoveredEndpointStmt                          *sql.Stmt
 	applyFleetNodeRecoveryAuthenticationNeededStmt               *sql.Stmt
+	archiveHostedAccountPoolStmt                                 *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
@@ -6437,6 +6510,8 @@ type Queries struct {
 	createFleetNodeApiKeyStmt                                    *sql.Stmt
 	createHostedAccountStmt                                      *sql.Stmt
 	createHostedAccountInvitationStmt                            *sql.Stmt
+	createHostedAccountPoolStmt                                  *sql.Stmt
+	createHostedAccountPoolRevisionStmt                          *sql.Stmt
 	createInfrastructureDeviceStmt                               *sql.Stmt
 	createInventoryPartStmt                                      *sql.Stmt
 	createOrganizationStmt                                       *sql.Stmt
@@ -6606,6 +6681,10 @@ type Queries struct {
 	getHostedAccountKeyOwnerStmt                                 *sql.Stmt
 	getHostedAccountMembershipStmt                               *sql.Stmt
 	getHostedAccountPathStmt                                     *sql.Stmt
+	getHostedAccountPoolStmt                                     *sql.Stmt
+	getHostedAccountPoolProfileStmt                              *sql.Stmt
+	getHostedAccountPoolRevisionStmt                             *sql.Stmt
+	getHostedAccountPoolRevisionByIDStmt                         *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
 	getInfrastructureDeviceStmt                                  *sql.Stmt
 	getInventoryInsightsStmt                                     *sql.Stmt
@@ -6791,6 +6870,7 @@ type Queries struct {
 	listHostedAccountInvitationsStmt                             *sql.Stmt
 	listHostedAccountKeysStmt                                    *sql.Stmt
 	listHostedAccountMembersStmt                                 *sql.Stmt
+	listHostedAccountPoolsStmt                                   *sql.Stmt
 	listHostedAccountSitesStmt                                   *sql.Stmt
 	listHostedAccountSummariesStmt                               *sql.Stmt
 	listHostedAccountsStmt                                       *sql.Stmt
@@ -6973,6 +7053,7 @@ type Queries struct {
 	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
 	setHostedAccountAncestorGrantStmt                            *sql.Stmt
 	setHostedAccountMembershipStmt                               *sql.Stmt
+	setHostedAccountPoolProfileStmt                              *sql.Stmt
 	setHostedAccountSitesRestrictedStmt                          *sql.Stmt
 	setInfrastructureControlSubnetsStmt                          *sql.Stmt
 	setLocalTransactionTimeoutStmt                               *sql.Stmt
@@ -7119,6 +7200,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		appendFirmwareRolloutDevicesStmt:                             q.appendFirmwareRolloutDevicesStmt,
 		applyFleetNodeRecoveredEndpointStmt:                          q.applyFleetNodeRecoveredEndpointStmt,
 		applyFleetNodeRecoveryAuthenticationNeededStmt:               q.applyFleetNodeRecoveryAuthenticationNeededStmt,
+		archiveHostedAccountPoolStmt:                                 q.archiveHostedAccountPoolStmt,
 		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
 		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
@@ -7224,6 +7306,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
 		createHostedAccountStmt:                                      q.createHostedAccountStmt,
 		createHostedAccountInvitationStmt:                            q.createHostedAccountInvitationStmt,
+		createHostedAccountPoolStmt:                                  q.createHostedAccountPoolStmt,
+		createHostedAccountPoolRevisionStmt:                          q.createHostedAccountPoolRevisionStmt,
 		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
 		createInventoryPartStmt:                                      q.createInventoryPartStmt,
 		createOrganizationStmt:                                       q.createOrganizationStmt,
@@ -7393,6 +7477,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHostedAccountKeyOwnerStmt:                                 q.getHostedAccountKeyOwnerStmt,
 		getHostedAccountMembershipStmt:                               q.getHostedAccountMembershipStmt,
 		getHostedAccountPathStmt:                                     q.getHostedAccountPathStmt,
+		getHostedAccountPoolStmt:                                     q.getHostedAccountPoolStmt,
+		getHostedAccountPoolProfileStmt:                              q.getHostedAccountPoolProfileStmt,
+		getHostedAccountPoolRevisionStmt:                             q.getHostedAccountPoolRevisionStmt,
+		getHostedAccountPoolRevisionByIDStmt:                         q.getHostedAccountPoolRevisionByIDStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
 		getInventoryInsightsStmt:                                     q.getInventoryInsightsStmt,
@@ -7578,6 +7666,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountInvitationsStmt:                             q.listHostedAccountInvitationsStmt,
 		listHostedAccountKeysStmt:                                    q.listHostedAccountKeysStmt,
 		listHostedAccountMembersStmt:                                 q.listHostedAccountMembersStmt,
+		listHostedAccountPoolsStmt:                                   q.listHostedAccountPoolsStmt,
 		listHostedAccountSitesStmt:                                   q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                               q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                       q.listHostedAccountsStmt,
@@ -7760,6 +7849,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
 		setHostedAccountAncestorGrantStmt:                            q.setHostedAccountAncestorGrantStmt,
 		setHostedAccountMembershipStmt:                               q.setHostedAccountMembershipStmt,
+		setHostedAccountPoolProfileStmt:                              q.setHostedAccountPoolProfileStmt,
 		setHostedAccountSitesRestrictedStmt:                          q.setHostedAccountSitesRestrictedStmt,
 		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
 		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,

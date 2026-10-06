@@ -24,6 +24,9 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
+	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
+	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
 	hostedv1connect.HostedAccountServicePreviewInvitationProcedure,
 	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure,
 	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure,
@@ -240,11 +243,14 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
-	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:    true,
-	hostedv1connect.HostedAccountServicePreviewInvitationProcedure:   true,
-	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure: true,
-	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:    true,
-	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:    true,
+	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure: true,
+	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure: true,
+	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:  true,
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:        true,
+	hostedv1connect.HostedAccountServicePreviewInvitationProcedure:       true,
+	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure:     true,
+	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:        true,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:        true,
 	// Fleet topology (device IPs, site/rack placement) must not land in
 	// debug logs on every bridge poll.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,
