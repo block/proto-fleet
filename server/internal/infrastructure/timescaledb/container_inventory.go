@@ -13,11 +13,13 @@ import (
 )
 
 type inventoryModule struct {
-	TankPosition int32           `json:"tank_position"`
-	Position     int32           `json:"position"`
-	ReportedID   string          `json:"reported_id"`
-	State        sdk.ModuleState `json:"state"`
-	ObservedAt   *time.Time      `json:"observed_at"`
+	TankPosition     int32                      `json:"tank_position"`
+	Position         int32                      `json:"position"`
+	ReportedID       string                     `json:"reported_id"`
+	State            sdk.ModuleState            `json:"state"`
+	ObservedAt       *time.Time                 `json:"observed_at"`
+	Issues           *sdk.ContainerModuleIssues `json:"issues"`
+	IssuesObservedAt *time.Time                 `json:"issues_observed_at"`
 }
 
 type moduleSample struct {
@@ -69,7 +71,14 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			if !module.ObservedAt.IsZero() {
 				observed = &module.ObservedAt
 			}
-			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed})
+			var issueTime *time.Time
+			if v := module.Issues; v != nil && !v.ObservedAt.IsZero() {
+				if v.ObservedAt.After(snapshot.ObservedAt.Add(5 * time.Second)) {
+					return fmt.Errorf("invalid module issue observation time")
+				}
+				issueTime = &v.ObservedAt
+			}
+			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {
 				samples = append(samples, moduleSample{tank.Position, module.Position, module.ReportedID, m.ObservedAt, m.HashrateHS, m.PowerW, m.TemperatureC})
 			}

@@ -101,15 +101,40 @@ func (q *Queries) MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentCo
 }
 
 const reconcileContainerModules = `-- name: ReconcileContainerModules :exec
-INSERT INTO container_module (tank_id, position, reported_id, first_seen_at, last_seen_at, state, state_observed_at)
-SELECT t.id, x.position, COALESCE(x.reported_id, ''), $1, $1, x.state, x.observed_at
-FROM jsonb_to_recordset($2::jsonb) AS x(tank_position int, position int, reported_id text, state text, observed_at timestamptz)
+INSERT INTO container_module (tank_id, position, reported_id, first_seen_at, last_seen_at, state, state_observed_at, issues, issues_observed_at, issues_source_times)
+SELECT t.id, x.position, COALESCE(x.reported_id, ''), $1, $1, x.state, x.observed_at, x.issues, x.issues_observed_at, COALESCE(x.issues->'source_times', '{}'::jsonb)
+FROM jsonb_to_recordset($2::jsonb) AS x(tank_position int, position int, reported_id text, state text, observed_at timestamptz, issues jsonb, issues_observed_at timestamptz)
 JOIN container_tank t ON t.device_id = $3 AND t.position = x.tank_position
 ON CONFLICT (tank_id, position) WHERE retired_at IS NULL DO UPDATE
 SET reported_id = CASE WHEN EXCLUDED.reported_id = '' THEN container_module.reported_id ELSE EXCLUDED.reported_id END,
     last_seen_at = EXCLUDED.last_seen_at,
     state = CASE WHEN EXCLUDED.state_observed_at IS NULL OR container_module.state_observed_at IS NULL OR EXCLUDED.state_observed_at >= container_module.state_observed_at THEN EXCLUDED.state ELSE container_module.state END,
-    state_observed_at = GREATEST(container_module.state_observed_at, EXCLUDED.state_observed_at)
+    state_observed_at = GREATEST(container_module.state_observed_at, EXCLUDED.state_observed_at),
+    issues = CASE
+      -- Missing evidence immediately withdraws confirmation; keep its watermark.
+      WHEN EXCLUDED.issues_observed_at IS NULL THEN NULL
+      WHEN NOT EXISTS (
+        SELECT 1 FROM jsonb_each_text(EXCLUDED.issues_source_times) incoming
+        JOIN jsonb_each_text(container_module.issues_source_times) previous USING (key)
+        WHERE incoming.value::timestamptz < previous.value::timestamptz
+      ) AND (
+        container_module.issues_observed_at IS NULL OR
+        EXCLUDED.issues_observed_at > container_module.issues_observed_at OR
+        EXISTS (
+          SELECT 1 FROM jsonb_each_text(EXCLUDED.issues_source_times) incoming
+          LEFT JOIN jsonb_each_text(container_module.issues_source_times) previous USING (key)
+          WHERE previous.value IS NULL OR incoming.value::timestamptz > previous.value::timestamptz
+        )
+      ) THEN EXCLUDED.issues
+      WHEN NOT COALESCE((EXCLUDED.issues->>'complete')::boolean, FALSE) THEN NULL
+      ELSE container_module.issues END,
+    issues_observed_at = GREATEST(container_module.issues_observed_at, EXCLUDED.issues_observed_at),
+    issues_source_times = COALESCE((
+      SELECT jsonb_object_agg(COALESCE(previous.key, incoming.key),
+        GREATEST(previous.value::timestamptz, incoming.value::timestamptz))
+      FROM jsonb_each_text(container_module.issues_source_times) AS previous(key, value)
+      FULL JOIN jsonb_each_text(EXCLUDED.issues_source_times) AS incoming(key, value) USING (key)
+    ), '{}'::jsonb)
 `
 
 type ReconcileContainerModulesParams struct {

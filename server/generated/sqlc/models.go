@@ -505,15 +505,18 @@ type ContainerInventory struct {
 }
 
 type ContainerModule struct {
-	ID              int64
-	TankID          int64
-	Position        int32
-	ReportedID      string
-	FirstSeenAt     time.Time
-	LastSeenAt      time.Time
-	RetiredAt       sql.NullTime
-	State           string
-	StateObservedAt sql.NullTime
+	ID                int64
+	TankID            int64
+	Position          int32
+	ReportedID        string
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	RetiredAt         sql.NullTime
+	State             string
+	StateObservedAt   sql.NullTime
+	Issues            pqtype.NullRawMessage
+	IssuesObservedAt  sql.NullTime
+	IssuesSourceTimes json.RawMessage
 }
 
 type ContainerModuleLatestMetric struct {

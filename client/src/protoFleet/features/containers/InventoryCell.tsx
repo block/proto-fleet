@@ -1,3 +1,4 @@
+import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
@@ -51,6 +52,8 @@ export function InventoryCell({ item, column }: { item: InventoryItem; column: s
             : formatTempRange(item.minTemperatureC, item.maxTemperatureC, unit)}
         </span>
       );
+    case "issues":
+      return item.ref?.kind === EntityKind.MODULE ? <ModuleIssues item={item} /> : <span>—</span>;
     case "status":
       return <ModuleStatus state={item.state} />;
     case "health":

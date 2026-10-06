@@ -783,6 +783,7 @@ message ContainerModule {
   string state = 3;
   google.protobuf.Timestamp observed_at = 4;
   ContainerModuleMetrics metrics = 5;
+  ContainerModuleIssues issues = 6;
 }
 
 // SI units; absent values are unavailable. Power is module PSU input power.
@@ -840,4 +841,19 @@ message SetContainerControlRequest {
   DeviceRef ref = 1;
   string name = 2;
   optional bool enabled = 3;
+}
+
+// Current evidence, independently timestamped from module classification.
+message ContainerModuleIssues {
+ map<string, google.protobuf.Timestamp> source_times = 4;
+ google.protobuf.Timestamp observed_at = 1;
+ bool complete = 2;
+ repeated ContainerModuleIssue items = 3;
+}
+message ContainerModuleIssue {
+ string component = 1;
+ string component_id = 2;
+ string cause = 3;
+ string severity = 4;
+ google.protobuf.Timestamp observed_at = 5;
 }

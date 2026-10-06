@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"time"
+
 	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -29,6 +31,18 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 		t := &pb.ContainerTank{Position: tank.Position}
 		for _, m := range tank.Modules {
 			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, State: string(m.State), ObservedAt: timestamppb.New(m.ObservedAt)}
+			if v := m.Issues; v != nil {
+				module.Issues = &pb.ContainerModuleIssues{ObservedAt: timestamppb.New(v.ObservedAt), Complete: v.Complete}
+				if v.SourceTimes != nil {
+					module.Issues.SourceTimes = map[string]*timestamppb.Timestamp{}
+					for key, at := range v.SourceTimes {
+						module.Issues.SourceTimes[key] = timestamppb.New(at)
+					}
+				}
+				for _, issue := range v.Items {
+					module.Issues.Items = append(module.Issues.Items, &pb.ContainerModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: timestamppb.New(issue.ObservedAt)})
+				}
+			}
 			if v := m.Metrics; v != nil {
 				module.Metrics = &pb.ContainerModuleMetrics{ObservedAt: timestamppb.New(v.ObservedAt), HashrateHs: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
 			}
@@ -69,6 +83,20 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 		t := ContainerTank{Position: tank.Position, Modules: []ContainerModule{}}
 		for _, m := range tank.Modules {
 			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, State: ModuleState(m.State), ObservedAt: m.ObservedAt.AsTime()}
+			if v := m.Issues; v != nil {
+				module.Issues = &ContainerModuleIssues{ObservedAt: v.ObservedAt.AsTime(), Complete: v.Complete}
+				if len(v.SourceTimes) > 0 {
+					module.Issues.SourceTimes = map[string]time.Time{}
+					for key, at := range v.SourceTimes {
+						module.Issues.SourceTimes[key] = at.AsTime()
+					}
+				}
+				for _, issue := range v.Items {
+					if issue != nil {
+						module.Issues.Items = append(module.Issues.Items, ContainerModuleIssue{Component: issue.Component, ComponentID: issue.ComponentId, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: issue.ObservedAt.AsTime()})
+					}
+				}
+			}
 			if v := m.Metrics; v != nil {
 				module.Metrics = &ContainerModuleMetrics{ObservedAt: v.ObservedAt.AsTime(), HashrateHS: v.HashrateHs, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
 			}

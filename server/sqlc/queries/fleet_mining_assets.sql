@@ -180,6 +180,8 @@ WITH assets AS (
  LIMIT sqlc.arg('page_limit')::int
 )
 SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
+ 'module_issues',CASE WHEN p.telemetry_allowed THEN module.issues END,
+ 'module_issues_last_seen_at',module.last_seen_at,
  'site_name',COALESCE(site.name,''), 'facility_name',COALESCE(parent_b.name,parent_d.custom_name,'Container '||parent_d.serial_number,''),
  'group_name',COALESCE(parent_s.label,'Tank '||parent_t.position,''),
  'hashing_count',CASE WHEN p.telemetry_allowed AND p.state='hashing' THEN 1 ELSE 0 END,
@@ -189,6 +191,7 @@ SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
  'psu_issues',issues.psu_issues,'fan_issues',issues.fan_issues,'hashboard_issues',issues.hashboard_issues,'control_issues',issues.control_issues
  ) ORDER BY p.ordinal)
  FROM page p
+ LEFT JOIN container_module module ON p.kind=6 AND module.id=p.id AND module.retired_at IS NULL
  LEFT JOIN site ON site.id=p.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
  LEFT JOIN building parent_b ON p.facility_kind=1 AND parent_b.id=p.facility_id AND parent_b.org_id=p.org_id
  LEFT JOIN device parent_d ON p.facility_kind=2 AND parent_d.id=p.facility_id AND parent_d.org_id=p.org_id

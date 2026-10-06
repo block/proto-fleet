@@ -257,3 +257,34 @@ switch observations. Missing or stale readings are hidden.
 Auto mode's `dry_cooler_auto_temp_c` value is shown as a temperature target,
 distinct from the measured inlet temperature. Both temperatures honor the
 user's Celsius/Fahrenheit preference.
+
+## Current module issue evidence
+
+The CT1 bulk map supplies current board errors/warnings and explicit hashrail,
+reference-clock, and PSU thermal flags. Issues retain board MAC attribution or
+belong to the single module PSU. Shared PSU entries deduplicate by component and
+cause; repeated thermal flags use the freshest PSU state (source board timestamp
+minus its reported sample age), including a clear reading. Historical shutdown
+errors are excluded. Mixed board states are labeled observations, never hardware
+faults. An attention classification alone supplies no invented fault.
+
+The SDK transports a current issue set with individual issue timestamps and
+source times for clear board/PSU readings. `container_module.issues` stores this
+small evidence payload; separate source watermarks prevent an older component
+sample from replacing newer evidence, even when the aggregate oldest timestamp
+ties. Inventory collection order still guards topology changes. Replacement
+modules get fresh Fleet identities and their own issue sets and watermarks.
+Missing cause arrays, missing PSU state, or incomplete evidence withdraw health
+confirmation while preserving source ordering; only advancing source evidence
+restores it. Fresh complete clear
+observations replace the issue set, so resolved causes disappear. A partial
+fresh observation can expose explicit causes without confirming overall health.
+
+The inventory API includes module evidence directly in the authorized page read.
+It hides current entries after two minutes based on the oldest required source
+and module last-seen time. Unknown and stale evidence are distinct from a complete
+observation with no reported causes. Fleet's Issues cell opens all causes,
+components, severity (fault, warning, or observation), and source timestamps.
+Cached client evidence also expires if list refreshes stop.
+This is current evidence only; historical issue lifecycle, parent issue rollups,
+and the existing miner-specific component filters remain separate concerns.
