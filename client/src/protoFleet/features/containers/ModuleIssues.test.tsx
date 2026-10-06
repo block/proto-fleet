@@ -79,6 +79,7 @@ it("distinguishes mixed-state observations from faults", () => {
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Observation");
   expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Fault");
   expect(screen.queryByTestId("alert-icon")).not.toBeInTheDocument();
+  expect(screen.getByTestId("module-issues").querySelector(".text-text-primary-30")).toBeInTheDocument();
 });
 
 it.each(["missing", "partial", "stale"])("does not imply health for %s evidence", (kind) => {

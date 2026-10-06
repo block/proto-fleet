@@ -95,7 +95,7 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
           title={`${item.name} issues`}
           icon={
             intent === "info" ? (
-              <Info width={iconSizes.xLarge} className="text-intent-info-fill" />
+              <Info width={iconSizes.xLarge} className="text-text-primary-30" />
             ) : (
               <Alert
                 width={iconSizes.xLarge}
