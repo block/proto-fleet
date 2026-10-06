@@ -450,7 +450,11 @@ func checkBaselineStartup(ctx context.Context, q baselineQuerier, files fs.FS) (
 	}
 	// Exact catalog validation belongs to baseline adoption only. Future
 	// migrations use the stock runner and repository-owned checkpoints.
-	if status.Version <= 1001 {
+	assertions, err := loadBaselineAssertions()
+	if err != nil {
+		return status, err
+	}
+	if status.Version == assertions.Target {
 		return checkBaselineState(ctx, q, "target", "", 0)
 	}
 	return status, nil

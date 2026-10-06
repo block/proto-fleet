@@ -262,7 +262,7 @@ func TestCheckpointMigrations(t *testing.T) {
 		}
 		files[path] = &fstest.MapFile{Data: body}
 	}
-	files["current/001002_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
+	files["current/001001_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
 	t.Run("internal checkpoints", func(t *testing.T) {
 		for _, test := range []struct {
 			name         string
@@ -279,7 +279,7 @@ func TestCheckpointMigrations(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				conn, _ := newMigrationBridgeTestDB(t)
 				internal := maps.Clone(files)
-				delete(internal, "current/001002_shared_probe.up.sql")
+				delete(internal, "current/001001_shared_probe.up.sql")
 				internal["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_data(value int); INSERT INTO checkpoint_data VALUES (7);")}
 				require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
 				internal["current/001004_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint); UPDATE checkpoint_data SET value=value+1;")}
@@ -371,7 +371,7 @@ func TestCheckpointMigrations(t *testing.T) {
 			}
 		}
 		status, err := readBaselineStatus(t.Context(), conn)
-		if err != nil || status.Version != 1002 || status.Dirty {
+		if err != nil || status.Version != 1001 || status.Dirty {
 			t.Fatalf("status=%+v error=%v", status, err)
 		}
 		var exists bool
