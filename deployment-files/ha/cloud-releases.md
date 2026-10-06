@@ -45,11 +45,12 @@ migrations, bridge SQL, baseline assertions/reconciliation inputs and listed
 DB/Patroni/etcd sources. The format is unchanged. Automated database retention
 requires an exact match; retained history affects the hash, not the version.
 
-Bundles include `server/fleet-db-transition` for [offline adoption](../../docs/development/baseline-upgrade.md).
+Bundles include `server/fleet-db-transition` for
+[existing-database reconciliation](../../docs/development/migrations.md#existing-databases).
 `update-preflight` validates the candidate release, profile and Compose model
 before reconciliation; `fleet-ha app-start`, including recovery, checks the target
-schema before starting containers. After reconciliation, recover by completing
-the qualified target deployment or restoring the coordinated backup.
+schema before starting containers. Reconciliation changes persist independently
+of application deployment success.
 
 A match does not account for floating image or installed package versions and
 does not certify compatibility. Operators must still manually qualify migrations

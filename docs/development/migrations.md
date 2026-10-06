@@ -3,7 +3,22 @@
 Use golang-migrate and the existing `schema_migrations(version, dirty)` row.
 Shared and private SQL use one sequence: shared baseline 1000, private baseline
 1001, then ordinary migrations. Baselines run only on empty databases; existing
-installations use [offline adoption](baseline-upgrade.md).
+installations require explicit reconciliation.
+
+## Existing databases
+
+`fleet-db-transition` reconciles qualified existing schemas without replaying
+baseline SQL. The public release accepts clean public versions 152/153 and
+advances them to 1000. Older versions require a compatible legacy release first;
+internal transitions belong to the internal release.
+
+Reconciliation holds the migration advisory lock, validates the source catalog
+and grants, applies missing changes, and verifies protected data, grants,
+schedules and the target schema. The existing version row advances last in the
+same transaction. A validated completed target is a no-op on repeat execution.
+Failure before commit rolls back; a lost commit acknowledgement leaves the
+outcome uncertain until fresh source/target checks establish it. Application
+rollback does not undo database changes.
 
 ## Author and promote
 

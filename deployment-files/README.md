@@ -116,7 +116,7 @@ Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
 ## Database admission and retained artifacts
 
-Existing databases need [offline baseline adoption](../docs/development/baseline-upgrade.md)
+Existing databases require [explicit reconciliation](../docs/development/migrations.md#existing-databases)
 before switching histories or repositories. Standalone replacement checks startup
 admission before replacing containers; ordinary pending migrations run at startup.
 HA replacement/recovery requires the exact target schema. Deployment failure does
@@ -125,13 +125,12 @@ not undo database changes.
 Standalone firmware, command artifacts and logs live in `artifacts/` beside
 `deployment/`, outside updater tree swaps. The first replacement stops the old API
 container, copies `/app` to a private temporary directory, and retains only those
-three artifact directories. Allow space for that copy and back up the artifacts.
+three artifact directories.
 Configuration and auth keys keep their existing preservation paths; HA retains
 its `HA_DATA_DIR/artifacts` mounts.
 
 Copy failure stops replacement and retains the old container. Identical copies
 allow retry; conflicting files, symlinks or unexpected mounts require review.
-Do not delete the old container or either copy to bypass a refusal.
 
 ## Release repositories and forks
 
