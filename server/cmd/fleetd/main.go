@@ -753,7 +753,7 @@ func start(config *Config) error {
 		llmConfigSvc,
 		chatAgent,
 		chatModelClient,
-		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler, deviceSetServiceHandler, commandServiceHandler, scheduleServiceHandler),
+		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler, deviceSetServiceHandler, commandServiceHandler, scheduleServiceHandler, transactor),
 		chatConfirmationBroker,
 	), li))
 

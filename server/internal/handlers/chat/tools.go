@@ -19,6 +19,7 @@ import (
 	schedulev1 "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	sitesv1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	chatdomain "github.com/block/proto-fleet/server/internal/domain/chat"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const (
@@ -28,6 +29,8 @@ const (
 	maxRackSlotAssignments    = 1000
 	maxMinerActionDevices     = 1000
 	maxDowntimeTargets        = 1000
+	toolSetRackSlots          = "set_rack_slots"
+	toolClearRackSlots        = "clear_rack_slots"
 )
 
 const (
@@ -88,6 +91,7 @@ type FleetTools struct {
 	deviceSets deviceSetsHandler
 	commands   commandHandler
 	schedules  scheduleHandler
+	transactor interfaces.Transactor
 }
 
 func NewFleetTools(
@@ -97,6 +101,7 @@ func NewFleetTools(
 	deviceSets deviceSetsHandler,
 	commands commandHandler,
 	schedules scheduleHandler,
+	transactor interfaces.Transactor,
 ) *FleetTools {
 	return &FleetTools{
 		fleet:      fleet,
@@ -105,6 +110,7 @@ func NewFleetTools(
 		deviceSets: deviceSets,
 		commands:   commands,
 		schedules:  schedules,
+		transactor: transactor,
 	}
 }
 
@@ -331,7 +337,7 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 			},
 		},
 		{
-			Name:                 "set_rack_slots",
+			Name:                 toolSetRackSlots,
 			Description:          "Assign explicitly identified miners that already belong to a rack to specific 0-indexed row/column slot positions. Use resolve_miners with rack_ids first unless exact device identifiers are already supplied; use list_racks to convert human-facing slot numbers according to the rack layout and numbering origin. This write always pauses for explicit operator confirmation before execution.",
 			RequiresConfirmation: true,
 			InputSchema: map[string]any{
@@ -357,7 +363,7 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 			},
 		},
 		{
-			Name:                 "clear_rack_slots",
+			Name:                 toolClearRackSlots,
 			Description:          "Clear slot positions for explicitly identified miners in a rack while preserving rack membership. This write always pauses for explicit operator confirmation before execution.",
 			RequiresConfirmation: true,
 			InputSchema: map[string]any{
@@ -1235,7 +1241,7 @@ func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chat
 				{Label: "Miners", Value: strings.Join(input.DeviceIdentifiers, ", ")},
 			},
 		}, nil
-	case "set_rack_slots":
+	case toolSetRackSlots:
 		input, err := buildSetRackSlotsInput(arguments)
 		if err != nil {
 			return nil, err
@@ -1249,7 +1255,7 @@ func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chat
 				{Label: "Slots", Value: formatRackSlotAssignments(input.SlotAssignments, 20)},
 			},
 		}, nil
-	case "clear_rack_slots":
+	case toolClearRackSlots:
 		input, err := buildClearRackSlotsInput(arguments)
 		if err != nil {
 			return nil, err
@@ -1344,10 +1350,14 @@ func (t *FleetTools) Execute(ctx context.Context, name string, arguments json.Ra
 		return t.createRack(ctx, arguments)
 	case "move_miners_to_rack":
 		return t.moveMinersToRack(ctx, arguments)
-	case "set_rack_slots":
-		return t.setRackSlots(ctx, arguments)
-	case "clear_rack_slots":
-		return t.clearRackSlots(ctx, arguments)
+	case toolSetRackSlots:
+		return t.runRackSlotTransaction(ctx, func(txCtx context.Context) (chatdomain.ToolOutput, error) {
+			return t.setRackSlots(txCtx, arguments)
+		})
+	case toolClearRackSlots:
+		return t.runRackSlotTransaction(ctx, func(txCtx context.Context) (chatdomain.ToolOutput, error) {
+			return t.clearRackSlots(txCtx, arguments)
+		})
 	default:
 		return chatdomain.ToolOutput{}, fmt.Errorf("unknown tool %q", name)
 	}
@@ -2096,6 +2106,24 @@ func healthStatusKey(status fleetv1.DeviceStatus) string {
 	default:
 		return "status_unspecified"
 	}
+}
+
+// Nested handler/service transactions reuse this context, so validation,
+// clearing, assignment, and their activity records commit as one operation.
+func (t *FleetTools) runRackSlotTransaction(ctx context.Context, run func(context.Context) (chatdomain.ToolOutput, error)) (chatdomain.ToolOutput, error) {
+	if t.transactor == nil {
+		return chatdomain.ToolOutput{}, fmt.Errorf("rack slot transaction is unavailable")
+	}
+	var output chatdomain.ToolOutput
+	err := t.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		output, err = run(txCtx)
+		return err
+	})
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	return output, nil
 }
 
 func (t *FleetTools) setRackSlots(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {

@@ -195,7 +195,7 @@ func TestListPoolsOnlyDisclosesNamesToModelProvider(t *testing.T) {
 		PoolName: "Primary pool",
 		Url:      "stratum+tcp://pool.example.com:3333",
 		Username: "bc1q-wallet.worker-01",
-	}}}, nil, nil, nil)
+	}}}, nil, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "list_pools", json.RawMessage(`{}`))
 
@@ -207,7 +207,7 @@ func TestListPoolsOnlyDisclosesNamesToModelProvider(t *testing.T) {
 }
 
 func TestWriteToolDefinitionsRequireConfirmation(t *testing.T) {
-	tools := NewFleetTools(nil, &recordingSitesHandler{}, nil, &recordingDeviceSetsHandler{}, nil, nil)
+	tools := NewFleetTools(nil, &recordingSitesHandler{}, nil, &recordingDeviceSetsHandler{}, nil, nil, nil)
 	requiresConfirmation := make(map[string]bool)
 	for _, definition := range tools.Definitions() {
 		requiresConfirmation[definition.Name] = definition.RequiresConfirmation
@@ -256,7 +256,7 @@ func TestResolveMinersReturnsExplicitIdentifiersAndPlacement(t *testing.T) {
 			},
 		},
 	}
-	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil)
+	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{
 		"query":"alpha",
@@ -306,7 +306,7 @@ func TestResolveMinersReportsTruncatedMatches(t *testing.T) {
 		},
 		cursor: "next-page",
 	}
-	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil)
+	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{"device_statuses":["broken"],"limit":1}`))
 
@@ -325,7 +325,7 @@ func TestResolveMinersReportsTruncatedMatches(t *testing.T) {
 }
 
 func TestResolveMinersRejectsInvalidStatus(t *testing.T) {
-	tools := NewFleetTools(&staticFleetHandler{}, nil, nil, nil, nil, nil)
+	tools := NewFleetTools(&staticFleetHandler{}, nil, nil, nil, nil, nil, nil)
 
 	_, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{"device_statuses":["reticulating"]}`))
 
@@ -351,7 +351,7 @@ func TestGetSiteHealthSummaryReturnsCountsAndInventory(t *testing.T) {
 			{Site: &sitesv1.Site{Id: 10, Name: "South"}, DeviceCount: 4},
 		},
 	}
-	tools := NewFleetTools(fleet, sites, nil, nil, nil, nil)
+	tools := NewFleetTools(fleet, sites, nil, nil, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "get_site_health_summary", json.RawMessage(`{"site_id":9}`))
 
@@ -381,7 +381,7 @@ func TestListActionableMinerIssuesReturnsSuggestedActions(t *testing.T) {
 			{DeviceIdentifier: "miner-b", DeviceStatus: fleetv1.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED},
 		},
 	}
-	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil)
+	tools := NewFleetTools(fleet, nil, nil, nil, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "list_actionable_miner_issues", json.RawMessage(`{"limit":2}`))
 
@@ -420,7 +420,7 @@ func TestListActionableMinerIssuesReturnsSuggestedActions(t *testing.T) {
 
 func TestCreateSiteConfirmationMatchesExecutedRequest(t *testing.T) {
 	sites := &recordingSitesHandler{}
-	tools := NewFleetTools(nil, sites, nil, nil, nil, nil)
+	tools := NewFleetTools(nil, sites, nil, nil, nil, nil, nil)
 	arguments := json.RawMessage(`{"name":"North","location_city":"Austin","location_state":"TX","country":"US","power_capacity_mw":12.5}`)
 
 	confirmation, err := tools.Confirmation("create_site", arguments)
@@ -440,7 +440,7 @@ func TestCreateSiteConfirmationMatchesExecutedRequest(t *testing.T) {
 
 func TestCreateRackAndMoveMinersUseValidatedExplicitInputs(t *testing.T) {
 	deviceSets := &recordingDeviceSetsHandler{}
-	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil, nil)
 
 	confirmation, err := tools.Confirmation("create_rack", json.RawMessage(`{"label":"A1","rows":4,"columns":6,"site_id":9}`))
 	require.NoError(t, err)
@@ -465,7 +465,7 @@ func TestGetRackSlotsReturnsOccupiedSlots(t *testing.T) {
 			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 1, Column: 0}},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "get_rack_slots", json.RawMessage(`{"rack_id":21}`))
 
@@ -520,7 +520,7 @@ func TestGetRackHealthReturnsLayoutStatusAndSlots(t *testing.T) {
 			{DeviceIdentifier: "miner-a", Position: &devicesetv1.RackSlotPosition{Row: 1, Column: 0}},
 		},
 	}
-	tools := NewFleetTools(fleet, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(fleet, nil, nil, deviceSets, nil, nil, nil)
 
 	output, err := tools.Execute(t.Context(), "get_rack_health", json.RawMessage(`{"rack_id":21}`))
 
@@ -554,7 +554,7 @@ func TestSetRackSlotsClearsThenAssignsRequestedSlots(t *testing.T) {
 			{DeviceIdentifier: "miner-c", Position: &devicesetv1.RackSlotPosition{Row: 2, Column: 0}},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil, passthroughTransactor{})
 	arguments := json.RawMessage(`{"rack_id":21,"slot_assignments":[
 		{"device_identifier":"miner-a","row":0,"column":1},
 		{"device_identifier":"miner-b","row":0,"column":0}
@@ -603,7 +603,7 @@ func TestSetRackSlotsRejectsUnrequestedOccupiedSlot(t *testing.T) {
 			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 0, Column: 1}},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil, passthroughTransactor{})
 
 	_, err := tools.Execute(t.Context(), "set_rack_slots", json.RawMessage(`{"rack_id":21,"slot_assignments":[
 		{"device_identifier":"miner-a","row":0,"column":1}
@@ -626,7 +626,7 @@ func TestClearRackSlotsClearsOnlyRequestedMiners(t *testing.T) {
 			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 1, Column: 1}},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil)
+	tools := NewFleetTools(nil, nil, nil, deviceSets, nil, nil, passthroughTransactor{})
 
 	output, err := tools.Execute(t.Context(), "clear_rack_slots", json.RawMessage(`{"rack_id":21,"device_identifiers":["miner-a"]}`))
 
@@ -658,7 +658,7 @@ func TestPreviewAndExecuteMinerActionUseExistingCommandHandler(t *testing.T) {
 			},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, nil, commands, nil)
+	tools := NewFleetTools(nil, nil, nil, nil, commands, nil, nil)
 	previewArguments := json.RawMessage(`{"action":"reboot","device_identifiers":["miner-a","miner-b"]}`)
 
 	preview, err := tools.Execute(t.Context(), "preview_miner_action", previewArguments)
@@ -709,7 +709,7 @@ func TestMinerActionSupportsWholeFleetSelectorWithoutEnumeratingIDs(t *testing.T
 			SupportedDeviceIdentifiers: []string{"miner-a", "miner-b"},
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, nil, commands, nil)
+	tools := NewFleetTools(nil, nil, nil, nil, commands, nil, nil)
 	arguments := json.RawMessage(`{"action":"stop_mining","selector":{"type":"all_devices"}}`)
 
 	preview, err := tools.Execute(t.Context(), "preview_miner_action", arguments)
@@ -754,7 +754,7 @@ func TestMinerActionSupportsBackendFilterSelector(t *testing.T) {
 			AllSupported:   true,
 		},
 	}
-	tools := NewFleetTools(nil, nil, nil, nil, commands, nil)
+	tools := NewFleetTools(nil, nil, nil, nil, commands, nil, nil)
 	arguments := json.RawMessage(`{
 		"action":"start_mining",
 		"selector":{
@@ -809,7 +809,7 @@ func TestMinerActionSupportsBackendFilterSelector(t *testing.T) {
 
 func TestCreateDowntimeWindowUsesExistingScheduleHandler(t *testing.T) {
 	schedules := &recordingScheduleHandler{}
-	tools := NewFleetTools(nil, nil, nil, nil, nil, schedules)
+	tools := NewFleetTools(nil, nil, nil, nil, nil, schedules, nil)
 	arguments := json.RawMessage(`{
 		"name":"Rack A maintenance",
 		"action":"sleep",
@@ -871,10 +871,20 @@ func TestCreateDowntimeWindowUsesExistingScheduleHandler(t *testing.T) {
 }
 
 func TestWriteConfirmationRejectsArgumentsThatWouldNotBeExecuted(t *testing.T) {
-	tools := NewFleetTools(nil, &recordingSitesHandler{}, nil, nil, nil, nil)
+	tools := NewFleetTools(nil, &recordingSitesHandler{}, nil, nil, nil, nil, nil)
 
 	confirmation, err := tools.Confirmation("create_site", json.RawMessage(`{"name":"North","unexpected":true}`))
 
 	require.Error(t, err)
 	assert.Nil(t, confirmation)
+}
+
+type passthroughTransactor struct{}
+
+func (passthroughTransactor) RunInTx(ctx context.Context, run func(context.Context) error) error {
+	return run(ctx)
+}
+
+func (passthroughTransactor) RunInTxWithResult(ctx context.Context, run func(context.Context) (any, error)) (any, error) {
+	return run(ctx)
 }
