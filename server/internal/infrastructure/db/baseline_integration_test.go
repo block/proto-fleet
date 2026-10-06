@@ -200,6 +200,12 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 				t.Fatalf("repeat: %v", err)
 			}
 			roundTripBaselineConstraints(t, conn)
+			if _, err = checkBaselineState(t.Context(), conn, "target", "", 0); err != nil {
+				t.Fatal(err)
+			}
+			if err = runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
+				t.Fatal(err)
+			}
 			if _, err = CheckBaseline(t.Context(), conn, "target", "", 0); err != nil {
 				t.Fatal(err)
 			}
@@ -415,8 +421,19 @@ func TestCheckpointMigrations(t *testing.T) {
 		}
 		files[path] = &fstest.MapFile{Data: body}
 	}
-	files["current/001002_shared_probe.up.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
-	files["current/001003_internal_checkpoint.up.sql"] = &fstest.MapFile{Data: []byte("-- requires-shared: 1002\nSELECT 1;")}
+	_, latest, err := migrationCheckpoints(migrations.Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedProbe, privateProbe := latest+1, latest+2
+	files[fmt.Sprintf("current/%06d_shared_probe.up.sql", sharedProbe)] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
+	files[fmt.Sprintf("current/%06d_internal_checkpoint.up.sql", privateProbe)] = &fstest.MapFile{Data: []byte(fmt.Sprintf("-- requires-shared: %d\nSELECT 1;", sharedProbe))}
+	publicFiles := fstest.MapFS{}
+	for path, file := range files {
+		if !strings.Contains(path, "_internal_") {
+			publicFiles[path] = file
+		}
+	}
 	t.Run("ordinary framework upgrade and repeat", func(t *testing.T) {
 		conn, _ := newMigrationBridgeTestDB(t)
 		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
@@ -428,7 +445,7 @@ func TestCheckpointMigrations(t *testing.T) {
 			}
 		}
 		status, err := readBaselineStatus(t.Context(), conn)
-		if err != nil || status.Version != 1003 || status.Dirty {
+		if err != nil || status.Version != privateProbe || status.Dirty {
 			t.Fatalf("status=%+v error=%v", status, err)
 		}
 		var exists bool
@@ -437,12 +454,6 @@ func TestCheckpointMigrations(t *testing.T) {
 		}
 		if _, err := checkBaselineStartup(t.Context(), conn, migrations.Current); err == nil {
 			t.Fatal("older release accepted future database")
-		}
-		publicFiles := fstest.MapFS{}
-		for path, file := range files {
-			if !strings.Contains(path, "_internal_") {
-				publicFiles[path] = file
-			}
 		}
 		if err := runCurrentMigrations(t.Context(), conn, publicFiles); err == nil {
 			t.Fatal("public application accepted private checkpoint")
@@ -465,7 +476,7 @@ func TestCheckpointMigrations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		m, err := migrate.NewWithInstance("interruption", source, "", stopAfterSharedCheckpoint{checkpointDriver{driver, checkpoints}})
+		m, err := migrate.NewWithInstance("interruption", source, "", stopAfterSharedCheckpoint{checkpointDriver{driver, checkpoints}, sharedProbe})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -473,7 +484,7 @@ func TestCheckpointMigrations(t *testing.T) {
 			t.Fatal("did not interrupt after shared step")
 		}
 		status, err := readBaselineStatus(t.Context(), conn)
-		if err != nil || status.Version != 1002 || !status.Dirty {
+		if err != nil || status.Version != sharedProbe || !status.Dirty {
 			t.Fatalf("unsafe interrupted state: %+v %v", status, err)
 		}
 		if err := runCurrentMigrations(t.Context(), conn, files); err == nil {
@@ -481,22 +492,22 @@ func TestCheckpointMigrations(t *testing.T) {
 		}
 		// Public files contain the same shared number, but must still reject the
 		// interrupted internal database before changing it.
-		delete(files, "current/001001_internal_baseline.up.sql")
-		delete(files, "current/001001_internal_baseline.down.sql")
-		delete(files, "current/001003_internal_checkpoint.up.sql")
-		if err := runCurrentMigrations(t.Context(), conn, files); err == nil {
+		if err := runCurrentMigrations(t.Context(), conn, publicFiles); err == nil {
 			t.Fatal("public switch accepted dirty shared step")
 		}
 	})
 }
 
-type stopAfterSharedCheckpoint struct{ migratedatabase.Driver }
+type stopAfterSharedCheckpoint struct {
+	migratedatabase.Driver
+	version int
+}
 
 func (d stopAfterSharedCheckpoint) SetVersion(version int, dirty bool) error {
 	if err := d.Driver.SetVersion(version, dirty); err != nil {
 		return fmt.Errorf("record test checkpoint: %w", err)
 	}
-	if version == 1002 && !dirty {
+	if version == d.version && !dirty {
 		return fmt.Errorf("simulated process exit between migrations")
 	}
 	return nil
