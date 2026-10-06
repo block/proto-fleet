@@ -76,6 +76,39 @@ func TestApplicationConvergenceRequiresExpectedRuntimeRole(t *testing.T) {
 	}
 }
 
+func healthyUpdateEtcd(context.Context, string) (EtcdReport, error) {
+	return EtcdReport{Healthy: true}, nil
+}
+
+func TestPrepareApplicationUpdateRejectsEtcdBeforeStaging(t *testing.T) {
+	probeErr := errors.New("observer credentials unavailable")
+	for _, test := range []struct {
+		name   string
+		report EtcdReport
+		err    error
+		want   string
+	}{
+		{name: "space pressure", report: EtcdReport{Members: []EtcdMemberStatus{{Available: true, DBSize: 70, DBSizeQuota: 100, Warning: true}}}, want: "below 70% allocated quota"},
+		{name: "missing member", report: EtcdReport{Members: []EtcdMemberStatus{{Warning: true}}}, want: "healthy etcd members"},
+		{name: "probe error", err: probeErr, want: "observer credentials unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Empty dependencies and a nonexistent release prove refusal happens
+			// before staging images, validating Compose, or recording installation.
+			err := prepareApplicationUpdate(t.Context(), filepath.Join(t.TempDir(), "missing-release"), nil, installDependencies{}, nil,
+				func(ctx context.Context, envPath string) (EtcdReport, error) {
+					require.Equal(t, t.Context(), ctx)
+					require.Equal(t, filepath.Join(configRoot, "node.env"), envPath)
+					return test.report, test.err
+				})
+			require.ErrorContains(t, err, test.want)
+			if test.err != nil {
+				require.ErrorIs(t, err, test.err)
+			}
+		})
+	}
+}
+
 func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(t *testing.T) {
 	// Arrange
 	root := testInstallRelease(t)
@@ -92,7 +125,7 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	// Act
 	err := prepareApplicationUpdate(context.Background(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(_ context.Context, _ []string) error {
 		return composeErr
-	})
+	}, healthyUpdateEtcd)
 
 	// Assert
 	require.ErrorIs(t, err, composeErr)
@@ -112,7 +145,7 @@ func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *
 	}
 
 	// Act
-	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil })
+	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil }, healthyUpdateEtcd)
 
 	// Assert
 	require.NoError(t, err)
@@ -193,6 +226,7 @@ func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	}{
 		{name: "fully ready", control: &ControlStatus{ControlReady: true, FailoverReady: true}, want: true},
 		{name: "version mismatch", control: &ControlStatus{ControlReady: true, ReasonCodes: []ControlReasonCode{ReasonFleetVersionMismatch}}, want: true},
+		{name: "space pressure during version mismatch", control: &ControlStatus{ControlReady: true, ReasonCodes: []ControlReasonCode{ReasonEtcdSpacePressure, ReasonFleetVersionMismatch}}},
 		{name: "database redundancy degraded", control: &ControlStatus{ControlReady: true, ReasonCodes: []ControlReasonCode{ReasonFleetVersionMismatch, ReasonDatabaseRedundancyDegraded}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

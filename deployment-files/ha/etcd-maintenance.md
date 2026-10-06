@@ -41,7 +41,14 @@ write rate and retention; fragmentation alone calls for defrag, not deletion.
 `fleet-ha status` includes the same member values and `etcd_space_pressure`.
 Pressure makes `failover_ready` false and reaches the existing HA readiness
 alert; it does not revoke Fleet's active lease or set `control_ready` false.
-This warning can also block application updates that require failover readiness.
+Target-release `update-preflight` checks etcd health and capacity before the
+installed binary stops either application. Members at or above 70% allocated
+quota, missing measurements, or unhealthy members refuse the update while the
+current application remains online, including upgrades from older binaries
+without this check. Inspect `etcd-status` and complete supervised capacity
+recovery below before retrying. Compaction alone does not lower allocated bytes.
+This check is a point-in-time gate; pressure arising later still blocks rolling
+update readiness and requires investigation before continuing.
 
 The Fleet alert pipeline is not an independent infrastructure monitor. Configure
 an existing external host monitor to run `fleet-ha etcd-status` every minute on a
