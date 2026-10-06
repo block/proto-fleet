@@ -1,9 +1,13 @@
 import { AnimatePresence, motion } from "motion/react";
 
+import clsx from "clsx";
+
 import { useChatStore } from "./useChatStore";
+import { useIsActionBarVisible } from "@/protoFleet/store";
 import { AI } from "@/shared/assets/icons";
 
 const ChatFab = () => {
+  const isActionBarVisible = useIsActionBarVisible();
   const isOpen = useChatStore((state) => state.isOpen);
   const open = useChatStore((state) => state.open);
 
@@ -15,7 +19,10 @@ const ChatFab = () => {
           aria-controls="ai-chat-panel"
           aria-expanded={false}
           aria-label="Open Minerbot"
-          className="fixed right-6 bottom-6 z-[45] flex size-14 items-center justify-center rounded-full bg-core-accent-fill text-text-base-contrast-static shadow-300 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base phone:right-4 phone:bottom-4"
+          className={clsx(
+            "fixed right-6 z-[45] flex size-14 items-center justify-center rounded-full bg-core-accent-fill text-text-base-contrast-static shadow-300 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base phone:right-4",
+            isActionBarVisible ? "bottom-24 phone:bottom-28" : "bottom-6 phone:bottom-4",
+          )}
           data-testid="ai-chat-fab"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}

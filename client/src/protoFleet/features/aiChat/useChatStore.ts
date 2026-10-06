@@ -1,10 +1,13 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
-import type { AgentActivity, ChatMessage, ChatSuggestion, ChatTranscriptTurn, ToolConfirmation } from "./types";
+import type { AgentActivity, ChatHistoryThread, ChatMessage, ChatSuggestion, ToolConfirmation } from "./types";
 
 interface ChatState {
   isOpen: boolean;
+  sessionVersion: number;
+  conversationId: string;
+  history: ChatHistoryThread[];
   messages: ChatMessage[];
   agentActivities: AgentActivity[];
   toolConfirmations: ToolConfirmation[];
@@ -18,7 +21,9 @@ interface ChatState {
   open: () => void;
   close: () => void;
   addMessage: (role: ChatMessage["role"], content: string) => void;
-  loadMessages: (turns: ChatTranscriptTurn[]) => void;
+  startNewConversation: () => void;
+  loadConversation: (id: string) => void;
+  resetSession: () => void;
   setStreaming: (streaming: boolean) => void;
   appendStreamingContent: (content: string) => void;
   setStreamError: (error: string) => void;
@@ -41,17 +46,38 @@ const DEFAULT_SUGGESTIONS: ChatSuggestion[] = [
   { label: "Show configured mining pools" },
 ];
 
+const emptyConversation = () => ({
+  conversationId: crypto.randomUUID(),
+  messages: [] as ChatMessage[],
+  agentActivities: [] as AgentActivity[],
+  toolConfirmations: [] as ToolConfirmation[],
+  isStreaming: false,
+  streamingContent: "",
+  streamError: "",
+  nextSequence: 0,
+});
+
+function archiveConversation(state: ChatState) {
+  if (!state.messages.length) return;
+  const title = state.messages.find((message) => message.role === "user")?.content ?? "Conversation";
+  state.history = [
+    {
+      id: state.conversationId,
+      title: Array.from(title).slice(0, 80).join(""),
+      messages: state.messages.map((message) => ({ ...message })),
+      updatedAt: state.messages[state.messages.length - 1].timestamp,
+    },
+    ...state.history.filter((thread) => thread.id !== state.conversationId),
+  ];
+}
+
 export const useChatStore = create<ChatState>()(
   immer((set) => ({
+    ...emptyConversation(),
     isOpen: false,
-    messages: [],
-    agentActivities: [],
-    toolConfirmations: [],
-    isStreaming: false,
-    streamingContent: "",
-    streamError: "",
+    sessionVersion: 0,
+    history: [],
     suggestions: DEFAULT_SUGGESTIONS,
-    nextSequence: 0,
 
     toggle: () =>
       set((state) => {
@@ -77,20 +103,29 @@ export const useChatStore = create<ChatState>()(
         });
         state.nextSequence += 1;
       }),
-    loadMessages: (turns) =>
+    startNewConversation: () =>
       set((state) => {
-        state.messages = turns.map((turn, index) => ({
-          id: crypto.randomUUID(),
-          role: turn.role,
-          content: turn.content,
-          timestamp: new Date(),
-          sequence: index,
-        }));
-        state.agentActivities = [];
-        state.toolConfirmations = [];
-        state.streamingContent = "";
-        state.streamError = "";
-        state.nextSequence = turns.length;
+        archiveConversation(state);
+        Object.assign(state, emptyConversation());
+      }),
+    loadConversation: (id) =>
+      set((state) => {
+        const thread = state.history.find((candidate) => candidate.id === id);
+        if (!thread || id === state.conversationId) return;
+        archiveConversation(state);
+        Object.assign(state, emptyConversation(), {
+          conversationId: thread.id,
+          messages: thread.messages.map((message, sequence) => ({ ...message, sequence })),
+          nextSequence: thread.messages.length,
+        });
+      }),
+    resetSession: () =>
+      set((state) => {
+        Object.assign(state, emptyConversation(), {
+          isOpen: false,
+          history: [],
+          sessionVersion: state.sessionVersion + 1,
+        });
       }),
 
     setStreaming: (streaming) =>

@@ -22,13 +22,13 @@ describe("MinerbotPage", () => {
     Element.prototype.scrollIntoView = scrollIntoViewMock;
     mocks.sendMessage.mockImplementation(() => (async function* () {})());
     act(() => {
-      useChatStore.getState().clearMessages();
+      useChatStore.getState().resetSession();
     });
   });
 
   afterEach(() => {
     act(() => {
-      useChatStore.getState().clearMessages();
+      useChatStore.getState().resetSession();
     });
   });
 
@@ -40,7 +40,6 @@ describe("MinerbotPage", () => {
     );
 
     const history = screen.getByLabelText("Chat history");
-    const historyRows = within(history).getAllByRole("listitem");
     const suggestions = screen.getByLabelText("Actionable suggestions");
 
     expect(screen.queryByRole("heading", { name: "Minerbot" })).not.toBeInTheDocument();
@@ -48,10 +47,10 @@ describe("MinerbotPage", () => {
     expect(screen.getByRole("navigation", { name: "Minerbot" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Suggestions" })).toHaveAttribute("aria-current", "page");
-    expect(historyRows[0]).toHaveTextContent("Firmware drift review");
-    expect(historyRows[0]).not.toHaveTextContent("2 hours ago");
-    expect(historyRows[1]).toHaveTextContent("Power strategy");
-    expect(historyRows[1]).not.toHaveTextContent("Yesterday");
+    expect(within(history).getByText("No conversations yet")).toBeInTheDocument();
+    expect(within(history).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByText("Firmware drift review")).not.toBeInTheDocument();
+    expect(screen.queryByText("Power strategy")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Suggested workflows" })).not.toBeInTheDocument();
     expect(within(suggestions).getAllByTestId("minerbot-suggestion-card")).toHaveLength(6);
     expect(screen.getByRole("heading", { name: "Forecast failing hardware" })).toBeInTheDocument();
@@ -82,64 +81,77 @@ describe("MinerbotPage", () => {
     ).toBeInTheDocument();
   });
 
-  test("loads previous chats from history", () => {
+  test("loads actual previous chats and sends their real transcript as history", async () => {
+    mocks.sendMessage.mockImplementation(() =>
+      (async function* () {
+        yield { event: { case: "textDelta", value: { content: "Observed 3 offline miners." } } };
+      })(),
+    );
     render(
       <MemoryRouter initialEntries={["/minerbot"]}>
         <MinerbotPage />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Firmware drift review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Forecast failures" }));
+    await screen.findByText("Observed 3 offline miners.");
+    const originalId = mocks.sendMessage.mock.calls[0][0].conversationId;
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    const history = screen.getByLabelText("Chat history");
+    fireEvent.click(
+      within(history).getByRole("button", {
+        name: "Forecast failing hardware and recommend the highest-priority repairs.",
+      }),
+    );
 
     const conversation = screen.getByLabelText("Conversation");
-    const scrollArea = screen.getByTestId("minerbot-chat-scroll-area");
-
-    expect(screen.getByRole("button", { name: /Firmware drift review/ })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByLabelText("Actionable suggestions")).not.toBeInTheDocument();
-    expect(scrollArea).toHaveClass("min-h-0", "flex-1", "overflow-y-auto", "scroll-pb-8");
+    expect(within(conversation).getByText("Observed 3 offline miners.")).toBeInTheDocument();
+    expect(screen.getByTestId("minerbot-chat-scroll-area")).toHaveClass(
+      "min-h-0",
+      "flex-1",
+      "overflow-y-auto",
+      "scroll-pb-8",
+    );
     expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ behavior: "smooth", block: "end", inline: "nearest" });
     expect(conversation).toHaveClass("max-w-[800px]");
-    expect(within(conversation).getByRole("heading", { name: "Firmware drift review" })).toBeInTheDocument();
-    expect(within(conversation).getByText("2 hours ago")).toBeInTheDocument();
-    expect(within(conversation).getByText("Find miners behind firmware and plan a staged update.")).toBeInTheDocument();
-    expect(within(conversation).getByText(/I found 8 miners behind/)).toBeInTheDocument();
-    expect(
-      within(conversation)
-        .getByText("Find miners behind firmware and plan a staged update.")
-        .closest(".bg-core-primary-fill"),
-    ).not.toBeNull();
-    expect(
-      within(conversation)
-        .getByText(/I found 8 miners behind/)
-        .closest(".bg-core-primary-5"),
-    ).toBeNull();
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(mocks.sendMessage).not.toHaveBeenCalled();
+    expect(within(conversation).queryByText(/I found 8 miners behind/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Minerbot" }), { target: { value: "What changed?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(2));
+    expect(mocks.sendMessage.mock.calls[1][0]).toMatchObject({
+      conversationId: originalId,
+      history: [
+        { role: 1, content: "Forecast failing hardware and recommend the highest-priority repairs." },
+        { role: 2, content: "Observed 3 offline miners." },
+      ],
+    });
   });
 
-  test("starts an empty chat from a loaded history thread", () => {
+  test("starts an empty chat while keeping the actual prior conversation in history", async () => {
+    mocks.sendMessage.mockImplementation(() =>
+      (async function* () {
+        yield { event: { case: "textDelta", value: { content: "Actual fleet reply" } } };
+      })(),
+    );
     render(
       <MemoryRouter initialEntries={["/minerbot"]}>
         <MinerbotPage />
       </MemoryRouter>,
     );
-
-    fireEvent.click(screen.getByRole("button", { name: /Firmware drift review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan updates" }));
+    await screen.findByText("Actual fleet reply");
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
 
-    const conversation = screen.getByLabelText("Conversation");
-    const promptIdeas = screen.getByLabelText("Suggested prompts");
-
     expect(screen.getByRole("button", { name: "New chat" })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByLabelText("Actionable suggestions")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "What would you like to know?" })).toBeInTheDocument();
-    expect(within(promptIdeas).getAllByRole("button")).toHaveLength(3);
-    expect(within(promptIdeas).getByRole("button", { name: "Start a fleet health review" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Suggested prompts")).getAllByRole("button")).toHaveLength(3);
     expect(
-      within(conversation).queryByText("Find miners behind firmware and plan a staged update."),
-    ).not.toBeInTheDocument();
-    expect(within(conversation).queryByText(/I found 8 miners behind/)).not.toBeInTheDocument();
-    expect(mocks.sendMessage).not.toHaveBeenCalled();
+      within(screen.getByLabelText("Chat history")).getByRole("button", {
+        name: "Find miners behind firmware and plan a staged update.",
+      }),
+    ).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Conversation")).queryByText("Actual fleet reply")).not.toBeInTheDocument();
+    expect(useChatStore.getState().messages).toEqual([]);
   });
 
   test("starts a new chat from a prompt idea", async () => {

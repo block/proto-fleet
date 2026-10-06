@@ -3,13 +3,10 @@ import clsx from "clsx";
 
 import ChatConversation from "../ChatConversation";
 import ChatInput from "../ChatInput";
+import type { ChatHistoryThread } from "../types";
+import { useChatStore } from "../useChatStore";
 import useMinerbotConversation from "../useMinerbotConversation";
-import {
-  type MinerbotHistoryThread,
-  minerbotHistoryThreads,
-  minerbotSuggestionCards,
-  type MinerbotSuggestionIcon,
-} from "./minerbotExperience";
+import { minerbotSuggestionCards, type MinerbotSuggestionIcon } from "./minerbotExperience";
 import { Activity, Efficiency, Graph, type IconProps, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants as buttonVariants } from "@/shared/components/Button";
 
@@ -37,6 +34,7 @@ const MinerbotPage = () => {
     streamError,
     streamingContent,
   } = useMinerbotConversation();
+  const history = useChatStore((state) => state.history);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "suggestions">(hasConversation ? "chat" : "suggestions");
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -76,10 +74,10 @@ const MinerbotPage = () => {
   );
 
   const handleLoadHistory = useCallback(
-    (thread: MinerbotHistoryThread) => {
+    (thread: ChatHistoryThread) => {
       setActiveHistoryId(thread.id);
       setActiveView("chat");
-      loadConversation(thread.id, thread.messages);
+      loadConversation(thread.id);
     },
     [loadConversation],
   );
@@ -87,7 +85,7 @@ const MinerbotPage = () => {
   const showSuggestions = activeView === "suggestions";
   const showCurrentChat = activeView === "chat" && !activeHistoryId;
   const showEmptyChatPrompts = showCurrentChat && !hasConversation;
-  const activeHistoryThread = minerbotHistoryThreads.find((thread) => thread.id === activeHistoryId);
+  const activeHistoryThread = history.find((thread) => thread.id === activeHistoryId);
 
   const navItemClassName = (active = false) =>
     clsx(
@@ -128,8 +126,11 @@ const MinerbotPage = () => {
             <li>
               <div className="px-2 pb-2 text-300 font-medium text-text-primary-50">History</div>
               <ul aria-label="Chat history" className="flex flex-col">
-                {minerbotHistoryThreads.map((item) => (
-                  <li key={item.title}>
+                {history.length === 0 ? (
+                  <li className="px-2 py-1.5 text-300 text-text-primary-50">No conversations yet</li>
+                ) : null}
+                {history.map((item) => (
+                  <li key={item.id}>
                     <button
                       aria-current={activeHistoryId === item.id ? "page" : undefined}
                       className={navItemClassName(activeHistoryId === item.id)}
@@ -226,7 +227,9 @@ const MinerbotPage = () => {
                 activeHistoryThread ? (
                   <div>
                     <h1 className="text-heading-200 text-text-primary">{activeHistoryThread.title}</h1>
-                    <p className="mt-1 text-300 text-text-primary-50">{activeHistoryThread.timeLabel}</p>
+                    <p className="mt-1 text-300 text-text-primary-50">
+                      {activeHistoryThread.updatedAt.toLocaleString()}
+                    </p>
                   </div>
                 ) : undefined
               }

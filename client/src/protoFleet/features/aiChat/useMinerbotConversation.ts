@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { getChatContext } from "./chatContext";
-import type { AgentActivity, ChatMessage, ChatTranscriptTurn, ToolConfirmation } from "./types";
+import type { AgentActivity, ChatMessage, ToolConfirmation } from "./types";
 import { useChatStore } from "./useChatStore";
 import { chatClient } from "@/protoFleet/api/clients";
 import { ChatRole, ToolConfirmationDecision } from "@/protoFleet/api/generated/chat/v1/chat_pb";
@@ -13,15 +13,37 @@ export type MinerbotConversationItem =
   | { kind: "activity"; sequence: number; activity: AgentActivity }
   | { kind: "confirmation"; sequence: number; confirmation: ToolConfirmation };
 
+const MAX_HISTORY_TURNS = 50;
+const MAX_TURN_LENGTH = 32_768;
+const TRUNCATION_NOTICE = "[Content truncated]";
+
+function requestHistory(messages: ChatMessage[]) {
+  return messages
+    .filter((message) => message.content.length > 0)
+    .slice(-MAX_HISTORY_TURNS)
+    .map((message) => {
+      const characters = Array.from(message.content);
+      return {
+        role: message.role === "user" ? ChatRole.USER : ChatRole.ASSISTANT,
+        content:
+          characters.length > MAX_TURN_LENGTH
+            ? characters.slice(0, MAX_TURN_LENGTH - TRUNCATION_NOTICE.length).join("") + TRUNCATION_NOTICE
+            : message.content,
+      };
+    });
+}
+
 const useMinerbotConversation = () => {
   const messages = useChatStore((state) => state.messages);
+  const renderedSessionVersion = useChatStore((state) => state.sessionVersion);
   const agentActivities = useChatStore((state) => state.agentActivities);
   const toolConfirmations = useChatStore((state) => state.toolConfirmations);
   const isStreaming = useChatStore((state) => state.isStreaming);
   const streamingContent = useChatStore((state) => state.streamingContent);
   const streamError = useChatStore((state) => state.streamError);
   const addMessage = useChatStore((state) => state.addMessage);
-  const loadMessages = useChatStore((state) => state.loadMessages);
+  const startNewConversation = useChatStore((state) => state.startNewConversation);
+  const loadStoredConversation = useChatStore((state) => state.loadConversation);
   const setStreaming = useChatStore((state) => state.setStreaming);
   const appendStreamingContent = useChatStore((state) => state.appendStreamingContent);
   const setStreamError = useChatStore((state) => state.setStreamError);
@@ -33,11 +55,9 @@ const useMinerbotConversation = () => {
   const failToolConfirmation = useChatStore((state) => state.failToolConfirmation);
   const expirePendingConfirmations = useChatStore((state) => state.expirePendingConfirmations);
   const resetStream = useChatStore((state) => state.resetStream);
-  const clearMessages = useChatStore((state) => state.clearMessages);
   const location = useLocation();
   const navigate = useNavigate();
   const chatContext = useMemo(() => getChatContext(location.pathname), [location.pathname]);
-  const conversationIdRef = useRef<string>(crypto.randomUUID());
   const requestGenerationRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const hasConversation = messages.length > 0;
@@ -60,18 +80,22 @@ const useMinerbotConversation = () => {
 
   const resolveConfirmation = useCallback(
     async (confirmation: ToolConfirmation, decision: "approve" | "cancel") => {
+      const sessionVersion = useChatStore.getState().sessionVersion;
+      if (sessionVersion !== renderedSessionVersion) return;
       const requestGeneration = requestGenerationRef.current;
+      const isCurrentRequest = () =>
+        requestGeneration === requestGenerationRef.current && sessionVersion === useChatStore.getState().sessionVersion;
       submitToolConfirmation(confirmation.id, decision);
       try {
         await chatClient.resolveToolConfirmation({
           confirmationId: confirmation.id,
           decision: decision === "approve" ? ToolConfirmationDecision.APPROVE : ToolConfirmationDecision.CANCEL,
         });
-        if (requestGeneration === requestGenerationRef.current) {
+        if (isCurrentRequest()) {
           resolveToolConfirmation(confirmation.id, decision);
         }
       } catch (error) {
-        if (requestGeneration === requestGenerationRef.current) {
+        if (isCurrentRequest()) {
           failToolConfirmation(
             confirmation.id,
             getErrorMessage(error, "Minerbot could not submit this confirmation. Try again."),
@@ -79,13 +103,23 @@ const useMinerbotConversation = () => {
         }
       }
     },
-    [failToolConfirmation, resolveToolConfirmation, submitToolConfirmation],
+    [failToolConfirmation, renderedSessionVersion, resolveToolConfirmation, submitToolConfirmation],
   );
 
   const sendMessage = useCallback(
     async (content: string) => {
+      const requestState = useChatStore.getState();
+      if (requestState.sessionVersion !== renderedSessionVersion) return;
+      const history = requestHistory(requestState.messages);
+      if (!content.trim() || Array.from(content).length > MAX_TURN_LENGTH) {
+        setStreamError("Messages must contain between 1 and 32768 characters.");
+        return;
+      }
       activeRequestRef.current?.abort();
       const requestGeneration = ++requestGenerationRef.current;
+      const sessionVersion = requestState.sessionVersion;
+      const isCurrentRequest = () =>
+        requestGeneration === requestGenerationRef.current && sessionVersion === useChatStore.getState().sessionVersion;
       const abortController = new AbortController();
       activeRequestRef.current = abortController;
       addMessage("user", content);
@@ -96,17 +130,14 @@ const useMinerbotConversation = () => {
       try {
         const stream = chatClient.sendMessage(
           {
-            conversationId: conversationIdRef.current,
+            conversationId: requestState.conversationId,
             content,
-            history: messages.map((message) => ({
-              role: message.role === "user" ? ChatRole.USER : ChatRole.ASSISTANT,
-              content: message.content,
-            })),
+            history,
           },
           { signal: abortController.signal },
         );
         for await (const response of stream) {
-          if (requestGeneration !== requestGenerationRef.current) break;
+          if (!isCurrentRequest()) break;
           switch (response.event.case) {
             case "textDelta": {
               const delta = response.event.value.content;
@@ -137,16 +168,16 @@ const useMinerbotConversation = () => {
               break;
           }
         }
-        if (requestGeneration === requestGenerationRef.current && assistantContent.trim()) {
+        if (isCurrentRequest() && assistantContent.trim()) {
           addMessage("assistant", assistantContent);
         }
       } catch (error) {
-        if (requestGeneration === requestGenerationRef.current) {
+        if (isCurrentRequest()) {
           expirePendingConfirmations();
           setStreamError(getErrorMessage(error, "Minerbot could not complete this request."));
         }
       } finally {
-        if (requestGeneration === requestGenerationRef.current) {
+        if (isCurrentRequest()) {
           activeRequestRef.current = null;
           setStreaming(false);
         }
@@ -159,7 +190,7 @@ const useMinerbotConversation = () => {
       beginToolActivity,
       expirePendingConfirmations,
       finishToolActivity,
-      messages,
+      renderedSessionVersion,
       resetStream,
       setStreamError,
       setStreaming,
@@ -171,25 +202,35 @@ const useMinerbotConversation = () => {
     activeRequestRef.current?.abort();
     activeRequestRef.current = null;
     setStreaming(false);
-    conversationIdRef.current = crypto.randomUUID();
-    clearMessages();
-  }, [clearMessages, setStreaming]);
+    startNewConversation();
+  }, [startNewConversation, setStreaming]);
 
   const loadConversation = useCallback(
-    (conversationId: string, turns: ChatTranscriptTurn[]) => {
+    (conversationId: string) => {
+      if (!useChatStore.getState().history.some((thread) => thread.id === conversationId)) return;
       requestGenerationRef.current += 1;
       activeRequestRef.current?.abort();
       activeRequestRef.current = null;
       setStreaming(false);
-      conversationIdRef.current = conversationId;
-      loadMessages(turns);
+      loadStoredConversation(conversationId);
     },
-    [loadMessages, setStreaming],
+    [loadStoredConversation, setStreaming],
   );
 
   const openSettings = useCallback(() => {
     navigate("/settings/agents");
   }, [navigate]);
+
+  useEffect(
+    () =>
+      useChatStore.subscribe((state, previous) => {
+        if (state.sessionVersion === previous.sessionVersion) return;
+        requestGenerationRef.current += 1;
+        activeRequestRef.current?.abort();
+        activeRequestRef.current = null;
+      }),
+    [],
+  );
 
   useEffect(
     () => () => {

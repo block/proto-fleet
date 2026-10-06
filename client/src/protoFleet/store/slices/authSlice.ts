@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand";
 import { DEFAULT_ACTIVE_SITE } from "../types/activeSite";
 import type { FleetStore } from "../useFleetStore";
 import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
+import { useChatStore } from "@/protoFleet/features/aiChat/useChatStore";
 
 // =============================================================================
 // Auth Slice Interface
@@ -36,7 +37,7 @@ export interface AuthSlice {
 // Auth Slice Creator
 // =============================================================================
 
-export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
+export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set, get) => ({
   // Initial state
   sessionExpiry: null,
   sessionGeneration: 0,
@@ -48,23 +49,29 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   temporaryPassword: null,
 
   // Actions
-  setSessionExpiry: (expiry) =>
+  setSessionExpiry: (expiry) => {
+    useChatStore.getState().resetSession();
     set((state) => {
       state.auth.sessionExpiry = expiry;
       if (expiry) {
         state.auth.sessionGeneration += 1;
       }
-    }),
+    });
+  },
 
-  setIsAuthenticated: (isAuthenticated) =>
+  setIsAuthenticated: (isAuthenticated) => {
+    if (isAuthenticated !== get().auth.isAuthenticated) useChatStore.getState().resetSession();
     set((state) => {
       state.auth.isAuthenticated = isAuthenticated;
-    }),
+    });
+  },
 
-  setUsername: (username) =>
+  setUsername: (username) => {
+    if (username !== get().auth.username) useChatStore.getState().resetSession();
     set((state) => {
       state.auth.username = username;
-    }),
+    });
+  },
 
   setRole: (role) =>
     set((state) => {
@@ -87,6 +94,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
     }),
 
   logout: () => {
+    useChatStore.getState().resetSession();
     resetActiveCurtailmentData();
     set((state) => {
       state.auth.sessionExpiry = null;

@@ -10,7 +10,12 @@ export interface ChatMessage {
   sequence: number;
 }
 
-export type ChatTranscriptTurn = Pick<ChatMessage, "role" | "content">;
+export interface ChatHistoryThread {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt: Date;
+}
 
 export interface AgentActivity {
   id: string;
