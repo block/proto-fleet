@@ -18,6 +18,7 @@ import {
   importGroupOverviewPage,
   importGroupsPage,
   importMaintenancePage,
+  importMinerbotPage,
   importMiners,
   importMinersPage,
   importOnboardingSettingsPage,
@@ -25,6 +26,7 @@ import {
   importRacksPage,
   importSecurityPage,
   importServerLogsPage,
+  importSettingsAgents,
   importSettingsAlerts,
   importSettingsAuth,
   importSettingsCurtailment,
@@ -66,6 +68,7 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 // through this file. Auth metadata for the router lives in `routeAuth.ts`.
 
 const Dashboard = lazy(importDashboard);
+const MinerbotPage = lazy(importMinerbotPage);
 const Miners = lazy(importMiners);
 const ActivityPage = lazy(importActivityPage);
 const EnergyPage = lazy(importEnergyPage);
@@ -91,6 +94,7 @@ const SettingsNodes = lazy(importSettingsNodes);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
+const SettingsAgents = lazy(importSettingsAgents);
 const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
@@ -250,6 +254,7 @@ const router = createBrowserRouter([
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { hideShellHeader: true }),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { hideShellHeader: true }),
+  createRoute("/minerbot", <MinerbotPage />),
 
   // /sites redirects into /fleet/sites.
   { path: "/sites", loader: sitesRedirectLoader },
@@ -350,6 +355,12 @@ const router = createBrowserRouter([
     path: "/settings/api-keys",
     loader: () => redirect("/settings/integrations"),
   },
+  createRoute(
+    "/settings/agents",
+    <SettingsLayout>
+      <SettingsAgents />
+    </SettingsLayout>,
+  ),
   createRoute(
     "/settings/integrations",
     <SettingsLayout>

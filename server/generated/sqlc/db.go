@@ -810,6 +810,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
 	}
+	if q.getLLMConfigStmt, err = db.PrepareContext(ctx, getLLMConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLLMConfig: %w", err)
+	}
 	if q.getLatestAllDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestAllDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestAllDeviceMetrics: %w", err)
 	}
@@ -2099,6 +2102,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertFleetNodeSessionStmt, err = db.PrepareContext(ctx, upsertFleetNodeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertFleetNodeSession: %w", err)
+	}
+	if q.upsertLLMConfigStmt, err = db.PrepareContext(ctx, upsertLLMConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertLLMConfig: %w", err)
 	}
 	if q.upsertMQTTSourceStateStmt, err = db.PrepareContext(ctx, upsertMQTTSourceState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMQTTSourceState: %w", err)
@@ -3428,6 +3434,11 @@ func (q *Queries) Close() error {
 	if q.getKnownSubnetsStmt != nil {
 		if cerr := q.getKnownSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getKnownSubnetsStmt: %w", cerr)
+		}
+	}
+	if q.getLLMConfigStmt != nil {
+		if cerr := q.getLLMConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLLMConfigStmt: %w", cerr)
 		}
 	}
 	if q.getLatestAllDeviceMetricsStmt != nil {
@@ -5580,6 +5591,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertFleetNodeSessionStmt: %w", cerr)
 		}
 	}
+	if q.upsertLLMConfigStmt != nil {
+		if cerr := q.upsertLLMConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertLLMConfigStmt: %w", cerr)
+		}
+	}
 	if q.upsertMQTTSourceStateStmt != nil {
 		if cerr := q.upsertMQTTSourceStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertMQTTSourceStateStmt: %w", cerr)
@@ -5906,6 +5922,7 @@ type Queries struct {
 	getInventoryPartStmt                                         *sql.Stmt
 	getInventoryPartForUpdateStmt                                *sql.Stmt
 	getKnownSubnetsStmt                                          *sql.Stmt
+	getLLMConfigStmt                                             *sql.Stmt
 	getLatestAllDeviceMetricsStmt                                *sql.Stmt
 	getLatestDeviceMetricsStmt                                   *sql.Stmt
 	getLatestFirmwareRolloutForPairStmt                          *sql.Stmt
@@ -6336,6 +6353,7 @@ type Queries struct {
 	upsertFleetMetricRollupsStmt                                 *sql.Stmt
 	upsertFleetNodeAuthChallengeStmt                             *sql.Stmt
 	upsertFleetNodeSessionStmt                                   *sql.Stmt
+	upsertLLMConfigStmt                                          *sql.Stmt
 	upsertMQTTSourceStateStmt                                    *sql.Stmt
 	upsertMinerCredentialsStmt                                   *sql.Stmt
 	upsertPermissionStmt                                         *sql.Stmt
@@ -6609,6 +6627,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getInventoryPartStmt:                                         q.getInventoryPartStmt,
 		getInventoryPartForUpdateStmt:                                q.getInventoryPartForUpdateStmt,
 		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,
+		getLLMConfigStmt:                                             q.getLLMConfigStmt,
 		getLatestAllDeviceMetricsStmt:                                q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                   q.getLatestDeviceMetricsStmt,
 		getLatestFirmwareRolloutForPairStmt:                          q.getLatestFirmwareRolloutForPairStmt,
@@ -7039,6 +7058,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertFleetMetricRollupsStmt:                                 q.upsertFleetMetricRollupsStmt,
 		upsertFleetNodeAuthChallengeStmt:                             q.upsertFleetNodeAuthChallengeStmt,
 		upsertFleetNodeSessionStmt:                                   q.upsertFleetNodeSessionStmt,
+		upsertLLMConfigStmt:                                          q.upsertLLMConfigStmt,
 		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,

@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
@@ -21,6 +22,7 @@ import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader
 import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { ChatFab, ChatPanel } from "@/protoFleet/features/aiChat";
 import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
@@ -35,6 +37,7 @@ type Props = {
 
 const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { pathname } = useLocation();
   const rail = useNavigationRail();
   const { bgClass } = usePageBackground();
   const { isPhone } = useWindowDimensions();
@@ -50,6 +53,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const rolloutPillData = useRolloutPillData({ enabled: !hideShellHeader });
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadFleet = useHasPermission("fleet:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const hasVisibleUpdatePill = updatePill !== null;
   const hasVisibleFleetNodeUpgradePill = fleetNodeUpgradePill !== null;
@@ -65,6 +69,8 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
+
+  const isMinerbotPage = pathname === "/minerbot";
 
   // Do not reopen a stale drawer after crossing into the persistent navigation rail.
   if (!isPhone && isMenuOpen) setIsMenuOpen(false);
@@ -158,6 +164,14 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
       >
         {children}
       </div>
+
+      {canReadFleet && !isMinerbotPage ? (
+        <>
+          {/* AI Chat: FAB launcher + slide-up panel */}
+          <ChatFab />
+          <ChatPanel />
+        </>
+      ) : null}
     </div>
   );
 };

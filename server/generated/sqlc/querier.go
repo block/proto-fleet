@@ -736,6 +736,7 @@ type Querier interface {
 	GetInventoryPart(ctx context.Context, arg GetInventoryPartParams) (GetInventoryPartRow, error)
 	GetInventoryPartForUpdate(ctx context.Context, arg GetInventoryPartForUpdateParams) (GetInventoryPartForUpdateRow, error)
 	GetKnownSubnets(ctx context.Context, arg GetKnownSubnetsParams) ([]string, error)
+	GetLLMConfig(ctx context.Context, organizationID int64) (LlmConfig, error)
 	GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Time) ([]DeviceMetric, error)
 	GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDeviceMetricsParams) ([]DeviceMetric, error)
 	// The most recent rollout of a pair within one assignment generation; a
@@ -2183,6 +2184,7 @@ type Querier interface {
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error
+	UpsertLLMConfig(ctx context.Context, arg UpsertLLMConfigParams) (LlmConfig, error)
 	// Subscriber upserts source signal state on each successful message receive,
 	// after precedence/dedup processing. Singleton per source.
 	UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error

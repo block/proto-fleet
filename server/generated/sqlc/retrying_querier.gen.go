@@ -2982,6 +2982,18 @@ func (q *retryingQuerier) GetKnownSubnets(ctx context.Context, arg GetKnownSubne
 	return result, err
 }
 
+func (q *retryingQuerier) GetLLMConfig(ctx context.Context, organizationID int64) (LlmConfig, error) {
+	var result LlmConfig
+	err := q.retrier.RetryQuery(ctx, "GetLLMConfig", func() error {
+		callResult, callErr := q.next.GetLLMConfig(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Time) ([]DeviceMetric, error) {
 	var result []DeviceMetric
 	err := q.retrier.RetryQuery(ctx, "GetLatestAllDeviceMetrics", func() error {
@@ -7552,6 +7564,18 @@ func (q *retryingQuerier) UpsertFleetNodeSession(ctx context.Context, arg Upsert
 	return q.retrier.RetryQuery(ctx, "UpsertFleetNodeSession", func() error {
 		return q.next.UpsertFleetNodeSession(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) UpsertLLMConfig(ctx context.Context, arg UpsertLLMConfigParams) (LlmConfig, error) {
+	var result LlmConfig
+	err := q.retrier.RetryQuery(ctx, "UpsertLLMConfig", func() error {
+		callResult, callErr := q.next.UpsertLLMConfig(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error {

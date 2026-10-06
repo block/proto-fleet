@@ -163,9 +163,13 @@ jobs:
           path: /tmp/docker-images/timescaledb.tar.gz
           key: ${{ runner.os }}-protofleet-e2e-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
 
-      # The gitignored `server/plugins/*` binaries are produced in a separate
-      # job, so they cannot enter this hash and spuriously bust the cache.
-      #
+      # The server tree includes paths as well as contents: a migration rename
+      # must invalidate images even when its SQL bytes are unchanged. Gitignored
+      # plugin binaries are excluded from the tree.
+      - name: Compute Docker image inputs
+        id: docker-image-inputs
+        run: echo "server-tree=$(git rev-parse HEAD:server)" >> "$GITHUB_OUTPUT"
+
       # Scheduled runs skip application restore + save to rebuild against fresh
       # upstream base images without polluting the cache namespace with
       # one-off entries that would evict other workflow caches.
@@ -175,9 +179,9 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          # `server/**` because the Dockerfile does `COPY server/ ./`
-          # (e.g. go:embed migrations), plus root build-context exclusions.
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          # The server tree covers `COPY server/ ./` (including embedded
+          # migrations); the root file covers build-context exclusions.
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ steps.docker-image-inputs.outputs.server-tree }}-${{ hashFiles('.dockerignore') }}
 
       - name: Build E2E application images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
@@ -213,7 +217,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ steps.docker-image-inputs.outputs.server-tree }}-${{ hashFiles('.dockerignore') }}
 
       - name: Upload Docker images
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
