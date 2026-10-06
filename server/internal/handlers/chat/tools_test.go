@@ -888,3 +888,47 @@ func (passthroughTransactor) RunInTx(ctx context.Context, run func(context.Conte
 func (passthroughTransactor) RunInTxWithResult(ctx context.Context, run func(context.Context) (any, error)) (any, error) {
 	return run(ctx)
 }
+
+func TestPowerScheduleConfirmationMatchesExecutedModeAndEndBehavior(t *testing.T) {
+	for _, mode := range []string{"default", "max"} {
+		for _, endTime := range []string{"", "04:00"} {
+			t.Run(mode+"/end="+endTime, func(t *testing.T) {
+				schedules := &recordingScheduleHandler{}
+				tools := NewFleetTools(nil, nil, nil, nil, nil, schedules, nil)
+				arguments, err := json.Marshal(map[string]any{
+					"name":              "Rack A power window",
+					"action":            "set_power_target",
+					"power_target_mode": mode,
+					"start_date":        "2026-08-01",
+					"start_time":        "02:00",
+					"end_time":          endTime,
+					"timezone":          "America/Chicago",
+					"targets":           []map[string]string{{"type": "rack", "target_id": "21"}},
+				})
+				require.NoError(t, err)
+
+				confirmation, err := tools.Confirmation("create_downtime_window", arguments)
+				require.NoError(t, err)
+				require.NotNil(t, confirmation)
+				assert.Nil(t, schedules.createRequest, "approval must be prepared before any schedule write")
+				assert.Contains(t, confirmation.Details, chatdomain.ToolConfirmationDetail{Label: "Power target mode", Value: mode})
+				behavior := "The selected power target persists until changed; there is no automatic reversion."
+				if endTime != "" {
+					behavior = "At the end of the window, miners revert to the default power target."
+					assert.Contains(t, confirmation.Details, chatdomain.ToolConfirmationDetail{Label: "Ends", Value: "2026-08-01 04:00 America/Chicago"})
+				}
+				assert.Contains(t, confirmation.Details, chatdomain.ToolConfirmationDetail{Label: "End behavior", Value: behavior})
+
+				_, err = tools.Execute(t.Context(), "create_downtime_window", arguments)
+				require.NoError(t, err)
+				require.NotNil(t, schedules.createRequest)
+				expectedMode := schedulev1.PowerTargetMode_POWER_TARGET_MODE_DEFAULT
+				if mode == "max" {
+					expectedMode = schedulev1.PowerTargetMode_POWER_TARGET_MODE_MAX
+				}
+				assert.Equal(t, expectedMode, schedules.createRequest.GetActionConfig().GetMode())
+				assert.Equal(t, endTime, schedules.createRequest.GetEndTime())
+			})
+		}
+	}
+}

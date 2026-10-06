@@ -1305,6 +1305,12 @@ func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chat
 		if request.GetAction() == schedulev1.ScheduleAction_SCHEDULE_ACTION_SLEEP {
 			details = append(details, chatdomain.ToolConfirmationDetail{Label: "Resume", Value: "Not automatic for sleep schedules"})
 		}
+		if request.GetAction() == schedulev1.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET {
+			details = append(details,
+				chatdomain.ToolConfirmationDetail{Label: "Power target mode", Value: powerTargetModeLabel(request.GetActionConfig().GetMode())},
+				chatdomain.ToolConfirmationDetail{Label: "End behavior", Value: downtimeActionNote(request)},
+			)
+		}
 		return &chatdomain.ToolConfirmation{
 			Title:        fmt.Sprintf("Create schedule %q?", input.Name),
 			Description:  "Proto AI will create this one-time maintenance schedule through the existing schedule service.",
@@ -2517,9 +2523,9 @@ func downtimeActionNote(request *schedulev1.CreateScheduleRequest) string {
 		return "Sleep schedules stop mining at start_time and do not automatically resume at end_time."
 	case schedulev1.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET:
 		if request.GetEndTime() != "" {
-			return "Set-power-target schedules with end_time revert through the existing scheduler behavior."
+			return "At the end of the window, miners revert to the default power target."
 		}
-		return "Set-power-target schedules without end_time do not define a bounded revert window."
+		return "The selected power target persists until changed; there is no automatic reversion."
 	case schedulev1.ScheduleAction_SCHEDULE_ACTION_REBOOT:
 		return "Reboot schedules run once at start_time."
 	case schedulev1.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED:
