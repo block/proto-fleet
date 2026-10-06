@@ -3,7 +3,9 @@ import type { InventoryItem, ModuleIssue } from "@/protoFleet/api/generated/flee
 import { Alert, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
-import Dialog, { DialogIcon } from "@/shared/components/Dialog";
+import Modal from "@/shared/components/Modal";
+import StatusModalIcon from "@/shared/components/StatusModal/StatusModalIcon";
+import StatusModalLayout from "@/shared/components/StatusModal/StatusModalLayout";
 
 const componentName = (issue: ModuleIssue) =>
   issue.component === "psu" ? "PSU" : issue.component === "hashboard" ? "Hashboard" : "Module";
@@ -89,51 +91,41 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
         {summary}
       </button>
       {open ? (
-        <Dialog
+        <Modal
           open
           testId="module-issues"
           title={`${item.name} issues`}
-          icon={
-            intent === "info" ? (
-              <Info width={iconSizes.xLarge} className="text-text-primary-30" />
-            ) : (
-              <Alert
-                width={iconSizes.xLarge}
-                className={intent === "critical" ? "text-intent-critical-fill" : "text-intent-warning-fill"}
-              />
-            )
-          }
+          dialogLabel={`${item.name} issues`}
+          manageFocus
           onDismiss={() => setOpen(false)}
-          buttons={[{ text: "Close", variant: variants.secondary, onClick: () => setOpen(false) }]}
+          buttons={[{ text: "Done", variant: variants.primary, onClick: () => setOpen(false) }]}
         >
-          {unavailable ? <p className="py-2 text-text-primary-70">{availability}</p> : null}
-          {!issues.length ? <p>{unavailable ? "No current issue details available." : summary}</p> : null}
-          <ul className="space-y-3 py-3">
-            {issues.map((issue) => (
-              <li key={`${issue.component}:${issue.componentId}:${issue.cause}`} className="flex items-start gap-3">
-                <div className="shrink-0 text-text-primary-70">
-                  <DialogIcon>{componentIcon(issue)}</DialogIcon>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p>{issueName(issue)}</p>
-                  {issue.component === "hashboard" && issue.componentId ? (
-                    <p className="text-200 text-text-primary-70">MAC address: {issue.componentId}</p>
-                  ) : null}
-                  <p className="text-200 text-text-primary-70">
-                    {issue.severity === "observation"
-                      ? "Observation"
-                      : issue.severity === "warning"
-                        ? "Warning"
-                        : "Fault"}
-                    {issue.observedAt
-                      ? ` · Observed ${new Date(Number(issue.observedAt.seconds) * 1000).toLocaleString()}`
-                      : ""}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Dialog>
+          <StatusModalLayout
+            icon={
+              <StatusModalIcon intent={intent}>
+                {intent === "info" ? <Info width={iconSizes.xLarge} /> : <Alert width={iconSizes.xLarge} />}
+              </StatusModalIcon>
+            }
+            title={issues.length > 1 ? "Multiple issues detected" : issues.length ? issueName(issues[0]) : summary}
+            subtitle={unavailable ? availability : undefined}
+            errors={issues.map((issue) => ({
+              key: `${issue.component}:${issue.componentId}:${issue.cause}`,
+              icon: componentIcon(issue),
+              title: issueName(issue),
+              subtitle: [
+                issue.component === "hashboard" && issue.componentId ? `MAC address: ${issue.componentId}` : undefined,
+                issue.severity === "observation" ? "Observation" : issue.severity === "warning" ? "Warning" : "Fault",
+                issue.observedAt
+                  ? `Observed ${new Date(Number(issue.observedAt.seconds) * 1000).toLocaleString()}`
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            }))}
+          >
+            {!issues.length && unavailable ? <p>No current issue details available.</p> : null}
+          </StatusModalLayout>
+        </Modal>
       ) : null}
     </div>
   );

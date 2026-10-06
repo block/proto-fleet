@@ -1,12 +1,12 @@
 import { ReactNode, useMemo } from "react";
 import clsx from "clsx";
 import ComponentMetadata from "./ComponentMetadata";
+import StatusModalIcon from "./StatusModalIcon";
 import StatusModalLayout, { type StatusModalLayoutError } from "./StatusModalLayout";
 import type { ComponentStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
 import { Alert, ControlBoard, Fan, Hashboard, Immersion, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { DialogIcon } from "@/shared/components/Dialog";
 
 const LabeledValue = ({ label, value }: { label: string; value: ReactNode }) => {
   return (
@@ -26,17 +26,17 @@ const componentIconClassName = "text-inherit";
 const renderComponentIcon = (componentType: ComponentStatusModalProps["componentType"]) => {
   switch (componentType) {
     case "fan":
-      return <Fan className={componentIconClassName} />;
+      return <Fan width={iconSizes.xLarge} className={componentIconClassName} />;
     case "hashboard":
-      return <Hashboard className={componentIconClassName} />;
+      return <Hashboard width={iconSizes.xLarge} className={componentIconClassName} />;
     case "psu":
-      return <LightningAlt className={componentIconClassName} />;
+      return <LightningAlt width={iconSizes.xLarge} className={componentIconClassName} />;
     case "controlBoard":
-      return <ControlBoard className={componentIconClassName} />;
+      return <ControlBoard width={iconSizes.xLarge} className={componentIconClassName} />;
     case "tank":
-      return <Immersion className={componentIconClassName} />;
+      return <Immersion width={iconSizes.xLarge} className={componentIconClassName} />;
     default:
-      return <Alert className={componentIconClassName} />;
+      return <Alert width={iconSizes.xLarge} className={componentIconClassName} />;
   }
 };
 
@@ -51,15 +51,14 @@ const ComponentStatusModalContent = ({
   const hasErrors = errors.length > 0;
   const hasSingleError = errors.length === 1;
 
-  // Create icon with proper sizing and colors using DialogIcon for consistent proportions
   const icon = useMemo(() => {
     const iconElement = renderComponentIcon(componentType);
 
     if (hasErrors || health === "fault") {
-      return <DialogIcon intent="critical">{iconElement}</DialogIcon>;
+      return <StatusModalIcon intent="critical">{iconElement}</StatusModalIcon>;
     }
 
-    return <DialogIcon intent={health === "degraded" ? "warning" : "info"}>{iconElement}</DialogIcon>;
+    return <StatusModalIcon intent={health === "degraded" ? "warning" : "info"}>{iconElement}</StatusModalIcon>;
   }, [componentType, hasErrors, health]);
 
   // For single error: use error message as title, timestamp as subtitle, skip error rows
@@ -74,11 +73,7 @@ const ComponentStatusModalContent = ({
         ? []
         : errors.map((error, index) => ({
             key: `error-${index}-${error.timestamp || index}`,
-            icon: (
-              <div className="flex size-10 items-center justify-center rounded-lg bg-surface-5">
-                <Alert className="text-intent-critical-fill" width={iconSizes.medium} />
-              </div>
-            ),
+            icon: <Alert />,
             title: error.message,
             subtitle: formatReportedTimestamp(error.timestamp),
             onClick: error.onClick,
