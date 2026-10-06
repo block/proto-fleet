@@ -791,11 +791,13 @@ func TestDevice_UpdateMiningPools(t *testing.T) {
 			Priority:   1,
 			URL:        "stratum+tcp://pool1.example.com:3333",
 			WorkerName: "worker1",
+			Password:   "customer-primary",
 		},
 		{
 			Priority:   2,
 			URL:        "stratum+tcp://pool2.example.com:4444",
 			WorkerName: "worker2",
+			Password:   "",
 		},
 	}
 
@@ -810,6 +812,7 @@ func TestDevice_UpdateMiningPools(t *testing.T) {
 			Priority:   priority,
 			URL:        p.URL,
 			WorkerName: p.WorkerName,
+			Password:   p.Password,
 		})
 	}
 

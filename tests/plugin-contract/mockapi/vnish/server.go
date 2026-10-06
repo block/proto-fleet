@@ -36,6 +36,7 @@ type Server struct {
 
 	mu              sync.Mutex
 	commands        []string
+	postedSettings  []byte
 	wg              sync.WaitGroup
 	closed          chan struct{}
 	rpcResponses    map[string][]byte
@@ -358,6 +359,16 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if endpoint == "settings" && r.Method == http.MethodPost {
+		submitted, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "invalid configuration", http.StatusBadRequest)
+			return
+		}
+		s.mu.Lock()
+		s.postedSettings = submitted
+		s.mu.Unlock()
+	}
 	resp := s.loadWebResponse(endpoint, r.Method == http.MethodPost)
 	if resp == nil {
 		http.NotFound(w, r)
@@ -423,4 +434,11 @@ func loadResponses(t testing.TB, dirPath string) map[string][]byte {
 	}
 
 	return responses
+}
+
+// PostedSettings returns an independent copy of the actual authenticated write.
+func (s *Server) PostedSettings() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.postedSettings...)
 }

@@ -107,7 +107,14 @@ type Pool struct {
 	Priority   int
 	URL        string
 	WorkerName string
+	Password   string `json:"-"`
 }
+
+func (p Pool) String() string {
+	return fmt.Sprintf("Pool{Priority:%d URL:%q WorkerName:%q Password:[REDACTED]}", p.Priority, p.URL, p.WorkerName)
+}
+
+func (p Pool) GoString() string { return p.String() }
 
 // TelemetryValues represents comprehensive telemetry data from a miner.
 type TelemetryValues struct {
@@ -298,7 +305,7 @@ type poolData struct {
 type poolConfigRequest struct {
 	URL      string `json:"url"`
 	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
+	Password string `json:"password"`
 	Priority *int   `json:"priority,omitempty"`
 }
 
@@ -1374,6 +1381,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		apiPools[i] = poolConfigRequest{
 			URL:      pool.URL,
 			Username: pool.WorkerName,
+			Password: pool.Password,
 			Priority: &priority,
 		}
 	}
@@ -1383,6 +1391,18 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		return fmt.Errorf("failed to update pools: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		// Pool errors can echo submitted credentials. Keep the firmware's
+		// default-password classification without returning its response text.
+		if isDefaultPasswordMessage(classifyForbiddenResponse(body).Error()) {
+			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+		}
+		return errors.New("forbidden: access denied")
+	}
 	return checkResponse(resp, "update pools failed", http.StatusOK, http.StatusCreated)
 }
 

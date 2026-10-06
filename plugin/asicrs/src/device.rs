@@ -785,7 +785,7 @@ impl AsicRsDevice {
             .map(|p| PoolConfig {
                 url: PoolURL::from(p.url.clone()),
                 username: p.worker_name.clone(),
-                password: "x".into(),
+                password: p.password.clone(),
             })
             .collect();
 

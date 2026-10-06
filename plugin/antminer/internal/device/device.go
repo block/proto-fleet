@@ -657,6 +657,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 			Priority:   int(p.Priority),
 			URL:        p.URL,
 			WorkerName: p.WorkerName,
+			Password:   p.Password,
 		})
 	}
 	return d.client.UpdatePools(ctx, antminerPools)

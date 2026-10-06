@@ -282,7 +282,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	d.pools = pools
+	d.pools = append([]sdk.MiningPoolConfig(nil), pools...)
 	slog.Info("Virtual miner pools updated", "device_id", d.id, "pool_count", len(pools))
 	return nil
 }
@@ -302,6 +302,7 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 			Priority: p.Priority,
 			URL:      p.URL,
 			Username: p.WorkerName,
+			Password: &p.Password,
 		}
 	}
 	return result, nil
