@@ -867,6 +867,13 @@ impl Driver for DriverService {
         Ok(Response::new(pb::GetMiningPoolsResponse { pools }))
     }
 
+    async fn get_stored_mining_pools(
+        &self,
+        _req: Request<pb::GetStoredMiningPoolsRequest>,
+    ) -> Result<Response<pb::GetStoredMiningPoolsResponse>, Status> {
+        Err(Status::unimplemented("complete stored pool configuration is unavailable"))
+    }
+
     async fn download_logs(
         &self,
         _req: Request<pb::DownloadLogsRequest>,

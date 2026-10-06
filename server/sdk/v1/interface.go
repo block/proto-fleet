@@ -360,6 +360,31 @@ type ConfiguredPool struct {
 	Username string // Worker name / username configured on the miner
 }
 
+// StoredMiningPool is a private observation of a stored firmware slot.
+// Password is nil when unavailable or masked; a pointer to "" proves empty.
+// Never infer this value from desired configuration or a write acknowledgement.
+type StoredMiningPool struct {
+ Priority int32
+ URL string
+ Username string
+ Password *string `json:"-"`
+}
+
+func (p StoredMiningPool) String() string {
+ return fmt.Sprintf("StoredMiningPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+}
+
+func (p StoredMiningPool) GoString() string { return p.String() }
+
+// DeviceStoredPoolReader is optional and separate from runtime pool telemetry.
+// Implementations read every stored slot, including disabled slots, without
+// filtering or truncation. Password presence is actual firmware evidence; hidden
+// or masked values remain nil. A write ACK or cached desired state is not proof.
+// Unsupported firmware must return an error rather than runtime telemetry.
+type DeviceStoredPoolReader interface {
+	GetStoredMiningPools(ctx context.Context) ([]StoredMiningPool, error)
+}
+
 // NewDeviceResult contains the result of creating a new device
 type NewDeviceResult struct {
 	Device Device

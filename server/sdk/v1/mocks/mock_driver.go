@@ -18,6 +18,45 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockDeviceStoredPoolReader is a mock of DeviceStoredPoolReader interface.
+type MockDeviceStoredPoolReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceStoredPoolReaderMockRecorder
+	isgomock struct{}
+}
+
+// MockDeviceStoredPoolReaderMockRecorder is the mock recorder for MockDeviceStoredPoolReader.
+type MockDeviceStoredPoolReaderMockRecorder struct {
+	mock *MockDeviceStoredPoolReader
+}
+
+// NewMockDeviceStoredPoolReader creates a new mock instance.
+func NewMockDeviceStoredPoolReader(ctrl *gomock.Controller) *MockDeviceStoredPoolReader {
+	mock := &MockDeviceStoredPoolReader{ctrl: ctrl}
+	mock.recorder = &MockDeviceStoredPoolReaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceStoredPoolReader) EXPECT() *MockDeviceStoredPoolReaderMockRecorder {
+	return m.recorder
+}
+
+// GetStoredMiningPools mocks base method.
+func (m *MockDeviceStoredPoolReader) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStoredMiningPools", ctx)
+	ret0, _ := ret[0].([]sdk.StoredMiningPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStoredMiningPools indicates an expected call of GetStoredMiningPools.
+func (mr *MockDeviceStoredPoolReaderMockRecorder) GetStoredMiningPools(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStoredMiningPools", reflect.TypeOf((*MockDeviceStoredPoolReader)(nil).GetStoredMiningPools), ctx)
+}
+
 // MockDeviceCore is a mock of DeviceCore interface.
 type MockDeviceCore struct {
 	ctrl     *gomock.Controller

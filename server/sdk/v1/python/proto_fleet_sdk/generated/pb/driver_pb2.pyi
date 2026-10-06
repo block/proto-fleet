@@ -655,6 +655,30 @@ class GetMiningPoolsResponse(_message.Message):
     pools: _containers.RepeatedCompositeFieldContainer[ConfiguredPool]
     def __init__(self, pools: _Optional[_Iterable[_Union[ConfiguredPool, _Mapping]]] = ...) -> None: ...
 
+class StoredMiningPool(_message.Message):
+    __slots__ = ("priority", "url", "username", "password")
+    PRIORITY_FIELD_NUMBER: _ClassVar[int]
+    URL_FIELD_NUMBER: _ClassVar[int]
+    USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    priority: int
+    url: str
+    username: str
+    password: str
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
+
+class GetStoredMiningPoolsRequest(_message.Message):
+    __slots__ = ("ref",)
+    REF_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
+
+class GetStoredMiningPoolsResponse(_message.Message):
+    __slots__ = ("pools",)
+    POOLS_FIELD_NUMBER: _ClassVar[int]
+    pools: _containers.RepeatedCompositeFieldContainer[StoredMiningPool]
+    def __init__(self, pools: _Optional[_Iterable[_Union[StoredMiningPool, _Mapping]]] = ...) -> None: ...
+
 class DownloadLogsRequest(_message.Message):
     __slots__ = ("ref", "since", "batch_log_uuid")
     REF_FIELD_NUMBER: _ClassVar[int]

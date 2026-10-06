@@ -689,6 +689,30 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 	return pools, nil
 }
 
+// GetStoredMiningPools uses authenticated configuration readback, including
+// disabled slots. Runtime RPC pool telemetry cannot prove stored credentials.
+func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	config, err := d.client.GetMinerConfig(ctx)
+	if err != nil {
+		return nil, errors.New("complete stored pool configuration could not be read")
+	}
+	if config == nil || len(config.Pools) > 3 {
+		return nil, errors.New("complete stored pool configuration is unavailable")
+	}
+	result := make([]sdk.StoredMiningPool, len(config.Pools))
+	for i, pool := range config.Pools {
+		if !pool.DestinationPresent {
+			return nil, errors.New("complete stored pool configuration is unavailable")
+		}
+		result[i] = sdk.StoredMiningPool{Priority: int32(i), URL: pool.URL, Username: pool.Username} // #nosec G115 -- at most three slots checked above.
+		masked := pool.Password != "" && strings.Trim(pool.Password, "*") == "" || strings.EqualFold(pool.Password, "<redacted>")
+		if pool.PasswordPresent && !masked {
+			result[i].Password = ptrString(pool.Password)
+		}
+	}
+	return result, nil
+}
+
 // BlinkLED implements the SDK Device interface.
 func (d *Device) BlinkLED(ctx context.Context) error {
 	return d.client.BlinkLED(ctx, blinkLEDDuration)

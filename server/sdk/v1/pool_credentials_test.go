@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -21,13 +22,16 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// storedPoolDevice retains exact write credentials while exposing a secret-free
-// runtime pool view.
+// storedPoolDevice simulates firmware storage, with password visibility
+// independently controlled from the values accepted by UpdateMiningPools.
 type storedPoolDevice struct {
 	fakeDevice
-	mu          sync.Mutex
-	pools       []MiningPoolConfig
-	updateCalls int
+	mu               sync.Mutex
+	pools            []MiningPoolConfig
+	updateCalls      int
+	hiddenPasswords  map[int32]bool
+	storedReadError  error
+	runtimeReadError error
 }
 
 func (d *storedPoolDevice) UpdateMiningPools(_ context.Context, pools []MiningPoolConfig) error {
@@ -41,11 +45,34 @@ func (d *storedPoolDevice) UpdateMiningPools(_ context.Context, pools []MiningPo
 func (d *storedPoolDevice) GetMiningPools(context.Context) ([]ConfiguredPool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.runtimeReadError != nil {
+		return nil, d.runtimeReadError
+	}
 	pools := make([]ConfiguredPool, len(d.pools))
-	for i, pool := range d.pools {
-		pools[i] = ConfiguredPool{Priority: pool.Priority, URL: pool.URL, Username: pool.WorkerName}
+	for i, p := range d.pools {
+		pools[i] = ConfiguredPool{Priority: p.Priority, URL: p.URL, Username: p.WorkerName}
 	}
 	return pools, nil
+}
+
+func (d *storedPoolDevice) storedPoolsLocked() []StoredMiningPool {
+	pools := make([]StoredMiningPool, len(d.pools))
+	for i, pool := range d.pools {
+		pools[i] = StoredMiningPool{Priority: pool.Priority, URL: pool.URL, Username: pool.WorkerName}
+		if !d.hiddenPasswords[pool.Priority] {
+			pools[i].Password = ptr(pool.Password)
+		}
+	}
+	return pools
+}
+
+func (d *storedPoolDevice) GetStoredMiningPools(_ context.Context) ([]StoredMiningPool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.storedReadError != nil {
+		return nil, d.storedReadError
+	}
+	return d.storedPoolsLocked(), nil
 }
 
 func TestMiningPoolCredentialsGRPCTransport(t *testing.T) {
@@ -120,19 +147,53 @@ func TestMiningPoolCredentialsGRPCTransport(t *testing.T) {
 		assert.Equal(t, pool.WorkerName, readback[i].Username)
 	}
 
+	storedReader, ok := client.(DeviceStoredPoolReader)
+	require.True(t, ok)
+	storedReadback, err := storedReader.GetStoredMiningPools(ctx)
+	require.NoError(t, err)
+	require.Len(t, storedReadback, len(pools))
+	for i, pool := range pools {
+		require.NotNil(t, storedReadback[i].Password)
+		require.Equal(t, pool.Password, *storedReadback[i].Password)
+	}
 	encoded, err := json.Marshal(readback)
 	require.NoError(t, err)
-	for _, pool := range pools[:2] {
-		require.NotContains(t, string(encoded), pool.Password, "ordinary pool readback must never contain credentials")
-	}
-	require.Nil(t, (&pb.ConfiguredPool{}).ProtoReflect().Descriptor().Fields().ByName("password"), "ordinary readback must not have a password field on the wire")
+	require.NotContains(t, string(encoded), pools[0].Password)
+	require.NotContains(t, string(encoded), pools[1].Password)
+	require.Nil(t, (&pb.ConfiguredPool{}).ProtoReflect().Descriptor().Fields().ByName("password"))
 
+	// Firmware may withhold a password or report a changed stored value.
+	// Neither result may be replaced with the last desired write credential.
+	device.mu.Lock()
+	device.hiddenPasswords = map[int32]bool{0: true}
+	device.pools[1].Password = "firmware-changed-password"
+	device.mu.Unlock()
+	changed, err := storedReader.GetStoredMiningPools(ctx)
+	require.NoError(t, err)
+	require.Len(t, changed, 3)
+	assert.Nil(t, changed[0].Password, "unproven readback must remain absent")
+	require.NotNil(t, changed[1].Password)
+	assert.Equal(t, "firmware-changed-password", *changed[1].Password)
+	require.NotNil(t, changed[2].Password, "explicit stored empty password must remain present")
+	assert.Empty(t, *changed[2].Password)
+	device.mu.Lock()
+	device.runtimeReadError = errors.New("runtime telemetry unavailable")
+	device.mu.Unlock()
+	_, err = client.GetMiningPools(ctx)
+	require.Error(t, err)
+	storedReadback, err = storedReader.GetStoredMiningPools(ctx)
+	require.NoError(t, err)
+	require.Equal(t, changed, storedReadback, "stored reads must remain actual observations")
+	serverImpl := &DriverGRPCServer{devices: map[string]Device{"legacy": fakeDevice{}}}
+	_, err = serverImpl.GetStoredMiningPools(ctx, &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: "legacy"}})
+	require.Equal(t, codes.Unimplemented, status.Code(err), "runtime telemetry cannot qualify stored readback")
 }
 
 func TestMiningPoolCredentialsRedactedWhenFormattedAndLogged(t *testing.T) {
 	password := "secret-must-not-be-logged"
 	values := []any{
 		MiningPoolConfig{Priority: 0, URL: "stratum+tcp://pool.example:3333", WorkerName: "worker", Password: password},
+		StoredMiningPool{Priority: 0, URL: "stratum+tcp://pool.example:3333", Username: "worker", Password: &password},
 	}
 	for _, value := range values {
 		for _, format := range []string{"%v", "%+v", "%#v"} {
@@ -141,5 +202,33 @@ func TestMiningPoolCredentialsRedactedWhenFormattedAndLogged(t *testing.T) {
 		var output strings.Builder
 		slog.New(slog.NewJSONHandler(&output, nil)).Info("pool", "config", value)
 		assert.NotContains(t, output.String(), password)
+	}
+}
+
+func TestStoredPoolReadRejectsMissingReferencesAndRedactsFirmwareErrors(t *testing.T) {
+	const secret = "firmware-private-pool-password"
+	device := &storedPoolDevice{storedReadError: errors.New("echo " + secret)}
+	server := &DriverGRPCServer{devices: map[string]Device{"device": device}}
+	for _, req := range []*pb.GetStoredMiningPoolsRequest{nil, {}, {Ref: &pb.DeviceRef{}}} {
+		_, err := server.GetStoredMiningPools(t.Context(), req)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+	}
+	_, err := server.GetStoredMiningPools(t.Context(), &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: "missing"}})
+	require.Equal(t, codes.NotFound, status.Code(err))
+	_, err = server.GetStoredMiningPools(t.Context(), &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: "device"}})
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), secret)
+}
+
+func TestStoredPoolReadPreservesUnsupportedClassification(t *testing.T) {
+	const firmwareEcho = "firmware echoed a private configuration value"
+	for _, unsupported := range []error{NewErrUnsupportedCapability(firmwareEcho), status.Error(codes.Unimplemented, firmwareEcho)} {
+		t.Run(fmt.Sprintf("%T", unsupported), func(t *testing.T) {
+			device := &storedPoolDevice{storedReadError: unsupported}
+			server := &DriverGRPCServer{devices: map[string]Device{"device": device}}
+			_, err := server.GetStoredMiningPools(t.Context(), &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: "device"}})
+			require.Equal(t, codes.Unimplemented, status.Code(err))
+			require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), firmwareEcho)
+		})
 	}
 }

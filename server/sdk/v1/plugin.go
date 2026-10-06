@@ -594,16 +594,48 @@ func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMining
 		return nil, err
 	}
 
-	pbPools := make([]*pb.ConfiguredPool, len(pools))
-	for i, pool := range pools {
-		pbPools[i] = &pb.ConfiguredPool{
-			Priority: pool.Priority,
-			Url:      pool.URL,
-			Username: pool.Username,
-		}
-	}
+	return &pb.GetMiningPoolsResponse{Pools: configuredPoolsToProto(pools)}, nil
+}
 
-	return &pb.GetMiningPoolsResponse{Pools: pbPools}, nil
+func (s *DriverGRPCServer) GetStoredMiningPools(ctx context.Context, req *pb.GetStoredMiningPoolsRequest) (*pb.GetStoredMiningPoolsResponse, error) {
+	if req == nil || req.Ref == nil || req.Ref.DeviceId == "" {
+		return nil, grpcStatusError("stored pool configuration", codes.InvalidArgument, "device reference is required")
+	}
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+	reader, ok := device.(DeviceStoredPoolReader)
+	if !ok {
+		return nil, grpcStatusError("stored pool configuration", codes.Unimplemented, "stored pool configuration is unavailable")
+	}
+	pools, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		var sdkErr SDKError
+		if status.Code(err) == codes.Unimplemented || (errors.As(err, &sdkErr) && sdkErr.Code == ErrCodeUnsupportedCapability) {
+			return nil, grpcStatusError("stored pool configuration", codes.Unimplemented, "stored pool configuration is unavailable")
+		}
+		return nil, grpcStatusError("stored pool configuration", codes.Unavailable, "stored pool configuration read failed")
+	}
+	return &pb.GetStoredMiningPoolsResponse{Pools: storedPoolsToProto(pools)}, nil
+}
+
+func configuredPoolsToProto(pools []ConfiguredPool) []*pb.ConfiguredPool {
+	result := make([]*pb.ConfiguredPool, len(pools))
+	for i, pool := range pools {
+		result[i] = &pb.ConfiguredPool{Priority: pool.Priority, Url: pool.URL, Username: pool.Username}
+	}
+	return result
+}
+
+func storedPoolsToProto(pools []StoredMiningPool) []*pb.StoredMiningPool {
+	result := make([]*pb.StoredMiningPool, len(pools))
+	for i, pool := range pools {
+		result[i] = &pb.StoredMiningPool{Priority: pool.Priority, Url: pool.URL, Username: pool.Username, Password: pool.Password}
+	}
+	return result
 }
 
 func (s *DriverGRPCServer) BlinkLED(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -1255,16 +1287,31 @@ func (d *DeviceGRPCClient) GetMiningPools(ctx context.Context) ([]ConfiguredPool
 		return nil, err
 	}
 
-	pools := make([]ConfiguredPool, len(resp.Pools))
-	for i, pool := range resp.Pools {
-		pools[i] = ConfiguredPool{
-			Priority: pool.Priority,
-			URL:      pool.Url,
-			Username: pool.Username,
-		}
-	}
+	return configuredPoolsFromProto(resp.Pools), nil
+}
 
-	return pools, nil
+func (d *DeviceGRPCClient) GetStoredMiningPools(ctx context.Context) ([]StoredMiningPool, error) {
+	resp, err := d.client.GetStoredMiningPools(ctx, &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: d.deviceID}})
+	if err != nil {
+		return nil, err
+	}
+	return storedPoolsFromProto(resp.Pools), nil
+}
+
+func configuredPoolsFromProto(pools []*pb.ConfiguredPool) []ConfiguredPool {
+	result := make([]ConfiguredPool, len(pools))
+	for i, pool := range pools {
+		result[i] = ConfiguredPool{Priority: pool.Priority, URL: pool.Url, Username: pool.Username}
+	}
+	return result
+}
+
+func storedPoolsFromProto(pools []*pb.StoredMiningPool) []StoredMiningPool {
+	result := make([]StoredMiningPool, len(pools))
+	for i, pool := range pools {
+		result[i] = StoredMiningPool{Priority: pool.Priority, URL: pool.Url, Username: pool.Username, Password: pool.Password}
+	}
+	return result
 }
 
 func (d *DeviceGRPCClient) BlinkLED(ctx context.Context) error {

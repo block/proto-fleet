@@ -391,6 +391,18 @@ message GetMiningPoolsResponse {
   repeated ConfiguredPool pools = 1;
 }
 
+// StoredMiningPool is private stored configuration, including disabled slots.
+message StoredMiningPool {
+  int32 priority = 1;
+  string url = 2;
+  string username = 3;
+  // Absent means unavailable or masked; present empty proves stored empty.
+  optional string password = 4;
+}
+
+message GetStoredMiningPoolsRequest { DeviceRef ref = 1; }
+message GetStoredMiningPoolsResponse { repeated StoredMiningPool pools = 1; }
+
 message DownloadLogsRequest {
   DeviceRef ref = 1;
   google.protobuf.Timestamp since = 2; // optional: only logs since this time
@@ -734,6 +746,9 @@ service Driver {
   rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
+  // Private complete stored configuration, including disabled slots. Unsupported
+  // firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+  rpc GetStoredMiningPools(GetStoredMiningPoolsRequest) returns (GetStoredMiningPoolsResponse);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(UpdateFirmwareRequest) returns (google.protobuf.Empty);
   rpc GetFirmwareUpdateStatus(DeviceRef) returns (GetFirmwareUpdateStatusResponse);

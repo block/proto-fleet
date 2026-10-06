@@ -451,6 +451,29 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 		return nil, wrapPluginError(err, "failed to get mining pools")
 	}
 
+	return mapConfiguredPools(sdkPools), nil
+}
+
+func (p *PluginMiner) GetStoredMiningPools(ctx context.Context) ([]interfaces.MinerStoredPool, error) {
+	reader, ok := p.sdkDevice.(sdk.DeviceStoredPoolReader)
+	if !ok {
+		return nil, fleeterror.NewUnimplementedError("complete stored pool configuration is unavailable")
+	}
+	pools, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("stored pool configuration read canceled: %w", ctx.Err())
+		}
+		var sdkErr sdk.SDKError
+		if grpcstatus.Code(err) == codes.Unimplemented || (errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeUnsupportedCapability) {
+			return nil, fleeterror.NewUnimplementedError("complete stored pool configuration is unavailable")
+		}
+		return nil, fleeterror.NewFailedPreconditionError("complete stored pool configuration could not be read")
+	}
+	return mapStoredPools(pools), nil
+}
+
+func mapConfiguredPools(sdkPools []sdk.ConfiguredPool) []interfaces.MinerConfiguredPool {
 	pools := make([]interfaces.MinerConfiguredPool, len(sdkPools))
 	for i, pool := range sdkPools {
 		pools[i] = interfaces.MinerConfiguredPool{
@@ -459,7 +482,20 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 			Username: pool.Username,
 		}
 	}
-	return pools, nil
+	return pools
+}
+
+func mapStoredPools(sdkPools []sdk.StoredMiningPool) []interfaces.MinerStoredPool {
+	pools := make([]interfaces.MinerStoredPool, len(sdkPools))
+	for i, pool := range sdkPools {
+		pools[i] = interfaces.MinerStoredPool{
+			Priority: pool.Priority,
+			URL:      pool.URL,
+			Username: pool.Username,
+ Password: pool.Password,
+		}
+	}
+	return pools
 }
 
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.
