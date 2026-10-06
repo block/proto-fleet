@@ -168,6 +168,19 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 	module.Issues.SourceTimes["hashboard:right"] = base.Add(12 * time.Second)
 	write()
 	require.Len(t, read().ModuleIssues.Items, 1)
+	// Repeated partial evidence is idempotent and retains explicit faults.
+	snapshot.ObservedAt = base.Add(14 * time.Second)
+	module.Issues = evidence(snapshot.ObservedAt, "PARTIAL_FAULT")
+	module.Issues.Complete = false
+	write()
+	require.Len(t, read().ModuleIssues.Items, 1)
+	require.False(t, read().ModuleIssues.Complete)
+	snapshot.ObservedAt = base.Add(15 * time.Second)
+	write()
+	repeated := read().ModuleIssues
+	require.NotNil(t, repeated, "repeating identical partial evidence must retain its fault")
+	require.Len(t, repeated.Items, 1)
+	require.False(t, repeated.Complete)
 	// Site-scoped inventory cannot expose the controller's child issue evidence.
 	result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS}, []fleetinventory.Scope{{Sites: []int64{999}}})
 	require.NoError(t, err)

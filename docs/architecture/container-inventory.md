@@ -282,6 +282,8 @@ confirmation while preserving source ordering; only advancing source evidence
 restores it. Fresh complete clear
 observations replace the issue set, so resolved causes disappear. A partial
 fresh observation can expose explicit causes without confirming overall health.
+Repeating identical partial evidence retains those causes without advancing its
+source timestamps or extending their freshness.
 
 The inventory API includes module evidence directly in the authorized page read.
 It hides current entries after two minutes based on the oldest required source

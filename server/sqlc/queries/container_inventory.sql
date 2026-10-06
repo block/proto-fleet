@@ -56,7 +56,8 @@ SET reported_id = CASE WHEN EXCLUDED.reported_id = '' THEN container_module.repo
         -- Missing evidence immediately withdraws confirmation; keep its watermark.
         WHEN EXCLUDED.issues_observed_at IS NULL THEN NULL
         WHEN evidence.accepted THEN EXCLUDED.issues
-        WHEN NOT COALESCE((EXCLUDED.issues->>'complete')::boolean, FALSE) THEN NULL
+        WHEN NOT COALESCE((EXCLUDED.issues->>'complete')::boolean, FALSE)
+          AND EXCLUDED.issues IS DISTINCT FROM container_module.issues THEN NULL
         ELSE container_module.issues END,
       CASE WHEN evidence.accepted
         THEN GREATEST(container_module.issues_observed_at, EXCLUDED.issues_observed_at)
