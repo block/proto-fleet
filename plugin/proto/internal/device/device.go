@@ -143,11 +143,10 @@ func newWithClientAuth(ctx context.Context, deviceID string, deviceInfo sdk.Devi
 		mutex:      sync.Mutex{},
 	}
 
-	// If firmware version is already known from pairing, start the refresh
-	// throttle from now so we don't immediately re-fetch what we already have.
-	if deviceInfo.FirmwareVersion != "" {
-		device.lastFirmwareCheckAt = time.Now()
-	}
+	// The supplied firmware version may be stale. Leave the refresh clock unset
+	// so constructor verification reads the current version even when Fleet Node
+	// telemetry creates a fresh device for every sample. Subsequent polls on the
+	// same handle still use the normal refresh interval.
 
 	for _, opt := range opts {
 		opt(device)

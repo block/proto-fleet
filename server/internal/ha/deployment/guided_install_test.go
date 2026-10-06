@@ -244,6 +244,8 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	t.Setenv("ENABLE_SYSTEM_MONITORING", "true")
 	t.Setenv("ENABLE_TRACING", "true")
 	t.Setenv("DD_API_KEY", "test-datadog-key")
+	t.Setenv("MARKET_DATA_ENABLED", "true")
+	t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "test-coingecko-key")
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	require.NoError(t, os.Mkdir(exportDir, 0o700))
 	metadata := clusterMetadata{
@@ -277,6 +279,8 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 		require.True(t, profile.enabled("ENABLE_SYSTEM_MONITORING"))
 		require.True(t, profile.enabled("ENABLE_TRACING"))
 		require.Equal(t, "test-datadog-key", profile["DD_API_KEY"])
+		require.True(t, profile.enabled("MARKET_DATA_ENABLED"))
+		require.Equal(t, "test-coingecko-key", profile["MARKET_DATA_COINGECKO_API_KEY"])
 	}
 }
 
@@ -397,6 +401,7 @@ func TestInstallHostBundleConsumption(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			t.Setenv("DD_API_KEY", "ambient-secret")
+			t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "ambient-coingecko-secret")
 			source := testGuidedRelease(t, "v0.2.10", "abc123")
 			bundlePath := filepath.Join(t.TempDir(), hostBundleName("ha-c"))
 			writeValidTestBundle(t, bundlePath, testBundleMetadata("ha-c"))
@@ -407,6 +412,8 @@ func TestInstallHostBundleConsumption(t *testing.T) {
 			deps.inspect = func(context.Context, string, NodeConfig, fleetApplicationProfile) (installedDependencies, error) {
 				inspected = true
 				_, stillExported := os.LookupEnv("DD_API_KEY")
+				require.False(t, stillExported)
+				_, stillExported = os.LookupEnv("MARKET_DATA_COINGECKO_API_KEY")
 				require.False(t, stillExported)
 				return installedDependencies{}, nil
 			}

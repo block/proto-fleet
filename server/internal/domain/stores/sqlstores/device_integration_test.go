@@ -2791,7 +2791,7 @@ func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:FF", 1)
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:FF", 1, "")
 	require.NoError(t, err)
 	require.Equal(t, "legacy-mac-device", pairedDevice.DeviceIdentifier)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
@@ -2836,7 +2836,7 @@ func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:02", 1)
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:02", 1, "")
 	require.NoError(t, err)
 	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
 }
@@ -3301,7 +3301,7 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AABBCCDDEEFF", 1)
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AABBCCDDEEFF", 1, "")
 	require.NoError(t, err)
 	require.Equal(t, "bare-mac-device", pairedDevice.DeviceIdentifier)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
@@ -3396,9 +3396,16 @@ func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1)
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
 	require.Error(t, err)
 	require.ErrorContains(t, err, "multiple paired devices found")
+	_, err = conn.Exec("UPDATE device_pairing SET pairing_status = 'AUTHENTICATION_NEEDED' WHERE device_id = 412")
+	require.NoError(t, err)
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
+	require.ErrorContains(t, err, "multiple paired devices found")
+	paired, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "duplicate-mac-2")
+	require.NoError(t, err)
+	require.Equal(t, "duplicate-mac-1", paired.DeviceIdentifier)
 }
 
 func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {

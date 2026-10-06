@@ -50,6 +50,21 @@ describe("lookupMinerByIdentifier", () => {
     );
   });
 
+  it("forwards an internal device identifier without MAC or serial inference", async () => {
+    const identifier = "01a0fdc7-5872-7db7-bd0e-78c982fb09c6";
+    const snapshot = { deviceIdentifier: identifier };
+    mockLookupMinerByIdentifier.mockResolvedValueOnce({ snapshot });
+
+    expect(await lookupMinerByIdentifier(identifier, MinerIdentifierType.DEVICE_IDENTIFIER)).toEqual({
+      status: "found",
+      snapshot,
+    });
+    expect(mockLookupMinerByIdentifier).toHaveBeenCalledWith(
+      { identifier, identifierType: MinerIdentifierType.DEVICE_IDENTIFIER },
+      { signal: undefined },
+    );
+  });
+
   it("forwards UNSPECIFIED so the server can infer", async () => {
     mockLookupMinerByIdentifier.mockResolvedValueOnce({ snapshot: { deviceIdentifier: "d3" } });
 

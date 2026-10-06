@@ -4,7 +4,7 @@ set -euo pipefail
 DEPLOYMENT_DIR="deployment"
 PACKAGED_RELEASE_REPOSITORY="block/proto-fleet"
 HA_BUNDLE_PATH="/var/tmp/proto-fleet-ha-host.json"
-unset HA_DD_API_KEY_CAPTURED
+unset HA_DD_API_KEY_CAPTURED HA_COINGECKO_API_KEY_CAPTURED
 DOWNLOAD_DIR=""
 UPDATER_BOOTSTRAP_DIR=""
 UPDATER_CLEANUP_FAILED=0
@@ -1609,10 +1609,14 @@ service_docker_id_with() {
   fi
 }
 
-capture_ha_datadog_api_key() {
+capture_ha_api_keys() {
   if [ "${DD_API_KEY+x}" = "x" ]; then
     HA_DD_API_KEY_CAPTURED="$DD_API_KEY"
     unset DD_API_KEY
+  fi
+  if [ "${MARKET_DATA_COINGECKO_API_KEY+x}" = "x" ]; then
+    HA_COINGECKO_API_KEY_CAPTURED="$MARKET_DATA_COINGECKO_API_KEY"
+    unset MARKET_DATA_COINGECKO_API_KEY
   fi
 }
 
@@ -1621,12 +1625,16 @@ run_fleet_ha() {
   shift
   local status=0
 
-  if [ "${HA_DD_API_KEY_CAPTURED+x}" = "x" ]; then
-    DD_API_KEY="$HA_DD_API_KEY_CAPTURED" "$fleet_ha" "$@" || status=$?
-  else
-    "$fleet_ha" "$@" || status=$?
-  fi
-  unset HA_DD_API_KEY_CAPTURED
+  (
+    if [ "${HA_DD_API_KEY_CAPTURED+x}" = "x" ]; then
+      export DD_API_KEY="$HA_DD_API_KEY_CAPTURED"
+    fi
+    if [ "${HA_COINGECKO_API_KEY_CAPTURED+x}" = "x" ]; then
+      export MARKET_DATA_COINGECKO_API_KEY="$HA_COINGECKO_API_KEY_CAPTURED"
+    fi
+    "$fleet_ha" "$@"
+  ) || status=$?
+  unset HA_DD_API_KEY_CAPTURED HA_COINGECKO_API_KEY_CAPTURED
   return "$status"
 }
 
@@ -1991,10 +1999,10 @@ if [ "$HA_INSTALL" = "1" ] && { [ -n "$REQUESTED_INSTALL_DIR" ] || [ "$NON_INTER
 fi
 
 if [ "$HA_INSTALL" = "1" ]; then
-  # Preserve the key only in this shell, not its setup/download subprocesses.
-  # run_fleet_ha exposes it solely to the fleet-ha process, which captures and
-  # clears it before invoking any host commands.
-  capture_ha_datadog_api_key
+  # Preserve the keys only in this shell, not its setup/download subprocesses.
+  # run_fleet_ha exposes them solely to the fleet-ha process, which captures and
+  # clears them before invoking any host commands.
+  capture_ha_api_keys
 fi
 
 # Locate the installation and resolve its source before making release requests.

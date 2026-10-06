@@ -45,7 +45,7 @@ END`
 
 // minerSelectColumns contains the common SELECT columns for miner state queries.
 const minerSelectColumns = `SELECT
-    discovered_device.device_identifier,
+    COALESCE(device.device_identifier, discovered_device.device_identifier) AS device_identifier,
     COALESCE(device.mac_address, '') as mac_address,
     device.serial_number,
     discovered_device.model,

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,10 +52,11 @@ func StartPlugin(t testing.TB, binaryName string, configPath string, env map[str
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	logWriter := &testWriter{t: t}
 	logger := hclog.New(&hclog.LoggerOptions{
 		Name:   "test." + binaryName,
 		Level:  hclog.Debug,
-		Output: &testWriter{t: t},
+		Output: logWriter,
 	})
 
 	client := plugin.NewClient(&plugin.ClientConfig{
@@ -67,6 +69,9 @@ func StartPlugin(t testing.TB, binaryName string, configPath string, env map[str
 	})
 
 	t.Cleanup(func() {
+		// go-plugin can still log from its process watcher after Kill returns.
+		// Close the writer before cleanup ends so those logs cannot reach a finished test.
+		defer logWriter.Close()
 		// go-plugin's Kill() hangs with PyInstaller binaries, so force-kill
 		// the process after a short grace period.
 		done := make(chan struct{})
@@ -102,11 +107,22 @@ func StartPlugin(t testing.TB, binaryName string, configPath string, env map[str
 }
 
 type testWriter struct {
-	t testing.TB
+	mu sync.Mutex
+	t  testing.TB
 }
 
 func (w *testWriter) Write(p []byte) (n int, err error) {
-	w.t.Helper()
-	w.t.Log(string(p))
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.t != nil {
+		w.t.Helper()
+		w.t.Log(string(p))
+	}
 	return len(p), nil
+}
+
+func (w *testWriter) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.t = nil
 }
