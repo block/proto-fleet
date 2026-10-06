@@ -33,7 +33,7 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	base := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Minute)
 	evidence := func(at time.Time, causes ...string) *sdk.ContainerModuleIssues {
-		out := &sdk.ContainerModuleIssues{ObservedAt: at, Complete: true, SourceTimes: map[string]time.Time{"hashboard:left": at, "hashboard:right": at, "psu": at}}
+		out := &sdk.ContainerModuleIssues{ObservedAt: at, Complete: true, SourceTimes: map[string]time.Time{"hashboard:left": at, "hashboard:middle": at, "hashboard:right": at, "psu": at}}
 		for _, cause := range causes {
 			out.Items = append(out.Items, sdk.ContainerModuleIssue{Component: "psu", ComponentID: "psu", Cause: cause, Severity: "fault", ObservedAt: at})
 		}
@@ -83,6 +83,34 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 			module.Issues.SourceTimes["hashboard:right"] = test.sourceTime
 			err := store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot})
 			require.ErrorContains(t, err, "invalid module issue source time")
+			require.Len(t, read().ModuleIssues.Items, 1)
+		})
+	}
+	// A fresh aggregate must not certify older or missing component evidence.
+	for _, test := range []struct {
+		name   string
+		mutate func(*sdk.ContainerModuleIssues)
+	}{
+		{"stale sources with fresh aggregate", func(v *sdk.ContainerModuleIssues) {
+			for source := range v.SourceTimes {
+				v.SourceTimes[source] = base.Add(-10 * time.Minute)
+			}
+		}},
+		{"complete without sources", func(v *sdk.ContainerModuleIssues) { v.SourceTimes = nil }},
+		{"complete without PSU", func(v *sdk.ContainerModuleIssues) { delete(v.SourceTimes, "psu") }},
+		{"complete without a board", func(v *sdk.ContainerModuleIssues) { delete(v.SourceTimes, "hashboard:middle") }},
+		{"complete without aggregate time", func(v *sdk.ContainerModuleIssues) { v.ObservedAt = time.Time{} }},
+		{"partial aggregate newer than a source", func(v *sdk.ContainerModuleIssues) {
+			v.Complete = false
+			v.SourceTimes["hashboard:right"] = base.Add(-time.Second)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot.ObservedAt = base.Add(500 * time.Millisecond)
+			module.Issues = evidence(snapshot.ObservedAt)
+			test.mutate(module.Issues)
+			err := store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot})
+			require.ErrorContains(t, err, "invalid module issue")
 			require.Len(t, read().ModuleIssues.Items, 1)
 		})
 	}

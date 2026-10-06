@@ -137,6 +137,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
 	boardIDs := map[string]bool{}
+	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
 	for _, tank := range wire.ContainerMap.Tanks {
 		if tank.ID <= 0 || tankIDs[tank.ID] {
 			return nil, fmt.Errorf("invalid or duplicate tank %d", tank.ID)
@@ -174,7 +175,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				reportedID = ""
 				state = sdk.ModuleUnknown
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Issues: moduleIssues(boards, now, identityConflict)})
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.Tanks = append(result.Tanks, out)

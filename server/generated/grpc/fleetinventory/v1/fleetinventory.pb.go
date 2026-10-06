@@ -503,7 +503,8 @@ type InventoryItem struct {
 	SiteName     string                  `protobuf:"bytes,25,opt,name=site_name,json=siteName,proto3" json:"site_name,omitempty"`
 	FacilityName string                  `protobuf:"bytes,26,opt,name=facility_name,json=facilityName,proto3" json:"facility_name,omitempty"`
 	GroupName    string                  `protobuf:"bytes,27,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`
-	// Absent means unavailable. Stale evidence never carries current issues.
+	// Absent means unavailable. Aggregate evidence can be stale while individual
+	// items remain fresh; the server retains those current causes.
 	ModuleIssues  *ModuleIssues `protobuf:"bytes,28,opt,name=module_issues,json=moduleIssues,proto3" json:"module_issues,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

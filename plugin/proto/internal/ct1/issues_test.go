@@ -1,10 +1,17 @@
 package ct1
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestModuleIssues(t *testing.T) {
@@ -111,4 +118,87 @@ func TestModuleIssues(t *testing.T) {
 			require.Equal(t, "observation", issue.Severity)
 		}
 	})
+	t.Run("oversized causes are omitted without confirming a clear reading", func(t *testing.T) {
+		b := boards()
+		b[0].Health.Errors = []Issue{{Cause: strings.Repeat("x", 4<<20)}, {Cause: "KNOWN_FAULT"}}
+		got := moduleIssues(b, now, false)
+		require.False(t, got.Complete)
+		require.Empty(t, got.SourceTimes)
+		require.Len(t, got.Items, 1)
+		require.Equal(t, "KNOWN_FAULT", got.Items[0].Cause)
+		b[0].Health.Errors = []Issue{{Cause: strings.Repeat("x", maxIssueCauseBytes)}}
+		got = moduleIssues(b, now, false)
+		require.True(t, got.Complete, "the exact cause byte limit is retained")
+		require.Len(t, got.SourceTimes, boardsPerModule+1)
+		require.Len(t, got.Items, 1)
+	})
+	t.Run("count limit retains unique causes and permits duplicate severity upgrades", func(t *testing.T) {
+		b := boards()
+		for i := range maxModuleIssues {
+			b[0].Health.Warnings = append(b[0].Health.Warnings, Issue{Cause: fmt.Sprintf("PSU_CAUSE_%d", i)})
+		}
+		got := moduleIssues(b, now, false)
+		require.True(t, got.Complete)
+		require.Len(t, got.Items, maxModuleIssues)
+		b[1].Health.Errors = []Issue{{Cause: "PSU_CAUSE_0"}, {Cause: "PSU_OMITTED"}}
+		got = moduleIssues(b, now, false)
+		require.False(t, got.Complete)
+		require.Empty(t, got.SourceTimes)
+		require.Len(t, got.Items, maxModuleIssues)
+		require.Equal(t, "PSU_CAUSE_0", got.Items[0].Cause)
+		require.Equal(t, "fault", got.Items[0].Severity)
+	})
+	t.Run("component IDs and clear reading keys are bounded", func(t *testing.T) {
+		b := boards()
+		b[0].MACAddress = strings.Repeat("x", maxIssueComponentIDBytes+1)
+		b[0].Health.Errors = []Issue{{Cause: "BOARD_FAULT"}, {Cause: "PSU_FAULT"}}
+		got := moduleIssues(b, now, false)
+		require.False(t, got.Complete)
+		require.Empty(t, got.SourceTimes)
+		require.Len(t, got.Items, 1)
+		require.Equal(t, "PSU_FAULT", got.Items[0].Cause)
+	})
+	t.Run("shared budget includes clear source keys", func(t *testing.T) {
+		budget := issueBudget{remaining: 64 + len("hashboard:left") + 64}
+		got := moduleIssuesWithBudget(boards(), now, false, &budget)
+		require.False(t, got.Complete)
+		require.Empty(t, got.SourceTimes)
+		require.Empty(t, got.Items)
+		require.Zero(t, budget.remaining)
+		require.Nil(t, moduleIssuesWithBudget(boards(), now, false, &budget), "exhausted evidence is absent")
+	})
+}
+
+func TestSnapshotSharesIssueBudgetAcrossModules(t *testing.T) {
+	now := time.Now().UTC()
+	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1}}}}
+	for moduleIndex := range 200 {
+		module := Module{ID: int32(moduleIndex + 1)} //nolint:gosec // Test index is bounded above.
+		for boardIndex := range boardsPerModule {
+			board := &Board{MACAddress: fmt.Sprintf("board-%d-%d", moduleIndex, boardIndex), MiningState: miningStateMining, Health: &Health{Timestamp: now, Errors: []Issue{}, Warnings: []Issue{}, PSUThermal: &PSUThermal{ThermalStateValid: true}}}
+			if boardIndex == 0 {
+				for causeIndex := range maxModuleIssues {
+					board.Health.Errors = append(board.Health.Errors, Issue{Cause: fmt.Sprintf("%03d", causeIndex) + strings.Repeat("x", maxIssueCauseBytes-3)})
+				}
+			}
+			module.Slots = append(module.Slots, Slot{Occupied: true, Hashboard: board})
+		}
+		wire.ContainerMap.Tanks[0].Modules = append(wire.ContainerMap.Tanks[0].Modules, module)
+	}
+	got, err := snapshot(wire, now)
+	require.NoError(t, err)
+	require.Len(t, got.Tanks[0].Modules, 200)
+	require.True(t, got.Tanks[0].Modules[0].Issues.Complete)
+	require.Nil(t, got.Tanks[0].Modules[199].Issues)
+	for _, module := range got.Tanks[0].Modules {
+		if module.Issues != nil && !module.Issues.Complete {
+			require.Empty(t, module.Issues.SourceTimes)
+		}
+		require.Equal(t, sdk.ModuleAttention, module.State)
+	}
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	var container pb.ContainerSnapshot
+	require.NoError(t, protojson.Unmarshal(encoded, &container))
+	require.Less(t, proto.Size(&pb.DeviceMetrics{Container: &container}), 2<<20, "issue evidence leaves room below the plugin RPC receive limit")
 }

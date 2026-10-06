@@ -8,15 +8,64 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+// Firmware causes are short enum names. Bound their retained count and bytes
+// so verbose controller health cannot crowd out telemetry on the plugin RPC.
+const maxModuleIssues = 64
+const maxIssueCauseBytes = 256
+const maxIssueComponentIDBytes = 128
+const maxContainerIssueBytes = 1 << 20
+
+// Reserve strings plus ample protobuf field/timestamp overhead. The shared
+// budget includes module wrappers and source-time keys as well as issue items.
+type issueBudget struct {
+	remaining int
+}
+
+func (b *issueBudget) retain(bytes int) bool {
+	if bytes > b.remaining {
+		return false
+	}
+	b.remaining -= bytes
+	return true
+}
+
 // Reuse the bulk map: board causes retain their MAC, while repeated PSU
 // conditions belong to the module PSU. Historical shutdown errors are excluded.
 func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.ContainerModuleIssues {
+	budget := issueBudget{remaining: maxContainerIssueBytes}
+	return moduleIssuesWithBudget(boards, now, identityConflict, &budget)
+}
+
+func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) *sdk.ContainerModuleIssues {
+	if !budget.retain(64) {
+		return nil
+	}
 	out := &sdk.ContainerModuleIssues{Complete: len(boards) == boardsPerModule && !identityConflict, SourceTimes: map[string]time.Time{}}
 	if identityConflict {
 		return out
 	}
 	issues := map[string]sdk.ContainerModuleIssue{}
+	truncated := false
+	addSource := func(component, id string, at time.Time) {
+		if len(id) > maxIssueComponentIDBytes {
+			truncated = true
+			return
+		}
+		key := component
+		if id != "" {
+			key += ":" + id
+		}
+		if _, exists := out.SourceTimes[key]; !exists && !budget.retain(len(key)+64) {
+			truncated = true
+			return
+		}
+		out.SourceTimes[key] = at
+	}
 	add := func(component, id, cause, severity string, at time.Time) {
+		if len(cause) > maxIssueCauseBytes || len(id) > maxIssueComponentIDBytes {
+			truncated = true
+			return
+		}
 		if strings.TrimSpace(cause) == "" {
 			return
 		}
@@ -25,6 +74,10 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 		}
 		key := component + ":" + id + ":" + cause
 		old, exists := issues[key]
+		if !exists && (len(issues) >= maxModuleIssues || !budget.retain(len(component)+len(id)+len(cause)+128)) {
+			truncated = true
+			return
+		}
 		if !exists || at.After(old.ObservedAt) || (at.Equal(old.ObservedAt) && severity == "fault") {
 			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, ObservedAt: at}
 		}
@@ -45,7 +98,7 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 		if sourceAt.After(now) {
 			sourceAt = now
 		}
-		out.SourceTimes["hashboard:"+b.MACAddress] = sourceAt
+		addSource("hashboard", b.MACAddress, sourceAt)
 		if h.Errors == nil || h.Warnings == nil {
 			out.Complete = false
 		}
@@ -95,7 +148,7 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 		out.ObservedAt = now
 	}
 	if psu != nil {
-		out.SourceTimes["psu"] = psuAt
+		addSource("psu", "", psuAt)
 		if psuAt.Before(out.ObservedAt) {
 			out.ObservedAt = psuAt
 		}
@@ -106,11 +159,17 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 			add("psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
 		}
 	}
-	if out.Complete && len(states) > 1 {
+	if out.Complete && !truncated && len(states) > 1 {
 		add("module", "module", "MIXED_BOARD_STATES", "observation", out.ObservedAt)
 	}
 	if psu == nil {
 		out.Complete = false
+	}
+	if truncated {
+		out.Complete = false
+		// Omitted causes are not clear readings. Do not consume source
+		// watermarks that a later untruncated report needs to recover.
+		out.SourceTimes = nil
 	}
 	for _, issue := range issues {
 		out.Items = append(out.Items, issue)

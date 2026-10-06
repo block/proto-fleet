@@ -345,7 +345,8 @@ export type InventoryItem = Message<"fleetinventory.v1.InventoryItem"> & {
   groupName: string;
 
   /**
-   * Absent means unavailable. Stale evidence never carries current issues.
+   * Absent means unavailable. Aggregate evidence can be stale while individual
+   * items remain fresh; the server retains those current causes.
    *
    * @generated from field: fleetinventory.v1.ModuleIssues module_issues = 28;
    */

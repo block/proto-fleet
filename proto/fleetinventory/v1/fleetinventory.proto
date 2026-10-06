@@ -120,7 +120,8 @@ message InventoryItem {
   string site_name = 25;
   string facility_name = 26;
   string group_name = 27;
-  // Absent means unavailable. Stale evidence never carries current issues.
+  // Absent means unavailable. Aggregate evidence can be stale while individual
+  // items remain fresh; the server retains those current causes.
   ModuleIssues module_issues = 28;
 }
 

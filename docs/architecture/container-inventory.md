@@ -268,6 +268,12 @@ minus its reported sample age), including a clear reading. Historical shutdown
 errors are excluded. Mixed board states are labeled observations, never hardware
 faults. An attention classification alone supplies no invented fault.
 
+Issue evidence is bounded to 64 causes per module, 256 bytes per cause, 128 bytes
+per component identity, and a shared 1 MiB budget per container poll. Oversized
+causes are omitted; retained causes remain visible in a partial report. Truncated
+reports omit clear-source watermarks so a later full report can recover without
+the discarded evidence having advanced source ordering.
+
 The SDK transports a current issue set with individual issue timestamps and
 source times for clear board/PSU readings. `container_module.issues` stores this
 small evidence payload; separate source watermarks prevent an older component
@@ -275,6 +281,9 @@ sample from replacing newer evidence, even when the aggregate oldest timestamp
 ties. Inventory collection order still guards topology changes. Replacement
 modules get fresh Fleet identities and their own issue sets and watermarks.
 Source timestamps must be nonzero and no more than five seconds ahead of collection.
+The aggregate issue timestamp must not be newer than any supplied source. A
+complete CT1 report requires timestamps for all three boards and the shared PSU;
+malformed reports are rejected before inventory or source watermarks change.
 Watermarks advance only with accepted evidence; a rejected mixed-age report cannot
 block a corrected report carrying the same newer component sample.
 Missing cause arrays, missing PSU state, or incomplete evidence withdraw health

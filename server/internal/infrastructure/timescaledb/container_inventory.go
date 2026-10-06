@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -74,10 +75,22 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			var issueTime *time.Time
 			if v := module.Issues; v != nil {
 				latest := snapshot.ObservedAt.Add(5 * time.Second)
+				boards := 0
 				for source, at := range v.SourceTimes {
 					if at.IsZero() || at.After(latest) {
 						return fmt.Errorf("invalid module issue source time for %q", source)
 					}
+					if v.ObservedAt.After(at) {
+						return fmt.Errorf("invalid module issue observation time: newer than source %q", source)
+					}
+					if strings.HasPrefix(source, "hashboard:") && strings.TrimSpace(strings.TrimPrefix(source, "hashboard:")) != "" {
+						boards++
+					}
+				}
+				// CT1 reports are complete only with all three boards and the shared PSU.
+				const ct1IssueBoardCount = 3
+				if v.Complete && (v.ObservedAt.IsZero() || boards != ct1IssueBoardCount || v.SourceTimes["psu"].IsZero()) {
+					return fmt.Errorf("invalid module issue complete report: missing required source evidence")
 				}
 				if !v.ObservedAt.IsZero() {
 					if v.ObservedAt.After(latest) {
