@@ -61,7 +61,7 @@ release's whole Compose file**, which can upgrade datastore images.
 2. On each host, back up and patch the installed Compose file:
 
    ```bash
-   sudo cp -p /etc/proto-fleet/ha/compose.yaml /etc/proto-fleet/ha/compose.before-retention.yaml
+   sudo cp -pn /etc/proto-fleet/ha/compose.yaml /etc/proto-fleet/ha/compose.before-retention.yaml
    sudo python3 /secure/verified-release/ha/scripts/configure-etcd-retention.py
    sudo diff -u /etc/proto-fleet/ha/compose.before-retention.yaml /etc/proto-fleet/ha/compose.yaml
    ```
