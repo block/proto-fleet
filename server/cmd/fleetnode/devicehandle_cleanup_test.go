@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,6 +233,94 @@ func TestContextIgnoringCloseRetainsBoundedWorkerAndAdmission(t *testing.T) {
 	pool.shutdown()
 	require.Error(t, closeCtx.Err())
 	require.EqualValues(t, 1, closer.calls.Load())
+}
+
+type blockingSDKCleanupDriver struct {
+	cleanupTestDriver
+	closeStarted chan struct{}
+	releaseClose chan struct{}
+	closeCalls   atomic.Int32
+	closeReturns atomic.Int32
+}
+
+func (d *blockingSDKCleanupDriver) NewDevice(_ context.Context, id string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+	d.created.Add(1)
+	return sdk.NewDeviceResult{Device: &blockingSDKCleanupDevice{
+		cleanupTestDevice: &cleanupTestDevice{id: id, owner: &d.cleanupTestDriver},
+		driver:            d,
+	}}, nil
+}
+
+type blockingSDKCleanupDevice struct {
+	*cleanupTestDevice
+	driver *blockingSDKCleanupDriver
+}
+
+func (d *blockingSDKCleanupDevice) Close(context.Context) error {
+	if d.driver.closeCalls.Add(1) == 1 {
+		close(d.driver.closeStarted)
+	}
+	// Deliberately ignore ctx: the RPC deadline must not imply that backend
+	// resources have been released, even when the next Close RPC reaches the SDK.
+	<-d.driver.releaseClose
+	d.driver.closeReturns.Add(1)
+	return nil
+}
+
+func TestSDKBackendCloseMustFinishBeforeNodeReleasesCapacity(t *testing.T) {
+	for _, operation := range []string{"command", "telemetry"} {
+		t.Run(operation, func(t *testing.T) {
+			impl := &blockingSDKCleanupDriver{
+				closeStarted: make(chan struct{}),
+				releaseClose: make(chan struct{}),
+			}
+			pool := newCleanupTestPool(t, 1)
+			var closeRPCs atomic.Int32
+			firstCloseRPC := make(chan context.Context, 1)
+			interceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+				if strings.HasSuffix(info.FullMethod, "/CloseDevice") && closeRPCs.Add(1) == 1 {
+					firstCloseRPC <- ctx
+				}
+				return handler(ctx, req)
+			}
+			run, fetcher := newCleanupTestOperations(t, impl, pool, interceptor)
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(impl.releaseClose) }) }
+			defer release()
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, runCleanupTestOperation(t, t.Context(), operation, run, fetcher))
+			select {
+			case <-impl.closeStarted:
+			case <-time.After(time.Second):
+				t.Fatal("backend Close did not start")
+			}
+			var rpcCtx context.Context
+			select {
+			case rpcCtx = <-firstCloseRPC:
+			case <-time.After(time.Second):
+				t.Fatal("Close RPC did not reach the real SDK")
+			}
+			select {
+			case <-rpcCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("initial Close RPC did not time out")
+			}
+			require.Eventually(t, func() bool { return closeRPCs.Load() >= 2 }, time.Second, 2*time.Millisecond,
+				"the real gRPC cleanup must retry after the caller's deadline")
+			require.Never(t, func() bool { return len(pool.slots) == 0 || impl.closeCalls.Load() != 1 }, 4*pool.closeTimeout, 2*time.Millisecond,
+				"retrying Close must neither acknowledge unfinished cleanup nor start another backend Close")
+			for _, nextOperation := range []string{"command", "telemetry"} {
+				require.Equal(t, pb.AckCode_ACK_CODE_BUSY, runCleanupTestOperation(t, t.Context(), nextOperation, run, fetcher))
+			}
+			require.EqualValues(t, 1, impl.created.Load(), "blocked cleanup must prevent new SDK registrations")
+			require.Zero(t, impl.closeReturns.Load(), "backend Close must remain unfinished until explicitly released")
+			release()
+			require.Eventually(t, func() bool { return impl.closeReturns.Load() == 1 && len(pool.slots) == 0 }, time.Second, 2*time.Millisecond)
+			require.EqualValues(t, 1, impl.closeCalls.Load(), "all retries must share the original backend Close")
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, runCleanupTestOperation(t, t.Context(), operation, run, fetcher))
+			require.Eventually(t, func() bool { return impl.closeReturns.Load() == 2 && len(pool.slots) == 0 }, time.Second, 2*time.Millisecond,
+				"acknowledged backend cleanup must restore admission")
+		})
+	}
 }
 
 func TestAbsentFailedRegistrationsDoNotExhaustCleanupCapacity(t *testing.T) {

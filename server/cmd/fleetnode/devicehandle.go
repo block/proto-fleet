@@ -85,8 +85,8 @@ func (l *deviceHandleLease) close(device deviceHandleCloser) <-chan struct{} {
 	return l.firstAttemptDone
 }
 
-// NewDevice completed successfully before this worker was started, so
-// NotFound confirms this registration no longer exists in the plugin.
+// The SDK must retain closing handles until backend cleanup completes, so
+// NotFound cannot release capacity while an earlier Close is still running.
 func closedOrAbsent(err error) bool {
 	return err == nil || grpcstatus.Code(err) == codes.NotFound
 }

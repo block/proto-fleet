@@ -46,6 +46,14 @@ telemetry share a limit of 1,024 active or pending handles; when it is full, new
 operations return busy before registering another handle. Plugin shutdown cancels
 cleanup retries.
 
+The Go plugin SDK keeps a handle in a closing state until the backend finishes
+cleanup. Concurrent close requests wait for that same attempt, and failed
+attempts remain retryable. A timed-out RPC therefore cannot make a still-running
+close appear absent and prematurely release the node's handle budget.
+The SDK reserves an ID during creation and rejected-result cleanup, returning a
+retryable close error while either is running. IDs being closed cannot be reused
+until cleanup succeeds.
+
 ## Development Commands
 
 ### Build and Run
