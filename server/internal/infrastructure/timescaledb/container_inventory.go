@@ -72,11 +72,19 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 				observed = &module.ObservedAt
 			}
 			var issueTime *time.Time
-			if v := module.Issues; v != nil && !v.ObservedAt.IsZero() {
-				if v.ObservedAt.After(snapshot.ObservedAt.Add(5 * time.Second)) {
-					return fmt.Errorf("invalid module issue observation time")
+			if v := module.Issues; v != nil {
+				latest := snapshot.ObservedAt.Add(5 * time.Second)
+				for source, at := range v.SourceTimes {
+					if at.IsZero() || at.After(latest) {
+						return fmt.Errorf("invalid module issue source time for %q", source)
+					}
 				}
-				issueTime = &v.ObservedAt
+				if !v.ObservedAt.IsZero() {
+					if v.ObservedAt.After(latest) {
+						return fmt.Errorf("invalid module issue observation time")
+					}
+					issueTime = &v.ObservedAt
+				}
 			}
 			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {

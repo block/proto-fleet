@@ -67,6 +67,25 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 	originalID := first.Ref.Id
 	require.Len(t, first.ModuleIssues.Items, 1)
 	require.Equal(t, "psu", first.ModuleIssues.Items[0].Component)
+	// Invalid source times must not poison ordering watermarks or clear current issues.
+	for _, test := range []struct {
+		name       string
+		sourceTime time.Time
+		observedAt time.Time
+	}{
+		{"future source", base.Add(24 * time.Hour), base},
+		{"zero source", time.Time{}, base},
+		{"future source without aggregate time", base.Add(24 * time.Hour), time.Time{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot.ObservedAt = base.Add(500 * time.Millisecond)
+			module.Issues = evidence(test.observedAt)
+			module.Issues.SourceTimes["hashboard:right"] = test.sourceTime
+			err := store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot})
+			require.ErrorContains(t, err, "invalid module issue source time")
+			require.Len(t, read().ModuleIssues.Items, 1)
+		})
+	}
 	// A newer collection of older complete evidence cannot clear the fault.
 	snapshot.ObservedAt = base.Add(time.Second)
 	module.Issues = evidence(base.Add(-time.Second))
