@@ -157,7 +157,11 @@ message ListModuleHistoryResponse {
 // Current evidence, independently timestamped from module classification.
 message ModuleIssues {
  google.protobuf.Timestamp observed_at = 1;
+ // The server sets this only when all required evidence and collection are fresh.
  bool complete = 2;
+ // The server sets complete=false when stale=true. Both can be false for
+ // partial or unavailable evidence. Individually fresh items can remain present
+ // even when other required evidence is stale.
  bool stale = 4;
  repeated ModuleIssue items = 3;
 }

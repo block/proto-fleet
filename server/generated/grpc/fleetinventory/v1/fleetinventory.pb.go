@@ -1068,11 +1068,15 @@ func (x *ListModuleHistoryResponse) GetNextPageToken() string {
 
 // Current evidence, independently timestamped from module classification.
 type ModuleIssues struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	Complete      bool                   `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
-	Stale         bool                   `protobuf:"varint,4,opt,name=stale,proto3" json:"stale,omitempty"`
-	Items         []*ModuleIssue         `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ObservedAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	// The server sets this only when all required evidence and collection are fresh.
+	Complete bool `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
+	// The server sets complete=false when stale=true. Both can be false for
+	// partial or unavailable evidence. Individually fresh items can remain present
+	// even when other required evidence is stale.
+	Stale         bool           `protobuf:"varint,4,opt,name=stale,proto3" json:"stale,omitempty"`
+	Items         []*ModuleIssue `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

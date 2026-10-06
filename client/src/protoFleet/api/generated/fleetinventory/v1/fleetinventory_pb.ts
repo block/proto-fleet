@@ -514,11 +514,17 @@ export type ModuleIssues = Message<"fleetinventory.v1.ModuleIssues"> & {
   observedAt?: Timestamp | undefined;
 
   /**
+   * The server sets this only when all required evidence and collection are fresh.
+   *
    * @generated from field: bool complete = 2;
    */
   complete: boolean;
 
   /**
+   * The server sets complete=false when stale=true. Both can be false for
+   * partial or unavailable evidence. Individually fresh items can remain present
+   * even when other required evidence is stale.
+   *
    * @generated from field: bool stale = 4;
    */
   stale: boolean;
