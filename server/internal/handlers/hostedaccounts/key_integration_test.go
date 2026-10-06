@@ -75,3 +75,20 @@ func TestAccountKeySecretIsShownOnceAndRedactedFromLogsAndActivity(t *testing.T)
 	require.NotContains(t, activity, created.Msg.Secret)
 	require.NotContains(t, activity, hash)
 }
+
+func TestCustomerOnlyKeyLosesAccessImmediatelyWithMembership(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	invitation := f.invite(t, account.AccountID, pb.AccountRole_ACCOUNT_ROLE_VIEWER)
+	accepted := f.register(t, invitation.Token, "customer-key-user")
+	cookie := accepted.Header().Get("Set-Cookie")
+	issued, err := f.client.CreateAccountKey(t.Context(), rpcRequest(&pb.CreateAccountKeyRequest{AccountId: account.AccountID, Name: "Personal", Capabilities: 1}, cookie, account.AccountID))
+	require.NoError(t, err)
+	_, err = f.client.GetAccount(t.Context(), keyRequest(&pb.GetAccountRequest{AccountId: account.AccountID}, issued.Msg.Secret, account.AccountID))
+	require.NoError(t, err)
+	var userID int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT id FROM "user" WHERE username='customer-key-user'`).Scan(&userID))
+	require.NoError(t, f.accounts.RevokeMembership(t.Context(), f.host, f.org, account.AccountID, userID))
+	_, err = f.client.GetAccount(t.Context(), keyRequest(&pb.GetAccountRequest{AccountId: account.AccountID}, issued.Msg.Secret, account.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
