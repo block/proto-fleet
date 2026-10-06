@@ -33,7 +33,26 @@ type ContainerTank struct {
 	Modules  []ContainerModule `json:"modules"`
 }
 
+// ContainerModuleIssues is a current observation, not an issue history. Complete
+// means all boards and the shared PSU supplied fresh health. Nil/partial evidence cannot prove health.
+// ObservedAt is the oldest required source timestamp and controls freshness.
+type ContainerModuleIssues struct {
+	// SourceTimes orders independent board/PSU samples, including clear readings.
+	SourceTimes map[string]time.Time   `json:"source_times,omitempty"`
+	ObservedAt  time.Time              `json:"observed_at"`
+	Complete    bool                   `json:"complete"`
+	Items       []ContainerModuleIssue `json:"items"`
+}
+type ContainerModuleIssue struct {
+	Component   string    `json:"component"`    // hashboard, psu, or module
+	ComponentID string    `json:"component_id"` // board MAC, or module-owned psu
+	Cause       string    `json:"cause"`
+	Severity    string    `json:"severity"` // fault, warning, or observation
+	ObservedAt  time.Time `json:"observed_at"`
+}
+
 type ContainerModule struct {
+	Issues     *ContainerModuleIssues  `json:"issues,omitempty"`
 	Metrics    *ContainerModuleMetrics `json:"metrics,omitempty"`
 	Position   int32                   `json:"position"`
 	ReportedID string                  `json:"reported_id,omitempty"`

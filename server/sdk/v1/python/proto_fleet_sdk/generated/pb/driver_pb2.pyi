@@ -907,18 +907,20 @@ class ContainerTank(_message.Message):
     def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
-    __slots__ = ("position", "reported_id", "state", "observed_at", "metrics")
+    __slots__ = ("position", "reported_id", "state", "observed_at", "metrics", "issues")
     POSITION_FIELD_NUMBER: _ClassVar[int]
     REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
+    ISSUES_FIELD_NUMBER: _ClassVar[int]
     position: int
     reported_id: str
     state: str
     observed_at: _timestamp_pb2.Timestamp
     metrics: ContainerModuleMetrics
-    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ...) -> None: ...
+    issues: ContainerModuleIssues
+    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
 
 class ContainerModuleMetrics(_message.Message):
     __slots__ = ("observed_at", "hashrate_hs", "power_w", "temperature_c")
@@ -1019,3 +1021,36 @@ class SetContainerControlRequest(_message.Message):
     name: str
     enabled: bool
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., name: _Optional[str] = ..., enabled: bool = ...) -> None: ...
+
+class ContainerModuleIssues(_message.Message):
+    __slots__ = ("source_times", "observed_at", "complete", "items")
+    class SourceTimesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _timestamp_pb2.Timestamp
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    SOURCE_TIMES_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    source_times: _containers.MessageMap[str, _timestamp_pb2.Timestamp]
+    observed_at: _timestamp_pb2.Timestamp
+    complete: bool
+    items: _containers.RepeatedCompositeFieldContainer[ContainerModuleIssue]
+    def __init__(self, source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., complete: bool = ..., items: _Optional[_Iterable[_Union[ContainerModuleIssue, _Mapping]]] = ...) -> None: ...
+
+class ContainerModuleIssue(_message.Message):
+    __slots__ = ("component", "component_id", "cause", "severity", "observed_at")
+    COMPONENT_FIELD_NUMBER: _ClassVar[int]
+    COMPONENT_ID_FIELD_NUMBER: _ClassVar[int]
+    CAUSE_FIELD_NUMBER: _ClassVar[int]
+    SEVERITY_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    component: str
+    component_id: str
+    cause: str
+    severity: str
+    observed_at: _timestamp_pb2.Timestamp
+    def __init__(self, component: _Optional[str] = ..., component_id: _Optional[str] = ..., cause: _Optional[str] = ..., severity: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...

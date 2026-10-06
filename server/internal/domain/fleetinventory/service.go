@@ -18,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -106,21 +107,23 @@ func encodeCursor(c pageCursor) (string, error) {
 }
 
 type listRow struct {
-	TelemetryAllowed bool            `json:"telemetry_allowed"`
-	BuildingDetails  json.RawMessage `json:"building_details"`
-	RackDetails      json.RawMessage `json:"rack_details"`
-	SiteName         string          `json:"site_name"`
-	FacilityName     string          `json:"facility_name"`
-	GroupName        string          `json:"group_name"`
-	RackCount        int64           `json:"rack_count"`
-	HashingCount     int32           `json:"hashing_count"`
-	SleepingCount    int32           `json:"sleeping_count"`
-	OfflineCount     int32           `json:"offline_count"`
-	BrokenCount      int32           `json:"broken_count"`
-	PSUIssues        int32           `json:"psu_issues"`
-	FanIssues        int32           `json:"fan_issues"`
-	HashboardIssues  int32           `json:"hashboard_issues"`
-	ControlIssues    int32           `json:"control_issues"`
+	ModuleIssues           *sdk.ContainerModuleIssues `json:"module_issues"`
+	ModuleIssuesLastSeenAt *time.Time                 `json:"module_issues_last_seen_at"`
+	TelemetryAllowed       bool                       `json:"telemetry_allowed"`
+	BuildingDetails        json.RawMessage            `json:"building_details"`
+	RackDetails            json.RawMessage            `json:"rack_details"`
+	SiteName               string                     `json:"site_name"`
+	FacilityName           string                     `json:"facility_name"`
+	GroupName              string                     `json:"group_name"`
+	RackCount              int64                      `json:"rack_count"`
+	HashingCount           int32                      `json:"hashing_count"`
+	SleepingCount          int32                      `json:"sleeping_count"`
+	OfflineCount           int32                      `json:"offline_count"`
+	BrokenCount            int32                      `json:"broken_count"`
+	PSUIssues              int32                      `json:"psu_issues"`
+	FanIssues              int32                      `json:"fan_issues"`
+	HashboardIssues        int32                      `json:"hashboard_issues"`
+	ControlIssues          int32                      `json:"control_issues"`
 
 	Kind                   int32      `json:"kind"`
 	ID                     int64      `json:"id"`
@@ -165,6 +168,7 @@ func (r listRow) item() *pb.InventoryItem {
 	if r.ObservedAt != nil {
 		item.ObservedAt = timestamppb.New(*r.ObservedAt)
 	}
+	item.ModuleIssues = projectModuleIssues(r.ModuleIssues, r.ModuleIssuesLastSeenAt, time.Now())
 	return item
 }
 

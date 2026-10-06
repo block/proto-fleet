@@ -120,6 +120,9 @@ message InventoryItem {
   string site_name = 25;
   string facility_name = 26;
   string group_name = 27;
+  // Absent means unavailable. Aggregate evidence can be stale while individual
+  // items remain fresh; the server retains those current causes.
+  ModuleIssues module_issues = 28;
 }
 
 message ListInventoryResponse {
@@ -150,4 +153,23 @@ message ModuleSample {
 message ListModuleHistoryResponse {
   repeated ModuleSample samples = 1;
   string next_page_token = 2;
+}
+
+// Current evidence, independently timestamped from module classification.
+message ModuleIssues {
+ google.protobuf.Timestamp observed_at = 1;
+ // The server sets this only when all required evidence and collection are fresh.
+ bool complete = 2;
+ // The server sets complete=false when stale=true. Both can be false for
+ // partial or unavailable evidence. Individually fresh items can remain present
+ // even when other required evidence is stale.
+ bool stale = 4;
+ repeated ModuleIssue items = 3;
+}
+message ModuleIssue {
+ string component = 1;
+ string component_id = 2;
+ string cause = 3;
+ string severity = 4;
+ google.protobuf.Timestamp observed_at = 5;
 }

@@ -257,3 +257,49 @@ switch observations. Missing or stale readings are hidden.
 Auto mode's `dry_cooler_auto_temp_c` value is shown as a temperature target,
 distinct from the measured inlet temperature. Both temperatures honor the
 user's Celsius/Fahrenheit preference.
+
+## Current module issue evidence
+
+The CT1 bulk map supplies current board errors/warnings and explicit hashrail,
+reference-clock, and PSU thermal flags. Issues retain board MAC attribution or
+belong to the single module PSU. Shared PSU entries deduplicate by component and
+cause; repeated thermal flags use the freshest PSU state (source board timestamp
+minus its reported sample age), including a clear reading. Historical shutdown
+errors are excluded. Mixed board states are labeled observations, never hardware
+faults. An attention classification alone supplies no invented fault.
+
+Issue evidence is bounded to 64 causes per module, 256 bytes per cause, 128 bytes
+per component identity, and a shared 1 MiB budget per container poll. Oversized
+causes are omitted; retained causes remain visible in a partial report. Truncated
+reports omit clear-source watermarks so a later full report can recover without
+the discarded evidence having advanced source ordering.
+
+The SDK transports a current issue set with individual issue timestamps and
+source times for clear board/PSU readings. `container_module.issues` stores this
+small evidence payload; separate source watermarks prevent an older component
+sample from replacing newer evidence, even when the aggregate oldest timestamp
+ties. Inventory collection order still guards topology changes. Replacement
+modules get fresh Fleet identities and their own issue sets and watermarks.
+Source timestamps must be nonzero and no more than five seconds ahead of collection.
+The aggregate issue timestamp must not be newer than any supplied source. A
+complete CT1 report requires timestamps for all three boards and the shared PSU;
+malformed reports are rejected before inventory or source watermarks change.
+Watermarks advance only with accepted evidence; a rejected mixed-age report cannot
+block a corrected report carrying the same newer component sample.
+Missing cause arrays, missing PSU state, or incomplete evidence withdraw health
+confirmation while preserving source ordering; only advancing source evidence
+restores it. Fresh complete clear
+observations replace the issue set, so resolved causes disappear. A partial
+fresh observation can expose explicit causes without confirming overall health.
+Repeating identical partial evidence retains those causes without advancing its
+source timestamps or extending their freshness.
+
+The inventory API includes module evidence directly in the authorized page read.
+It hides each cause after two minutes based on its own source time, and hides all
+causes when module collection is stale. An outdated board withdraws health
+confirmation without hiding fresh causes from other components. Unknown and stale evidence are distinct from a complete
+observation with no reported causes. Fleet's Issues cell opens all causes,
+components, severity (fault, warning, or observation), and source timestamps.
+Cached client causes also expire independently if list refreshes stop.
+This is current evidence only; historical issue lifecycle, parent issue rollups,
+and the existing miner-specific component filters remain separate concerns.

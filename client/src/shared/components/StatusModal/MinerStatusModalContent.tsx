@@ -1,17 +1,17 @@
 import { useMemo } from "react";
+import StatusModalIcon from "./StatusModalIcon";
 import StatusModalLayout, { type StatusModalLayoutError } from "./StatusModalLayout";
 import { type MinerStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
 import { Alert, ControlBoard, Fan, Hashboard, Info, LightningAlt, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { DialogIcon } from "@/shared/components/Dialog";
 
 const componentIcons = {
-  fan: <Fan width={iconSizes.medium} className="text-intent-critical-fill" />,
-  hashboard: <Hashboard width={iconSizes.medium} className="text-intent-critical-fill" />,
-  controlBoard: <ControlBoard width={iconSizes.medium} className="text-intent-critical-fill" />,
-  psu: <LightningAlt width={iconSizes.medium} className="text-intent-critical-fill" />,
-  other: <Alert width={iconSizes.medium} className="text-intent-critical-fill" />,
+  fan: <Fan />,
+  hashboard: <Hashboard />,
+  controlBoard: <ControlBoard />,
+  psu: <LightningAlt />,
+  other: <Alert />,
 };
 
 const MINER_ASLEEP_TITLE = "Miner is asleep";
@@ -29,29 +29,23 @@ const MinerStatusModalContent = ({
   const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
   const icon = useMemo(() => {
-    if (isSleeping) {
+    if (isSleeping || isOffline) {
       return (
-        <DialogIcon>
-          <Info className="text-text-primary" />
-        </DialogIcon>
-      );
-    } else if (isOffline) {
-      return (
-        <DialogIcon intent="info">
-          <Info />
-        </DialogIcon>
+        <StatusModalIcon>
+          <Info width={iconSizes.xLarge} />
+        </StatusModalIcon>
       );
     } else if (needsAuthentication || needsMiningPool || haserrors) {
       return (
-        <DialogIcon intent="critical">
-          <Alert className="text-intent-critical-fill" />
-        </DialogIcon>
+        <StatusModalIcon intent="critical">
+          <Alert width={iconSizes.xLarge} />
+        </StatusModalIcon>
       );
     } else {
       return (
-        <DialogIcon intent="success">
-          <Success />
-        </DialogIcon>
+        <StatusModalIcon intent="success">
+          <Success width={iconSizes.xLarge} />
+        </StatusModalIcon>
       );
     }
   }, [haserrors, isSleeping, isOffline, needsAuthentication, needsMiningPool]);

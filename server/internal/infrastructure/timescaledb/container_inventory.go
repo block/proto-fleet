@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -13,11 +14,13 @@ import (
 )
 
 type inventoryModule struct {
-	TankPosition int32           `json:"tank_position"`
-	Position     int32           `json:"position"`
-	ReportedID   string          `json:"reported_id"`
-	State        sdk.ModuleState `json:"state"`
-	ObservedAt   *time.Time      `json:"observed_at"`
+	TankPosition     int32                      `json:"tank_position"`
+	Position         int32                      `json:"position"`
+	ReportedID       string                     `json:"reported_id"`
+	State            sdk.ModuleState            `json:"state"`
+	ObservedAt       *time.Time                 `json:"observed_at"`
+	Issues           *sdk.ContainerModuleIssues `json:"issues"`
+	IssuesObservedAt *time.Time                 `json:"issues_observed_at"`
 }
 
 type moduleSample struct {
@@ -69,7 +72,34 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			if !module.ObservedAt.IsZero() {
 				observed = &module.ObservedAt
 			}
-			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed})
+			var issueTime *time.Time
+			if v := module.Issues; v != nil {
+				latest := snapshot.ObservedAt.Add(5 * time.Second)
+				boards := 0
+				for source, at := range v.SourceTimes {
+					if at.IsZero() || at.After(latest) {
+						return fmt.Errorf("invalid module issue source time for %q", source)
+					}
+					if v.ObservedAt.After(at) {
+						return fmt.Errorf("invalid module issue observation time: newer than source %q", source)
+					}
+					if strings.HasPrefix(source, "hashboard:") && strings.TrimSpace(strings.TrimPrefix(source, "hashboard:")) != "" {
+						boards++
+					}
+				}
+				// CT1 reports are complete only with all three boards and the shared PSU.
+				const ct1IssueBoardCount = 3
+				if v.Complete && (v.ObservedAt.IsZero() || boards != ct1IssueBoardCount || v.SourceTimes["psu"].IsZero()) {
+					return fmt.Errorf("invalid module issue complete report: missing required source evidence")
+				}
+				if !v.ObservedAt.IsZero() {
+					if v.ObservedAt.After(latest) {
+						return fmt.Errorf("invalid module issue observation time")
+					}
+					issueTime = &v.ObservedAt
+				}
+			}
+			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {
 				samples = append(samples, moduleSample{tank.Position, module.Position, module.ReportedID, m.ObservedAt, m.HashrateHS, m.PowerW, m.TemperatureC})
 			}
