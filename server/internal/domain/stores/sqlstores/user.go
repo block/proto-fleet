@@ -375,6 +375,20 @@ func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {
 	return s.getQueries(ctx).SoftDeleteUser(ctx, userID)
 }
 
+func (s *SQLUserStore) LockAndCountSoleHostedAccountAdministrations(ctx context.Context, organizationID int64, userID int64) (int64, error) {
+	q := s.GetTxQueries(ctx)
+	if q == nil {
+		return 0, fleeterror.NewInternalError("hosted administrator guard requires a transaction")
+	}
+	if _, err := q.LockHostedAccountOrganization(ctx, organizationID); err != nil {
+		return 0, err
+	}
+	return q.CountSoleHostedAccountAdministrations(ctx, sqlc.CountSoleHostedAccountAdministrationsParams{
+		OrganizationID: organizationID,
+		UserID:         userID,
+	})
+}
+
 func (s *SQLUserStore) UpdateLastLogin(ctx context.Context, userID int64) error {
 	return s.getQueries(ctx).UpdateLastLogin(ctx, userID)
 }

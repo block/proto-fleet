@@ -1253,6 +1253,31 @@ type FleetTelemetryPollHeartbeat struct {
 	SampleCount    int64
 }
 
+type HostedAccount struct {
+	ID             int64
+	AccountID      string
+	OrganizationID int64
+	ParentID       sql.NullInt64
+	Depth          int32
+	Name           string
+	Capabilities   int64
+	Suspended      bool
+	Revision       int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type HostedAccountMembership struct {
+	OrganizationID int64
+	AccountID      int64
+	UserID         int64
+	Role           string
+	Revision       int64
+	RevokedAt      sql.NullTime
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type InfrastructureDevice struct {
 	ID           int64
 	OrgID        int64

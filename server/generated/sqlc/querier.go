@@ -291,6 +291,7 @@ type Querier interface {
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
 	CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
+	ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
@@ -370,6 +371,9 @@ type Querier interface {
 	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
+	// Call after locking the organization, before user/role locks. Also guard
+	// suspended accounts so reactivation cannot expose an account without an admin.
+	CountSoleHostedAccountAdministrations(ctx context.Context, arg CountSoleHostedAccountAdministrationsParams) (int64, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
 	// expired history can never block a write.
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -392,6 +396,7 @@ type Querier interface {
 	CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirmwareRolloutEventParams) error
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
+	CreateHostedAccount(ctx context.Context, arg CreateHostedAccountParams) (HostedAccount, error)
 	// Name is unique per (site_id, name) among live rows; the partial
 	// unique index surfaces collisions to the store layer as
 	// AlreadyExists.
@@ -741,6 +746,8 @@ type Querier interface {
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
+	GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error)
+	GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error)
 	// Dedicated sensitive read: this field is intentionally not projected through
 	// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
 	// as the same not-found result.
@@ -1457,6 +1464,7 @@ type Querier interface {
 	// The engine reloads the evidence under the rollout lock before adoption.
 	ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
 	// resets serialize on the same rows. The live membership join matches what
@@ -1560,6 +1568,9 @@ type Querier interface {
 	// reconciliation. Call after locking the Fleet Node and before checking the
 	// device's current cloud-pairing state.
 	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
+	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
+	// Serialize hierarchy, policy, and membership mutations for one organization.
+	LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1812,6 +1823,8 @@ type Querier interface {
 	// statement snapshot so a concurrent placement change cannot mix old coverage
 	// with new membership. The reconciler validates selector shape before calling.
 	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
+	// Resolve identity, membership, suspension, and ancestor ceilings in one snapshot.
+	ResolveHostedAccountMembership(ctx context.Context, arg ResolveHostedAccountMembershipParams) (ResolveHostedAccountMembershipRow, error)
 	ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error)
 	// Assignment writes call this inside their transaction. Shared locks on the
 	// membership and user serialize with membership removal and user deactivation.
@@ -1843,6 +1856,7 @@ type Querier interface {
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
 	RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error)
 	RevokeApiKeysByFleetNodeID(ctx context.Context, arg RevokeApiKeysByFleetNodeIDParams) ([]string, error)
+	RevokeHostedAccountMembership(ctx context.Context, arg RevokeHostedAccountMembershipParams) error
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error)
@@ -1857,6 +1871,7 @@ type Querier interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
+	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)

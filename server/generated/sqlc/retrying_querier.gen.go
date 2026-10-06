@@ -726,6 +726,12 @@ func (q *retryingQuerier) CompleteRigConfigReconciliation(ctx context.Context, a
 	})
 }
 
+func (q *retryingQuerier) ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error {
+	return q.retrier.RetryQuery(ctx, "ConfigureHostedAccount", func() error {
+		return q.next.ConfigureHostedAccount(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ConfirmEnrollment", func() error {
@@ -1134,6 +1140,18 @@ func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevices(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) CountSoleHostedAccountAdministrations(ctx context.Context, arg CountSoleHostedAccountAdministrationsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountSoleHostedAccountAdministrations", func() error {
+		callResult, callErr := q.next.CountSoleHostedAccountAdministrations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountUnexpiredAlertMaintenanceWindows", func() error {
@@ -1234,6 +1252,18 @@ func (q *retryingQuerier) CreateFleetNodeApiKey(ctx context.Context, arg CreateF
 	return q.retrier.RetryQuery(ctx, "CreateFleetNodeApiKey", func() error {
 		return q.next.CreateFleetNodeApiKey(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) CreateHostedAccount(ctx context.Context, arg CreateHostedAccountParams) (HostedAccount, error) {
+	var result HostedAccount
+	err := q.retrier.RetryQuery(ctx, "CreateHostedAccount", func() error {
+		callResult, callErr := q.next.CreateHostedAccount(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) CreateInfrastructureDevice(ctx context.Context, arg CreateInfrastructureDeviceParams) (InfrastructureDevice, error) {
@@ -2986,6 +3016,30 @@ func (q *retryingQuerier) GetHAProfileDatabaseIdentity(ctx context.Context) (Get
 	var result GetHAProfileDatabaseIdentityRow
 	err := q.retrier.RetryQuery(ctx, "GetHAProfileDatabaseIdentity", func() error {
 		callResult, callErr := q.next.GetHAProfileDatabaseIdentity(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error) {
+	var result HostedAccountMembership
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountMembership", func() error {
+		callResult, callErr := q.next.GetHostedAccountMembership(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error) {
+	var result []GetHostedAccountPathRow
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPath", func() error {
+		callResult, callErr := q.next.GetHostedAccountPath(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5598,6 +5652,18 @@ func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organiza
 	return result, err
 }
 
+func (q *retryingQuerier) LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error) {
+	var result User
+	err := q.retrier.RetryQuery(ctx, "LockActiveHostedAccountUser", func() error {
+		callResult, callErr := q.next.LockActiveHostedAccountUser(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
 	var result []LockActiveSuperAdminUsersRow
 	err := q.retrier.RetryQuery(ctx, "LockActiveSuperAdminUsers", func() error {
@@ -5866,6 +5932,30 @@ func (q *retryingQuerier) LockFleetNodePairingDevice(ctx context.Context, arg Lo
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodePairingDevice", func() error {
 		callResult, callErr := q.next.LockFleetNodePairingDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockHostedAccountAdministrators", func() error {
+		callResult, callErr := q.next.LockHostedAccountAdministrators(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockHostedAccountOrganization", func() error {
+		callResult, callErr := q.next.LockHostedAccountOrganization(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6534,6 +6624,18 @@ func (q *retryingQuerier) ResolveCurtailmentTopologyDispatch(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) ResolveHostedAccountMembership(ctx context.Context, arg ResolveHostedAccountMembershipParams) (ResolveHostedAccountMembershipRow, error) {
+	var result ResolveHostedAccountMembershipRow
+	err := q.retrier.RetryQuery(ctx, "ResolveHostedAccountMembership", func() error {
+		callResult, callErr := q.next.ResolveHostedAccountMembership(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ResolveInventorySiteByName", func() error {
@@ -6678,6 +6780,12 @@ func (q *retryingQuerier) RevokeApiKeysByFleetNodeID(ctx context.Context, arg Re
 	return result, err
 }
 
+func (q *retryingQuerier) RevokeHostedAccountMembership(ctx context.Context, arg RevokeHostedAccountMembershipParams) error {
+	return q.retrier.RetryQuery(ctx, "RevokeHostedAccountMembership", func() error {
+		return q.next.RevokeHostedAccountMembership(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error {
 	return q.retrier.RetryQuery(ctx, "RevokePermissionFromRole", func() error {
 		return q.next.RevokePermissionFromRole(ctx, arg)
@@ -6754,6 +6862,12 @@ func (q *retryingQuerier) SetFleetNodeEnrollmentStatus(ctx context.Context, arg 
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error {
+	return q.retrier.RetryQuery(ctx, "SetHostedAccountMembership", func() error {
+		return q.next.SetHostedAccountMembership(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error) {

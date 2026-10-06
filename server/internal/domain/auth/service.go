@@ -953,6 +953,16 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	// SUPER_ADMIN and deactivation of another could both observe a
 	// valid post-state and commit, leaving the org with zero owners.
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Share the organization lock with hosted membership mutations. Acquire
+		// it before user/role locks so concurrent deactivation and demotion cannot
+		// remove every customer administrator or invert the lock order.
+		soleAccounts, guardErr := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, user.ID)
+		if guardErr != nil {
+			return fleeterror.NewInternalErrorf("error checking hosted account administrators: %v", guardErr)
+		}
+		if soleAccounts > 0 {
+			return fleeterror.NewFailedPreconditionError("assign another account administrator before deactivating this user")
+		}
 		current, err := s.userManagementStore.GetOrgScopeAssignmentForUser(ctx, user.ID, orgID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)

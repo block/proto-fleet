@@ -392,6 +392,21 @@ func (mr *MockUserManagementStoreMockRecorder) LockAndCountOrgScopeSuperAdmins(c
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockAndCountOrgScopeSuperAdmins", reflect.TypeOf((*MockUserManagementStore)(nil).LockAndCountOrgScopeSuperAdmins), ctx, organizationID)
 }
 
+// LockAndCountSoleHostedAccountAdministrations mocks base method.
+func (m *MockUserManagementStore) LockAndCountSoleHostedAccountAdministrations(ctx context.Context, organizationID, userID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockAndCountSoleHostedAccountAdministrations", ctx, organizationID, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockAndCountSoleHostedAccountAdministrations indicates an expected call of LockAndCountSoleHostedAccountAdministrations.
+func (mr *MockUserManagementStoreMockRecorder) LockAndCountSoleHostedAccountAdministrations(ctx, organizationID, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockAndCountSoleHostedAccountAdministrations", reflect.TypeOf((*MockUserManagementStore)(nil).LockAndCountSoleHostedAccountAdministrations), ctx, organizationID, userID)
+}
+
 // SoftDeleteUser mocks base method.
 func (m *MockUserManagementStore) SoftDeleteUser(ctx context.Context, userID int64) error {
 	m.ctrl.T.Helper()

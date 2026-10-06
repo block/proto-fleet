@@ -73,6 +73,7 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermUserRead,
 		PermUserManage,
 		PermRoleManage,
+		PermAccountManage,
 		PermInstanceUpdate,
 		PermMaintenanceRead,
 		PermMaintenanceManage,
@@ -120,7 +121,7 @@ func TestCatalogByResource_GroupsAndAssociates(t *testing.T) {
 		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite, ResourceActivity,
 		ResourceServerLog, ResourceCurtailment, ResourcePool, ResourceSchedule, ResourceFleetNode,
 		ResourceAlert, ResourceAPIKey, ResourceUser, ResourceRole, ResourceInstance,
-		ResourceMaintenance,
+		ResourceMaintenance, ResourceAccount,
 	} {
 		if len(groups[resource]) == 0 {
 			t.Errorf("resource %q has no permissions in catalog", resource)
@@ -156,6 +157,7 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourceAPIKey,
 		ResourceUser,
 		ResourceRole,
+		ResourceAccount,
 		ResourceInstance,
 		ResourceMaintenance,
 	}
