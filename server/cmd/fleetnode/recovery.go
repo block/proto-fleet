@@ -285,10 +285,6 @@ type recoveryDiscoverer interface {
 	ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, string, error)
 }
 
-type recoveryDeviceCleaner interface {
-	CloseDevice(ctx context.Context, deviceID string) error
-}
-
 func (r *RunCmd) probeRecoveryEndpoint(ctx context.Context, ip, port string) (stableidentity.Identity, string, string, error) {
 	if discoverer, ok := r.discoverer.(recoveryDiscoverer); ok {
 		return discoverer.ProbeRecovery(ctx, ip, port)
@@ -324,8 +320,8 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		code := grpcstatus.Code(err)
 		uncertain := ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 			code == codes.Canceled || code == codes.DeadlineExceeded
-		if cleaner, ok := driver.(recoveryDeviceCleaner); ok && uncertain {
-			closeUncertainRecoveryDevice(ctx, cleaner, deviceID)
+		if cleaner, ok := driver.(deviceHandleCleaner); ok && uncertain {
+			closeUncertainDevice(ctx, cleaner, deviceID)
 		}
 		return stableidentity.Identity{}, err
 	}
@@ -342,21 +338,6 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		return stableidentity.Identity{}, err
 	}
 	return stableidentity.New(info.SerialNumber, info.MacAddress), nil
-}
-
-func closeUncertainRecoveryDevice(ctx context.Context, cleaner recoveryDeviceCleaner, deviceID string) {
-	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-	defer cancel()
-	for {
-		if cleaner.CloseDevice(closeCtx, deviceID) == nil {
-			return
-		}
-		select {
-		case <-closeCtx.Done():
-			return
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
 }
 
 func recoveryEndpointKey(endpoint recoveryEndpoint) string {

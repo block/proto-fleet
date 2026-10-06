@@ -28,6 +28,15 @@ to the stored miner, so it leaves that miner's pairing status unchanged. Missing
 corrupt stored credentials also leave pairing status unchanged. Fleet Node recovery
 continues to use the existing local-network workflow.
 
+Proto connections verify the miner's live identity against its expected MAC and
+serial, including when authentication is renewed. A different miner reusing the
+old address is rejected even if it accepts the same password, rather than having
+its telemetry attributed to the original miner.
+
+Fleet Node commands and telemetry use separate temporary plugin handles. Closing
+one operation cannot remove another operation's handle; gateway requests and
+reported telemetry continue to use the miner's stable Fleet identifier.
+
 ## Development Commands
 
 ### Build and Run

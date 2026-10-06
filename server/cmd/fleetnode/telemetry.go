@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -182,8 +183,12 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	defer slot.releaseWorker()
 
 	redactions := telemetrySecretRedactions(secret)
-	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
+	// A sample owns its registration through asynchronous close. A later sample
+	// or command for this miner must have a different SDK handle.
+	handleID := "telemetry-" + uuid.NewString()
+	created, err := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
 	if err != nil {
+		cleanupUncertainDeviceCreation(ctx, plugin.Driver, handleID, err)
 		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
@@ -195,9 +200,11 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		return nil, cmdErr(code, "%s", msg)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
-	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), v2Metrics); err != nil {
+	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), handleID, v2Metrics); err != nil {
 		return nil, err
 	}
+	// Gateway telemetry is keyed by the physical miner, never the SDK handle.
+	v2Metrics.DeviceIdentifier = req.GetDeviceIdentifier()
 	result, err := telemetryResultFromV2(req.GetDeviceIdentifier(), v2Metrics, deviceStatusFromSDKHealth(sdkMetrics.Health))
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "marshal telemetry metrics: %v", err)
@@ -294,8 +301,8 @@ func closeTelemetryDevice(device telemetryDeviceCloser) {
 	}
 }
 
-func validateTelemetryMetricsIdentity(requestedDeviceIdentifier string, metrics modelsV2.DeviceMetrics) error {
-	if metrics.DeviceIdentifier == "" || metrics.DeviceIdentifier == requestedDeviceIdentifier {
+func validateTelemetryMetricsIdentity(requestedDeviceIdentifier, handleID string, metrics modelsV2.DeviceMetrics) error {
+	if metrics.DeviceIdentifier == "" || metrics.DeviceIdentifier == handleID || metrics.DeviceIdentifier == requestedDeviceIdentifier {
 		return nil
 	}
 	return cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry device_identifier mismatch: requested %q, plugin reported %q", requestedDeviceIdentifier, metrics.DeviceIdentifier)

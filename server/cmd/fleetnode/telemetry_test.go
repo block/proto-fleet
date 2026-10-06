@@ -505,18 +505,23 @@ func TestCloseTelemetryDeviceAsyncClosesSynchronouslyWhenCloseWorkersAreExhauste
 }
 
 func TestValidateTelemetryMetricsIdentity(t *testing.T) {
+	t.Run("allows registration identifier", func(t *testing.T) {
+		err := validateTelemetryMetricsIdentity("node-device", "telemetry-handle", modelsV2.DeviceMetrics{DeviceIdentifier: "telemetry-handle"})
+		require.NoError(t, err)
+	})
+
 	t.Run("allows matching identifier", func(t *testing.T) {
-		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{DeviceIdentifier: "node-device"})
+		err := validateTelemetryMetricsIdentity("node-device", "telemetry-handle", modelsV2.DeviceMetrics{DeviceIdentifier: "node-device"})
 		require.NoError(t, err)
 	})
 
 	t.Run("allows empty plugin identifier", func(t *testing.T) {
-		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{})
+		err := validateTelemetryMetricsIdentity("node-device", "telemetry-handle", modelsV2.DeviceMetrics{})
 		require.NoError(t, err)
 	})
 
 	t.Run("rejects mismatched identifier", func(t *testing.T) {
-		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{DeviceIdentifier: "other-device"})
+		err := validateTelemetryMetricsIdentity("node-device", "telemetry-handle", modelsV2.DeviceMetrics{DeviceIdentifier: "other-device"})
 
 		require.Error(t, err)
 		var ce *commandError
