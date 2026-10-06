@@ -135,3 +135,56 @@ func TestBaselineInternalConvertsCleanPublicBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInternalModuleIssuesUpgrade(t *testing.T) {
+	requireBaselineDB(t)
+	for _, source := range []string{"internal baseline", "public legacy transition"} {
+		t.Run(source, func(t *testing.T) {
+			conn, _ := newMigrationBridgeTestDB(t)
+			if source == "public legacy transition" {
+				baselinePublicFixture(t, conn, 153)
+				seedBaselineIdentity(t, conn)
+				if err := ApplyBaseline(t.Context(), conn, "public", 153); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				files, err := iofs.New(migrations.Current, "current")
+				if err != nil {
+					t.Fatal(err)
+				}
+				driver, err := postgres.WithInstance(conn, &postgres.Config{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				m, err := migrate.NewWithInstance("internal-baseline", files, "", driver)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := m.Migrate(1001); err != nil {
+					t.Fatal(err)
+				}
+				seedBaselineIdentity(t, conn)
+			}
+			if _, err := conn.ExecContext(t.Context(), `
+INSERT INTO container_inventory(device_id, observed_at) VALUES (999999, now());
+INSERT INTO container_tank(id, device_id, position, first_seen_at, last_seen_at) VALUES (999999, 999999, 1, now(), now());
+INSERT INTO container_module(id, tank_id, position, reported_id, first_seen_at, last_seen_at) VALUES (999999, 999999, 1, 'preserved-module', now(), now());`); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var preserved bool
+			if err := conn.QueryRowContext(t.Context(), `SELECT reported_id='preserved-module'
+AND issues IS NULL AND issues_observed_at IS NULL AND issues_source_times='{}'::jsonb
+FROM container_module WHERE id=999999`).Scan(&preserved); err != nil {
+				t.Fatal(err)
+			}
+			if !preserved {
+				t.Fatal("upgrade changed existing module identity or initial issue evidence")
+			}
+		})
+	}
+}
