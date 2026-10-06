@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"connectrpc.com/authn"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,12 +57,12 @@ type staticConfirmationGate struct {
 	request  ConfirmationRequest
 }
 
-func (g *staticConfirmationGate) Await(_ context.Context, request ConfirmationRequest, notify func(string) error) (ConfirmationDecision, error) {
+func (g *staticConfirmationGate) Await(ctx context.Context, request ConfirmationRequest, notify func(string) error) (ConfirmationResolution, error) {
 	g.request = request
 	if err := notify("confirmation-1"); err != nil {
-		return "", err
+		return ConfirmationResolution{}, err
 	}
-	return g.decision, nil
+	return ConfirmationResolution{Decision: g.decision, Context: ctx}, nil
 }
 
 func (*recordingTools) Definitions() []ToolDefinition {
@@ -232,4 +236,43 @@ func TestAgentCancellationDoesNotExecuteWriteTool(t *testing.T) {
 	assert.Equal(t, EventToolResult, events[2].Kind)
 	assert.True(t, events[2].Cancelled)
 	assert.False(t, events[2].Success)
+}
+
+type permissionCheckedWriteTools struct {
+	writeRecordingTools
+}
+
+func (tools *permissionCheckedWriteTools) Execute(ctx context.Context, name string, arguments json.RawMessage) (ToolOutput, error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+		return ToolOutput{}, err
+	}
+	return tools.recordingTools.Execute(ctx, name, arguments)
+}
+
+func TestAgentDoesNotExecuteWriteAfterPermissionRevokedWhileAwaitingApproval(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{
+		{ToolCalls: []ModelToolCall{{ID: "call-1", Name: "create_site", Arguments: json.RawMessage(`{"name":"North"}`)}}},
+		{Content: "The change could not be completed."},
+	}}
+	tools := &permissionCheckedWriteTools{}
+	broker := NewConfirmationBroker()
+	info := &session.Info{UserID: 7, OrganizationID: 42}
+	permissions := func(keys ...string) *authz.EffectivePermissions {
+		return authz.NewEffectivePermissions([]authz.Assignment{{ScopeType: authz.ScopeOrg, Permissions: keys}})
+	}
+	streamCtx := middleware.WithEffectivePermissions(authn.SetInfo(t.Context(), info), permissions(authz.PermFleetRead, authz.PermSiteManage))
+	approvalCtx := middleware.WithEffectivePermissions(authn.SetInfo(t.Context(), info), permissions(authz.PermFleetRead))
+	var result Event
+	err := NewAgent(model, broker).Run(streamCtx, RuntimeConfig{Harness: HarnessNative}, nil, "Create North", tools, func(event Event) error {
+		if event.Kind == EventConfirmationRequired {
+			return broker.Resolve(approvalCtx, event.ConfirmationID, ConfirmationApproved)
+		}
+		if event.Kind == EventToolResult {
+			result = event
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.False(t, tools.called, "approval must not reuse permissions granted before revocation")
+	assert.False(t, result.Success)
 }

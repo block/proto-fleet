@@ -92,8 +92,13 @@ type ConfirmationRequest struct {
 	Confirmation ToolConfirmation
 }
 
+type ConfirmationResolution struct {
+	Decision ConfirmationDecision
+	Context  context.Context //nolint:containedctx // Request-scoped handoff to the awaiting stream, not agent state.
+}
+
 type ConfirmationGate interface {
-	Await(ctx context.Context, request ConfirmationRequest, notify func(confirmationID string) error) (ConfirmationDecision, error)
+	Await(ctx context.Context, request ConfirmationRequest, notify func(confirmationID string) error) (ConfirmationResolution, error)
 }
 
 type ModelClient interface {
@@ -223,7 +228,7 @@ func (a *Agent) Run(
 					} else if confirmation == nil {
 						return fleeterror.NewFailedPreconditionErrorf("write tool %q did not provide confirmation details", call.Name)
 					} else {
-						decision, confirmationErr := a.confirmations.Await(ctx, ConfirmationRequest{
+						resolution, confirmationErr := a.confirmations.Await(ctx, ConfirmationRequest{
 							ToolCallID:   call.ID,
 							ToolName:     call.Name,
 							Confirmation: *confirmation,
@@ -239,11 +244,14 @@ func (a *Agent) Run(
 						if confirmationErr != nil {
 							return confirmationErr
 						}
-						switch decision {
+						switch resolution.Decision {
 						case ConfirmationCancelled:
 							cached.cancelled = true
 						case ConfirmationApproved:
-							cached.output, cached.err = tools.Execute(ctx, call.Name, call.Arguments)
+							if resolution.Context == nil {
+								return fleeterror.NewFailedPreconditionError("write tool confirmation authorization is unavailable")
+							}
+							cached.output, cached.err = tools.Execute(resolution.Context, call.Name, call.Arguments)
 						default:
 							return fleeterror.NewFailedPreconditionError("invalid write tool confirmation decision")
 						}
