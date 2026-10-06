@@ -11,18 +11,25 @@ interface SiteDeleteDialogProps {
 }
 
 // Pluralize helper kept local to the cascade copy; the same singular/plural
-// rule applies to all three count rows so a shared helper is clearer than
-// inlining ternaries three times.
+// rule applies to all the count rows so a shared helper is clearer than
+// inlining ternaries each time.
 const noun = (n: bigint, singular: string, plural: string) => (n === 1n ? singular : plural);
 
 const buildCascadeSummary = (site: SiteWithCounts): string => {
-  const { deviceCount, rackCount, buildingCount } = site;
-  return `Deleting will unassign ${deviceCount} ${noun(deviceCount, "miner", "miners")}, ${rackCount} ${noun(rackCount, "rack", "racks")}, and ${buildingCount} ${noun(buildingCount, "building", "buildings")}. They will be removed from this site.`;
+  const { deviceCount, rackCount, buildingCount, infrastructureDeviceCount } = site;
+  const base = `Deleting will unassign ${deviceCount} ${noun(deviceCount, "miner", "miners")}, ${rackCount} ${noun(rackCount, "rack", "racks")}, and ${buildingCount} ${noun(buildingCount, "building", "buildings")}. They will be removed from this site.`;
+  if (infrastructureDeviceCount > 0n) {
+    // Infrastructure devices (facility fans) are deleted with the site,
+    // not unassigned, so they get their own sentence.
+    return `${base} ${infrastructureDeviceCount} infrastructure ${noun(infrastructureDeviceCount, "device", "devices")} will also be deleted.`;
+  }
+  return base;
 };
 
 const SiteDeleteDialog = ({ open, site, onConfirm, onDismiss, deleting = false }: SiteDeleteDialogProps) => {
   const name = site.site?.name ?? "(unnamed)";
-  const hasCascade = site.deviceCount > 0n || site.rackCount > 0n || site.buildingCount > 0n;
+  const hasCascade =
+    site.deviceCount > 0n || site.rackCount > 0n || site.buildingCount > 0n || site.infrastructureDeviceCount > 0n;
   const subtitle = hasCascade ? buildCascadeSummary(site) : "Are you sure you want to delete this site?";
 
   return (

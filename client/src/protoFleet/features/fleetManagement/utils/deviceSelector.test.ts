@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { createDeviceSelector } from "./deviceSelector";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 describe("createDeviceSelector", () => {
   describe("when selectionMode is 'all'", () => {
@@ -20,6 +22,17 @@ describe("createDeviceSelector", () => {
       expect(result.selectionType.case).toBe("allDevices");
       if (result.selectionType.case === "allDevices") {
         expect(result.selectionType.value).toBeDefined();
+      }
+    });
+
+    it("returns allMatchingFilter when a minerListFilter is provided", () => {
+      const filter = create(MinerListFilterSchema, { rackIds: [7n], models: ["S19"] });
+      const result = createDeviceSelector("all", [], undefined, filter);
+
+      expect(result.selectionType.case).toBe("allMatchingFilter");
+      if (result.selectionType.case === "allMatchingFilter") {
+        expect(result.selectionType.value.rackIds).toEqual([7n]);
+        expect(result.selectionType.value.models).toEqual(["S19"]);
       }
     });
   });

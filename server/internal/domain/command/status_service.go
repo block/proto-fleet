@@ -92,7 +92,7 @@ func (ss *StatusService) StreamCommandBatchUpdates(ctx context.Context, batchIde
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				statusAndCount, err := db.WithTransaction[sqlc.GetBatchStatusAndDeviceCountsRow](ctx, ss.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+				statusAndCount, err := db.WithTransaction[sqlc.GetBatchStatusAndDeviceCountsRow](ctx, ss.conn, func(q sqlc.Querier) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
 					return q.GetBatchStatusAndDeviceCounts(ctx, batchIdentifier)
 				})
 				if err != nil {

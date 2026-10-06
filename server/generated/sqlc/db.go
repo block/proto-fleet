@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, acquireFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query AcquireFleetRuntimeLease: %w", err)
+	}
 	if q.acquireReconcileLockStmt, err = db.PrepareContext(ctx, acquireReconcileLock); err != nil {
 		return nil, fmt.Errorf("error preparing query AcquireReconcileLock: %w", err)
 	}
@@ -36,11 +39,35 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.adminTerminateCurtailmentEventStmt, err = db.PrepareContext(ctx, adminTerminateCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminTerminateCurtailmentEvent: %w", err)
 	}
+	if q.advanceFirmwareRolloutStageStmt, err = db.PrepareContext(ctx, advanceFirmwareRolloutStage); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceFirmwareRolloutStage: %w", err)
+	}
+	if q.advanceFleetMetricRollupProgressStmt, err = db.PrepareContext(ctx, advanceFleetMetricRollupProgress); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceFleetMetricRollupProgress: %w", err)
+	}
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
+	}
+	if q.applyFleetNodeRecoveredEndpointStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveredEndpoint); err != nil {
+		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveredEndpoint: %w", err)
+	}
+	if q.applyFleetNodeRecoveryAuthenticationNeededStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveryAuthenticationNeeded); err != nil {
+		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveryAuthenticationNeeded: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
+	}
+	if q.assignBuildingsToSiteBulkStmt, err = db.PrepareContext(ctx, assignBuildingsToSiteBulk); err != nil {
+		return nil, fmt.Errorf("error preparing query AssignBuildingsToSiteBulk: %w", err)
+	}
+	if q.assignDevicesToBuildingStmt, err = db.PrepareContext(ctx, assignDevicesToBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query AssignDevicesToBuilding: %w", err)
+	}
+	if q.assignDevicesToSiteStmt, err = db.PrepareContext(ctx, assignDevicesToSite); err != nil {
+		return nil, fmt.Errorf("error preparing query AssignDevicesToSite: %w", err)
 	}
 	if q.assignPermissionToRoleStmt, err = db.PrepareContext(ctx, assignPermissionToRole); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignPermissionToRole: %w", err)
@@ -51,6 +78,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.beginCurtailmentRestorationStmt, err = db.PrepareContext(ctx, beginCurtailmentRestoration); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentRestoration: %w", err)
 	}
+	if q.beginCurtailmentTopologyTargetRestoreStmt, err = db.PrepareContext(ctx, beginCurtailmentTopologyTargetRestore); err != nil {
+		return nil, fmt.Errorf("error preparing query BeginCurtailmentTopologyTargetRestore: %w", err)
+	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt, err = db.PrepareContext(ctx, bindCurtailmentAutomationRuleResponseProfileRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query BindCurtailmentAutomationRuleResponseProfileRevision: %w", err)
+	}
 	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
 	}
@@ -60,26 +93,101 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.buildingsByIDsStmt, err = db.PrepareContext(ctx, buildingsByIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingsByIDs: %w", err)
 	}
+	if q.bulkAssignTicketsStmt, err = db.PrepareContext(ctx, bulkAssignTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkAssignTickets: %w", err)
+	}
+	if q.bulkCloseTicketsStmt, err = db.PrepareContext(ctx, bulkCloseTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkCloseTickets: %w", err)
+	}
+	if q.bulkConfirmCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkConfirmCurtailmentTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkConfirmCurtailmentTargets: %w", err)
+	}
 	if q.bulkInsertCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkInsertCurtailmentTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query BulkInsertCurtailmentTargets: %w", err)
+	}
+	if q.bulkInsertNotificationHistoryStmt, err = db.PrepareContext(ctx, bulkInsertNotificationHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkInsertNotificationHistory: %w", err)
+	}
+	if q.bulkMarkTicketsUrgentStmt, err = db.PrepareContext(ctx, bulkMarkTicketsUrgent); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkMarkTicketsUrgent: %w", err)
+	}
+	if q.bulkRefreshAllPairedTargetReadinessStmt, err = db.PrepareContext(ctx, bulkRefreshAllPairedTargetReadiness); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkRefreshAllPairedTargetReadiness: %w", err)
+	}
+	if q.bulkUpdateTicketStatusStmt, err = db.PrepareContext(ctx, bulkUpdateTicketStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkUpdateTicketStatus: %w", err)
 	}
 	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
 	}
+	if q.cancelActiveFirmwareRolloutStmt, err = db.PrepareContext(ctx, cancelActiveFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelActiveFirmwareRollout: %w", err)
+	}
 	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
+	}
+	if q.cancelFirmwareRolloutStmt, err = db.PrepareContext(ctx, cancelFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelFirmwareRollout: %w", err)
 	}
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
 	}
+	if q.cascadeAddedDeviceBuildingsStmt, err = db.PrepareContext(ctx, cascadeAddedDeviceBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeAddedDeviceBuildings: %w", err)
+	}
 	if q.cascadeAddedDeviceSitesStmt, err = db.PrepareContext(ctx, cascadeAddedDeviceSites); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeAddedDeviceSites: %w", err)
+	}
+	if q.cascadeDevicesSiteForBuildingStmt, err = db.PrepareContext(ctx, cascadeDevicesSiteForBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeDevicesSiteForBuilding: %w", err)
+	}
+	if q.cascadeDirectDeviceSitesByBuildingsStmt, err = db.PrepareContext(ctx, cascadeDirectDeviceSitesByBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeDirectDeviceSitesByBuildings: %w", err)
+	}
+	if q.cascadeRackDeviceBuildingsStmt, err = db.PrepareContext(ctx, cascadeRackDeviceBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeRackDeviceBuildings: %w", err)
+	}
+	if q.cascadeRackDeviceBuildingsBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceBuildingsBulk); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeRackDeviceBuildingsBulk: %w", err)
 	}
 	if q.cascadeRackDeviceSitesStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSites); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSites: %w", err)
 	}
+	if q.cascadeRackDeviceSitesBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSitesBulk); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSitesBulk: %w", err)
+	}
+	if q.checkFirmwareArtifactInUseStmt, err = db.PrepareContext(ctx, checkFirmwareArtifactInUse); err != nil {
+		return nil, fmt.Errorf("error preparing query CheckFirmwareArtifactInUse: %w", err)
+	}
+	if q.claimAllPairedPolicyTargetsStmt, err = db.PrepareContext(ctx, claimAllPairedPolicyTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimAllPairedPolicyTargets: %w", err)
+	}
+	if q.claimClosedLoopFullFleetTargetsStmt, err = db.PrepareContext(ctx, claimClosedLoopFullFleetTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimClosedLoopFullFleetTargets: %w", err)
+	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
+	}
+	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
+	}
+	if q.classifyFleetRuntimeLeaseAcquisitionStmt, err = db.PrepareContext(ctx, classifyFleetRuntimeLeaseAcquisition); err != nil {
+		return nil, fmt.Errorf("error preparing query ClassifyFleetRuntimeLeaseAcquisition: %w", err)
+	}
+	if q.clearCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, clearCurtailmentAutomationActiveEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearCurtailmentAutomationActiveEvent: %w", err)
+	}
+	if q.clearDeviceBuildingsByBuildingStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsByBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsByBuilding: %w", err)
+	}
+	if q.clearDeviceBuildingsBySiteStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsBySite: %w", err)
+	}
+	if q.clearDeviceBuildingsOnSiteMismatchStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsOnSiteMismatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsOnSiteMismatch: %w", err)
+	}
+	if q.clearDeviceSitesAndBuildingsStmt, err = db.PrepareContext(ctx, clearDeviceSitesAndBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceSitesAndBuildings: %w", err)
 	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
@@ -87,11 +195,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearRackSlotPositionStmt, err = db.PrepareContext(ctx, clearRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackSlotPosition: %w", err)
 	}
+	if q.clearReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, clearReleaseChannelFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearReleaseChannelFirmware: %w", err)
+	}
 	if q.clearRolePermissionsStmt, err = db.PrepareContext(ctx, clearRolePermissions); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRolePermissions: %w", err)
 	}
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
+	}
+	if q.completeDelegatedFirmwareRolloutStmt, err = db.PrepareContext(ctx, completeDelegatedFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteDelegatedFirmwareRollout: %w", err)
+	}
+	if q.completeRigConfigReconciliationStmt, err = db.PrepareContext(ctx, completeRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteRigConfigReconciliation: %w", err)
 	}
 	if q.confirmEnrollmentStmt, err = db.PrepareContext(ctx, confirmEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query ConfirmEnrollment: %w", err)
@@ -99,8 +216,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, consumeFleetNodeAuthChallenge); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeFleetNodeAuthChallenge: %w", err)
 	}
+	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
+	}
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
+	}
+	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
+	}
+	if q.countActiveRepairTicketsAssignedToUserStmt, err = db.PrepareContext(ctx, countActiveRepairTicketsAssignedToUser); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveRepairTicketsAssignedToUser: %w", err)
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
@@ -108,8 +234,29 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActivityLogsStmt, err = db.PrepareContext(ctx, countActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActivityLogs: %w", err)
 	}
+	if q.countBuildingsBySiteStmt, err = db.PrepareContext(ctx, countBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountBuildingsBySite: %w", err)
+	}
+	if q.countCompletedTicketsStmt, err = db.PrepareContext(ctx, countCompletedTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCompletedTickets: %w", err)
+	}
 	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
+	}
+	if q.countConflictingCurtailmentFanClaimsStmt, err = db.PrepareContext(ctx, countConflictingCurtailmentFanClaims); err != nil {
+		return nil, fmt.Errorf("error preparing query CountConflictingCurtailmentFanClaims: %w", err)
+	}
+	if q.countCurtailmentAutomationRulesByMQTTSourceStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByMQTTSource); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByMQTTSource: %w", err)
+	}
+	if q.countCurtailmentAutomationRulesByResponseProfileStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByResponseProfile: %w", err)
+	}
+	if q.countCurtailmentResponseProfilesBySiteStmt, err = db.PrepareContext(ctx, countCurtailmentResponseProfilesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentResponseProfilesBySite: %w", err)
+	}
+	if q.countCurtailmentScopeConflictsStmt, err = db.PrepareContext(ctx, countCurtailmentScopeConflicts); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentScopeConflicts: %w", err)
 	}
 	if q.countDevicesWithErrorsStmt, err = db.PrepareContext(ctx, countDevicesWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountDevicesWithErrors: %w", err)
@@ -117,11 +264,53 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
 	}
+	if q.countInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, countInfrastructureDevicesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountInfrastructureDevicesBySite: %w", err)
+	}
+	if q.countInventoryPartsStmt, err = db.PrepareContext(ctx, countInventoryParts); err != nil {
+		return nil, fmt.Errorf("error preparing query CountInventoryParts: %w", err)
+	}
+	if q.countInventoryPartsBySiteStmt, err = db.PrepareContext(ctx, countInventoryPartsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountInventoryPartsBySite: %w", err)
+	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
+	if q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countNonTerminalCurtailmentEventsByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountNonTerminalCurtailmentEventsByInfrastructureDevices: %w", err)
+	}
 	if q.countOrgScopeSuperAdminsExcludingUserStmt, err = db.PrepareContext(ctx, countOrgScopeSuperAdminsExcludingUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountOrgScopeSuperAdminsExcludingUser: %w", err)
+	}
+	if q.countQueueMessagesByBatchStmt, err = db.PrepareContext(ctx, countQueueMessagesByBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query CountQueueMessagesByBatch: %w", err)
+	}
+	if q.countRacksBySiteStmt, err = db.PrepareContext(ctx, countRacksBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRacksBySite: %w", err)
+	}
+	if q.countRacksInBuildingStmt, err = db.PrepareContext(ctx, countRacksInBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRacksInBuilding: %w", err)
+	}
+	if q.countReleaseChannelFirmwarePreviewMembersStmt, err = db.PrepareContext(ctx, countReleaseChannelFirmwarePreviewMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CountReleaseChannelFirmwarePreviewMembers: %w", err)
+	}
+	if q.countRepairTicketsStmt, err = db.PrepareContext(ctx, countRepairTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRepairTickets: %w", err)
+	}
+	if q.countRepairTicketsByBuildingStmt, err = db.PrepareContext(ctx, countRepairTicketsByBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRepairTicketsByBuilding: %w", err)
+	}
+	if q.countRepairTicketsBySiteStmt, err = db.PrepareContext(ctx, countRepairTicketsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRepairTicketsBySite: %w", err)
+	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
+	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
+	}
+	if q.countUnexpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, countUnexpiredAlertMaintenanceWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query CountUnexpiredAlertMaintenanceWindows: %w", err)
 	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
@@ -138,11 +327,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createDeviceSetStmt, err = db.PrepareContext(ctx, createDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateDeviceSet: %w", err)
 	}
+	if q.createFirmwareRolloutStmt, err = db.PrepareContext(ctx, createFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRollout: %w", err)
+	}
+	if q.createFirmwareRolloutEventStmt, err = db.PrepareContext(ctx, createFirmwareRolloutEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutEvent: %w", err)
+	}
 	if q.createFleetNodeStmt, err = db.PrepareContext(ctx, createFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFleetNode: %w", err)
 	}
 	if q.createFleetNodeApiKeyStmt, err = db.PrepareContext(ctx, createFleetNodeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFleetNodeApiKey: %w", err)
+	}
+	if q.createInfrastructureDeviceStmt, err = db.PrepareContext(ctx, createInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateInfrastructureDevice: %w", err)
+	}
+	if q.createInventoryPartStmt, err = db.PrepareContext(ctx, createInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateInventoryPart: %w", err)
 	}
 	if q.createNoteStmt, err = db.PrepareContext(ctx, createNote); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateNote: %w", err)
@@ -159,8 +360,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createQueueMessageStmt, err = db.PrepareContext(ctx, createQueueMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateQueueMessage: %w", err)
 	}
+	if q.createQueueMessagesStmt, err = db.PrepareContext(ctx, createQueueMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateQueueMessages: %w", err)
+	}
 	if q.createRackExtensionStmt, err = db.PrepareContext(ctx, createRackExtension); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateRackExtension: %w", err)
+	}
+	if q.createReleaseChannelStmt, err = db.PrepareContext(ctx, createReleaseChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateReleaseChannel: %w", err)
+	}
+	if q.createRepairTicketStmt, err = db.PrepareContext(ctx, createRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRepairTicket: %w", err)
+	}
+	if q.createRepairTicketCommentStmt, err = db.PrepareContext(ctx, createRepairTicketComment); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRepairTicketComment: %w", err)
 	}
 	if q.createScheduleStmt, err = db.PrepareContext(ctx, createSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSchedule: %w", err)
@@ -183,11 +396,50 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
 	}
+	if q.deleteActiveRepairTicketPartsStmt, err = db.PrepareContext(ctx, deleteActiveRepairTicketParts); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteActiveRepairTicketParts: %w", err)
+	}
+	if q.deleteAlertMaintenanceWindowStmt, err = db.PrepareContext(ctx, deleteAlertMaintenanceWindow); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertMaintenanceWindow: %w", err)
+	}
+	if q.deleteAlertRouteChannelsStmt, err = db.PrepareContext(ctx, deleteAlertRouteChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertRouteChannels: %w", err)
+	}
+	if q.deleteAlertRoutePolicyStmt, err = db.PrepareContext(ctx, deleteAlertRoutePolicy); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertRoutePolicy: %w", err)
+	}
+	if q.deleteAlertRuleConfigStmt, err = db.PrepareContext(ctx, deleteAlertRuleConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertRuleConfig: %w", err)
+	}
+	if q.deleteCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentAutomationRuleByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentAutomationRuleByOrg: %w", err)
+	}
+	if q.deleteCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentResponseProfileByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentResponseProfileByOrg: %w", err)
+	}
+	if q.deleteCurtailmentResponseProfilesBySiteStmt, err = db.PrepareContext(ctx, deleteCurtailmentResponseProfilesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentResponseProfilesBySite: %w", err)
+	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
 	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
+	}
+	if q.deleteFleetMetricRollupsForWindowStmt, err = db.PrepareContext(ctx, deleteFleetMetricRollupsForWindow); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetMetricRollupsForWindow: %w", err)
+	}
+	if q.deleteFleetNodeDevicePairingsStmt, err = db.PrepareContext(ctx, deleteFleetNodeDevicePairings); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetNodeDevicePairings: %w", err)
+	}
+	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsByDeviceIDAndOrgID); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsByDeviceIDAndOrgID: %w", err)
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForDeviceIdentifiers: %w", err)
+	}
+	if q.deleteMinerCredentialsForFleetNodeStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForFleetNode: %w", err)
 	}
 	if q.deleteOrganizationStmt, err = db.PrepareContext(ctx, deleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteOrganization: %w", err)
@@ -197,6 +449,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deletePoolStmt, err = db.PrepareContext(ctx, deletePool); err != nil {
 		return nil, fmt.Errorf("error preparing query DeletePool: %w", err)
+	}
+	if q.deleteReleaseChannelStmt, err = db.PrepareContext(ctx, deleteReleaseChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteReleaseChannel: %w", err)
+	}
+	if q.deleteReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, deleteReleaseChannelTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteReleaseChannelTargets: %w", err)
+	}
+	if q.deleteReleasedFirmwareRolloutReservationsStmt, err = db.PrepareContext(ctx, deleteReleasedFirmwareRolloutReservations); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteReleasedFirmwareRolloutReservations: %w", err)
 	}
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
@@ -210,14 +471,47 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
+	if q.deviceSetsByIDsStmt, err = db.PrepareContext(ctx, deviceSetsByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query DeviceSetsByIDs: %w", err)
+	}
+	if q.disableCurtailmentAutomationRuleByActiveEventStmt, err = db.PrepareContext(ctx, disableCurtailmentAutomationRuleByActiveEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query DisableCurtailmentAutomationRuleByActiveEvent: %w", err)
+	}
+	if q.disableSyncCommitStmt, err = db.PrepareContext(ctx, disableSyncCommit); err != nil {
+		return nil, fmt.Errorf("error preparing query DisableSyncCommit: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
+	}
+	if q.excludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, excludeFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ExcludeFirmwareRolloutDevices: %w", err)
+	}
+	if q.findDeviceBuildingConflictsStmt, err = db.PrepareContext(ctx, findDeviceBuildingConflicts); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDeviceBuildingConflicts: %w", err)
 	}
 	if q.findDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, findDeviceSiteConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDeviceSiteConflicts: %w", err)
 	}
-	if q.getActiveCurtailmentEventStmt, err = db.PrepareContext(ctx, getActiveCurtailmentEvent); err != nil {
-		return nil, fmt.Errorf("error preparing query GetActiveCurtailmentEvent: %w", err)
+	if q.findDevicesInBuildingLessPlacedRacksStmt, err = db.PrepareContext(ctx, findDevicesInBuildingLessPlacedRacks); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDevicesInBuildingLessPlacedRacks: %w", err)
+	}
+	if q.findDevicesInSiteLessRacksStmt, err = db.PrepareContext(ctx, findDevicesInSiteLessRacks); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDevicesInSiteLessRacks: %w", err)
+	}
+	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
+	}
+	if q.finishFirmwareRolloutStmt, err = db.PrepareContext(ctx, finishFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query FinishFirmwareRollout: %w", err)
+	}
+	if q.finishTerminalCommandBatchesStmt, err = db.PrepareContext(ctx, finishTerminalCommandBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query FinishTerminalCommandBatches: %w", err)
+	}
+	if q.forceReleaseCurtailmentEventStmt, err = db.PrepareContext(ctx, forceReleaseCurtailmentEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query ForceReleaseCurtailmentEvent: %w", err)
+	}
+	if q.getActiveFirmwareRolloutForPairStmt, err = db.PrepareContext(ctx, getActiveFirmwareRolloutForPair); err != nil {
+		return nil, fmt.Errorf("error preparing query GetActiveFirmwareRolloutForPair: %w", err)
 	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
@@ -228,6 +522,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAddedDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, getAddedDeviceSiteConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAddedDeviceSiteConflicts: %w", err)
 	}
+	if q.getAlertChannelStmt, err = db.PrepareContext(ctx, getAlertChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAlertChannel: %w", err)
+	}
+	if q.getAlertChannelByNameStmt, err = db.PrepareContext(ctx, getAlertChannelByName); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAlertChannelByName: %w", err)
+	}
+	if q.getAlertRuleConfigStmt, err = db.PrepareContext(ctx, getAlertRuleConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAlertRuleConfig: %w", err)
+	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
 	}
@@ -237,6 +540,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsHourlyAggregates: %w", err)
 	}
+	if q.getAllDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsRawBucketAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsRawBucketAggregates: %w", err)
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsTimeSeries: %w", err)
 	}
@@ -245,6 +551,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getAllDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceStatusHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceStatusHourlyAggregates: %w", err)
+	}
+	if q.getAllMinerStateSnapshotDeviceRollups1mStmt, err = db.PrepareContext(ctx, getAllMinerStateSnapshotDeviceRollups1m); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllMinerStateSnapshotDeviceRollups1m: %w", err)
+	}
+	if q.getAllMinerStateSnapshotDeviceRollupsDailyStmt, err = db.PrepareContext(ctx, getAllMinerStateSnapshotDeviceRollupsDaily); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllMinerStateSnapshotDeviceRollupsDaily: %w", err)
+	}
+	if q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt, err = db.PrepareContext(ctx, getAllMinerStateSnapshotDeviceRollupsHourly); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllMinerStateSnapshotDeviceRollupsHourly: %w", err)
 	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
@@ -276,8 +591,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBuildingSiteStmt, err = db.PrepareContext(ctx, getBuildingSite); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuildingSite: %w", err)
 	}
+	if q.getBuildingSiteIDStmt, err = db.PrepareContext(ctx, getBuildingSiteID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBuildingSiteID: %w", err)
+	}
 	if q.getBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, getBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuiltinRoleForOrg: %w", err)
+	}
+	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
+	}
+	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
 	}
 	if q.getCurtailmentEventByExternalReferenceStmt, err = db.PrepareContext(ctx, getCurtailmentEventByExternalReference); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByExternalReference: %w", err)
@@ -297,6 +621,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, getCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentReconcilerHeartbeat: %w", err)
 	}
+	if q.getCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentResponseProfileByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentResponseProfileByOrg: %w", err)
+	}
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
 	}
@@ -305,6 +632,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceByIDStmt, err = db.PrepareContext(ctx, getDeviceByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByID: %w", err)
+	}
+	if q.getDeviceCommandRoutesStmt, err = db.PrepareContext(ctx, getDeviceCommandRoutes); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceCommandRoutes: %w", err)
 	}
 	if q.getDeviceDeviceSetsStmt, err = db.PrepareContext(ctx, getDeviceDeviceSets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceDeviceSets: %w", err)
@@ -330,6 +660,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIdentifiersByDeviceSetIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByDeviceSetID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByDeviceSetID: %w", err)
 	}
+	if q.getDeviceIdentitiesStmt, err = db.PrepareContext(ctx, getDeviceIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIdentities: %w", err)
+	}
 	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
 	}
@@ -338,6 +671,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsHourlyAggregates: %w", err)
+	}
+	if q.getDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsRawBucketAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsRawBucketAggregates: %w", err)
 	}
 	if q.getDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeries: %w", err)
@@ -381,8 +717,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
 	}
-	if q.getDeviceWithCredentialsAndIPByIDStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByID: %w", err)
+	if q.getDirectProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getDirectProtoMinerProxyTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDirectProtoMinerProxyTarget: %w", err)
 	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByDeviceIdentifier: %w", err)
@@ -396,11 +732,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDistinctActivityUsersStmt, err = db.PrepareContext(ctx, getDistinctActivityUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctActivityUsers: %w", err)
 	}
+	if q.getDistinctDeviceSiteIDsStmt, err = db.PrepareContext(ctx, getDistinctDeviceSiteIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDistinctDeviceSiteIDs: %w", err)
+	}
 	if q.getDistinctEventTypesStmt, err = db.PrepareContext(ctx, getDistinctEventTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctEventTypes: %w", err)
 	}
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
+	}
+	if q.getEnabledCurtailmentAutomationRuleByEventStmt, err = db.PrepareContext(ctx, getEnabledCurtailmentAutomationRuleByEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query GetEnabledCurtailmentAutomationRuleByEvent: %w", err)
 	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
@@ -414,17 +756,59 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
 	}
+	if q.getFilteredTicketStatsStmt, err = db.PrepareContext(ctx, getFilteredTicketStats); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFilteredTicketStats: %w", err)
+	}
+	if q.getFirmwareRolloutStmt, err = db.PrepareContext(ctx, getFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRollout: %w", err)
+	}
+	if q.getFirmwareRolloutForUpdateStmt, err = db.PrepareContext(ctx, getFirmwareRolloutForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutForUpdate: %w", err)
+	}
+	if q.getFirmwareRolloutPollWatermarkStmt, err = db.PrepareContext(ctx, getFirmwareRolloutPollWatermark); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutPollWatermark: %w", err)
+	}
+	if q.getFirmwareRolloutWithChannelStmt, err = db.PrepareContext(ctx, getFirmwareRolloutWithChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutWithChannel: %w", err)
+	}
+	if q.getFleetMetricRollupCoverageStmt, err = db.PrepareContext(ctx, getFleetMetricRollupCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetMetricRollupCoverage: %w", err)
+	}
 	if q.getFleetNodeByIDStmt, err = db.PrepareContext(ctx, getFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeByID: %w", err)
 	}
 	if q.getFleetNodeByIDUnscopedStmt, err = db.PrepareContext(ctx, getFleetNodeByIDUnscoped); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeByIDUnscoped: %w", err)
 	}
+	if q.getFleetNodePairedDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodePairedDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodePairedDeviceIdentifier: %w", err)
+	}
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
 	}
-	if q.getGroupLabelsForDevicesStmt, err = db.PrepareContext(ctx, getGroupLabelsForDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query GetGroupLabelsForDevices: %w", err)
+	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodeTelemetryRouteByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodeTelemetryRouteByDeviceIdentifier: %w", err)
+	}
+	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
+	}
+	if q.getHAProfileDatabaseIdentityStmt, err = db.PrepareContext(ctx, getHAProfileDatabaseIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHAProfileDatabaseIdentity: %w", err)
+	}
+	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
+	}
+	if q.getInfrastructureDeviceStmt, err = db.PrepareContext(ctx, getInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInfrastructureDevice: %w", err)
+	}
+	if q.getInventoryInsightsStmt, err = db.PrepareContext(ctx, getInventoryInsights); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInventoryInsights: %w", err)
+	}
+	if q.getInventoryPartStmt, err = db.PrepareContext(ctx, getInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInventoryPart: %w", err)
+	}
+	if q.getInventoryPartForUpdateStmt, err = db.PrepareContext(ctx, getInventoryPartForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInventoryPartForUpdate: %w", err)
 	}
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
@@ -434,6 +818,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
+	}
+	if q.getLatestFirmwareRolloutForPairStmt, err = db.PrepareContext(ctx, getLatestFirmwareRolloutForPair); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestFirmwareRolloutForPair: %w", err)
+	}
+	if q.getLatestFleetMetricRollupBucketStmt, err = db.PrepareContext(ctx, getLatestFleetMetricRollupBucket); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestFleetMetricRollupBucket: %w", err)
 	}
 	if q.getMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, getMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMQTTSourceConfigByOrg: %w", err)
@@ -456,6 +846,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerStateCountsByDeviceIDsStmt, err = db.PrepareContext(ctx, getMinerStateCountsByDeviceIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateCountsByDeviceIDs: %w", err)
 	}
+	if q.getMinerStateSnapshotDeviceRollups1mStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotDeviceRollups1m); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotDeviceRollups1m: %w", err)
+	}
+	if q.getMinerStateSnapshotDeviceRollupsDailyStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotDeviceRollupsDaily); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotDeviceRollupsDaily: %w", err)
+	}
+	if q.getMinerStateSnapshotDeviceRollupsHourlyStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotDeviceRollupsHourly); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotDeviceRollupsHourly: %w", err)
+	}
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
 	}
@@ -465,8 +864,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
 	}
+	if q.getOfflineFleetNodeDevicesStmt, err = db.PrepareContext(ctx, getOfflineFleetNodeDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOfflineFleetNodeDevices: %w", err)
+	}
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
+	}
+	if q.getOrgDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsHourlyAggregates: %w", err)
+	}
+	if q.getOrgDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsRawBucketAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsRawBucketAggregates: %w", err)
+	}
+	if q.getOrgDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusHourlyAggregates: %w", err)
+	}
+	if q.getOrgFleetMetricRollupsStmt, err = db.PrepareContext(ctx, getOrgFleetMetricRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgFleetMetricRollups: %w", err)
 	}
 	if q.getOrgScopeAssignmentForUserStmt, err = db.PrepareContext(ctx, getOrgScopeAssignmentForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgScopeAssignmentForUser: %w", err)
@@ -479,9 +893,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOrganizationByOrgIDStmt, err = db.PrepareContext(ctx, getOrganizationByOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByOrgID: %w", err)
-	}
-	if q.getOrganizationPrivateKeyStmt, err = db.PrepareContext(ctx, getOrganizationPrivateKey); err != nil {
-		return nil, fmt.Errorf("error preparing query GetOrganizationPrivateKey: %w", err)
 	}
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
@@ -498,6 +909,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
+	if q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, err = db.PrepareContext(ctx, getPairedProtoDeviceIdentifiersByIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedProtoDeviceIdentifiersByIdentifiers: %w", err)
+	}
 	if q.getPendingEnrollmentByCodeHashStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByCodeHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByCodeHash: %w", err)
 	}
@@ -513,6 +927,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
 	}
+	if q.getQueueMessagesByBatchStmt, err = db.PrepareContext(ctx, getQueueMessagesByBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetQueueMessagesByBatch: %w", err)
+	}
 	if q.getRackDetailsForDevicesStmt, err = db.PrepareContext(ctx, getRackDetailsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackDetailsForDevices: %w", err)
 	}
@@ -524,6 +941,36 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
+	}
+	if q.getReleaseChannelStmt, err = db.PrepareContext(ctx, getReleaseChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannel: %w", err)
+	}
+	if q.getReleaseChannelDeletionStateStmt, err = db.PrepareContext(ctx, getReleaseChannelDeletionState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelDeletionState: %w", err)
+	}
+	if q.getReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, getReleaseChannelFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelFirmware: %w", err)
+	}
+	if q.getReleaseChannelForUpdateStmt, err = db.PrepareContext(ctx, getReleaseChannelForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelForUpdate: %w", err)
+	}
+	if q.getReleaseChannelSettingStmt, err = db.PrepareContext(ctx, getReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelSetting: %w", err)
+	}
+	if q.getRepairTicketStmt, err = db.PrepareContext(ctx, getRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicket: %w", err)
+	}
+	if q.getRepairTicketCommentByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getRepairTicketCommentByIdempotencyKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentByIdempotencyKey: %w", err)
+	}
+	if q.getRepairTicketCommentSiteForUpdateStmt, err = db.PrepareContext(ctx, getRepairTicketCommentSiteForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentSiteForUpdate: %w", err)
+	}
+	if q.getRepairTicketForUpdateStmt, err = db.PrepareContext(ctx, getRepairTicketForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketForUpdate: %w", err)
+	}
+	if q.getRepairTicketIDByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getRepairTicketIDByIdempotencyKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketIDByIdempotencyKey: %w", err)
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
@@ -555,6 +1002,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getSiteStmt, err = db.PrepareContext(ctx, getSite); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSite: %w", err)
 	}
+	if q.getSiteBySlugStmt, err = db.PrepareContext(ctx, getSiteBySlug); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSiteBySlug: %w", err)
+	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
 	}
@@ -585,8 +1035,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUserRoleNameStmt, err = db.PrepareContext(ctx, getUserRoleName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserRoleName: %w", err)
 	}
+	if q.getUserRoleNameForUpdateStmt, err = db.PrepareContext(ctx, getUserRoleNameForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserRoleNameForUpdate: %w", err)
+	}
 	if q.getUsersForOrganizationStmt, err = db.PrepareContext(ctx, getUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsersForOrganization: %w", err)
+	}
+	if q.haltFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, haltFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query HaltFirmwareRolloutDevices: %w", err)
 	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
@@ -594,8 +1050,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertActivityLogStmt, err = db.PrepareContext(ctx, insertActivityLog); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertActivityLog: %w", err)
 	}
+	if q.insertAlertChannelStmt, err = db.PrepareContext(ctx, insertAlertChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertAlertChannel: %w", err)
+	}
+	if q.insertAlertMaintenanceWindowStmt, err = db.PrepareContext(ctx, insertAlertMaintenanceWindow); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertAlertMaintenanceWindow: %w", err)
+	}
+	if q.insertAlertRouteChannelsStmt, err = db.PrepareContext(ctx, insertAlertRouteChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertAlertRouteChannels: %w", err)
+	}
+	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
+	}
 	if q.insertCurtailmentEventStmt, err = db.PrepareContext(ctx, insertCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentEvent: %w", err)
+	}
+	if q.insertCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, insertCurtailmentResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertCurtailmentResponseProfile: %w", err)
 	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
@@ -618,11 +1089,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertNotificationMetricSamplesStmt, err = db.PrepareContext(ctx, insertNotificationMetricSamples); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertNotificationMetricSamples: %w", err)
 	}
+	if q.insertReleaseChannelMinerTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelMinerTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertReleaseChannelMinerTargets: %w", err)
+	}
+	if q.insertReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertReleaseChannelTargets: %w", err)
+	}
+	if q.insertRepairTicketPartStmt, err = db.PrepareContext(ctx, insertRepairTicketPart); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertRepairTicketPart: %w", err)
+	}
+	if q.inventoryPartExistsBySiteAndNameStmt, err = db.PrepareContext(ctx, inventoryPartExistsBySiteAndName); err != nil {
+		return nil, fmt.Errorf("error preparing query InventoryPartExistsBySiteAndName: %w", err)
+	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
-	if q.isBatchProcessingStmt, err = db.PrepareContext(ctx, isBatchProcessing); err != nil {
-		return nil, fmt.Errorf("error preparing query IsBatchProcessing: %w", err)
+	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
 	}
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
@@ -630,11 +1113,38 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailmentEventsStmt, err = db.PrepareContext(ctx, listActiveCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentEvents: %w", err)
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailmentTargetDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentTargetDevicesByOrg: %w", err)
+	}
+	if q.listActiveFirmwareRolloutsStmt, err = db.PrepareContext(ctx, listActiveFirmwareRollouts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveFirmwareRollouts: %w", err)
+	}
+	if q.listActiveNotificationGroupsStmt, err = db.PrepareContext(ctx, listActiveNotificationGroups); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveNotificationGroups: %w", err)
+	}
+	if q.listActiveNotificationsStmt, err = db.PrepareContext(ctx, listActiveNotifications); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveNotifications: %w", err)
+	}
+	if q.listActiveNotificationsByAlertStmt, err = db.PrepareContext(ctx, listActiveNotificationsByAlert); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveNotificationsByAlert: %w", err)
+	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
 	}
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
+	}
+	if q.listAlertChannelsStmt, err = db.PrepareContext(ctx, listAlertChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAlertChannels: %w", err)
+	}
+	if q.listAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listAlertMaintenanceWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAlertMaintenanceWindows: %w", err)
+	}
+	if q.listAlertRoutePoliciesStmt, err = db.PrepareContext(ctx, listAlertRoutePolicies); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAlertRoutePolicies: %w", err)
+	}
+	if q.listAlertRuleConfigsStmt, err = db.PrepareContext(ctx, listAlertRuleConfigs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAlertRuleConfigs: %w", err)
 	}
 	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
@@ -648,6 +1158,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listBuildingNamesBySiteStmt, err = db.PrepareContext(ctx, listBuildingNamesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuildingNamesBySite: %w", err)
+	}
 	if q.listBuildingRacksStmt, err = db.PrepareContext(ctx, listBuildingRacks); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingRacks: %w", err)
 	}
@@ -657,11 +1170,41 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBuiltinRolesForOrgStmt, err = db.PrepareContext(ctx, listBuiltinRolesForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuiltinRolesForOrg: %w", err)
 	}
+	if q.listCompletedTicketAssigneesStmt, err = db.PrepareContext(ctx, listCompletedTicketAssignees); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCompletedTicketAssignees: %w", err)
+	}
+	if q.listCompletedTicketsStmt, err = db.PrepareContext(ctx, listCompletedTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCompletedTickets: %w", err)
+	}
+	if q.listCurtailmentAutomationRulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationRulesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationRulesByOrg: %w", err)
+	}
+	if q.listCurtailmentBuildingScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentBuildingScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentBuildingScopeCoverage: %w", err)
+	}
 	if q.listCurtailmentCandidatesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentCandidatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentCandidatesByOrg: %w", err)
 	}
 	if q.listCurtailmentEventsForOrgStmt, err = db.PrepareContext(ctx, listCurtailmentEventsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentEventsForOrg: %w", err)
+	}
+	if q.listCurtailmentGroupScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentGroupScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentGroupScopeCoverage: %w", err)
+	}
+	if q.listCurtailmentRackScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentRackScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentRackScopeCoverage: %w", err)
+	}
+	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
+	}
+	if q.listCurtailmentResponseProfilesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfilesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfilesByOrg: %w", err)
+	}
+	if q.listCurtailmentTargetSiteCoverageByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteCoverageByEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteCoverageByEvent: %w", err)
+	}
+	if q.listCurtailmentTargetSiteCoverageByEventsStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteCoverageByEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteCoverageByEvents: %w", err)
 	}
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
@@ -669,8 +1212,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentTargetsByEventPageStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEventPage); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEventPage: %w", err)
 	}
+	if q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentTopologyMemberDeviceIdentifiersByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTopologyMemberDeviceIdentifiersByOrg: %w", err)
+	}
 	if q.listCustomRolesForOrgStmt, err = db.PrepareContext(ctx, listCustomRolesForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCustomRolesForOrg: %w", err)
+	}
+	if q.listDeviceIDsByIdentifiersStmt, err = db.PrepareContext(ctx, listDeviceIDsByIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceIDsByIdentifiers: %w", err)
 	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
@@ -678,17 +1227,53 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listDeviceSetMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedAfter: %w", err)
 	}
+	if q.listDeviceSetMembersPaginatedFilteredStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedFiltered); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedFiltered: %w", err)
+	}
+	if q.listDeviceSetMembersPaginatedFilteredAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedFilteredAfter); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedFilteredAfter: %w", err)
+	}
+	if q.listEarlierCurtailmentReservationDevicesStmt, err = db.PrepareContext(ctx, listEarlierCurtailmentReservationDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEarlierCurtailmentReservationDevices: %w", err)
+	}
+	if q.listEarlierCurtailmentTopologyReservationScopesStmt, err = db.PrepareContext(ctx, listEarlierCurtailmentTopologyReservationScopes); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEarlierCurtailmentTopologyReservationScopes: %w", err)
+	}
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
 	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
 	}
+	if q.listEligibleConfirmationTargetsStmt, err = db.PrepareContext(ctx, listEligibleConfirmationTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEligibleConfirmationTargets: %w", err)
+	}
+	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt, err = db.PrepareContext(ctx, listEnabledCurtailmentAutomationRulesByMQTTSource); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEnabledCurtailmentAutomationRulesByMQTTSource: %w", err)
+	}
 	if q.listEnabledMQTTSourcesStmt, err = db.PrepareContext(ctx, listEnabledMQTTSources); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEnabledMQTTSources: %w", err)
 	}
 	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
+	}
+	if q.listFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDevices: %w", err)
+	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutDispatchCompletions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutDispatchCompletions: %w", err)
+	}
+	if q.listFirmwareRolloutEventsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvents: %w", err)
+	}
+	if q.listFirmwareRolloutOfflineSlotsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutOfflineSlots); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutOfflineSlots: %w", err)
+	}
+	if q.listFirmwareRolloutsStmt, err = db.PrepareContext(ctx, listFirmwareRollouts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRollouts: %w", err)
+	}
+	if q.listFleetNodeDeviceIDsForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDeviceIDsForRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodeDeviceIDsForRevocation: %w", err)
 	}
 	if q.listFleetNodeDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDevices: %w", err)
@@ -699,11 +1284,26 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
+	if q.listInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listInfrastructureDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListInfrastructureDevicesByOrg: %w", err)
+	}
+	if q.listInventoryPartsStmt, err = db.PrepareContext(ctx, listInventoryParts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListInventoryParts: %w", err)
+	}
 	if q.listMQTTSourceConfigsByOrgStmt, err = db.PrepareContext(ctx, listMQTTSourceConfigsByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMQTTSourceConfigsByOrg: %w", err)
 	}
 	if q.listMQTTSourceStatesByOrgStmt, err = db.PrepareContext(ctx, listMQTTSourceStatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMQTTSourceStatesByOrg: %w", err)
+	}
+	if q.listMQTTSourcesWithActiveCurtailmentStmt, err = db.PrepareContext(ctx, listMQTTSourcesWithActiveCurtailment); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMQTTSourcesWithActiveCurtailment: %w", err)
+	}
+	if q.listMaintenanceAssigneesStmt, err = db.PrepareContext(ctx, listMaintenanceAssignees); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMaintenanceAssignees: %w", err)
+	}
+	if q.listManagedFirmwareUpdateDevicesStmt, err = db.PrepareContext(ctx, listManagedFirmwareUpdateDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListManagedFirmwareUpdateDevices: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -714,8 +1314,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listNotesStmt, err = db.PrepareContext(ctx, listNotes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNotes: %w", err)
 	}
+	if q.listNotificationHistoryStmt, err = db.PrepareContext(ctx, listNotificationHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query ListNotificationHistory: %w", err)
+	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
+	}
+	if q.listPartsBySiteStmt, err = db.PrepareContext(ctx, listPartsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPartsBySite: %w", err)
 	}
 	if q.listPermissionsStmt, err = db.PrepareContext(ctx, listPermissions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPermissions: %w", err)
@@ -738,6 +1344,66 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByScope); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByScope: %w", err)
+	}
+	if q.listReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, listReleaseChannelFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelFirmware: %w", err)
+	}
+	if q.listReleaseChannelFirmwareNeedingRolloutStmt, err = db.PrepareContext(ctx, listReleaseChannelFirmwareNeedingRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelFirmwareNeedingRollout: %w", err)
+	}
+	if q.listReleaseChannelMembersStmt, err = db.PrepareContext(ctx, listReleaseChannelMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelMembers: %w", err)
+	}
+	if q.listReleaseChannelMembershipConflictsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelMembershipConflictsPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelMembershipConflictsPage: %w", err)
+	}
+	if q.listReleaseChannelMinersPageStmt, err = db.PrepareContext(ctx, listReleaseChannelMinersPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelMinersPage: %w", err)
+	}
+	if q.listReleaseChannelMismatchedMembersStmt, err = db.PrepareContext(ctx, listReleaseChannelMismatchedMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelMismatchedMembers: %w", err)
+	}
+	if q.listReleaseChannelModelGroupsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelModelGroupsPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelModelGroupsPage: %w", err)
+	}
+	if q.listReleaseChannelPageFirmwareStmt, err = db.PrepareContext(ctx, listReleaseChannelPageFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageFirmware: %w", err)
+	}
+	if q.listReleaseChannelPageMemberModelsStmt, err = db.PrepareContext(ctx, listReleaseChannelPageMemberModels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageMemberModels: %w", err)
+	}
+	if q.listReleaseChannelPageTargetsStmt, err = db.PrepareContext(ctx, listReleaseChannelPageTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelPageTargets: %w", err)
+	}
+	if q.listReleaseChannelSuppressedMembersStmt, err = db.PrepareContext(ctx, listReleaseChannelSuppressedMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelSuppressedMembers: %w", err)
+	}
+	if q.listReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, listReleaseChannelTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelTargets: %w", err)
+	}
+	if q.listReleaseChannelsStmt, err = db.PrepareContext(ctx, listReleaseChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannels: %w", err)
+	}
+	if q.listReleaseChannelsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelsPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReleaseChannelsPage: %w", err)
+	}
+	if q.listRepairTicketCommentsStmt, err = db.PrepareContext(ctx, listRepairTicketComments); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRepairTicketComments: %w", err)
+	}
+	if q.listRepairTicketPartsStmt, err = db.PrepareContext(ctx, listRepairTicketParts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRepairTicketParts: %w", err)
+	}
+	if q.listRepairTicketsStmt, err = db.PrepareContext(ctx, listRepairTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRepairTickets: %w", err)
+	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
+	}
+	if q.listRigConfigReconciliationTargetsStmt, err = db.PrepareContext(ctx, listRigConfigReconciliationTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRigConfigReconciliationTargets: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -756,11 +1422,26 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listSiteNetworkConfigsForOverlapStmt, err = db.PrepareContext(ctx, listSiteNetworkConfigsForOverlap); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSiteNetworkConfigsForOverlap: %w", err)
 	}
+	if q.listSiteSlugsStmt, err = db.PrepareContext(ctx, listSiteSlugs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSiteSlugs: %w", err)
+	}
 	if q.listSitesStmt, err = db.PrepareContext(ctx, listSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSites: %w", err)
 	}
+	if q.listTakenDeviceSetLabelsStmt, err = db.PrepareContext(ctx, listTakenDeviceSetLabels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTakenDeviceSetLabels: %w", err)
+	}
+	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt, err = db.PrepareContext(ctx, listTerminalFirmwareRolloutsNeedingProvenance); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTerminalFirmwareRolloutsNeedingProvenance: %w", err)
+	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
+	}
+	if q.lockActiveSuperAdminUsersStmt, err = db.PrepareContext(ctx, lockActiveSuperAdminUsers); err != nil {
+		return nil, fmt.Errorf("error preparing query LockActiveSuperAdminUsers: %w", err)
+	}
+	if q.lockAlertMaintenanceWindowOrgForWriteStmt, err = db.PrepareContext(ctx, lockAlertMaintenanceWindowOrgForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockAlertMaintenanceWindowOrgForWrite: %w", err)
 	}
 	if q.lockAndCountOrgScopeSuperAdminsStmt, err = db.PrepareContext(ctx, lockAndCountOrgScopeSuperAdmins); err != nil {
 		return nil, fmt.Errorf("error preparing query LockAndCountOrgScopeSuperAdmins: %w", err)
@@ -771,14 +1452,107 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCommandBatchStmt, err = db.PrepareContext(ctx, lockCommandBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCommandBatch: %w", err)
+	}
+	if q.lockCurtailmentAdmissionEventForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentAdmissionEventForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAdmissionEventForWrite: %w", err)
+	}
+	if q.lockCurtailmentAutomationRuleForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentAutomationRuleForExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAutomationRuleForExecution: %w", err)
+	}
+	if q.lockCurtailmentAutomationRuleMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentAutomationRuleMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAutomationRuleMutation: %w", err)
+	}
+	if q.lockCurtailmentEventByUUIDForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentEventByUUIDForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentEventByUUIDForWrite: %w", err)
+	}
+	if q.lockCurtailmentEventForFanCommandStmt, err = db.PrepareContext(ctx, lockCurtailmentEventForFanCommand); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentEventForFanCommand: %w", err)
+	}
+	if q.lockCurtailmentEventScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentEventScopeForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentEventScopeForWrite: %w", err)
+	}
+	if q.lockCurtailmentFanDeviceForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentFanDeviceForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentFanDeviceForWrite: %w", err)
+	}
+	if q.lockCurtailmentFanDevicesForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentFanDevicesForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentFanDevicesForWrite: %w", err)
+	}
+	if q.lockCurtailmentGroupsForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentGroupsForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentGroupsForWrite: %w", err)
+	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileAutomationMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileAutomationMutation: %w", err)
+	}
+	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
+	}
+	if q.lockCurtailmentResponseProfileRevisionForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileRevisionForExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileRevisionForExecution: %w", err)
+	}
+	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
+	}
+	if q.lockCurtailmentTargetPairingStatusesForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentTargetPairingStatusesForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentTargetPairingStatusesForWrite: %w", err)
+	}
+	if q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentTopologyMemberDeviceSitesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentTopologyMemberDeviceSitesByOrg: %w", err)
+	}
+	if q.lockDeviceByIdentifierStmt, err = db.PrepareContext(ctx, lockDeviceByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceByIdentifier: %w", err)
+	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
 	}
+	if q.lockFleetNodePairingDeviceStmt, err = db.PrepareContext(ctx, lockFleetNodePairingDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodePairingDevice: %w", err)
+	}
+	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesBySiteForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesBySiteForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesForResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesForResponseProfile: %w", err)
+	}
+	if q.lockInfrastructureRackForPlacementStmt, err = db.PrepareContext(ctx, lockInfrastructureRackForPlacement); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureRackForPlacement: %w", err)
+	}
+	if q.lockInventorySitesStmt, err = db.PrepareContext(ctx, lockInventorySites); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInventorySites: %w", err)
+	}
+	if q.lockMaintenanceBuildingForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceBuildingForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceBuildingForTicket: %w", err)
+	}
+	if q.lockMaintenanceMinerForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceMinerForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceMinerForTicket: %w", err)
+	}
+	if q.lockMaintenanceRackForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceRackForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceRackForTicket: %w", err)
+	}
+	if q.lockMaintenanceSiteForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceSiteForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceSiteForTicket: %w", err)
+	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
+	}
+	if q.lockRacksForReparentStmt, err = db.PrepareContext(ctx, lockRacksForReparent); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRacksForReparent: %w", err)
+	}
+	if q.lockReleaseChannelScopesStmt, err = db.PrepareContext(ctx, lockReleaseChannelScopes); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReleaseChannelScopes: %w", err)
+	}
+	if q.lockRepairTicketCommentCreateKeyStmt, err = db.PrepareContext(ctx, lockRepairTicketCommentCreateKey); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRepairTicketCommentCreateKey: %w", err)
+	}
+	if q.lockRepairTicketCreateKeyStmt, err = db.PrepareContext(ctx, lockRepairTicketCreateKey); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRepairTicketCreateKey: %w", err)
 	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
@@ -795,8 +1569,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
+	if q.markFirmwareRolloutDevicesSentStmt, err = db.PrepareContext(ctx, markFirmwareRolloutDevicesSent); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkFirmwareRolloutDevicesSent: %w", err)
+	}
+	if q.markFirmwareRolloutDevicesVerifiedStmt, err = db.PrepareContext(ctx, markFirmwareRolloutDevicesVerified); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkFirmwareRolloutDevicesVerified: %w", err)
+	}
+	if q.markRepairTicketPartsConsumedStmt, err = db.PrepareContext(ctx, markRepairTicketPartsConsumed); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkRepairTicketPartsConsumed: %w", err)
+	}
 	if q.negateSchedulePrioritiesStmt, err = db.PrepareContext(ctx, negateSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query NegateSchedulePriorities: %w", err)
+	}
+	if q.nextRepairTicketNumberStmt, err = db.PrepareContext(ctx, nextRepairTicketNumber); err != nil {
+		return nil, fmt.Errorf("error preparing query NextRepairTicketNumber: %w", err)
+	}
+	if q.observeFirmwareRolloutReservationsOfflineStmt, err = db.PrepareContext(ctx, observeFirmwareRolloutReservationsOffline); err != nil {
+		return nil, fmt.Errorf("error preparing query ObserveFirmwareRolloutReservationsOffline: %w", err)
 	}
 	if q.pairDeviceToFleetNodeStmt, err = db.PrepareContext(ctx, pairDeviceToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query PairDeviceToFleetNode: %w", err)
@@ -806,6 +1595,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pauseActiveScheduleStmt, err = db.PrepareContext(ctx, pauseActiveSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseActiveSchedule: %w", err)
+	}
+	if q.pauseFirmwareRolloutStmt, err = db.PrepareContext(ctx, pauseFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query PauseFirmwareRollout: %w", err)
+	}
+	if q.preserveFirmwareRolloutRetryBaselinesStmt, err = db.PrepareContext(ctx, preserveFirmwareRolloutRetryBaselines); err != nil {
+		return nil, fmt.Errorf("error preparing query PreserveFirmwareRolloutRetryBaselines: %w", err)
+	}
+	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
@@ -819,26 +1617,77 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.queryErrorsStmt, err = db.PrepareContext(ctx, queryErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query QueryErrors: %w", err)
 	}
-	if q.reapStuckFirmwareUpdateMessagesStmt, err = db.PrepareContext(ctx, reapStuckFirmwareUpdateMessages); err != nil {
-		return nil, fmt.Errorf("error preparing query ReapStuckFirmwareUpdateMessages: %w", err)
-	}
-	if q.reapStuckProcessingMessagesStmt, err = db.PrepareContext(ctx, reapStuckProcessingMessages); err != nil {
-		return nil, fmt.Errorf("error preparing query ReapStuckProcessingMessages: %w", err)
-	}
-	if q.reassignDevicesToSiteStmt, err = db.PrepareContext(ctx, reassignDevicesToSite); err != nil {
-		return nil, fmt.Errorf("error preparing query ReassignDevicesToSite: %w", err)
+	if q.reapMessagesStmt, err = db.PrepareContext(ctx, reapMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ReapMessages: %w", err)
 	}
 	if q.reassignDevicesUnderBuildingStmt, err = db.PrepareContext(ctx, reassignDevicesUnderBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query ReassignDevicesUnderBuilding: %w", err)
 	}
+	if q.reassignDevicesUnderBuildingsBulkStmt, err = db.PrepareContext(ctx, reassignDevicesUnderBuildingsBulk); err != nil {
+		return nil, fmt.Errorf("error preparing query ReassignDevicesUnderBuildingsBulk: %w", err)
+	}
 	if q.reassignRacksUnderBuildingStmt, err = db.PrepareContext(ctx, reassignRacksUnderBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query ReassignRacksUnderBuilding: %w", err)
+	}
+	if q.reassignRacksUnderBuildingsBulkStmt, err = db.PrepareContext(ctx, reassignRacksUnderBuildingsBulk); err != nil {
+		return nil, fmt.Errorf("error preparing query ReassignRacksUnderBuildingsBulk: %w", err)
+	}
+	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileAuthenticationNeededPairingStatusByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileAuthenticationNeededPairingStatusByIdentifier: %w", err)
+	}
+	if q.reconcileCloudAuthNeededByIdentifierStmt, err = db.PrepareContext(ctx, reconcileCloudAuthNeededByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileCloudAuthNeededByIdentifier: %w", err)
+	}
+	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
+	}
+	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
+	}
+	if q.recordFirmwareDeploymentStmt, err = db.PrepareContext(ctx, recordFirmwareDeployment); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordFirmwareDeployment: %w", err)
+	}
+	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
+	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
+	}
+	if q.reincludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, reincludeFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ReincludeFirmwareRolloutDevices: %w", err)
+	}
+	if q.releaseInventoryPartStmt, err = db.PrepareContext(ctx, releaseInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseInventoryPart: %w", err)
+	}
+	if q.releaseUndispatchedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedTargetsForRestore); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedTargetsForRestore: %w", err)
 	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
 	}
+	if q.removeDevicesFromAnyRackStmt, err = db.PrepareContext(ctx, removeDevicesFromAnyRack); err != nil {
+		return nil, fmt.Errorf("error preparing query RemoveDevicesFromAnyRack: %w", err)
+	}
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
+	}
+	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
+	}
+	if q.requestRigConfigReconciliationStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliation: %w", err)
+	}
+	if q.requestRigConfigReconciliationForDevicesStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliationForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliationForDevices: %w", err)
+	}
+	if q.requeueFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, requeueFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query RequeueFirmwareRolloutDevices: %w", err)
+	}
+	if q.requeueRigConfigReconciliationAfterTerminalFailureStmt, err = db.PrepareContext(ctx, requeueRigConfigReconciliationAfterTerminalFailure); err != nil {
+		return nil, fmt.Errorf("error preparing query RequeueRigConfigReconciliationAfterTerminalFailure: %w", err)
+	}
+	if q.reserveInventoryPartStmt, err = db.PrepareContext(ctx, reserveInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ReserveInventoryPart: %w", err)
 	}
 	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
@@ -846,11 +1695,38 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.resetCurtailmentTargetsForRestoreStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRestore: %w", err)
 	}
+	if q.resetReapedFirmwareStatusesStmt, err = db.PrepareContext(ctx, resetReapedFirmwareStatuses); err != nil {
+		return nil, fmt.Errorf("error preparing query ResetReapedFirmwareStatuses: %w", err)
+	}
+	if q.resolveCurtailmentTopologyDispatchStmt, err = db.PrepareContext(ctx, resolveCurtailmentTopologyDispatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveCurtailmentTopologyDispatch: %w", err)
+	}
+	if q.resolveInventorySiteByNameStmt, err = db.PrepareContext(ctx, resolveInventorySiteByName); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveInventorySiteByName: %w", err)
+	}
+	if q.resolveMaintenanceAssigneeStmt, err = db.PrepareContext(ctx, resolveMaintenanceAssignee); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveMaintenanceAssignee: %w", err)
+	}
+	if q.resolveMaintenanceLocationContextStmt, err = db.PrepareContext(ctx, resolveMaintenanceLocationContext); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveMaintenanceLocationContext: %w", err)
+	}
+	if q.resolveMaintenanceMinerContextStmt, err = db.PrepareContext(ctx, resolveMaintenanceMinerContext); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveMaintenanceMinerContext: %w", err)
+	}
+	if q.resolveReleaseChannelScopeStmt, err = db.PrepareContext(ctx, resolveReleaseChannelScope); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveReleaseChannelScope: %w", err)
+	}
 	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
 	}
+	if q.resumeFirmwareRolloutStmt, err = db.PrepareContext(ctx, resumeFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query ResumeFirmwareRollout: %w", err)
+	}
 	if q.resumePausedScheduleStmt, err = db.PrepareContext(ctx, resumePausedSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumePausedSchedule: %w", err)
+	}
+	if q.retryRigConfigReconciliationStmt, err = db.PrepareContext(ctx, retryRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query RetryRigConfigReconciliation: %w", err)
 	}
 	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
 		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
@@ -870,17 +1746,44 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
+	if q.setCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationActiveEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationActiveEvent: %w", err)
+	}
+	if q.setCurtailmentAutomationExecutionErrorStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationExecutionError); err != nil {
+		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationExecutionError: %w", err)
+	}
+	if q.setCurtailmentAutomationRestoreStartedStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationRestoreStarted); err != nil {
+		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationRestoreStarted: %w", err)
+	}
+	if q.setCurtailmentAutomationRuleEnabledStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationRuleEnabled); err != nil {
+		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationRuleEnabled: %w", err)
+	}
 	if q.setDevicePairingAuthNeededIfNotPairedStmt, err = db.PrepareContext(ctx, setDevicePairingAuthNeededIfNotPaired); err != nil {
 		return nil, fmt.Errorf("error preparing query SetDevicePairingAuthNeededIfNotPaired: %w", err)
 	}
+	if q.setFirmwareRolloutControllerWaitStmt, err = db.PrepareContext(ctx, setFirmwareRolloutControllerWait); err != nil {
+		return nil, fmt.Errorf("error preparing query SetFirmwareRolloutControllerWait: %w", err)
+	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
+	}
+	if q.setInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, setInfrastructureControlSubnets); err != nil {
+		return nil, fmt.Errorf("error preparing query SetInfrastructureControlSubnets: %w", err)
+	}
+	if q.setLocalTransactionTimeoutStmt, err = db.PrepareContext(ctx, setLocalTransactionTimeout); err != nil {
+		return nil, fmt.Errorf("error preparing query SetLocalTransactionTimeout: %w", err)
 	}
 	if q.setMQTTSourceConfigEnabledStmt, err = db.PrepareContext(ctx, setMQTTSourceConfigEnabled); err != nil {
 		return nil, fmt.Errorf("error preparing query SetMQTTSourceConfigEnabled: %w", err)
 	}
 	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
+	}
+	if q.setRackBuildingPositionBulkClearStmt, err = db.PrepareContext(ctx, setRackBuildingPositionBulkClear); err != nil {
+		return nil, fmt.Errorf("error preparing query SetRackBuildingPositionBulkClear: %w", err)
+	}
+	if q.setRackBuildingPositionBulkPlaceStmt, err = db.PrepareContext(ctx, setRackBuildingPositionBulkPlace); err != nil {
+		return nil, fmt.Errorf("error preparing query SetRackBuildingPositionBulkPlace: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
@@ -893,6 +1796,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.siteBelongsToOrgStmt, err = db.PrepareContext(ctx, siteBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query SiteBelongsToOrg: %w", err)
+	}
+	if q.sitesByIDsStmt, err = db.PrepareContext(ctx, sitesByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query SitesByIDs: %w", err)
+	}
+	if q.skipFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, skipFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query SkipFirmwareRolloutDevices: %w", err)
+	}
+	if q.snapshotFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, snapshotFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query SnapshotFirmwareRolloutDevices: %w", err)
+	}
+	if q.softDeleteAlertChannelStmt, err = db.PrepareContext(ctx, softDeleteAlertChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteAlertChannel: %w", err)
 	}
 	if q.softDeleteBuildingStmt, err = db.PrepareContext(ctx, softDeleteBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteBuilding: %w", err)
@@ -921,6 +1836,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteFleetNodesForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteFleetNodesForExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteFleetNodesForExpiredEnrollments: %w", err)
 	}
+	if q.softDeleteInfrastructureDeviceStmt, err = db.PrepareContext(ctx, softDeleteInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteInfrastructureDevice: %w", err)
+	}
+	if q.softDeleteInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, softDeleteInfrastructureDevicesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteInfrastructureDevicesBySite: %w", err)
+	}
+	if q.softDeleteInventoryPartStmt, err = db.PrepareContext(ctx, softDeleteInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteInventoryPart: %w", err)
+	}
 	if q.softDeleteNoteStmt, err = db.PrepareContext(ctx, softDeleteNote); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteNote: %w", err)
 	}
@@ -929,6 +1853,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeletePoolStmt, err = db.PrepareContext(ctx, softDeletePool); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeletePool: %w", err)
+	}
+	if q.softDeleteRepairTicketCommentByAuthorStmt, err = db.PrepareContext(ctx, softDeleteRepairTicketCommentByAuthor); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteRepairTicketCommentByAuthor: %w", err)
 	}
 	if q.softDeleteRoleStmt, err = db.PrepareContext(ctx, softDeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteRole: %w", err)
@@ -945,6 +1872,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
 	}
+	if q.sweepAlertRuleConfigsStmt, err = db.PrepareContext(ctx, sweepAlertRuleConfigs); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepAlertRuleConfigs: %w", err)
+	}
+	if q.sweepCurtailmentTargetsToReleasedStmt, err = db.PrepareContext(ctx, sweepCurtailmentTargetsToReleased); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepCurtailmentTargetsToReleased: %w", err)
+	}
 	if q.sweepCurtailmentTargetsToRestoreFailedStmt, err = db.PrepareContext(ctx, sweepCurtailmentTargetsToRestoreFailed); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepCurtailmentTargetsToRestoreFailed: %w", err)
 	}
@@ -959,6 +1892,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.transferDiscoveredDeviceAttributionStmt, err = db.PrepareContext(ctx, transferDiscoveredDeviceAttribution); err != nil {
 		return nil, fmt.Errorf("error preparing query TransferDiscoveredDeviceAttribution: %w", err)
+	}
+	if q.unassignDeviceBuildingsByRackStmt, err = db.PrepareContext(ctx, unassignDeviceBuildingsByRack); err != nil {
+		return nil, fmt.Errorf("error preparing query UnassignDeviceBuildingsByRack: %w", err)
 	}
 	if q.unassignDeviceSitesByRackStmt, err = db.PrepareContext(ctx, unassignDeviceSitesByRack); err != nil {
 		return nil, fmt.Errorf("error preparing query UnassignDeviceSitesByRack: %w", err)
@@ -987,11 +1923,26 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.unpairDeviceStmt, err = db.PrepareContext(ctx, unpairDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UnpairDevice: %w", err)
 	}
+	if q.unverifyFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, unverifyFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query UnverifyFirmwareRolloutDevices: %w", err)
+	}
+	if q.updateAlertChannelStmt, err = db.PrepareContext(ctx, updateAlertChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateAlertChannel: %w", err)
+	}
+	if q.updateAlertMaintenanceWindowStmt, err = db.PrepareContext(ctx, updateAlertMaintenanceWindow); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateAlertMaintenanceWindow: %w", err)
+	}
 	if q.updateApiKeyLastUsedStmt, err = db.PrepareContext(ctx, updateApiKeyLastUsed); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateApiKeyLastUsed: %w", err)
 	}
 	if q.updateBuildingStmt, err = db.PrepareContext(ctx, updateBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateBuilding: %w", err)
+	}
+	if q.updateCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, updateCurtailmentAutomationRule); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentAutomationRule: %w", err)
+	}
+	if q.updateCurtailmentEventFanStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventFanState); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventFanState: %w", err)
 	}
 	if q.updateCurtailmentEventOperatorFieldsStmt, err = db.PrepareContext(ctx, updateCurtailmentEventOperatorFields); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventOperatorFields: %w", err)
@@ -999,11 +1950,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateCurtailmentEventStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventState: %w", err)
 	}
+	if q.updateCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, updateCurtailmentResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentResponseProfile: %w", err)
+	}
 	if q.updateCurtailmentTargetStateStmt, err = db.PrepareContext(ctx, updateCurtailmentTargetState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentTargetState: %w", err)
 	}
 	if q.updateCustomRoleNameStmt, err = db.PrepareContext(ctx, updateCustomRoleName); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCustomRoleName: %w", err)
+	}
+	if q.updateDeviceCustomNamesStmt, err = db.PrepareContext(ctx, updateDeviceCustomNames); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDeviceCustomNames: %w", err)
 	}
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
@@ -1034,6 +1991,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateFleetNodeLastSeenAtStmt, err = db.PrepareContext(ctx, updateFleetNodeLastSeenAt); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFleetNodeLastSeenAt: %w", err)
+	}
+	if q.updateInfrastructureDeviceStmt, err = db.PrepareContext(ctx, updateInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateInfrastructureDevice: %w", err)
+	}
+	if q.updateInventoryPartStmt, err = db.PrepareContext(ctx, updateInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateInventoryPart: %w", err)
 	}
 	if q.updateLastLoginStmt, err = db.PrepareContext(ctx, updateLastLogin); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateLastLogin: %w", err)
@@ -1071,6 +2034,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateRackPlacementStmt, err = db.PrepareContext(ctx, updateRackPlacement); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRackPlacement: %w", err)
 	}
+	if q.updateRackPlacementBulkForBuildingStmt, err = db.PrepareContext(ctx, updateRackPlacementBulkForBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateRackPlacementBulkForBuilding: %w", err)
+	}
+	if q.updateRackPlacementBulkForSiteStmt, err = db.PrepareContext(ctx, updateRackPlacementBulkForSite); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateRackPlacementBulkForSite: %w", err)
+	}
+	if q.updateReleaseChannelStmt, err = db.PrepareContext(ctx, updateReleaseChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateReleaseChannel: %w", err)
+	}
+	if q.updateRepairTicketStmt, err = db.PrepareContext(ctx, updateRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateRepairTicket: %w", err)
+	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
 	}
@@ -1098,11 +2073,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
+	if q.upsertAlertRoutePolicyStmt, err = db.PrepareContext(ctx, upsertAlertRoutePolicy); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAlertRoutePolicy: %w", err)
+	}
+	if q.upsertAlertRuleConfigStmt, err = db.PrepareContext(ctx, upsertAlertRuleConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAlertRuleConfig: %w", err)
+	}
 	if q.upsertBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, upsertBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertBuiltinRoleForOrg: %w", err)
 	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
+	}
+	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
 	}
 	if q.upsertCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, upsertCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentReconcilerHeartbeat: %w", err)
@@ -1122,6 +2106,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertDiscoveredDeviceFromFleetNodeStmt, err = db.PrepareContext(ctx, upsertDiscoveredDeviceFromFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDiscoveredDeviceFromFleetNode: %w", err)
 	}
+	if q.upsertFleetMetricRollupsStmt, err = db.PrepareContext(ctx, upsertFleetMetricRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertFleetMetricRollups: %w", err)
+	}
 	if q.upsertFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, upsertFleetNodeAuthChallenge); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertFleetNodeAuthChallenge: %w", err)
 	}
@@ -1137,11 +2124,22 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertPermissionStmt, err = db.PrepareContext(ctx, upsertPermission); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertPermission: %w", err)
 	}
+	if q.upsertReleaseChannelFirmwareStmt, err = db.PrepareContext(ctx, upsertReleaseChannelFirmware); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelFirmware: %w", err)
+	}
+	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
+	}
 	return &q, nil
 }
 
 func (q *Queries) Close() error {
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt != nil {
+		if cerr := q.acquireFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing acquireFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.acquireReconcileLockStmt != nil {
 		if cerr := q.acquireReconcileLockStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing acquireReconcileLockStmt: %w", cerr)
@@ -1162,14 +2160,54 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing adminTerminateCurtailmentEventStmt: %w", cerr)
 		}
 	}
+	if q.advanceFirmwareRolloutStageStmt != nil {
+		if cerr := q.advanceFirmwareRolloutStageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceFirmwareRolloutStageStmt: %w", cerr)
+		}
+	}
+	if q.advanceFleetMetricRollupProgressStmt != nil {
+		if cerr := q.advanceFleetMetricRollupProgressStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceFleetMetricRollupProgressStmt: %w", cerr)
+		}
+	}
 	if q.allDevicesBelongToOrgStmt != nil {
 		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
 		}
 	}
+	if q.appendFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.appendFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing appendFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.applyFleetNodeRecoveredEndpointStmt != nil {
+		if cerr := q.applyFleetNodeRecoveredEndpointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing applyFleetNodeRecoveredEndpointStmt: %w", cerr)
+		}
+	}
+	if q.applyFleetNodeRecoveryAuthenticationNeededStmt != nil {
+		if cerr := q.applyFleetNodeRecoveryAuthenticationNeededStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing applyFleetNodeRecoveryAuthenticationNeededStmt: %w", cerr)
+		}
+	}
 	if q.assignBuildingToSiteStmt != nil {
 		if cerr := q.assignBuildingToSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing assignBuildingToSiteStmt: %w", cerr)
+		}
+	}
+	if q.assignBuildingsToSiteBulkStmt != nil {
+		if cerr := q.assignBuildingsToSiteBulkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing assignBuildingsToSiteBulkStmt: %w", cerr)
+		}
+	}
+	if q.assignDevicesToBuildingStmt != nil {
+		if cerr := q.assignDevicesToBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing assignDevicesToBuildingStmt: %w", cerr)
+		}
+	}
+	if q.assignDevicesToSiteStmt != nil {
+		if cerr := q.assignDevicesToSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing assignDevicesToSiteStmt: %w", cerr)
 		}
 	}
 	if q.assignPermissionToRoleStmt != nil {
@@ -1187,6 +2225,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing beginCurtailmentRestorationStmt: %w", cerr)
 		}
 	}
+	if q.beginCurtailmentTopologyTargetRestoreStmt != nil {
+		if cerr := q.beginCurtailmentTopologyTargetRestoreStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing beginCurtailmentTopologyTargetRestoreStmt: %w", cerr)
+		}
+	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt != nil {
+		if cerr := q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindCurtailmentAutomationRuleResponseProfileRevisionStmt: %w", cerr)
+		}
+	}
 	if q.bindEnrollmentToFleetNodeStmt != nil {
 		if cerr := q.bindEnrollmentToFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bindEnrollmentToFleetNodeStmt: %w", cerr)
@@ -1202,9 +2250,44 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing buildingsByIDsStmt: %w", cerr)
 		}
 	}
+	if q.bulkAssignTicketsStmt != nil {
+		if cerr := q.bulkAssignTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkAssignTicketsStmt: %w", cerr)
+		}
+	}
+	if q.bulkCloseTicketsStmt != nil {
+		if cerr := q.bulkCloseTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkCloseTicketsStmt: %w", cerr)
+		}
+	}
+	if q.bulkConfirmCurtailmentTargetsStmt != nil {
+		if cerr := q.bulkConfirmCurtailmentTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkConfirmCurtailmentTargetsStmt: %w", cerr)
+		}
+	}
 	if q.bulkInsertCurtailmentTargetsStmt != nil {
 		if cerr := q.bulkInsertCurtailmentTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bulkInsertCurtailmentTargetsStmt: %w", cerr)
+		}
+	}
+	if q.bulkInsertNotificationHistoryStmt != nil {
+		if cerr := q.bulkInsertNotificationHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkInsertNotificationHistoryStmt: %w", cerr)
+		}
+	}
+	if q.bulkMarkTicketsUrgentStmt != nil {
+		if cerr := q.bulkMarkTicketsUrgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkMarkTicketsUrgentStmt: %w", cerr)
+		}
+	}
+	if q.bulkRefreshAllPairedTargetReadinessStmt != nil {
+		if cerr := q.bulkRefreshAllPairedTargetReadinessStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkRefreshAllPairedTargetReadinessStmt: %w", cerr)
+		}
+	}
+	if q.bulkUpdateTicketStatusStmt != nil {
+		if cerr := q.bulkUpdateTicketStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkUpdateTicketStatusStmt: %w", cerr)
 		}
 	}
 	if q.bumpCurtailmentTargetRetryStmt != nil {
@@ -1212,9 +2295,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing bumpCurtailmentTargetRetryStmt: %w", cerr)
 		}
 	}
+	if q.cancelActiveFirmwareRolloutStmt != nil {
+		if cerr := q.cancelActiveFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelActiveFirmwareRolloutStmt: %w", cerr)
+		}
+	}
 	if q.cancelEnrollmentForFleetNodeStmt != nil {
 		if cerr := q.cancelEnrollmentForFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelEnrollmentForFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.cancelFirmwareRolloutStmt != nil {
+		if cerr := q.cancelFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelFirmwareRolloutStmt: %w", cerr)
 		}
 	}
 	if q.cancelPendingEnrollmentStmt != nil {
@@ -1222,9 +2315,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
 		}
 	}
+	if q.cascadeAddedDeviceBuildingsStmt != nil {
+		if cerr := q.cascadeAddedDeviceBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeAddedDeviceBuildingsStmt: %w", cerr)
+		}
+	}
 	if q.cascadeAddedDeviceSitesStmt != nil {
 		if cerr := q.cascadeAddedDeviceSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cascadeAddedDeviceSitesStmt: %w", cerr)
+		}
+	}
+	if q.cascadeDevicesSiteForBuildingStmt != nil {
+		if cerr := q.cascadeDevicesSiteForBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeDevicesSiteForBuildingStmt: %w", cerr)
+		}
+	}
+	if q.cascadeDirectDeviceSitesByBuildingsStmt != nil {
+		if cerr := q.cascadeDirectDeviceSitesByBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeDirectDeviceSitesByBuildingsStmt: %w", cerr)
+		}
+	}
+	if q.cascadeRackDeviceBuildingsStmt != nil {
+		if cerr := q.cascadeRackDeviceBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeRackDeviceBuildingsStmt: %w", cerr)
+		}
+	}
+	if q.cascadeRackDeviceBuildingsBulkStmt != nil {
+		if cerr := q.cascadeRackDeviceBuildingsBulkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeRackDeviceBuildingsBulkStmt: %w", cerr)
 		}
 	}
 	if q.cascadeRackDeviceSitesStmt != nil {
@@ -1232,9 +2350,64 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cascadeRackDeviceSitesStmt: %w", cerr)
 		}
 	}
+	if q.cascadeRackDeviceSitesBulkStmt != nil {
+		if cerr := q.cascadeRackDeviceSitesBulkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeRackDeviceSitesBulkStmt: %w", cerr)
+		}
+	}
+	if q.checkFirmwareArtifactInUseStmt != nil {
+		if cerr := q.checkFirmwareArtifactInUseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing checkFirmwareArtifactInUseStmt: %w", cerr)
+		}
+	}
+	if q.claimAllPairedPolicyTargetsStmt != nil {
+		if cerr := q.claimAllPairedPolicyTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimAllPairedPolicyTargetsStmt: %w", cerr)
+		}
+	}
+	if q.claimClosedLoopFullFleetTargetsStmt != nil {
+		if cerr := q.claimClosedLoopFullFleetTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimClosedLoopFullFleetTargetsStmt: %w", cerr)
+		}
+	}
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
+		}
+	}
+	if q.claimRigConfigReconciliationStmt != nil {
+		if cerr := q.claimRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
+	if q.classifyFleetRuntimeLeaseAcquisitionStmt != nil {
+		if cerr := q.classifyFleetRuntimeLeaseAcquisitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing classifyFleetRuntimeLeaseAcquisitionStmt: %w", cerr)
+		}
+	}
+	if q.clearCurtailmentAutomationActiveEventStmt != nil {
+		if cerr := q.clearCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearCurtailmentAutomationActiveEventStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsByBuildingStmt != nil {
+		if cerr := q.clearDeviceBuildingsByBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsByBuildingStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsBySiteStmt != nil {
+		if cerr := q.clearDeviceBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsBySiteStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsOnSiteMismatchStmt != nil {
+		if cerr := q.clearDeviceBuildingsOnSiteMismatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsOnSiteMismatchStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceSitesAndBuildingsStmt != nil {
+		if cerr := q.clearDeviceSitesAndBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceSitesAndBuildingsStmt: %w", cerr)
 		}
 	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
@@ -1247,6 +2420,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing clearRackSlotPositionStmt: %w", cerr)
 		}
 	}
+	if q.clearReleaseChannelFirmwareStmt != nil {
+		if cerr := q.clearReleaseChannelFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearReleaseChannelFirmwareStmt: %w", cerr)
+		}
+	}
 	if q.clearRolePermissionsStmt != nil {
 		if cerr := q.clearRolePermissionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearRolePermissionsStmt: %w", cerr)
@@ -1255,6 +2433,16 @@ func (q *Queries) Close() error {
 	if q.closeStaleErrorsStmt != nil {
 		if cerr := q.closeStaleErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
+		}
+	}
+	if q.completeDelegatedFirmwareRolloutStmt != nil {
+		if cerr := q.completeDelegatedFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeDelegatedFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.completeRigConfigReconciliationStmt != nil {
+		if cerr := q.completeRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
 	if q.confirmEnrollmentStmt != nil {
@@ -1267,9 +2455,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing consumeFleetNodeAuthChallengeStmt: %w", cerr)
 		}
 	}
+	if q.consumeReservedInventoryPartStmt != nil {
+		if cerr := q.consumeReservedInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeReservedInventoryPartStmt: %w", cerr)
+		}
+	}
 	if q.countActiveAssignmentsForRoleStmt != nil {
 		if cerr := q.countActiveAssignmentsForRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveAssignmentsForRoleStmt: %w", cerr)
+		}
+	}
+	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
+		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveRepairTicketsAssignedToUserStmt != nil {
+		if cerr := q.countActiveRepairTicketsAssignedToUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveRepairTicketsAssignedToUserStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -1282,9 +2485,44 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countActivityLogsStmt: %w", cerr)
 		}
 	}
+	if q.countBuildingsBySiteStmt != nil {
+		if cerr := q.countBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countBuildingsBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countCompletedTicketsStmt != nil {
+		if cerr := q.countCompletedTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCompletedTicketsStmt: %w", cerr)
+		}
+	}
 	if q.countComponentsWithErrorsStmt != nil {
 		if cerr := q.countComponentsWithErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countComponentsWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countConflictingCurtailmentFanClaimsStmt != nil {
+		if cerr := q.countConflictingCurtailmentFanClaimsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countConflictingCurtailmentFanClaimsStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentAutomationRulesByMQTTSourceStmt != nil {
+		if cerr := q.countCurtailmentAutomationRulesByMQTTSourceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentAutomationRulesByMQTTSourceStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentAutomationRulesByResponseProfileStmt != nil {
+		if cerr := q.countCurtailmentAutomationRulesByResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentAutomationRulesByResponseProfileStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentResponseProfilesBySiteStmt != nil {
+		if cerr := q.countCurtailmentResponseProfilesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentResponseProfilesBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentScopeConflictsStmt != nil {
+		if cerr := q.countCurtailmentScopeConflictsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentScopeConflictsStmt: %w", cerr)
 		}
 	}
 	if q.countDevicesWithErrorsStmt != nil {
@@ -1297,14 +2535,84 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
 		}
 	}
+	if q.countInfrastructureDevicesBySiteStmt != nil {
+		if cerr := q.countInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countInfrastructureDevicesBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countInventoryPartsStmt != nil {
+		if cerr := q.countInventoryPartsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countInventoryPartsStmt: %w", cerr)
+		}
+	}
+	if q.countInventoryPartsBySiteStmt != nil {
+		if cerr := q.countInventoryPartsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countInventoryPartsBySiteStmt: %w", cerr)
+		}
+	}
 	if q.countMinersByStateStmt != nil {
 		if cerr := q.countMinersByStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
 		}
 	}
+	if q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt != nil {
+		if cerr := q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
 	if q.countOrgScopeSuperAdminsExcludingUserStmt != nil {
 		if cerr := q.countOrgScopeSuperAdminsExcludingUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countOrgScopeSuperAdminsExcludingUserStmt: %w", cerr)
+		}
+	}
+	if q.countQueueMessagesByBatchStmt != nil {
+		if cerr := q.countQueueMessagesByBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countQueueMessagesByBatchStmt: %w", cerr)
+		}
+	}
+	if q.countRacksBySiteStmt != nil {
+		if cerr := q.countRacksBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRacksBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countRacksInBuildingStmt != nil {
+		if cerr := q.countRacksInBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRacksInBuildingStmt: %w", cerr)
+		}
+	}
+	if q.countReleaseChannelFirmwarePreviewMembersStmt != nil {
+		if cerr := q.countReleaseChannelFirmwarePreviewMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countReleaseChannelFirmwarePreviewMembersStmt: %w", cerr)
+		}
+	}
+	if q.countRepairTicketsStmt != nil {
+		if cerr := q.countRepairTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRepairTicketsStmt: %w", cerr)
+		}
+	}
+	if q.countRepairTicketsByBuildingStmt != nil {
+		if cerr := q.countRepairTicketsByBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRepairTicketsByBuildingStmt: %w", cerr)
+		}
+	}
+	if q.countRepairTicketsBySiteStmt != nil {
+		if cerr := q.countRepairTicketsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRepairTicketsBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countUnexpiredAlertMaintenanceWindowsStmt != nil {
+		if cerr := q.countUnexpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countUnexpiredAlertMaintenanceWindowsStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -1332,6 +2640,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.createFirmwareRolloutStmt != nil {
+		if cerr := q.createFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutEventStmt != nil {
+		if cerr := q.createFirmwareRolloutEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutEventStmt: %w", cerr)
+		}
+	}
 	if q.createFleetNodeStmt != nil {
 		if cerr := q.createFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFleetNodeStmt: %w", cerr)
@@ -1340,6 +2658,16 @@ func (q *Queries) Close() error {
 	if q.createFleetNodeApiKeyStmt != nil {
 		if cerr := q.createFleetNodeApiKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFleetNodeApiKeyStmt: %w", cerr)
+		}
+	}
+	if q.createInfrastructureDeviceStmt != nil {
+		if cerr := q.createInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.createInventoryPartStmt != nil {
+		if cerr := q.createInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createInventoryPartStmt: %w", cerr)
 		}
 	}
 	if q.createNoteStmt != nil {
@@ -1367,9 +2695,29 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createQueueMessageStmt: %w", cerr)
 		}
 	}
+	if q.createQueueMessagesStmt != nil {
+		if cerr := q.createQueueMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createQueueMessagesStmt: %w", cerr)
+		}
+	}
 	if q.createRackExtensionStmt != nil {
 		if cerr := q.createRackExtensionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createRackExtensionStmt: %w", cerr)
+		}
+	}
+	if q.createReleaseChannelStmt != nil {
+		if cerr := q.createReleaseChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createReleaseChannelStmt: %w", cerr)
+		}
+	}
+	if q.createRepairTicketStmt != nil {
+		if cerr := q.createRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRepairTicketStmt: %w", cerr)
+		}
+	}
+	if q.createRepairTicketCommentStmt != nil {
+		if cerr := q.createRepairTicketCommentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRepairTicketCommentStmt: %w", cerr)
 		}
 	}
 	if q.createScheduleStmt != nil {
@@ -1407,6 +2755,46 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
 		}
 	}
+	if q.deleteActiveRepairTicketPartsStmt != nil {
+		if cerr := q.deleteActiveRepairTicketPartsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteActiveRepairTicketPartsStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertMaintenanceWindowStmt != nil {
+		if cerr := q.deleteAlertMaintenanceWindowStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertMaintenanceWindowStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertRouteChannelsStmt != nil {
+		if cerr := q.deleteAlertRouteChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertRouteChannelsStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertRoutePolicyStmt != nil {
+		if cerr := q.deleteAlertRoutePolicyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertRoutePolicyStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertRuleConfigStmt != nil {
+		if cerr := q.deleteAlertRuleConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertRuleConfigStmt: %w", cerr)
+		}
+	}
+	if q.deleteCurtailmentAutomationRuleByOrgStmt != nil {
+		if cerr := q.deleteCurtailmentAutomationRuleByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentAutomationRuleByOrgStmt: %w", cerr)
+		}
+	}
+	if q.deleteCurtailmentResponseProfileByOrgStmt != nil {
+		if cerr := q.deleteCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentResponseProfileByOrgStmt: %w", cerr)
+		}
+	}
+	if q.deleteCurtailmentResponseProfilesBySiteStmt != nil {
+		if cerr := q.deleteCurtailmentResponseProfilesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentResponseProfilesBySiteStmt: %w", cerr)
+		}
+	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt != nil {
 		if cerr := q.deleteDisabledMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteDisabledMQTTSourceConfigByOrgStmt: %w", cerr)
@@ -1415,6 +2803,31 @@ func (q *Queries) Close() error {
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
+		}
+	}
+	if q.deleteFleetMetricRollupsForWindowStmt != nil {
+		if cerr := q.deleteFleetMetricRollupsForWindowStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetMetricRollupsForWindowStmt: %w", cerr)
+		}
+	}
+	if q.deleteFleetNodeDevicePairingsStmt != nil {
+		if cerr := q.deleteFleetNodeDevicePairingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetNodeDevicePairingsStmt: %w", cerr)
+		}
+	}
+	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt != nil {
+		if cerr := q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMinerCredentialsByDeviceIDAndOrgIDStmt: %w", cerr)
+		}
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt != nil {
+		if cerr := q.deleteMinerCredentialsForDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMinerCredentialsForDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.deleteMinerCredentialsForFleetNodeStmt != nil {
+		if cerr := q.deleteMinerCredentialsForFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMinerCredentialsForFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.deleteOrganizationStmt != nil {
@@ -1430,6 +2843,21 @@ func (q *Queries) Close() error {
 	if q.deletePoolStmt != nil {
 		if cerr := q.deletePoolStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deletePoolStmt: %w", cerr)
+		}
+	}
+	if q.deleteReleaseChannelStmt != nil {
+		if cerr := q.deleteReleaseChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteReleaseChannelStmt: %w", cerr)
+		}
+	}
+	if q.deleteReleaseChannelTargetsStmt != nil {
+		if cerr := q.deleteReleaseChannelTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteReleaseChannelTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deleteReleasedFirmwareRolloutReservationsStmt != nil {
+		if cerr := q.deleteReleasedFirmwareRolloutReservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteReleasedFirmwareRolloutReservationsStmt: %w", cerr)
 		}
 	}
 	if q.deleteScheduleTargetsStmt != nil {
@@ -1452,9 +2880,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deviceSetBelongsToOrgStmt: %w", cerr)
 		}
 	}
+	if q.deviceSetsByIDsStmt != nil {
+		if cerr := q.deviceSetsByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deviceSetsByIDsStmt: %w", cerr)
+		}
+	}
+	if q.disableCurtailmentAutomationRuleByActiveEventStmt != nil {
+		if cerr := q.disableCurtailmentAutomationRuleByActiveEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing disableCurtailmentAutomationRuleByActiveEventStmt: %w", cerr)
+		}
+	}
+	if q.disableSyncCommitStmt != nil {
+		if cerr := q.disableSyncCommitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing disableSyncCommitStmt: %w", cerr)
+		}
+	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
 		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
+		}
+	}
+	if q.excludeFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.excludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing excludeFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.findDeviceBuildingConflictsStmt != nil {
+		if cerr := q.findDeviceBuildingConflictsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDeviceBuildingConflictsStmt: %w", cerr)
 		}
 	}
 	if q.findDeviceSiteConflictsStmt != nil {
@@ -1462,9 +2915,39 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing findDeviceSiteConflictsStmt: %w", cerr)
 		}
 	}
-	if q.getActiveCurtailmentEventStmt != nil {
-		if cerr := q.getActiveCurtailmentEventStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getActiveCurtailmentEventStmt: %w", cerr)
+	if q.findDevicesInBuildingLessPlacedRacksStmt != nil {
+		if cerr := q.findDevicesInBuildingLessPlacedRacksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDevicesInBuildingLessPlacedRacksStmt: %w", cerr)
+		}
+	}
+	if q.findDevicesInSiteLessRacksStmt != nil {
+		if cerr := q.findDevicesInSiteLessRacksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDevicesInSiteLessRacksStmt: %w", cerr)
+		}
+	}
+	if q.findDevicesWithSiteOrBuildingStmt != nil {
+		if cerr := q.findDevicesWithSiteOrBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
+		}
+	}
+	if q.finishFirmwareRolloutStmt != nil {
+		if cerr := q.finishFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finishFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.finishTerminalCommandBatchesStmt != nil {
+		if cerr := q.finishTerminalCommandBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finishTerminalCommandBatchesStmt: %w", cerr)
+		}
+	}
+	if q.forceReleaseCurtailmentEventStmt != nil {
+		if cerr := q.forceReleaseCurtailmentEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing forceReleaseCurtailmentEventStmt: %w", cerr)
+		}
+	}
+	if q.getActiveFirmwareRolloutForPairStmt != nil {
+		if cerr := q.getActiveFirmwareRolloutForPairStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getActiveFirmwareRolloutForPairStmt: %w", cerr)
 		}
 	}
 	if q.getActiveSchedulesStmt != nil {
@@ -1482,6 +2965,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAddedDeviceSiteConflictsStmt: %w", cerr)
 		}
 	}
+	if q.getAlertChannelStmt != nil {
+		if cerr := q.getAlertChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAlertChannelStmt: %w", cerr)
+		}
+	}
+	if q.getAlertChannelByNameStmt != nil {
+		if cerr := q.getAlertChannelByNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAlertChannelByNameStmt: %w", cerr)
+		}
+	}
+	if q.getAlertRuleConfigStmt != nil {
+		if cerr := q.getAlertRuleConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAlertRuleConfigStmt: %w", cerr)
+		}
+	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt != nil {
 		if cerr := q.getAllDeviceInfoForCapabilityCheckStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllDeviceInfoForCapabilityCheckStmt: %w", cerr)
@@ -1497,6 +2995,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllDeviceMetricsHourlyAggregatesStmt: %w", cerr)
 		}
 	}
+	if q.getAllDeviceMetricsRawBucketAggregatesStmt != nil {
+		if cerr := q.getAllDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt != nil {
 		if cerr := q.getAllDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllDeviceMetricsTimeSeriesStmt: %w", cerr)
@@ -1510,6 +3013,21 @@ func (q *Queries) Close() error {
 	if q.getAllDeviceStatusHourlyAggregatesStmt != nil {
 		if cerr := q.getAllDeviceStatusHourlyAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllDeviceStatusHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getAllMinerStateSnapshotDeviceRollups1mStmt != nil {
+		if cerr := q.getAllMinerStateSnapshotDeviceRollups1mStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllMinerStateSnapshotDeviceRollups1mStmt: %w", cerr)
+		}
+	}
+	if q.getAllMinerStateSnapshotDeviceRollupsDailyStmt != nil {
+		if cerr := q.getAllMinerStateSnapshotDeviceRollupsDailyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllMinerStateSnapshotDeviceRollupsDailyStmt: %w", cerr)
+		}
+	}
+	if q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt != nil {
+		if cerr := q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllMinerStateSnapshotDeviceRollupsHourlyStmt: %w", cerr)
 		}
 	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
@@ -1562,9 +3080,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getBuildingSiteStmt: %w", cerr)
 		}
 	}
+	if q.getBuildingSiteIDStmt != nil {
+		if cerr := q.getBuildingSiteIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBuildingSiteIDStmt: %w", cerr)
+		}
+	}
 	if q.getBuiltinRoleForOrgStmt != nil {
 		if cerr := q.getBuiltinRoleForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBuiltinRoleForOrgStmt: %w", cerr)
+		}
+	}
+	if q.getConnectedPostgresIdentityStmt != nil {
+		if cerr := q.getConnectedPostgresIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getConnectedPostgresIdentityStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
+		if cerr := q.getCurtailmentAutomationRuleByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentAutomationRuleByOrgStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentEventByExternalReferenceStmt != nil {
@@ -1597,6 +3130,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCurtailmentReconcilerHeartbeatStmt: %w", cerr)
 		}
 	}
+	if q.getCurtailmentResponseProfileByOrgStmt != nil {
+		if cerr := q.getCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentResponseProfileByOrgStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentTargetRollupByEventStmt != nil {
 		if cerr := q.getCurtailmentTargetRollupByEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentTargetRollupByEventStmt: %w", cerr)
@@ -1610,6 +3148,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceByIDStmt != nil {
 		if cerr := q.getDeviceByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceCommandRoutesStmt != nil {
+		if cerr := q.getDeviceCommandRoutesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceCommandRoutesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceDeviceSetsStmt != nil {
@@ -1652,6 +3195,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceIdentifiersByDeviceSetIDStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceIdentitiesStmt != nil {
+		if cerr := q.getDeviceIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIdentitiesStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceInfoForCapabilityCheckStmt != nil {
 		if cerr := q.getDeviceInfoForCapabilityCheckStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceInfoForCapabilityCheckStmt: %w", cerr)
@@ -1665,6 +3213,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceMetricsHourlyAggregatesStmt != nil {
 		if cerr := q.getDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceMetricsRawBucketAggregatesStmt != nil {
+		if cerr := q.getDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceMetricsTimeSeriesStmt != nil {
@@ -1737,9 +3290,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
-	if q.getDeviceWithCredentialsAndIPByIDStmt != nil {
-		if cerr := q.getDeviceWithCredentialsAndIPByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByIDStmt: %w", cerr)
+	if q.getDirectProtoMinerProxyTargetStmt != nil {
+		if cerr := q.getDirectProtoMinerProxyTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDirectProtoMinerProxyTargetStmt: %w", cerr)
 		}
 	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt != nil {
@@ -1762,6 +3315,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDistinctActivityUsersStmt: %w", cerr)
 		}
 	}
+	if q.getDistinctDeviceSiteIDsStmt != nil {
+		if cerr := q.getDistinctDeviceSiteIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDistinctDeviceSiteIDsStmt: %w", cerr)
+		}
+	}
 	if q.getDistinctEventTypesStmt != nil {
 		if cerr := q.getDistinctEventTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctEventTypesStmt: %w", cerr)
@@ -1770,6 +3328,11 @@ func (q *Queries) Close() error {
 	if q.getDistinctScopeTypesStmt != nil {
 		if cerr := q.getDistinctScopeTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
+		}
+	}
+	if q.getEnabledCurtailmentAutomationRuleByEventStmt != nil {
+		if cerr := q.getEnabledCurtailmentAutomationRuleByEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getEnabledCurtailmentAutomationRuleByEventStmt: %w", cerr)
 		}
 	}
 	if q.getErrorByErrorIDStmt != nil {
@@ -1792,6 +3355,36 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
 		}
 	}
+	if q.getFilteredTicketStatsStmt != nil {
+		if cerr := q.getFilteredTicketStatsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFilteredTicketStatsStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutStmt != nil {
+		if cerr := q.getFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutForUpdateStmt != nil {
+		if cerr := q.getFirmwareRolloutForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutForUpdateStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutPollWatermarkStmt != nil {
+		if cerr := q.getFirmwareRolloutPollWatermarkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutPollWatermarkStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutWithChannelStmt != nil {
+		if cerr := q.getFirmwareRolloutWithChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutWithChannelStmt: %w", cerr)
+		}
+	}
+	if q.getFleetMetricRollupCoverageStmt != nil {
+		if cerr := q.getFleetMetricRollupCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetMetricRollupCoverageStmt: %w", cerr)
+		}
+	}
 	if q.getFleetNodeByIDStmt != nil {
 		if cerr := q.getFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodeByIDStmt: %w", cerr)
@@ -1802,14 +3395,54 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFleetNodeByIDUnscopedStmt: %w", cerr)
 		}
 	}
+	if q.getFleetNodePairedDeviceIdentifierStmt != nil {
+		if cerr := q.getFleetNodePairedDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodePairedDeviceIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.getFleetNodeSessionByTokenHashStmt != nil {
 		if cerr := q.getFleetNodeSessionByTokenHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodeSessionByTokenHashStmt: %w", cerr)
 		}
 	}
-	if q.getGroupLabelsForDevicesStmt != nil {
-		if cerr := q.getGroupLabelsForDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getGroupLabelsForDevicesStmt: %w", cerr)
+	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt != nil {
+		if cerr := q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodeTelemetryRouteByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getGroupRefsForDevicesStmt != nil {
+		if cerr := q.getGroupRefsForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
+		}
+	}
+	if q.getHAProfileDatabaseIdentityStmt != nil {
+		if cerr := q.getHAProfileDatabaseIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHAProfileDatabaseIdentityStmt: %w", cerr)
+		}
+	}
+	if q.getInfrastructureControlSubnetsStmt != nil {
+		if cerr := q.getInfrastructureControlSubnetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInfrastructureControlSubnetsStmt: %w", cerr)
+		}
+	}
+	if q.getInfrastructureDeviceStmt != nil {
+		if cerr := q.getInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.getInventoryInsightsStmt != nil {
+		if cerr := q.getInventoryInsightsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInventoryInsightsStmt: %w", cerr)
+		}
+	}
+	if q.getInventoryPartStmt != nil {
+		if cerr := q.getInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.getInventoryPartForUpdateStmt != nil {
+		if cerr := q.getInventoryPartForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInventoryPartForUpdateStmt: %w", cerr)
 		}
 	}
 	if q.getKnownSubnetsStmt != nil {
@@ -1825,6 +3458,16 @@ func (q *Queries) Close() error {
 	if q.getLatestDeviceMetricsStmt != nil {
 		if cerr := q.getLatestDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
+		}
+	}
+	if q.getLatestFirmwareRolloutForPairStmt != nil {
+		if cerr := q.getLatestFirmwareRolloutForPairStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestFirmwareRolloutForPairStmt: %w", cerr)
+		}
+	}
+	if q.getLatestFleetMetricRollupBucketStmt != nil {
+		if cerr := q.getLatestFleetMetricRollupBucketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestFleetMetricRollupBucketStmt: %w", cerr)
 		}
 	}
 	if q.getMQTTSourceConfigByOrgStmt != nil {
@@ -1862,6 +3505,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerStateCountsByDeviceIDsStmt: %w", cerr)
 		}
 	}
+	if q.getMinerStateSnapshotDeviceRollups1mStmt != nil {
+		if cerr := q.getMinerStateSnapshotDeviceRollups1mStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotDeviceRollups1mStmt: %w", cerr)
+		}
+	}
+	if q.getMinerStateSnapshotDeviceRollupsDailyStmt != nil {
+		if cerr := q.getMinerStateSnapshotDeviceRollupsDailyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotDeviceRollupsDailyStmt: %w", cerr)
+		}
+	}
+	if q.getMinerStateSnapshotDeviceRollupsHourlyStmt != nil {
+		if cerr := q.getMinerStateSnapshotDeviceRollupsHourlyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotDeviceRollupsHourlyStmt: %w", cerr)
+		}
+	}
 	if q.getMinerStateSnapshotsStmt != nil {
 		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
@@ -1877,9 +3535,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getOfflineFleetNodeDevicesStmt != nil {
+		if cerr := q.getOfflineFleetNodeDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOfflineFleetNodeDevicesStmt: %w", cerr)
+		}
+	}
 	if q.getOpenErrorByDedupKeyStmt != nil {
 		if cerr := q.getOpenErrorByDedupKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceMetricsHourlyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceMetricsRawBucketAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceStatusHourlyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceStatusHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceStatusHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgFleetMetricRollupsStmt != nil {
+		if cerr := q.getOrgFleetMetricRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgFleetMetricRollupsStmt: %w", cerr)
 		}
 	}
 	if q.getOrgScopeAssignmentForUserStmt != nil {
@@ -1900,11 +3583,6 @@ func (q *Queries) Close() error {
 	if q.getOrganizationByOrgIDStmt != nil {
 		if cerr := q.getOrganizationByOrgIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrganizationByOrgIDStmt: %w", cerr)
-		}
-	}
-	if q.getOrganizationPrivateKeyStmt != nil {
-		if cerr := q.getOrganizationPrivateKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getOrganizationPrivateKeyStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationsForUserStmt != nil {
@@ -1932,6 +3610,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
 		}
 	}
+	if q.getPairedProtoDeviceIdentifiersByIdentifiersStmt != nil {
+		if cerr := q.getPairedProtoDeviceIdentifiersByIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedProtoDeviceIdentifiersByIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.getPendingEnrollmentByCodeHashStmt != nil {
 		if cerr := q.getPendingEnrollmentByCodeHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPendingEnrollmentByCodeHashStmt: %w", cerr)
@@ -1957,6 +3640,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
 		}
 	}
+	if q.getQueueMessagesByBatchStmt != nil {
+		if cerr := q.getQueueMessagesByBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getQueueMessagesByBatchStmt: %w", cerr)
+		}
+	}
 	if q.getRackDetailsForDevicesStmt != nil {
 		if cerr := q.getRackDetailsForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackDetailsForDevicesStmt: %w", cerr)
@@ -1975,6 +3663,56 @@ func (q *Queries) Close() error {
 	if q.getRackSlotsStmt != nil {
 		if cerr := q.getRackSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackSlotsStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelStmt != nil {
+		if cerr := q.getReleaseChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelDeletionStateStmt != nil {
+		if cerr := q.getReleaseChannelDeletionStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelDeletionStateStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelFirmwareStmt != nil {
+		if cerr := q.getReleaseChannelFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelFirmwareStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelForUpdateStmt != nil {
+		if cerr := q.getReleaseChannelForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelForUpdateStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelSettingStmt != nil {
+		if cerr := q.getReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelSettingStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketStmt != nil {
+		if cerr := q.getRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketCommentByIdempotencyKeyStmt != nil {
+		if cerr := q.getRepairTicketCommentByIdempotencyKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketCommentByIdempotencyKeyStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketCommentSiteForUpdateStmt != nil {
+		if cerr := q.getRepairTicketCommentSiteForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketCommentSiteForUpdateStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketForUpdateStmt != nil {
+		if cerr := q.getRepairTicketForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketForUpdateStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketIDByIdempotencyKeyStmt != nil {
+		if cerr := q.getRepairTicketIDByIdempotencyKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketIDByIdempotencyKeyStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -2027,6 +3765,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getSiteStmt: %w", cerr)
 		}
 	}
+	if q.getSiteBySlugStmt != nil {
+		if cerr := q.getSiteBySlugStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getSiteBySlugStmt: %w", cerr)
+		}
+	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
 		if cerr := q.getTotalDevicesPendingAuthStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalDevicesPendingAuthStmt: %w", cerr)
@@ -2077,9 +3820,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUserRoleNameStmt: %w", cerr)
 		}
 	}
+	if q.getUserRoleNameForUpdateStmt != nil {
+		if cerr := q.getUserRoleNameForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserRoleNameForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getUsersForOrganizationStmt != nil {
 		if cerr := q.getUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.haltFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.haltFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing haltFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
 	if q.hasUserStmt != nil {
@@ -2092,9 +3845,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertActivityLogStmt: %w", cerr)
 		}
 	}
+	if q.insertAlertChannelStmt != nil {
+		if cerr := q.insertAlertChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertAlertChannelStmt: %w", cerr)
+		}
+	}
+	if q.insertAlertMaintenanceWindowStmt != nil {
+		if cerr := q.insertAlertMaintenanceWindowStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertAlertMaintenanceWindowStmt: %w", cerr)
+		}
+	}
+	if q.insertAlertRouteChannelsStmt != nil {
+		if cerr := q.insertAlertRouteChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertAlertRouteChannelsStmt: %w", cerr)
+		}
+	}
+	if q.insertCurtailmentAutomationRuleStmt != nil {
+		if cerr := q.insertCurtailmentAutomationRuleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertCurtailmentAutomationRuleStmt: %w", cerr)
+		}
+	}
 	if q.insertCurtailmentEventStmt != nil {
 		if cerr := q.insertCurtailmentEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertCurtailmentEventStmt: %w", cerr)
+		}
+	}
+	if q.insertCurtailmentResponseProfileStmt != nil {
+		if cerr := q.insertCurtailmentResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertCurtailmentResponseProfileStmt: %w", cerr)
 		}
 	}
 	if q.insertDeviceStmt != nil {
@@ -2132,14 +3910,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertNotificationMetricSamplesStmt: %w", cerr)
 		}
 	}
+	if q.insertReleaseChannelMinerTargetsStmt != nil {
+		if cerr := q.insertReleaseChannelMinerTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertReleaseChannelMinerTargetsStmt: %w", cerr)
+		}
+	}
+	if q.insertReleaseChannelTargetsStmt != nil {
+		if cerr := q.insertReleaseChannelTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertReleaseChannelTargetsStmt: %w", cerr)
+		}
+	}
+	if q.insertRepairTicketPartStmt != nil {
+		if cerr := q.insertRepairTicketPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertRepairTicketPartStmt: %w", cerr)
+		}
+	}
+	if q.inventoryPartExistsBySiteAndNameStmt != nil {
+		if cerr := q.inventoryPartExistsBySiteAndNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing inventoryPartExistsBySiteAndNameStmt: %w", cerr)
+		}
+	}
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
 		}
 	}
-	if q.isBatchProcessingStmt != nil {
-		if cerr := q.isBatchProcessingStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing isBatchProcessingStmt: %w", cerr)
+	if q.listActiveAlertMaintenanceWindowsStmt != nil {
+		if cerr := q.listActiveAlertMaintenanceWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveAlertMaintenanceWindowsStmt: %w", cerr)
 		}
 	}
 	if q.listActiveCurtailedDevicesByOrgStmt != nil {
@@ -2152,6 +3950,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailmentEventsStmt: %w", cerr)
 		}
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt != nil {
+		if cerr := q.listActiveCurtailmentTargetDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveCurtailmentTargetDevicesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listActiveFirmwareRolloutsStmt != nil {
+		if cerr := q.listActiveFirmwareRolloutsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveFirmwareRolloutsStmt: %w", cerr)
+		}
+	}
+	if q.listActiveNotificationGroupsStmt != nil {
+		if cerr := q.listActiveNotificationGroupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveNotificationGroupsStmt: %w", cerr)
+		}
+	}
+	if q.listActiveNotificationsStmt != nil {
+		if cerr := q.listActiveNotificationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveNotificationsStmt: %w", cerr)
+		}
+	}
+	if q.listActiveNotificationsByAlertStmt != nil {
+		if cerr := q.listActiveNotificationsByAlertStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveNotificationsByAlertStmt: %w", cerr)
+		}
+	}
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
@@ -2160,6 +3983,26 @@ func (q *Queries) Close() error {
 	if q.listActivityLogsStmt != nil {
 		if cerr := q.listActivityLogsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
+		}
+	}
+	if q.listAlertChannelsStmt != nil {
+		if cerr := q.listAlertChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAlertChannelsStmt: %w", cerr)
+		}
+	}
+	if q.listAlertMaintenanceWindowsStmt != nil {
+		if cerr := q.listAlertMaintenanceWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAlertMaintenanceWindowsStmt: %w", cerr)
+		}
+	}
+	if q.listAlertRoutePoliciesStmt != nil {
+		if cerr := q.listAlertRoutePoliciesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAlertRoutePoliciesStmt: %w", cerr)
+		}
+	}
+	if q.listAlertRuleConfigsStmt != nil {
+		if cerr := q.listAlertRuleConfigsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAlertRuleConfigsStmt: %w", cerr)
 		}
 	}
 	if q.listApiKeysByOrganizationStmt != nil {
@@ -2182,6 +4025,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listBuildingNamesBySiteStmt != nil {
+		if cerr := q.listBuildingNamesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuildingNamesBySiteStmt: %w", cerr)
+		}
+	}
 	if q.listBuildingRacksStmt != nil {
 		if cerr := q.listBuildingRacksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBuildingRacksStmt: %w", cerr)
@@ -2197,6 +4045,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBuiltinRolesForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCompletedTicketAssigneesStmt != nil {
+		if cerr := q.listCompletedTicketAssigneesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCompletedTicketAssigneesStmt: %w", cerr)
+		}
+	}
+	if q.listCompletedTicketsStmt != nil {
+		if cerr := q.listCompletedTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCompletedTicketsStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentAutomationRulesByOrgStmt != nil {
+		if cerr := q.listCurtailmentAutomationRulesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentAutomationRulesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentBuildingScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentBuildingScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentBuildingScopeCoverageStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentCandidatesByOrgStmt != nil {
 		if cerr := q.listCurtailmentCandidatesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentCandidatesByOrgStmt: %w", cerr)
@@ -2205,6 +4073,36 @@ func (q *Queries) Close() error {
 	if q.listCurtailmentEventsForOrgStmt != nil {
 		if cerr := q.listCurtailmentEventsForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentEventsForOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentGroupScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentGroupScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentGroupScopeCoverageStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentRackScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentRackScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentRackScopeCoverageStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
+		if cerr := q.listCurtailmentResponseProfileDeviceSitesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentResponseProfileDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentResponseProfilesByOrgStmt != nil {
+		if cerr := q.listCurtailmentResponseProfilesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentResponseProfilesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentTargetSiteCoverageByEventStmt != nil {
+		if cerr := q.listCurtailmentTargetSiteCoverageByEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTargetSiteCoverageByEventStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentTargetSiteCoverageByEventsStmt != nil {
+		if cerr := q.listCurtailmentTargetSiteCoverageByEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTargetSiteCoverageByEventsStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentTargetsByEventStmt != nil {
@@ -2217,9 +4115,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentTargetsByEventPageStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt != nil {
+		if cerr := q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listCustomRolesForOrgStmt != nil {
 		if cerr := q.listCustomRolesForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCustomRolesForOrgStmt: %w", cerr)
+		}
+	}
+	if q.listDeviceIDsByIdentifiersStmt != nil {
+		if cerr := q.listDeviceIDsByIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceIDsByIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
@@ -2232,6 +4140,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedAfterStmt: %w", cerr)
 		}
 	}
+	if q.listDeviceSetMembersPaginatedFilteredStmt != nil {
+		if cerr := q.listDeviceSetMembersPaginatedFilteredStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedFilteredStmt: %w", cerr)
+		}
+	}
+	if q.listDeviceSetMembersPaginatedFilteredAfterStmt != nil {
+		if cerr := q.listDeviceSetMembersPaginatedFilteredAfterStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedFilteredAfterStmt: %w", cerr)
+		}
+	}
+	if q.listEarlierCurtailmentReservationDevicesStmt != nil {
+		if cerr := q.listEarlierCurtailmentReservationDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEarlierCurtailmentReservationDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listEarlierCurtailmentTopologyReservationScopesStmt != nil {
+		if cerr := q.listEarlierCurtailmentTopologyReservationScopesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEarlierCurtailmentTopologyReservationScopesStmt: %w", cerr)
+		}
+	}
 	if q.listEffectivePermissionsForUserStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
@@ -2242,6 +4170,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
 		}
 	}
+	if q.listEligibleConfirmationTargetsStmt != nil {
+		if cerr := q.listEligibleConfirmationTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEligibleConfirmationTargetsStmt: %w", cerr)
+		}
+	}
+	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt != nil {
+		if cerr := q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEnabledCurtailmentAutomationRulesByMQTTSourceStmt: %w", cerr)
+		}
+	}
 	if q.listEnabledMQTTSourcesStmt != nil {
 		if cerr := q.listEnabledMQTTSourcesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEnabledMQTTSourcesStmt: %w", cerr)
@@ -2250,6 +4188,36 @@ func (q *Queries) Close() error {
 	if q.listExistingDeviceIdentifiersStmt != nil {
 		if cerr := q.listExistingDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.listFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutDispatchCompletionsStmt != nil {
+		if cerr := q.listFirmwareRolloutDispatchCompletionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutDispatchCompletionsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutEventsStmt != nil {
+		if cerr := q.listFirmwareRolloutEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutEventsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutOfflineSlotsStmt != nil {
+		if cerr := q.listFirmwareRolloutOfflineSlotsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutOfflineSlotsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutsStmt != nil {
+		if cerr := q.listFirmwareRolloutsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutsStmt: %w", cerr)
+		}
+	}
+	if q.listFleetNodeDeviceIDsForRevocationStmt != nil {
+		if cerr := q.listFleetNodeDeviceIDsForRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodeDeviceIDsForRevocationStmt: %w", cerr)
 		}
 	}
 	if q.listFleetNodeDevicesStmt != nil {
@@ -2267,6 +4235,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.listInfrastructureDevicesByOrgStmt != nil {
+		if cerr := q.listInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listInfrastructureDevicesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listInventoryPartsStmt != nil {
+		if cerr := q.listInventoryPartsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listInventoryPartsStmt: %w", cerr)
+		}
+	}
 	if q.listMQTTSourceConfigsByOrgStmt != nil {
 		if cerr := q.listMQTTSourceConfigsByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMQTTSourceConfigsByOrgStmt: %w", cerr)
@@ -2275,6 +4253,21 @@ func (q *Queries) Close() error {
 	if q.listMQTTSourceStatesByOrgStmt != nil {
 		if cerr := q.listMQTTSourceStatesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMQTTSourceStatesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listMQTTSourcesWithActiveCurtailmentStmt != nil {
+		if cerr := q.listMQTTSourcesWithActiveCurtailmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMQTTSourcesWithActiveCurtailmentStmt: %w", cerr)
+		}
+	}
+	if q.listMaintenanceAssigneesStmt != nil {
+		if cerr := q.listMaintenanceAssigneesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMaintenanceAssigneesStmt: %w", cerr)
+		}
+	}
+	if q.listManagedFirmwareUpdateDevicesStmt != nil {
+		if cerr := q.listManagedFirmwareUpdateDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listManagedFirmwareUpdateDevicesStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -2292,9 +4285,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listNotesStmt: %w", cerr)
 		}
 	}
+	if q.listNotificationHistoryStmt != nil {
+		if cerr := q.listNotificationHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listNotificationHistoryStmt: %w", cerr)
+		}
+	}
 	if q.listOrganizationsStmt != nil {
 		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
+		}
+	}
+	if q.listPartsBySiteStmt != nil {
+		if cerr := q.listPartsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPartsBySiteStmt: %w", cerr)
 		}
 	}
 	if q.listPermissionsStmt != nil {
@@ -2332,6 +4335,106 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt != nil {
+		if cerr := q.listRecentlyResolvedCurtailedDevicesByScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByScopeStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelFirmwareStmt != nil {
+		if cerr := q.listReleaseChannelFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelFirmwareStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelFirmwareNeedingRolloutStmt != nil {
+		if cerr := q.listReleaseChannelFirmwareNeedingRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelFirmwareNeedingRolloutStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelMembersStmt != nil {
+		if cerr := q.listReleaseChannelMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelMembersStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelMembershipConflictsPageStmt != nil {
+		if cerr := q.listReleaseChannelMembershipConflictsPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelMembershipConflictsPageStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelMinersPageStmt != nil {
+		if cerr := q.listReleaseChannelMinersPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelMinersPageStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelMismatchedMembersStmt != nil {
+		if cerr := q.listReleaseChannelMismatchedMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelMismatchedMembersStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelModelGroupsPageStmt != nil {
+		if cerr := q.listReleaseChannelModelGroupsPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelModelGroupsPageStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelPageFirmwareStmt != nil {
+		if cerr := q.listReleaseChannelPageFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageFirmwareStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelPageMemberModelsStmt != nil {
+		if cerr := q.listReleaseChannelPageMemberModelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageMemberModelsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelPageTargetsStmt != nil {
+		if cerr := q.listReleaseChannelPageTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelPageTargetsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelSuppressedMembersStmt != nil {
+		if cerr := q.listReleaseChannelSuppressedMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelSuppressedMembersStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelTargetsStmt != nil {
+		if cerr := q.listReleaseChannelTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelTargetsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelsStmt != nil {
+		if cerr := q.listReleaseChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelsStmt: %w", cerr)
+		}
+	}
+	if q.listReleaseChannelsPageStmt != nil {
+		if cerr := q.listReleaseChannelsPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReleaseChannelsPageStmt: %w", cerr)
+		}
+	}
+	if q.listRepairTicketCommentsStmt != nil {
+		if cerr := q.listRepairTicketCommentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRepairTicketCommentsStmt: %w", cerr)
+		}
+	}
+	if q.listRepairTicketPartsStmt != nil {
+		if cerr := q.listRepairTicketPartsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRepairTicketPartsStmt: %w", cerr)
+		}
+	}
+	if q.listRepairTicketsStmt != nil {
+		if cerr := q.listRepairTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRepairTicketsStmt: %w", cerr)
+		}
+	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt != nil {
+		if cerr := q.listResponseProfileInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listResponseProfileInfrastructureDevicesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listRigConfigReconciliationTargetsStmt != nil {
+		if cerr := q.listRigConfigReconciliationTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRigConfigReconciliationTargetsStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -2362,14 +4465,39 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listSiteNetworkConfigsForOverlapStmt: %w", cerr)
 		}
 	}
+	if q.listSiteSlugsStmt != nil {
+		if cerr := q.listSiteSlugsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSiteSlugsStmt: %w", cerr)
+		}
+	}
 	if q.listSitesStmt != nil {
 		if cerr := q.listSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSitesStmt: %w", cerr)
 		}
 	}
+	if q.listTakenDeviceSetLabelsStmt != nil {
+		if cerr := q.listTakenDeviceSetLabelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTakenDeviceSetLabelsStmt: %w", cerr)
+		}
+	}
+	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt != nil {
+		if cerr := q.listTerminalFirmwareRolloutsNeedingProvenanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTerminalFirmwareRolloutsNeedingProvenanceStmt: %w", cerr)
+		}
+	}
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockActiveSuperAdminUsersStmt != nil {
+		if cerr := q.lockActiveSuperAdminUsersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockActiveSuperAdminUsersStmt: %w", cerr)
+		}
+	}
+	if q.lockAlertMaintenanceWindowOrgForWriteStmt != nil {
+		if cerr := q.lockAlertMaintenanceWindowOrgForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockAlertMaintenanceWindowOrgForWriteStmt: %w", cerr)
 		}
 	}
 	if q.lockAndCountOrgScopeSuperAdminsStmt != nil {
@@ -2387,6 +4515,91 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCommandBatchStmt != nil {
+		if cerr := q.lockCommandBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCommandBatchStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentAdmissionEventForWriteStmt != nil {
+		if cerr := q.lockCurtailmentAdmissionEventForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAdmissionEventForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentAutomationRuleForExecutionStmt != nil {
+		if cerr := q.lockCurtailmentAutomationRuleForExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAutomationRuleForExecutionStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentAutomationRuleMutationStmt != nil {
+		if cerr := q.lockCurtailmentAutomationRuleMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAutomationRuleMutationStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentEventByUUIDForWriteStmt != nil {
+		if cerr := q.lockCurtailmentEventByUUIDForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentEventByUUIDForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentEventForFanCommandStmt != nil {
+		if cerr := q.lockCurtailmentEventForFanCommandStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentEventForFanCommandStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentEventScopeForWriteStmt != nil {
+		if cerr := q.lockCurtailmentEventScopeForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentEventScopeForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentFanDeviceForWriteStmt != nil {
+		if cerr := q.lockCurtailmentFanDeviceForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentFanDeviceForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentFanDevicesForWriteStmt != nil {
+		if cerr := q.lockCurtailmentFanDevicesForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentFanDevicesForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentGroupsForWriteStmt != nil {
+		if cerr := q.lockCurtailmentGroupsForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentGroupsForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileAutomationMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileAutomationMutationStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentResponseProfileRevisionForExecutionStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileRevisionForExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileRevisionForExecutionStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentScopeForWriteStmt != nil {
+		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentTargetPairingStatusesForWriteStmt != nil {
+		if cerr := q.lockCurtailmentTargetPairingStatusesForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentTargetPairingStatusesForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt != nil {
+		if cerr := q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentTopologyMemberDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceByIdentifierStmt != nil {
+		if cerr := q.lockDeviceByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceByIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.lockDevicesForReassignStmt != nil {
 		if cerr := q.lockDevicesForReassignStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
@@ -2397,9 +4610,79 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
 		}
 	}
+	if q.lockFleetNodePairingDeviceStmt != nil {
+		if cerr := q.lockFleetNodePairingDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodePairingDeviceStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDeviceForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDeviceForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDeviceForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDevicesBySiteForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesBySiteForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt != nil {
+		if cerr := q.lockInfrastructureDevicesForResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesForResponseProfileStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureRackForPlacementStmt != nil {
+		if cerr := q.lockInfrastructureRackForPlacementStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureRackForPlacementStmt: %w", cerr)
+		}
+	}
+	if q.lockInventorySitesStmt != nil {
+		if cerr := q.lockInventorySitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInventorySitesStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceBuildingForTicketStmt != nil {
+		if cerr := q.lockMaintenanceBuildingForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceBuildingForTicketStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceMinerForTicketStmt != nil {
+		if cerr := q.lockMaintenanceMinerForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceMinerForTicketStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceRackForTicketStmt != nil {
+		if cerr := q.lockMaintenanceRackForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceRackForTicketStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceSiteForTicketStmt != nil {
+		if cerr := q.lockMaintenanceSiteForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceSiteForTicketStmt: %w", cerr)
+		}
+	}
 	if q.lockRackPlacementForWriteStmt != nil {
 		if cerr := q.lockRackPlacementForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockRacksForReparentStmt != nil {
+		if cerr := q.lockRacksForReparentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRacksForReparentStmt: %w", cerr)
+		}
+	}
+	if q.lockReleaseChannelScopesStmt != nil {
+		if cerr := q.lockReleaseChannelScopesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReleaseChannelScopesStmt: %w", cerr)
+		}
+	}
+	if q.lockRepairTicketCommentCreateKeyStmt != nil {
+		if cerr := q.lockRepairTicketCommentCreateKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRepairTicketCommentCreateKeyStmt: %w", cerr)
+		}
+	}
+	if q.lockRepairTicketCreateKeyStmt != nil {
+		if cerr := q.lockRepairTicketCreateKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRepairTicketCreateKeyStmt: %w", cerr)
 		}
 	}
 	if q.lockSchedulePriorityStmt != nil {
@@ -2427,9 +4710,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.markFirmwareRolloutDevicesSentStmt != nil {
+		if cerr := q.markFirmwareRolloutDevicesSentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markFirmwareRolloutDevicesSentStmt: %w", cerr)
+		}
+	}
+	if q.markFirmwareRolloutDevicesVerifiedStmt != nil {
+		if cerr := q.markFirmwareRolloutDevicesVerifiedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markFirmwareRolloutDevicesVerifiedStmt: %w", cerr)
+		}
+	}
+	if q.markRepairTicketPartsConsumedStmt != nil {
+		if cerr := q.markRepairTicketPartsConsumedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markRepairTicketPartsConsumedStmt: %w", cerr)
+		}
+	}
 	if q.negateSchedulePrioritiesStmt != nil {
 		if cerr := q.negateSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing negateSchedulePrioritiesStmt: %w", cerr)
+		}
+	}
+	if q.nextRepairTicketNumberStmt != nil {
+		if cerr := q.nextRepairTicketNumberStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing nextRepairTicketNumberStmt: %w", cerr)
+		}
+	}
+	if q.observeFirmwareRolloutReservationsOfflineStmt != nil {
+		if cerr := q.observeFirmwareRolloutReservationsOfflineStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing observeFirmwareRolloutReservationsOfflineStmt: %w", cerr)
 		}
 	}
 	if q.pairDeviceToFleetNodeStmt != nil {
@@ -2445,6 +4753,21 @@ func (q *Queries) Close() error {
 	if q.pauseActiveScheduleStmt != nil {
 		if cerr := q.pauseActiveScheduleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pauseActiveScheduleStmt: %w", cerr)
+		}
+	}
+	if q.pauseFirmwareRolloutStmt != nil {
+		if cerr := q.pauseFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pauseFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.preserveFirmwareRolloutRetryBaselinesStmt != nil {
+		if cerr := q.preserveFirmwareRolloutRetryBaselinesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing preserveFirmwareRolloutRetryBaselinesStmt: %w", cerr)
+		}
+	}
+	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
+		if cerr := q.pruneExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
 		}
 	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
@@ -2467,19 +4790,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing queryErrorsStmt: %w", cerr)
 		}
 	}
-	if q.reapStuckFirmwareUpdateMessagesStmt != nil {
-		if cerr := q.reapStuckFirmwareUpdateMessagesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing reapStuckFirmwareUpdateMessagesStmt: %w", cerr)
-		}
-	}
-	if q.reapStuckProcessingMessagesStmt != nil {
-		if cerr := q.reapStuckProcessingMessagesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing reapStuckProcessingMessagesStmt: %w", cerr)
-		}
-	}
-	if q.reassignDevicesToSiteStmt != nil {
-		if cerr := q.reassignDevicesToSiteStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing reassignDevicesToSiteStmt: %w", cerr)
+	if q.reapMessagesStmt != nil {
+		if cerr := q.reapMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reapMessagesStmt: %w", cerr)
 		}
 	}
 	if q.reassignDevicesUnderBuildingStmt != nil {
@@ -2487,9 +4800,69 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reassignDevicesUnderBuildingStmt: %w", cerr)
 		}
 	}
+	if q.reassignDevicesUnderBuildingsBulkStmt != nil {
+		if cerr := q.reassignDevicesUnderBuildingsBulkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reassignDevicesUnderBuildingsBulkStmt: %w", cerr)
+		}
+	}
 	if q.reassignRacksUnderBuildingStmt != nil {
 		if cerr := q.reassignRacksUnderBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reassignRacksUnderBuildingStmt: %w", cerr)
+		}
+	}
+	if q.reassignRacksUnderBuildingsBulkStmt != nil {
+		if cerr := q.reassignRacksUnderBuildingsBulkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reassignRacksUnderBuildingsBulkStmt: %w", cerr)
+		}
+	}
+	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt != nil {
+		if cerr := q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileAuthenticationNeededPairingStatusByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.reconcileCloudAuthNeededByIdentifierStmt != nil {
+		if cerr := q.reconcileCloudAuthNeededByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileCloudAuthNeededByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt != nil {
+		if cerr := q.reconcileDefaultPasswordPairingStatusByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.recordCurtailPendingDispatchStmt != nil {
+		if cerr := q.recordCurtailPendingDispatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
+		}
+	}
+	if q.recordFirmwareDeploymentStmt != nil {
+		if cerr := q.recordFirmwareDeploymentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordFirmwareDeploymentStmt: %w", cerr)
+		}
+	}
+	if q.recordFirmwareRolloutActionStmt != nil {
+		if cerr := q.recordFirmwareRolloutActionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
+		}
+	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
+		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
+		}
+	}
+	if q.reincludeFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.reincludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reincludeFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.releaseInventoryPartStmt != nil {
+		if cerr := q.releaseInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.releaseUndispatchedTargetsForRestoreStmt != nil {
+		if cerr := q.releaseUndispatchedTargetsForRestoreStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseUndispatchedTargetsForRestoreStmt: %w", cerr)
 		}
 	}
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
@@ -2497,9 +4870,44 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeAllDevicesFromDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.removeDevicesFromAnyRackStmt != nil {
+		if cerr := q.removeDevicesFromAnyRackStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing removeDevicesFromAnyRackStmt: %w", cerr)
+		}
+	}
 	if q.removeDevicesFromDeviceSetStmt != nil {
 		if cerr := q.removeDevicesFromDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
+		}
+	}
+	if q.renewFleetRuntimeLeaseStmt != nil {
+		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
+	if q.requestRigConfigReconciliationStmt != nil {
+		if cerr := q.requestRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requestRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
+	if q.requestRigConfigReconciliationForDevicesStmt != nil {
+		if cerr := q.requestRigConfigReconciliationForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requestRigConfigReconciliationForDevicesStmt: %w", cerr)
+		}
+	}
+	if q.requeueFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.requeueFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requeueFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.requeueRigConfigReconciliationAfterTerminalFailureStmt != nil {
+		if cerr := q.requeueRigConfigReconciliationAfterTerminalFailureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requeueRigConfigReconciliationAfterTerminalFailureStmt: %w", cerr)
+		}
+	}
+	if q.reserveInventoryPartStmt != nil {
+		if cerr := q.reserveInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reserveInventoryPartStmt: %w", cerr)
 		}
 	}
 	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
@@ -2512,14 +4920,59 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRestoreStmt: %w", cerr)
 		}
 	}
+	if q.resetReapedFirmwareStatusesStmt != nil {
+		if cerr := q.resetReapedFirmwareStatusesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resetReapedFirmwareStatusesStmt: %w", cerr)
+		}
+	}
+	if q.resolveCurtailmentTopologyDispatchStmt != nil {
+		if cerr := q.resolveCurtailmentTopologyDispatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveCurtailmentTopologyDispatchStmt: %w", cerr)
+		}
+	}
+	if q.resolveInventorySiteByNameStmt != nil {
+		if cerr := q.resolveInventorySiteByNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveInventorySiteByNameStmt: %w", cerr)
+		}
+	}
+	if q.resolveMaintenanceAssigneeStmt != nil {
+		if cerr := q.resolveMaintenanceAssigneeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveMaintenanceAssigneeStmt: %w", cerr)
+		}
+	}
+	if q.resolveMaintenanceLocationContextStmt != nil {
+		if cerr := q.resolveMaintenanceLocationContextStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveMaintenanceLocationContextStmt: %w", cerr)
+		}
+	}
+	if q.resolveMaintenanceMinerContextStmt != nil {
+		if cerr := q.resolveMaintenanceMinerContextStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveMaintenanceMinerContextStmt: %w", cerr)
+		}
+	}
+	if q.resolveReleaseChannelScopeStmt != nil {
+		if cerr := q.resolveReleaseChannelScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveReleaseChannelScopeStmt: %w", cerr)
+		}
+	}
 	if q.resumeCurtailmentFromRestoringStmt != nil {
 		if cerr := q.resumeCurtailmentFromRestoringStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resumeCurtailmentFromRestoringStmt: %w", cerr)
 		}
 	}
+	if q.resumeFirmwareRolloutStmt != nil {
+		if cerr := q.resumeFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resumeFirmwareRolloutStmt: %w", cerr)
+		}
+	}
 	if q.resumePausedScheduleStmt != nil {
 		if cerr := q.resumePausedScheduleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resumePausedScheduleStmt: %w", cerr)
+		}
+	}
+	if q.retryRigConfigReconciliationStmt != nil {
+		if cerr := q.retryRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retryRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
 	if q.revertScheduleToActiveStmt != nil {
@@ -2552,14 +5005,49 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
 		}
 	}
+	if q.setCurtailmentAutomationActiveEventStmt != nil {
+		if cerr := q.setCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setCurtailmentAutomationActiveEventStmt: %w", cerr)
+		}
+	}
+	if q.setCurtailmentAutomationExecutionErrorStmt != nil {
+		if cerr := q.setCurtailmentAutomationExecutionErrorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setCurtailmentAutomationExecutionErrorStmt: %w", cerr)
+		}
+	}
+	if q.setCurtailmentAutomationRestoreStartedStmt != nil {
+		if cerr := q.setCurtailmentAutomationRestoreStartedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setCurtailmentAutomationRestoreStartedStmt: %w", cerr)
+		}
+	}
+	if q.setCurtailmentAutomationRuleEnabledStmt != nil {
+		if cerr := q.setCurtailmentAutomationRuleEnabledStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setCurtailmentAutomationRuleEnabledStmt: %w", cerr)
+		}
+	}
 	if q.setDevicePairingAuthNeededIfNotPairedStmt != nil {
 		if cerr := q.setDevicePairingAuthNeededIfNotPairedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setDevicePairingAuthNeededIfNotPairedStmt: %w", cerr)
 		}
 	}
+	if q.setFirmwareRolloutControllerWaitStmt != nil {
+		if cerr := q.setFirmwareRolloutControllerWaitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setFirmwareRolloutControllerWaitStmt: %w", cerr)
+		}
+	}
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
 		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
+		}
+	}
+	if q.setInfrastructureControlSubnetsStmt != nil {
+		if cerr := q.setInfrastructureControlSubnetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setInfrastructureControlSubnetsStmt: %w", cerr)
+		}
+	}
+	if q.setLocalTransactionTimeoutStmt != nil {
+		if cerr := q.setLocalTransactionTimeoutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setLocalTransactionTimeoutStmt: %w", cerr)
 		}
 	}
 	if q.setMQTTSourceConfigEnabledStmt != nil {
@@ -2570,6 +5058,16 @@ func (q *Queries) Close() error {
 	if q.setRackBuildingPositionStmt != nil {
 		if cerr := q.setRackBuildingPositionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setRackBuildingPositionStmt: %w", cerr)
+		}
+	}
+	if q.setRackBuildingPositionBulkClearStmt != nil {
+		if cerr := q.setRackBuildingPositionBulkClearStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setRackBuildingPositionBulkClearStmt: %w", cerr)
+		}
+	}
+	if q.setRackBuildingPositionBulkPlaceStmt != nil {
+		if cerr := q.setRackBuildingPositionBulkPlaceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setRackBuildingPositionBulkPlaceStmt: %w", cerr)
 		}
 	}
 	if q.setRackSlotPositionStmt != nil {
@@ -2590,6 +5088,26 @@ func (q *Queries) Close() error {
 	if q.siteBelongsToOrgStmt != nil {
 		if cerr := q.siteBelongsToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing siteBelongsToOrgStmt: %w", cerr)
+		}
+	}
+	if q.sitesByIDsStmt != nil {
+		if cerr := q.sitesByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sitesByIDsStmt: %w", cerr)
+		}
+	}
+	if q.skipFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.skipFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing skipFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.snapshotFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.snapshotFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing snapshotFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteAlertChannelStmt != nil {
+		if cerr := q.softDeleteAlertChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteAlertChannelStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteBuildingStmt != nil {
@@ -2637,6 +5155,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteFleetNodesForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteInfrastructureDeviceStmt != nil {
+		if cerr := q.softDeleteInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteInfrastructureDevicesBySiteStmt != nil {
+		if cerr := q.softDeleteInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteInfrastructureDevicesBySiteStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteInventoryPartStmt != nil {
+		if cerr := q.softDeleteInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteInventoryPartStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteNoteStmt != nil {
 		if cerr := q.softDeleteNoteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteNoteStmt: %w", cerr)
@@ -2650,6 +5183,11 @@ func (q *Queries) Close() error {
 	if q.softDeletePoolStmt != nil {
 		if cerr := q.softDeletePoolStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeletePoolStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteRepairTicketCommentByAuthorStmt != nil {
+		if cerr := q.softDeleteRepairTicketCommentByAuthorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteRepairTicketCommentByAuthorStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteRoleStmt != nil {
@@ -2677,6 +5215,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.sweepAlertRuleConfigsStmt != nil {
+		if cerr := q.sweepAlertRuleConfigsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepAlertRuleConfigsStmt: %w", cerr)
+		}
+	}
+	if q.sweepCurtailmentTargetsToReleasedStmt != nil {
+		if cerr := q.sweepCurtailmentTargetsToReleasedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepCurtailmentTargetsToReleasedStmt: %w", cerr)
+		}
+	}
 	if q.sweepCurtailmentTargetsToRestoreFailedStmt != nil {
 		if cerr := q.sweepCurtailmentTargetsToRestoreFailedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepCurtailmentTargetsToRestoreFailedStmt: %w", cerr)
@@ -2700,6 +5248,11 @@ func (q *Queries) Close() error {
 	if q.transferDiscoveredDeviceAttributionStmt != nil {
 		if cerr := q.transferDiscoveredDeviceAttributionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing transferDiscoveredDeviceAttributionStmt: %w", cerr)
+		}
+	}
+	if q.unassignDeviceBuildingsByRackStmt != nil {
+		if cerr := q.unassignDeviceBuildingsByRackStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unassignDeviceBuildingsByRackStmt: %w", cerr)
 		}
 	}
 	if q.unassignDeviceSitesByRackStmt != nil {
@@ -2747,6 +5300,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing unpairDeviceStmt: %w", cerr)
 		}
 	}
+	if q.unverifyFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.unverifyFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unverifyFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.updateAlertChannelStmt != nil {
+		if cerr := q.updateAlertChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateAlertChannelStmt: %w", cerr)
+		}
+	}
+	if q.updateAlertMaintenanceWindowStmt != nil {
+		if cerr := q.updateAlertMaintenanceWindowStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateAlertMaintenanceWindowStmt: %w", cerr)
+		}
+	}
 	if q.updateApiKeyLastUsedStmt != nil {
 		if cerr := q.updateApiKeyLastUsedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateApiKeyLastUsedStmt: %w", cerr)
@@ -2755,6 +5323,16 @@ func (q *Queries) Close() error {
 	if q.updateBuildingStmt != nil {
 		if cerr := q.updateBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateBuildingStmt: %w", cerr)
+		}
+	}
+	if q.updateCurtailmentAutomationRuleStmt != nil {
+		if cerr := q.updateCurtailmentAutomationRuleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentAutomationRuleStmt: %w", cerr)
+		}
+	}
+	if q.updateCurtailmentEventFanStateStmt != nil {
+		if cerr := q.updateCurtailmentEventFanStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentEventFanStateStmt: %w", cerr)
 		}
 	}
 	if q.updateCurtailmentEventOperatorFieldsStmt != nil {
@@ -2767,6 +5345,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCurtailmentEventStateStmt: %w", cerr)
 		}
 	}
+	if q.updateCurtailmentResponseProfileStmt != nil {
+		if cerr := q.updateCurtailmentResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentResponseProfileStmt: %w", cerr)
+		}
+	}
 	if q.updateCurtailmentTargetStateStmt != nil {
 		if cerr := q.updateCurtailmentTargetStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentTargetStateStmt: %w", cerr)
@@ -2775,6 +5358,11 @@ func (q *Queries) Close() error {
 	if q.updateCustomRoleNameStmt != nil {
 		if cerr := q.updateCustomRoleNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCustomRoleNameStmt: %w", cerr)
+		}
+	}
+	if q.updateDeviceCustomNamesStmt != nil {
+		if cerr := q.updateDeviceCustomNamesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDeviceCustomNamesStmt: %w", cerr)
 		}
 	}
 	if q.updateDeviceIPAssignmentStmt != nil {
@@ -2825,6 +5413,16 @@ func (q *Queries) Close() error {
 	if q.updateFleetNodeLastSeenAtStmt != nil {
 		if cerr := q.updateFleetNodeLastSeenAtStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateFleetNodeLastSeenAtStmt: %w", cerr)
+		}
+	}
+	if q.updateInfrastructureDeviceStmt != nil {
+		if cerr := q.updateInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.updateInventoryPartStmt != nil {
+		if cerr := q.updateInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateInventoryPartStmt: %w", cerr)
 		}
 	}
 	if q.updateLastLoginStmt != nil {
@@ -2887,6 +5485,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateRackPlacementStmt: %w", cerr)
 		}
 	}
+	if q.updateRackPlacementBulkForBuildingStmt != nil {
+		if cerr := q.updateRackPlacementBulkForBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateRackPlacementBulkForBuildingStmt: %w", cerr)
+		}
+	}
+	if q.updateRackPlacementBulkForSiteStmt != nil {
+		if cerr := q.updateRackPlacementBulkForSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateRackPlacementBulkForSiteStmt: %w", cerr)
+		}
+	}
+	if q.updateReleaseChannelStmt != nil {
+		if cerr := q.updateReleaseChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateReleaseChannelStmt: %w", cerr)
+		}
+	}
+	if q.updateRepairTicketStmt != nil {
+		if cerr := q.updateRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateRepairTicketStmt: %w", cerr)
+		}
+	}
 	if q.updateRoleStmt != nil {
 		if cerr := q.updateRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
@@ -2932,6 +5550,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
+	if q.upsertAlertRoutePolicyStmt != nil {
+		if cerr := q.upsertAlertRoutePolicyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAlertRoutePolicyStmt: %w", cerr)
+		}
+	}
+	if q.upsertAlertRuleConfigStmt != nil {
+		if cerr := q.upsertAlertRuleConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAlertRuleConfigStmt: %w", cerr)
+		}
+	}
 	if q.upsertBuiltinRoleForOrgStmt != nil {
 		if cerr := q.upsertBuiltinRoleForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertBuiltinRoleForOrgStmt: %w", cerr)
@@ -2940,6 +5568,11 @@ func (q *Queries) Close() error {
 	if q.upsertCommandOnDeviceLogStmt != nil {
 		if cerr := q.upsertCommandOnDeviceLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
+		}
+	}
+	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
+		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
 		}
 	}
 	if q.upsertCurtailmentReconcilerHeartbeatStmt != nil {
@@ -2972,6 +5605,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertDiscoveredDeviceFromFleetNodeStmt: %w", cerr)
 		}
 	}
+	if q.upsertFleetMetricRollupsStmt != nil {
+		if cerr := q.upsertFleetMetricRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertFleetMetricRollupsStmt: %w", cerr)
+		}
+	}
 	if q.upsertFleetNodeAuthChallengeStmt != nil {
 		if cerr := q.upsertFleetNodeAuthChallengeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertFleetNodeAuthChallengeStmt: %w", cerr)
@@ -2995,6 +5633,16 @@ func (q *Queries) Close() error {
 	if q.upsertPermissionStmt != nil {
 		if cerr := q.upsertPermissionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertPermissionStmt: %w", cerr)
+		}
+	}
+	if q.upsertReleaseChannelFirmwareStmt != nil {
+		if cerr := q.upsertReleaseChannelFirmwareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertReleaseChannelFirmwareStmt: %w", cerr)
+		}
+	}
+	if q.upsertReleaseChannelSettingStmt != nil {
+		if cerr := q.upsertReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
 		}
 	}
 	return err
@@ -3034,755 +5682,1417 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                                                  DBTX
-	tx                                                  *sql.Tx
-	acquireReconcileLockStmt                            *sql.Stmt
-	addDevicesToDeviceSetStmt                           *sql.Stmt
-	adminResetUserPasswordStmt                          *sql.Stmt
-	adminTerminateCurtailmentEventStmt                  *sql.Stmt
-	allDevicesBelongToOrgStmt                           *sql.Stmt
-	assignBuildingToSiteStmt                            *sql.Stmt
-	assignPermissionToRoleStmt                          *sql.Stmt
-	assignRoleStmt                                      *sql.Stmt
-	beginCurtailmentRestorationStmt                     *sql.Stmt
-	bindEnrollmentToFleetNodeStmt                       *sql.Stmt
-	buildingBelongsToOrgStmt                            *sql.Stmt
-	buildingsByIDsStmt                                  *sql.Stmt
-	bulkInsertCurtailmentTargetsStmt                    *sql.Stmt
-	bumpCurtailmentTargetRetryStmt                      *sql.Stmt
-	cancelEnrollmentForFleetNodeStmt                    *sql.Stmt
-	cancelPendingEnrollmentStmt                         *sql.Stmt
-	cascadeAddedDeviceSitesStmt                         *sql.Stmt
-	cascadeRackDeviceSitesStmt                          *sql.Stmt
-	claimMessageForProcessingStmt                       *sql.Stmt
-	clearRackPlacementForSoftDeleteStmt                 *sql.Stmt
-	clearRackSlotPositionStmt                           *sql.Stmt
-	clearRolePermissionsStmt                            *sql.Stmt
-	closeStaleErrorsStmt                                *sql.Stmt
-	confirmEnrollmentStmt                               *sql.Stmt
-	consumeFleetNodeAuthChallengeStmt                   *sql.Stmt
-	countActiveAssignmentsForRoleStmt                   *sql.Stmt
-	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
-	countActivityLogsStmt                               *sql.Stmt
-	countComponentsWithErrorsStmt                       *sql.Stmt
-	countDevicesWithErrorsStmt                          *sql.Stmt
-	countErrorsStmt                                     *sql.Stmt
-	countMinersByStateStmt                              *sql.Stmt
-	countOrgScopeSuperAdminsExcludingUserStmt           *sql.Stmt
-	createApiKeyStmt                                    *sql.Stmt
-	createBuildingStmt                                  *sql.Stmt
-	createCommandBatchLogStmt                           *sql.Stmt
-	createCustomRoleStmt                                *sql.Stmt
-	createDeviceSetStmt                                 *sql.Stmt
-	createFleetNodeStmt                                 *sql.Stmt
-	createFleetNodeApiKeyStmt                           *sql.Stmt
-	createNoteStmt                                      *sql.Stmt
-	createOrganizationStmt                              *sql.Stmt
-	createPendingEnrollmentStmt                         *sql.Stmt
-	createPoolStmt                                      *sql.Stmt
-	createQueueMessageStmt                              *sql.Stmt
-	createRackExtensionStmt                             *sql.Stmt
-	createScheduleStmt                                  *sql.Stmt
-	createScheduleTargetStmt                            *sql.Stmt
-	createSessionStmt                                   *sql.Stmt
-	createSiteStmt                                      *sql.Stmt
-	createUserStmt                                      *sql.Stmt
-	createUserOrganizationStmt                          *sql.Stmt
-	curtailmentEventHasInFlightTargetsStmt              *sql.Stmt
-	deleteDisabledMQTTSourceConfigByOrgStmt             *sql.Stmt
-	deleteExpiredSessionsStmt                           *sql.Stmt
-	deleteOrganizationStmt                              *sql.Stmt
-	deletePairingsForFleetNodeStmt                      *sql.Stmt
-	deletePoolStmt                                      *sql.Stmt
-	deleteScheduleTargetsStmt                           *sql.Stmt
-	deviceHasActiveCloudPairingStmt                     *sql.Stmt
-	deviceHasActivePairingStmt                          *sql.Stmt
-	deviceSetBelongsToOrgStmt                           *sql.Stmt
-	ensureCurtailmentOrgConfigStmt                      *sql.Stmt
-	findDeviceSiteConflictsStmt                         *sql.Stmt
-	getActiveCurtailmentEventStmt                       *sql.Stmt
-	getActiveSchedulesStmt                              *sql.Stmt
-	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
-	getAddedDeviceSiteConflictsStmt                     *sql.Stmt
-	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
-	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
-	getAllDeviceMetricsHourlyAggregatesStmt             *sql.Stmt
-	getAllDeviceMetricsTimeSeriesStmt                   *sql.Stmt
-	getAllDeviceStatusDailyAggregatesStmt               *sql.Stmt
-	getAllDeviceStatusHourlyAggregatesStmt              *sql.Stmt
-	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
-	getApiKeyByHashStmt                                 *sql.Stmt
-	getAssignmentByIDStmt                               *sql.Stmt
-	getAvailableFirmwareVersionsStmt                    *sql.Stmt
-	getAvailableModelsStmt                              *sql.Stmt
-	getBatchHeaderForOrgStmt                            *sql.Stmt
-	getBatchLogStmt                                     *sql.Stmt
-	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
-	getBuildingStmt                                     *sql.Stmt
-	getBuildingSiteStmt                                 *sql.Stmt
-	getBuiltinRoleForOrgStmt                            *sql.Stmt
-	getCurtailmentEventByExternalReferenceStmt          *sql.Stmt
-	getCurtailmentEventByIdempotencyKeyStmt             *sql.Stmt
-	getCurtailmentEventByUUIDStmt                       *sql.Stmt
-	getCurtailmentEventDetailByUUIDStmt                 *sql.Stmt
-	getCurtailmentOrgConfigStmt                         *sql.Stmt
-	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
-	getCurtailmentTargetRollupByEventStmt               *sql.Stmt
-	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
-	getDeviceByIDStmt                                   *sql.Stmt
-	getDeviceDeviceSetsStmt                             *sql.Stmt
-	getDeviceDeviceSetsByTypeStmt                       *sql.Stmt
-	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
-	getDeviceIDByIdentifierStmt                         *sql.Stmt
-	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
-	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
-	getDeviceIdentifierByIDStmt                         *sql.Stmt
-	getDeviceIdentifiersByDeviceSetIDStmt               *sql.Stmt
-	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
-	getDeviceMetricsDailyAggregatesStmt                 *sql.Stmt
-	getDeviceMetricsHourlyAggregatesStmt                *sql.Stmt
-	getDeviceMetricsTimeSeriesStmt                      *sql.Stmt
-	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
-	getDevicePropertiesForRenameStmt                    *sql.Stmt
-	getDevicePropertiesForRenameWithoutTelemetryStmt    *sql.Stmt
-	getDeviceSetStmt                                    *sql.Stmt
-	getDeviceSetTypeStmt                                *sql.Stmt
-	getDeviceSetTypesBatchStmt                          *sql.Stmt
-	getDeviceSiteIDsByMembershipStmt                    *sql.Stmt
-	getDeviceStatusStmt                                 *sql.Stmt
-	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
-	getDeviceStatusDailyAggregatesStmt                  *sql.Stmt
-	getDeviceStatusForDeviceIdentifiersStmt             *sql.Stmt
-	getDeviceStatusHourlyAggregatesStmt                 *sql.Stmt
-	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt *sql.Stmt
-	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
-	getDiscoveredDeviceByDeviceIdentifierStmt           *sql.Stmt
-	getDiscoveredDeviceByIDStmt                         *sql.Stmt
-	getDiscoveredDeviceByIPAndPortStmt                  *sql.Stmt
-	getDistinctActivityUsersStmt                        *sql.Stmt
-	getDistinctEventTypesStmt                           *sql.Stmt
-	getDistinctScopeTypesStmt                           *sql.Stmt
-	getErrorByErrorIDStmt                               *sql.Stmt
-	getErrorByIDStmt                                    *sql.Stmt
-	getFilteredDeviceIdentifiersStmt                    *sql.Stmt
-	getFilteredDeviceIdsStmt                            *sql.Stmt
-	getFleetNodeByIDStmt                                *sql.Stmt
-	getFleetNodeByIDUnscopedStmt                        *sql.Stmt
-	getFleetNodeSessionByTokenHashStmt                  *sql.Stmt
-	getGroupLabelsForDevicesStmt                        *sql.Stmt
-	getKnownSubnetsStmt                                 *sql.Stmt
-	getLatestAllDeviceMetricsStmt                       *sql.Stmt
-	getLatestDeviceMetricsStmt                          *sql.Stmt
-	getMQTTSourceConfigByOrgStmt                        *sql.Stmt
-	getMQTTSourceStateByIDStmt                          *sql.Stmt
-	getMaxPriorityStmt                                  *sql.Stmt
-	getMessagesToProcessStmt                            *sql.Stmt
-	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
-	getMinerModelGroupsStmt                             *sql.Stmt
-	getMinerStateCountsByDeviceIDsStmt                  *sql.Stmt
-	getMinerStateSnapshotsStmt                          *sql.Stmt
-	getNoteStmt                                         *sql.Stmt
-	getOfflineDevicesStmt                               *sql.Stmt
-	getOpenErrorByDedupKeyStmt                          *sql.Stmt
-	getOrgScopeAssignmentForUserStmt                    *sql.Stmt
-	getOrganizationByIDStmt                             *sql.Stmt
-	getOrganizationByNameStmt                           *sql.Stmt
-	getOrganizationByOrgIDStmt                          *sql.Stmt
-	getOrganizationPrivateKeyStmt                       *sql.Stmt
-	getOrganizationsForUserStmt                         *sql.Stmt
-	getPairedDeviceByMACAddressStmt                     *sql.Stmt
-	getPairedDeviceBySerialNumberStmt                   *sql.Stmt
-	getPairedDevicesByMACAddressesStmt                  *sql.Stmt
-	getPairedDevicesIdsStmt                             *sql.Stmt
-	getPendingEnrollmentByCodeHashStmt                  *sql.Stmt
-	getPendingEnrollmentByFleetNodeStmt                 *sql.Stmt
-	getPermissionByKeyStmt                              *sql.Stmt
-	getPermissionsByKeysStmt                            *sql.Stmt
-	getPoolStmt                                         *sql.Stmt
-	getRackDetailsForDevicesStmt                        *sql.Stmt
-	getRackInfoStmt                                     *sql.Stmt
-	getRackInfoBatchStmt                                *sql.Stmt
-	getRackSlotsStmt                                    *sql.Stmt
-	getRoleByIDStmt                                     *sql.Stmt
-	getRoleByIDForUpdateStmt                            *sql.Stmt
-	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
-	getScheduleStmt                                     *sql.Stmt
-	getScheduleByIDForProcessorStmt                     *sql.Stmt
-	getScheduleForUpdateStmt                            *sql.Stmt
-	getScheduleTargetsStmt                              *sql.Stmt
-	getScheduleTargetsByScheduleIDsStmt                 *sql.Stmt
-	getSessionByIDStmt                                  *sql.Stmt
-	getSiteStmt                                         *sql.Stmt
-	getTotalDevicesPendingAuthStmt                      *sql.Stmt
-	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
-	getTotalPairedDevicesStmt                           *sql.Stmt
-	getTotalPoolsStmt                                   *sql.Stmt
-	getUserByExternalIdStmt                             *sql.Stmt
-	getUserByIdStmt                                     *sql.Stmt
-	getUserByIdForUpdateStmt                            *sql.Stmt
-	getUserByUsernameStmt                               *sql.Stmt
-	getUserRoleInOrganizationStmt                       *sql.Stmt
-	getUserRoleNameStmt                                 *sql.Stmt
-	getUsersForOrganizationStmt                         *sql.Stmt
-	hasUserStmt                                         *sql.Stmt
-	insertActivityLogStmt                               *sql.Stmt
-	insertCurtailmentEventStmt                          *sql.Stmt
-	insertDeviceStmt                                    *sql.Stmt
-	insertDeviceMetricsStmt                             *sql.Stmt
-	insertErrorStmt                                     *sql.Stmt
-	insertMQTTSourceConfigStmt                          *sql.Stmt
-	insertMinerStateSnapshotStmt                        *sql.Stmt
-	insertNotificationHistoryStmt                       *sql.Stmt
-	insertNotificationMetricSamplesStmt                 *sql.Stmt
-	isBatchFinishedStmt                                 *sql.Stmt
-	isBatchProcessingStmt                               *sql.Stmt
-	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
-	listActiveCurtailmentEventsStmt                     *sql.Stmt
-	listActiveOrganizationIDsStmt                       *sql.Stmt
-	listActivityLogsStmt                                *sql.Stmt
-	listApiKeysByOrganizationStmt                       *sql.Stmt
-	listAssignmentsForRoleStmt                          *sql.Stmt
-	listAssignmentsForUserStmt                          *sql.Stmt
-	listBatchDeviceResultsStmt                          *sql.Stmt
-	listBuildingRacksStmt                               *sql.Stmt
-	listBuildingsByOrgStmt                              *sql.Stmt
-	listBuiltinRolesForOrgStmt                          *sql.Stmt
-	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
-	listCurtailmentEventsForOrgStmt                     *sql.Stmt
-	listCurtailmentTargetsByEventStmt                   *sql.Stmt
-	listCurtailmentTargetsByEventPageStmt               *sql.Stmt
-	listCustomRolesForOrgStmt                           *sql.Stmt
-	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
-	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
-	listEffectivePermissionsForUserStmt                 *sql.Stmt
-	listEffectivePermissionsForUserForUpdateStmt        *sql.Stmt
-	listEnabledMQTTSourcesStmt                          *sql.Stmt
-	listExistingDeviceIdentifiersStmt                   *sql.Stmt
-	listFleetNodeDevicesStmt                            *sql.Stmt
-	listFleetNodeDiscoveredDevicesStmt                  *sql.Stmt
-	listFleetNodesForOrganizationStmt                   *sql.Stmt
-	listMQTTSourceConfigsByOrgStmt                      *sql.Stmt
-	listMQTTSourceStatesByOrgStmt                       *sql.Stmt
-	listMinerStateSnapshotsStmt                         *sql.Stmt
-	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
-	listNotesStmt                                       *sql.Stmt
-	listOrganizationsStmt                               *sql.Stmt
-	listPermissionsStmt                                 *sql.Stmt
-	listPoolsStmt                                       *sql.Stmt
-	listRackTypesStmt                                   *sql.Stmt
-	listRackZoneRefsStmt                                *sql.Stmt
-	listRackZonesStmt                                   *sql.Stmt
-	listRacksOutsideBuildingBoundsStmt                  *sql.Stmt
-	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
-	listRolePermissionKeysStmt                          *sql.Stmt
-	listRolesStmt                                       *sql.Stmt
-	listRolesWithDetailsForOrgStmt                      *sql.Stmt
-	listScheduleIDStatusesStmt                          *sql.Stmt
-	listSchedulesStmt                                   *sql.Stmt
-	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
-	listSitesStmt                                       *sql.Stmt
-	listUsersForOrganizationStmt                        *sql.Stmt
-	lockAndCountOrgScopeSuperAdminsStmt                 *sql.Stmt
-	lockBuildingForWriteStmt                            *sql.Stmt
-	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
-	lockDevicesForReassignStmt                          *sql.Stmt
-	lockFleetNodeByIDStmt                               *sql.Stmt
-	lockRackPlacementForWriteStmt                       *sql.Stmt
-	lockSchedulePriorityStmt                            *sql.Stmt
-	lockSiteForWriteStmt                                *sql.Stmt
-	markCommandBatchFinishedStmt                        *sql.Stmt
-	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
-	markCommandBatchProcessingStmt                      *sql.Stmt
-	negateSchedulePrioritiesStmt                        *sql.Stmt
-	pairDeviceToFleetNodeStmt                           *sql.Stmt
-	passwordUpdatedAtStmt                               *sql.Stmt
-	pauseActiveScheduleStmt                             *sql.Stmt
-	prunePermissionsOutsideKeysStmt                     *sql.Stmt
-	queryComponentKeysWithErrorsStmt                    *sql.Stmt
-	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
-	queryErrorsStmt                                     *sql.Stmt
-	reapStuckFirmwareUpdateMessagesStmt                 *sql.Stmt
-	reapStuckProcessingMessagesStmt                     *sql.Stmt
-	reassignDevicesToSiteStmt                           *sql.Stmt
-	reassignDevicesUnderBuildingStmt                    *sql.Stmt
-	reassignRacksUnderBuildingStmt                      *sql.Stmt
-	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
-	removeDevicesFromDeviceSetStmt                      *sql.Stmt
-	resetCurtailmentTargetsForRecurtailStmt             *sql.Stmt
-	resetCurtailmentTargetsForRestoreStmt               *sql.Stmt
-	resumeCurtailmentFromRestoringStmt                  *sql.Stmt
-	resumePausedScheduleStmt                            *sql.Stmt
-	revertScheduleToActiveStmt                          *sql.Stmt
-	revokeAllSessionsByUserIDStmt                       *sql.Stmt
-	revokeApiKeyStmt                                    *sql.Stmt
-	revokeApiKeysByFleetNodeIDStmt                      *sql.Stmt
-	revokePermissionFromRoleStmt                        *sql.Stmt
-	revokeSessionStmt                                   *sql.Stmt
-	setDevicePairingAuthNeededIfNotPairedStmt           *sql.Stmt
-	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
-	setMQTTSourceConfigEnabledStmt                      *sql.Stmt
-	setRackBuildingPositionStmt                         *sql.Stmt
-	setRackSlotPositionStmt                             *sql.Stmt
-	setSchedulePrioritiesStmt                           *sql.Stmt
-	setScheduleRunningStmt                              *sql.Stmt
-	siteBelongsToOrgStmt                                *sql.Stmt
-	softDeleteBuildingStmt                              *sql.Stmt
-	softDeleteBuildingsBySiteStmt                       *sql.Stmt
-	softDeleteCustomRoleStmt                            *sql.Stmt
-	softDeleteDeviceSetStmt                             *sql.Stmt
-	softDeleteDevicesStmt                               *sql.Stmt
-	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
-	softDeleteDiscoveredDevicesForDeletedDevicesStmt    *sql.Stmt
-	softDeleteFleetNodeStmt                             *sql.Stmt
-	softDeleteFleetNodesForExpiredEnrollmentsStmt       *sql.Stmt
-	softDeleteNoteStmt                                  *sql.Stmt
-	softDeleteOrganizationStmt                          *sql.Stmt
-	softDeletePoolStmt                                  *sql.Stmt
-	softDeleteRoleStmt                                  *sql.Stmt
-	softDeleteScheduleStmt                              *sql.Stmt
-	softDeleteSiteStmt                                  *sql.Stmt
-	softDeleteUserStmt                                  *sql.Stmt
-	softDeleteUserFromOrganizationStmt                  *sql.Stmt
-	sweepCurtailmentTargetsToRestoreFailedStmt          *sql.Stmt
-	sweepExpiredEnrollmentsStmt                         *sql.Stmt
-	sweepExpiredFleetNodeAuthChallengesStmt             *sql.Stmt
-	sweepExpiredFleetNodeSessionsStmt                   *sql.Stmt
-	transferDiscoveredDeviceAttributionStmt             *sql.Stmt
-	unassignDeviceSitesByRackStmt                       *sql.Stmt
-	unassignDevicesFromSiteStmt                         *sql.Stmt
-	unassignRacksFromBuildingStmt                       *sql.Stmt
-	unassignRacksFromBuildingsBySiteStmt                *sql.Stmt
-	unassignRacksFromSiteStmt                           *sql.Stmt
-	unassignRoleStmt                                    *sql.Stmt
-	undeleteOrganizationStmt                            *sql.Stmt
-	undeleteRoleStmt                                    *sql.Stmt
-	unpairDeviceStmt                                    *sql.Stmt
-	updateApiKeyLastUsedStmt                            *sql.Stmt
-	updateBuildingStmt                                  *sql.Stmt
-	updateCurtailmentEventOperatorFieldsStmt            *sql.Stmt
-	updateCurtailmentEventStateStmt                     *sql.Stmt
-	updateCurtailmentTargetStateStmt                    *sql.Stmt
-	updateCustomRoleNameStmt                            *sql.Stmt
-	updateDeviceIPAssignmentStmt                        *sql.Stmt
-	updateDeviceInfoStmt                                *sql.Stmt
-	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
-	updateDeviceSetDescriptionStmt                      *sql.Stmt
-	updateDeviceSetLabelStmt                            *sql.Stmt
-	updateDeviceSetLabelAndDescriptionStmt              *sql.Stmt
-	updateDeviceWorkerNameStmt                          *sql.Stmt
-	updateDeviceWorkerNamePoolSyncStatusByIDStmt        *sql.Stmt
-	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
-	updateFleetNodeLastSeenAtStmt                       *sql.Stmt
-	updateLastLoginStmt                                 *sql.Stmt
-	updateMQTTSourceConfigStmt                          *sql.Stmt
-	updateMessageAfterFailureStmt                       *sql.Stmt
-	updateMessagePermanentlyFailedStmt                  *sql.Stmt
-	updateMessageStatusStmt                             *sql.Stmt
-	updateMinerPasswordStmt                             *sql.Stmt
-	updateNoteContentStmt                               *sql.Stmt
-	updateOpenErrorStmt                                 *sql.Stmt
-	updateOrganizationStmt                              *sql.Stmt
-	updatePoolStmt                                      *sql.Stmt
-	updateRackInfoStmt                                  *sql.Stmt
-	updateRackPlacementStmt                             *sql.Stmt
-	updateRoleStmt                                      *sql.Stmt
-	updateScheduleStmt                                  *sql.Stmt
-	updateScheduleAfterRunStmt                          *sql.Stmt
-	updateSessionActivityStmt                           *sql.Stmt
-	updateSiteStmt                                      *sql.Stmt
-	updateUserPasswordStmt                              *sql.Stmt
-	updateUserPasswordAndFlagStmt                       *sql.Stmt
-	updateUserRoleStmt                                  *sql.Stmt
-	updateUserUsernameStmt                              *sql.Stmt
-	upsertBuiltinRoleForOrgStmt                         *sql.Stmt
-	upsertCommandOnDeviceLogStmt                        *sql.Stmt
-	upsertCurtailmentReconcilerHeartbeatStmt            *sql.Stmt
-	upsertCustomRoleForOrgStmt                          *sql.Stmt
-	upsertDevicePairingStmt                             *sql.Stmt
-	upsertDeviceStatusStmt                              *sql.Stmt
-	upsertDiscoveredDeviceStmt                          *sql.Stmt
-	upsertDiscoveredDeviceFromFleetNodeStmt             *sql.Stmt
-	upsertFleetNodeAuthChallengeStmt                    *sql.Stmt
-	upsertFleetNodeSessionStmt                          *sql.Stmt
-	upsertMQTTSourceStateStmt                           *sql.Stmt
-	upsertMinerCredentialsStmt                          *sql.Stmt
-	upsertPermissionStmt                                *sql.Stmt
+	db                                                           DBTX
+	tx                                                           *sql.Tx
+	acquireFleetRuntimeLeaseStmt                                 *sql.Stmt
+	acquireReconcileLockStmt                                     *sql.Stmt
+	addDevicesToDeviceSetStmt                                    *sql.Stmt
+	adminResetUserPasswordStmt                                   *sql.Stmt
+	adminTerminateCurtailmentEventStmt                           *sql.Stmt
+	advanceFirmwareRolloutStageStmt                              *sql.Stmt
+	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
+	allDevicesBelongToOrgStmt                                    *sql.Stmt
+	appendFirmwareRolloutDevicesStmt                             *sql.Stmt
+	applyFleetNodeRecoveredEndpointStmt                          *sql.Stmt
+	applyFleetNodeRecoveryAuthenticationNeededStmt               *sql.Stmt
+	assignBuildingToSiteStmt                                     *sql.Stmt
+	assignBuildingsToSiteBulkStmt                                *sql.Stmt
+	assignDevicesToBuildingStmt                                  *sql.Stmt
+	assignDevicesToSiteStmt                                      *sql.Stmt
+	assignPermissionToRoleStmt                                   *sql.Stmt
+	assignRoleStmt                                               *sql.Stmt
+	beginCurtailmentRestorationStmt                              *sql.Stmt
+	beginCurtailmentTopologyTargetRestoreStmt                    *sql.Stmt
+	bindCurtailmentAutomationRuleResponseProfileRevisionStmt     *sql.Stmt
+	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
+	buildingBelongsToOrgStmt                                     *sql.Stmt
+	buildingsByIDsStmt                                           *sql.Stmt
+	bulkAssignTicketsStmt                                        *sql.Stmt
+	bulkCloseTicketsStmt                                         *sql.Stmt
+	bulkConfirmCurtailmentTargetsStmt                            *sql.Stmt
+	bulkInsertCurtailmentTargetsStmt                             *sql.Stmt
+	bulkInsertNotificationHistoryStmt                            *sql.Stmt
+	bulkMarkTicketsUrgentStmt                                    *sql.Stmt
+	bulkRefreshAllPairedTargetReadinessStmt                      *sql.Stmt
+	bulkUpdateTicketStatusStmt                                   *sql.Stmt
+	bumpCurtailmentTargetRetryStmt                               *sql.Stmt
+	cancelActiveFirmwareRolloutStmt                              *sql.Stmt
+	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
+	cancelFirmwareRolloutStmt                                    *sql.Stmt
+	cancelPendingEnrollmentStmt                                  *sql.Stmt
+	cascadeAddedDeviceBuildingsStmt                              *sql.Stmt
+	cascadeAddedDeviceSitesStmt                                  *sql.Stmt
+	cascadeDevicesSiteForBuildingStmt                            *sql.Stmt
+	cascadeDirectDeviceSitesByBuildingsStmt                      *sql.Stmt
+	cascadeRackDeviceBuildingsStmt                               *sql.Stmt
+	cascadeRackDeviceBuildingsBulkStmt                           *sql.Stmt
+	cascadeRackDeviceSitesStmt                                   *sql.Stmt
+	cascadeRackDeviceSitesBulkStmt                               *sql.Stmt
+	checkFirmwareArtifactInUseStmt                               *sql.Stmt
+	claimAllPairedPolicyTargetsStmt                              *sql.Stmt
+	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
+	claimMessageForProcessingStmt                                *sql.Stmt
+	claimRigConfigReconciliationStmt                             *sql.Stmt
+	classifyFleetRuntimeLeaseAcquisitionStmt                     *sql.Stmt
+	clearCurtailmentAutomationActiveEventStmt                    *sql.Stmt
+	clearDeviceBuildingsByBuildingStmt                           *sql.Stmt
+	clearDeviceBuildingsBySiteStmt                               *sql.Stmt
+	clearDeviceBuildingsOnSiteMismatchStmt                       *sql.Stmt
+	clearDeviceSitesAndBuildingsStmt                             *sql.Stmt
+	clearRackPlacementForSoftDeleteStmt                          *sql.Stmt
+	clearRackSlotPositionStmt                                    *sql.Stmt
+	clearReleaseChannelFirmwareStmt                              *sql.Stmt
+	clearRolePermissionsStmt                                     *sql.Stmt
+	closeStaleErrorsStmt                                         *sql.Stmt
+	completeDelegatedFirmwareRolloutStmt                         *sql.Stmt
+	completeRigConfigReconciliationStmt                          *sql.Stmt
+	confirmEnrollmentStmt                                        *sql.Stmt
+	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
+	consumeReservedInventoryPartStmt                             *sql.Stmt
+	countActiveAssignmentsForRoleStmt                            *sql.Stmt
+	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
+	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
+	countActivityLogsStmt                                        *sql.Stmt
+	countBuildingsBySiteStmt                                     *sql.Stmt
+	countCompletedTicketsStmt                                    *sql.Stmt
+	countComponentsWithErrorsStmt                                *sql.Stmt
+	countConflictingCurtailmentFanClaimsStmt                     *sql.Stmt
+	countCurtailmentAutomationRulesByMQTTSourceStmt              *sql.Stmt
+	countCurtailmentAutomationRulesByResponseProfileStmt         *sql.Stmt
+	countCurtailmentResponseProfilesBySiteStmt                   *sql.Stmt
+	countCurtailmentScopeConflictsStmt                           *sql.Stmt
+	countDevicesWithErrorsStmt                                   *sql.Stmt
+	countErrorsStmt                                              *sql.Stmt
+	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
+	countInventoryPartsStmt                                      *sql.Stmt
+	countInventoryPartsBySiteStmt                                *sql.Stmt
+	countMinersByStateStmt                                       *sql.Stmt
+	countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt *sql.Stmt
+	countOrgScopeSuperAdminsExcludingUserStmt                    *sql.Stmt
+	countQueueMessagesByBatchStmt                                *sql.Stmt
+	countRacksBySiteStmt                                         *sql.Stmt
+	countRacksInBuildingStmt                                     *sql.Stmt
+	countReleaseChannelFirmwarePreviewMembersStmt                *sql.Stmt
+	countRepairTicketsStmt                                       *sql.Stmt
+	countRepairTicketsByBuildingStmt                             *sql.Stmt
+	countRepairTicketsBySiteStmt                                 *sql.Stmt
+	countResponseProfilesByInfrastructureDeviceStmt              *sql.Stmt
+	countResponseProfilesByInfrastructureDevicesStmt             *sql.Stmt
+	countUnexpiredAlertMaintenanceWindowsStmt                    *sql.Stmt
+	createApiKeyStmt                                             *sql.Stmt
+	createBuildingStmt                                           *sql.Stmt
+	createCommandBatchLogStmt                                    *sql.Stmt
+	createCustomRoleStmt                                         *sql.Stmt
+	createDeviceSetStmt                                          *sql.Stmt
+	createFirmwareRolloutStmt                                    *sql.Stmt
+	createFirmwareRolloutEventStmt                               *sql.Stmt
+	createFleetNodeStmt                                          *sql.Stmt
+	createFleetNodeApiKeyStmt                                    *sql.Stmt
+	createInfrastructureDeviceStmt                               *sql.Stmt
+	createInventoryPartStmt                                      *sql.Stmt
+	createNoteStmt                                               *sql.Stmt
+	createOrganizationStmt                                       *sql.Stmt
+	createPendingEnrollmentStmt                                  *sql.Stmt
+	createPoolStmt                                               *sql.Stmt
+	createQueueMessageStmt                                       *sql.Stmt
+	createQueueMessagesStmt                                      *sql.Stmt
+	createRackExtensionStmt                                      *sql.Stmt
+	createReleaseChannelStmt                                     *sql.Stmt
+	createRepairTicketStmt                                       *sql.Stmt
+	createRepairTicketCommentStmt                                *sql.Stmt
+	createScheduleStmt                                           *sql.Stmt
+	createScheduleTargetStmt                                     *sql.Stmt
+	createSessionStmt                                            *sql.Stmt
+	createSiteStmt                                               *sql.Stmt
+	createUserStmt                                               *sql.Stmt
+	createUserOrganizationStmt                                   *sql.Stmt
+	curtailmentEventHasInFlightTargetsStmt                       *sql.Stmt
+	deleteActiveRepairTicketPartsStmt                            *sql.Stmt
+	deleteAlertMaintenanceWindowStmt                             *sql.Stmt
+	deleteAlertRouteChannelsStmt                                 *sql.Stmt
+	deleteAlertRoutePolicyStmt                                   *sql.Stmt
+	deleteAlertRuleConfigStmt                                    *sql.Stmt
+	deleteCurtailmentAutomationRuleByOrgStmt                     *sql.Stmt
+	deleteCurtailmentResponseProfileByOrgStmt                    *sql.Stmt
+	deleteCurtailmentResponseProfilesBySiteStmt                  *sql.Stmt
+	deleteDisabledMQTTSourceConfigByOrgStmt                      *sql.Stmt
+	deleteExpiredSessionsStmt                                    *sql.Stmt
+	deleteFleetMetricRollupsForWindowStmt                        *sql.Stmt
+	deleteFleetNodeDevicePairingsStmt                            *sql.Stmt
+	deleteMinerCredentialsByDeviceIDAndOrgIDStmt                 *sql.Stmt
+	deleteMinerCredentialsForDeviceIdentifiersStmt               *sql.Stmt
+	deleteMinerCredentialsForFleetNodeStmt                       *sql.Stmt
+	deleteOrganizationStmt                                       *sql.Stmt
+	deletePairingsForFleetNodeStmt                               *sql.Stmt
+	deletePoolStmt                                               *sql.Stmt
+	deleteReleaseChannelStmt                                     *sql.Stmt
+	deleteReleaseChannelTargetsStmt                              *sql.Stmt
+	deleteReleasedFirmwareRolloutReservationsStmt                *sql.Stmt
+	deleteScheduleTargetsStmt                                    *sql.Stmt
+	deviceHasActiveCloudPairingStmt                              *sql.Stmt
+	deviceHasActivePairingStmt                                   *sql.Stmt
+	deviceSetBelongsToOrgStmt                                    *sql.Stmt
+	deviceSetsByIDsStmt                                          *sql.Stmt
+	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
+	disableSyncCommitStmt                                        *sql.Stmt
+	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
+	excludeFirmwareRolloutDevicesStmt                            *sql.Stmt
+	findDeviceBuildingConflictsStmt                              *sql.Stmt
+	findDeviceSiteConflictsStmt                                  *sql.Stmt
+	findDevicesInBuildingLessPlacedRacksStmt                     *sql.Stmt
+	findDevicesInSiteLessRacksStmt                               *sql.Stmt
+	findDevicesWithSiteOrBuildingStmt                            *sql.Stmt
+	finishFirmwareRolloutStmt                                    *sql.Stmt
+	finishTerminalCommandBatchesStmt                             *sql.Stmt
+	forceReleaseCurtailmentEventStmt                             *sql.Stmt
+	getActiveFirmwareRolloutForPairStmt                          *sql.Stmt
+	getActiveSchedulesStmt                                       *sql.Stmt
+	getActiveUnpairedDiscoveredDevicesStmt                       *sql.Stmt
+	getAddedDeviceSiteConflictsStmt                              *sql.Stmt
+	getAlertChannelStmt                                          *sql.Stmt
+	getAlertChannelByNameStmt                                    *sql.Stmt
+	getAlertRuleConfigStmt                                       *sql.Stmt
+	getAllDeviceInfoForCapabilityCheckStmt                       *sql.Stmt
+	getAllDeviceMetricsDailyAggregatesStmt                       *sql.Stmt
+	getAllDeviceMetricsHourlyAggregatesStmt                      *sql.Stmt
+	getAllDeviceMetricsRawBucketAggregatesStmt                   *sql.Stmt
+	getAllDeviceMetricsTimeSeriesStmt                            *sql.Stmt
+	getAllDeviceStatusDailyAggregatesStmt                        *sql.Stmt
+	getAllDeviceStatusHourlyAggregatesStmt                       *sql.Stmt
+	getAllMinerStateSnapshotDeviceRollups1mStmt                  *sql.Stmt
+	getAllMinerStateSnapshotDeviceRollupsDailyStmt               *sql.Stmt
+	getAllMinerStateSnapshotDeviceRollupsHourlyStmt              *sql.Stmt
+	getAllPairedDeviceIdentifiersStmt                            *sql.Stmt
+	getApiKeyByHashStmt                                          *sql.Stmt
+	getAssignmentByIDStmt                                        *sql.Stmt
+	getAvailableFirmwareVersionsStmt                             *sql.Stmt
+	getAvailableModelsStmt                                       *sql.Stmt
+	getBatchHeaderForOrgStmt                                     *sql.Stmt
+	getBatchLogStmt                                              *sql.Stmt
+	getBatchStatusAndDeviceCountsStmt                            *sql.Stmt
+	getBuildingStmt                                              *sql.Stmt
+	getBuildingSiteStmt                                          *sql.Stmt
+	getBuildingSiteIDStmt                                        *sql.Stmt
+	getBuiltinRoleForOrgStmt                                     *sql.Stmt
+	getConnectedPostgresIdentityStmt                             *sql.Stmt
+	getCurtailmentAutomationRuleByOrgStmt                        *sql.Stmt
+	getCurtailmentEventByExternalReferenceStmt                   *sql.Stmt
+	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
+	getCurtailmentEventByUUIDStmt                                *sql.Stmt
+	getCurtailmentEventDetailByUUIDStmt                          *sql.Stmt
+	getCurtailmentOrgConfigStmt                                  *sql.Stmt
+	getCurtailmentReconcilerHeartbeatStmt                        *sql.Stmt
+	getCurtailmentResponseProfileByOrgStmt                       *sql.Stmt
+	getCurtailmentTargetRollupByEventStmt                        *sql.Stmt
+	getDeviceByDeviceIdentifierStmt                              *sql.Stmt
+	getDeviceByIDStmt                                            *sql.Stmt
+	getDeviceCommandRoutesStmt                                   *sql.Stmt
+	getDeviceDeviceSetsStmt                                      *sql.Stmt
+	getDeviceDeviceSetsByTypeStmt                                *sql.Stmt
+	getDeviceIDByDeviceIdentifierStmt                            *sql.Stmt
+	getDeviceIDByIdentifierStmt                                  *sql.Stmt
+	getDeviceIDsByDeviceIdentifiersStmt                          *sql.Stmt
+	getDeviceIDsWithIdentifiersStmt                              *sql.Stmt
+	getDeviceIdentifierByIDStmt                                  *sql.Stmt
+	getDeviceIdentifiersByDeviceSetIDStmt                        *sql.Stmt
+	getDeviceIdentitiesStmt                                      *sql.Stmt
+	getDeviceInfoForCapabilityCheckStmt                          *sql.Stmt
+	getDeviceMetricsDailyAggregatesStmt                          *sql.Stmt
+	getDeviceMetricsHourlyAggregatesStmt                         *sql.Stmt
+	getDeviceMetricsRawBucketAggregatesStmt                      *sql.Stmt
+	getDeviceMetricsTimeSeriesStmt                               *sql.Stmt
+	getDevicePairingStatusByDeviceDatabaseIDStmt                 *sql.Stmt
+	getDevicePropertiesForRenameStmt                             *sql.Stmt
+	getDevicePropertiesForRenameWithoutTelemetryStmt             *sql.Stmt
+	getDeviceSetStmt                                             *sql.Stmt
+	getDeviceSetTypeStmt                                         *sql.Stmt
+	getDeviceSetTypesBatchStmt                                   *sql.Stmt
+	getDeviceSiteIDsByMembershipStmt                             *sql.Stmt
+	getDeviceStatusStmt                                          *sql.Stmt
+	getDeviceStatusByDeviceIdentifierStmt                        *sql.Stmt
+	getDeviceStatusDailyAggregatesStmt                           *sql.Stmt
+	getDeviceStatusForDeviceIdentifiersStmt                      *sql.Stmt
+	getDeviceStatusHourlyAggregatesStmt                          *sql.Stmt
+	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt          *sql.Stmt
+	getDirectProtoMinerProxyTargetStmt                           *sql.Stmt
+	getDiscoveredDeviceByDeviceIdentifierStmt                    *sql.Stmt
+	getDiscoveredDeviceByIDStmt                                  *sql.Stmt
+	getDiscoveredDeviceByIPAndPortStmt                           *sql.Stmt
+	getDistinctActivityUsersStmt                                 *sql.Stmt
+	getDistinctDeviceSiteIDsStmt                                 *sql.Stmt
+	getDistinctEventTypesStmt                                    *sql.Stmt
+	getDistinctScopeTypesStmt                                    *sql.Stmt
+	getEnabledCurtailmentAutomationRuleByEventStmt               *sql.Stmt
+	getErrorByErrorIDStmt                                        *sql.Stmt
+	getErrorByIDStmt                                             *sql.Stmt
+	getFilteredDeviceIdentifiersStmt                             *sql.Stmt
+	getFilteredDeviceIdsStmt                                     *sql.Stmt
+	getFilteredTicketStatsStmt                                   *sql.Stmt
+	getFirmwareRolloutStmt                                       *sql.Stmt
+	getFirmwareRolloutForUpdateStmt                              *sql.Stmt
+	getFirmwareRolloutPollWatermarkStmt                          *sql.Stmt
+	getFirmwareRolloutWithChannelStmt                            *sql.Stmt
+	getFleetMetricRollupCoverageStmt                             *sql.Stmt
+	getFleetNodeByIDStmt                                         *sql.Stmt
+	getFleetNodeByIDUnscopedStmt                                 *sql.Stmt
+	getFleetNodePairedDeviceIdentifierStmt                       *sql.Stmt
+	getFleetNodeSessionByTokenHashStmt                           *sql.Stmt
+	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
+	getGroupRefsForDevicesStmt                                   *sql.Stmt
+	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
+	getInfrastructureControlSubnetsStmt                          *sql.Stmt
+	getInfrastructureDeviceStmt                                  *sql.Stmt
+	getInventoryInsightsStmt                                     *sql.Stmt
+	getInventoryPartStmt                                         *sql.Stmt
+	getInventoryPartForUpdateStmt                                *sql.Stmt
+	getKnownSubnetsStmt                                          *sql.Stmt
+	getLatestAllDeviceMetricsStmt                                *sql.Stmt
+	getLatestDeviceMetricsStmt                                   *sql.Stmt
+	getLatestFirmwareRolloutForPairStmt                          *sql.Stmt
+	getLatestFleetMetricRollupBucketStmt                         *sql.Stmt
+	getMQTTSourceConfigByOrgStmt                                 *sql.Stmt
+	getMQTTSourceStateByIDStmt                                   *sql.Stmt
+	getMaxPriorityStmt                                           *sql.Stmt
+	getMessagesToProcessStmt                                     *sql.Stmt
+	getMinerCredentialsByDeviceIDStmt                            *sql.Stmt
+	getMinerModelGroupsStmt                                      *sql.Stmt
+	getMinerStateCountsByDeviceIDsStmt                           *sql.Stmt
+	getMinerStateSnapshotDeviceRollups1mStmt                     *sql.Stmt
+	getMinerStateSnapshotDeviceRollupsDailyStmt                  *sql.Stmt
+	getMinerStateSnapshotDeviceRollupsHourlyStmt                 *sql.Stmt
+	getMinerStateSnapshotsStmt                                   *sql.Stmt
+	getNoteStmt                                                  *sql.Stmt
+	getOfflineDevicesStmt                                        *sql.Stmt
+	getOfflineFleetNodeDevicesStmt                               *sql.Stmt
+	getOpenErrorByDedupKeyStmt                                   *sql.Stmt
+	getOrgDeviceMetricsHourlyAggregatesStmt                      *sql.Stmt
+	getOrgDeviceMetricsRawBucketAggregatesStmt                   *sql.Stmt
+	getOrgDeviceStatusHourlyAggregatesStmt                       *sql.Stmt
+	getOrgFleetMetricRollupsStmt                                 *sql.Stmt
+	getOrgScopeAssignmentForUserStmt                             *sql.Stmt
+	getOrganizationByIDStmt                                      *sql.Stmt
+	getOrganizationByNameStmt                                    *sql.Stmt
+	getOrganizationByOrgIDStmt                                   *sql.Stmt
+	getOrganizationsForUserStmt                                  *sql.Stmt
+	getPairedDeviceByMACAddressStmt                              *sql.Stmt
+	getPairedDeviceBySerialNumberStmt                            *sql.Stmt
+	getPairedDevicesByMACAddressesStmt                           *sql.Stmt
+	getPairedDevicesIdsStmt                                      *sql.Stmt
+	getPairedProtoDeviceIdentifiersByIdentifiersStmt             *sql.Stmt
+	getPendingEnrollmentByCodeHashStmt                           *sql.Stmt
+	getPendingEnrollmentByFleetNodeStmt                          *sql.Stmt
+	getPermissionByKeyStmt                                       *sql.Stmt
+	getPermissionsByKeysStmt                                     *sql.Stmt
+	getPoolStmt                                                  *sql.Stmt
+	getQueueMessagesByBatchStmt                                  *sql.Stmt
+	getRackDetailsForDevicesStmt                                 *sql.Stmt
+	getRackInfoStmt                                              *sql.Stmt
+	getRackInfoBatchStmt                                         *sql.Stmt
+	getRackSlotsStmt                                             *sql.Stmt
+	getReleaseChannelStmt                                        *sql.Stmt
+	getReleaseChannelDeletionStateStmt                           *sql.Stmt
+	getReleaseChannelFirmwareStmt                                *sql.Stmt
+	getReleaseChannelForUpdateStmt                               *sql.Stmt
+	getReleaseChannelSettingStmt                                 *sql.Stmt
+	getRepairTicketStmt                                          *sql.Stmt
+	getRepairTicketCommentByIdempotencyKeyStmt                   *sql.Stmt
+	getRepairTicketCommentSiteForUpdateStmt                      *sql.Stmt
+	getRepairTicketForUpdateStmt                                 *sql.Stmt
+	getRepairTicketIDByIdempotencyKeyStmt                        *sql.Stmt
+	getRoleByIDStmt                                              *sql.Stmt
+	getRoleByIDForUpdateStmt                                     *sql.Stmt
+	getRunningPowerTargetScheduleOverlapsStmt                    *sql.Stmt
+	getScheduleStmt                                              *sql.Stmt
+	getScheduleByIDForProcessorStmt                              *sql.Stmt
+	getScheduleForUpdateStmt                                     *sql.Stmt
+	getScheduleTargetsStmt                                       *sql.Stmt
+	getScheduleTargetsByScheduleIDsStmt                          *sql.Stmt
+	getSessionByIDStmt                                           *sql.Stmt
+	getSiteStmt                                                  *sql.Stmt
+	getSiteBySlugStmt                                            *sql.Stmt
+	getTotalDevicesPendingAuthStmt                               *sql.Stmt
+	getTotalMinerStateSnapshotsStmt                              *sql.Stmt
+	getTotalPairedDevicesStmt                                    *sql.Stmt
+	getTotalPoolsStmt                                            *sql.Stmt
+	getUserByExternalIdStmt                                      *sql.Stmt
+	getUserByIdStmt                                              *sql.Stmt
+	getUserByIdForUpdateStmt                                     *sql.Stmt
+	getUserByUsernameStmt                                        *sql.Stmt
+	getUserRoleInOrganizationStmt                                *sql.Stmt
+	getUserRoleNameStmt                                          *sql.Stmt
+	getUserRoleNameForUpdateStmt                                 *sql.Stmt
+	getUsersForOrganizationStmt                                  *sql.Stmt
+	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
+	hasUserStmt                                                  *sql.Stmt
+	insertActivityLogStmt                                        *sql.Stmt
+	insertAlertChannelStmt                                       *sql.Stmt
+	insertAlertMaintenanceWindowStmt                             *sql.Stmt
+	insertAlertRouteChannelsStmt                                 *sql.Stmt
+	insertCurtailmentAutomationRuleStmt                          *sql.Stmt
+	insertCurtailmentEventStmt                                   *sql.Stmt
+	insertCurtailmentResponseProfileStmt                         *sql.Stmt
+	insertDeviceStmt                                             *sql.Stmt
+	insertDeviceMetricsStmt                                      *sql.Stmt
+	insertErrorStmt                                              *sql.Stmt
+	insertMQTTSourceConfigStmt                                   *sql.Stmt
+	insertMinerStateSnapshotStmt                                 *sql.Stmt
+	insertNotificationHistoryStmt                                *sql.Stmt
+	insertNotificationMetricSamplesStmt                          *sql.Stmt
+	insertReleaseChannelMinerTargetsStmt                         *sql.Stmt
+	insertReleaseChannelTargetsStmt                              *sql.Stmt
+	insertRepairTicketPartStmt                                   *sql.Stmt
+	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
+	isBatchFinishedStmt                                          *sql.Stmt
+	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
+	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
+	listActiveCurtailmentEventsStmt                              *sql.Stmt
+	listActiveCurtailmentTargetDevicesByOrgStmt                  *sql.Stmt
+	listActiveFirmwareRolloutsStmt                               *sql.Stmt
+	listActiveNotificationGroupsStmt                             *sql.Stmt
+	listActiveNotificationsStmt                                  *sql.Stmt
+	listActiveNotificationsByAlertStmt                           *sql.Stmt
+	listActiveOrganizationIDsStmt                                *sql.Stmt
+	listActivityLogsStmt                                         *sql.Stmt
+	listAlertChannelsStmt                                        *sql.Stmt
+	listAlertMaintenanceWindowsStmt                              *sql.Stmt
+	listAlertRoutePoliciesStmt                                   *sql.Stmt
+	listAlertRuleConfigsStmt                                     *sql.Stmt
+	listApiKeysByOrganizationStmt                                *sql.Stmt
+	listAssignmentsForRoleStmt                                   *sql.Stmt
+	listAssignmentsForUserStmt                                   *sql.Stmt
+	listBatchDeviceResultsStmt                                   *sql.Stmt
+	listBuildingNamesBySiteStmt                                  *sql.Stmt
+	listBuildingRacksStmt                                        *sql.Stmt
+	listBuildingsByOrgStmt                                       *sql.Stmt
+	listBuiltinRolesForOrgStmt                                   *sql.Stmt
+	listCompletedTicketAssigneesStmt                             *sql.Stmt
+	listCompletedTicketsStmt                                     *sql.Stmt
+	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
+	listCurtailmentBuildingScopeCoverageStmt                     *sql.Stmt
+	listCurtailmentCandidatesByOrgStmt                           *sql.Stmt
+	listCurtailmentEventsForOrgStmt                              *sql.Stmt
+	listCurtailmentGroupScopeCoverageStmt                        *sql.Stmt
+	listCurtailmentRackScopeCoverageStmt                         *sql.Stmt
+	listCurtailmentResponseProfileDeviceSitesByOrgStmt           *sql.Stmt
+	listCurtailmentResponseProfilesByOrgStmt                     *sql.Stmt
+	listCurtailmentTargetSiteCoverageByEventStmt                 *sql.Stmt
+	listCurtailmentTargetSiteCoverageByEventsStmt                *sql.Stmt
+	listCurtailmentTargetsByEventStmt                            *sql.Stmt
+	listCurtailmentTargetsByEventPageStmt                        *sql.Stmt
+	listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt      *sql.Stmt
+	listCustomRolesForOrgStmt                                    *sql.Stmt
+	listDeviceIDsByIdentifiersStmt                               *sql.Stmt
+	listDeviceSetMembersPaginatedStmt                            *sql.Stmt
+	listDeviceSetMembersPaginatedAfterStmt                       *sql.Stmt
+	listDeviceSetMembersPaginatedFilteredStmt                    *sql.Stmt
+	listDeviceSetMembersPaginatedFilteredAfterStmt               *sql.Stmt
+	listEarlierCurtailmentReservationDevicesStmt                 *sql.Stmt
+	listEarlierCurtailmentTopologyReservationScopesStmt          *sql.Stmt
+	listEffectivePermissionsForUserStmt                          *sql.Stmt
+	listEffectivePermissionsForUserForUpdateStmt                 *sql.Stmt
+	listEligibleConfirmationTargetsStmt                          *sql.Stmt
+	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt        *sql.Stmt
+	listEnabledMQTTSourcesStmt                                   *sql.Stmt
+	listExistingDeviceIdentifiersStmt                            *sql.Stmt
+	listFirmwareRolloutDevicesStmt                               *sql.Stmt
+	listFirmwareRolloutDispatchCompletionsStmt                   *sql.Stmt
+	listFirmwareRolloutEventsStmt                                *sql.Stmt
+	listFirmwareRolloutOfflineSlotsStmt                          *sql.Stmt
+	listFirmwareRolloutsStmt                                     *sql.Stmt
+	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
+	listFleetNodeDevicesStmt                                     *sql.Stmt
+	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
+	listFleetNodesForOrganizationStmt                            *sql.Stmt
+	listInfrastructureDevicesByOrgStmt                           *sql.Stmt
+	listInventoryPartsStmt                                       *sql.Stmt
+	listMQTTSourceConfigsByOrgStmt                               *sql.Stmt
+	listMQTTSourceStatesByOrgStmt                                *sql.Stmt
+	listMQTTSourcesWithActiveCurtailmentStmt                     *sql.Stmt
+	listMaintenanceAssigneesStmt                                 *sql.Stmt
+	listManagedFirmwareUpdateDevicesStmt                         *sql.Stmt
+	listMinerStateSnapshotsStmt                                  *sql.Stmt
+	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
+	listNotesStmt                                                *sql.Stmt
+	listNotificationHistoryStmt                                  *sql.Stmt
+	listOrganizationsStmt                                        *sql.Stmt
+	listPartsBySiteStmt                                          *sql.Stmt
+	listPermissionsStmt                                          *sql.Stmt
+	listPoolsStmt                                                *sql.Stmt
+	listRackTypesStmt                                            *sql.Stmt
+	listRackZoneRefsStmt                                         *sql.Stmt
+	listRackZonesStmt                                            *sql.Stmt
+	listRacksOutsideBuildingBoundsStmt                           *sql.Stmt
+	listRecentlyResolvedCurtailedDevicesByOrgStmt                *sql.Stmt
+	listRecentlyResolvedCurtailedDevicesByScopeStmt              *sql.Stmt
+	listReleaseChannelFirmwareStmt                               *sql.Stmt
+	listReleaseChannelFirmwareNeedingRolloutStmt                 *sql.Stmt
+	listReleaseChannelMembersStmt                                *sql.Stmt
+	listReleaseChannelMembershipConflictsPageStmt                *sql.Stmt
+	listReleaseChannelMinersPageStmt                             *sql.Stmt
+	listReleaseChannelMismatchedMembersStmt                      *sql.Stmt
+	listReleaseChannelModelGroupsPageStmt                        *sql.Stmt
+	listReleaseChannelPageFirmwareStmt                           *sql.Stmt
+	listReleaseChannelPageMemberModelsStmt                       *sql.Stmt
+	listReleaseChannelPageTargetsStmt                            *sql.Stmt
+	listReleaseChannelSuppressedMembersStmt                      *sql.Stmt
+	listReleaseChannelTargetsStmt                                *sql.Stmt
+	listReleaseChannelsStmt                                      *sql.Stmt
+	listReleaseChannelsPageStmt                                  *sql.Stmt
+	listRepairTicketCommentsStmt                                 *sql.Stmt
+	listRepairTicketPartsStmt                                    *sql.Stmt
+	listRepairTicketsStmt                                        *sql.Stmt
+	listResponseProfileInfrastructureDevicesByOrgStmt            *sql.Stmt
+	listRigConfigReconciliationTargetsStmt                       *sql.Stmt
+	listRolePermissionKeysStmt                                   *sql.Stmt
+	listRolesStmt                                                *sql.Stmt
+	listRolesWithDetailsForOrgStmt                               *sql.Stmt
+	listScheduleIDStatusesStmt                                   *sql.Stmt
+	listSchedulesStmt                                            *sql.Stmt
+	listSiteNetworkConfigsForOverlapStmt                         *sql.Stmt
+	listSiteSlugsStmt                                            *sql.Stmt
+	listSitesStmt                                                *sql.Stmt
+	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
+	listTerminalFirmwareRolloutsNeedingProvenanceStmt            *sql.Stmt
+	listUsersForOrganizationStmt                                 *sql.Stmt
+	lockActiveSuperAdminUsersStmt                                *sql.Stmt
+	lockAlertMaintenanceWindowOrgForWriteStmt                    *sql.Stmt
+	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
+	lockBuildingForWriteStmt                                     *sql.Stmt
+	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
+	lockCommandBatchStmt                                         *sql.Stmt
+	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
+	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
+	lockCurtailmentAutomationRuleMutationStmt                    *sql.Stmt
+	lockCurtailmentEventByUUIDForWriteStmt                       *sql.Stmt
+	lockCurtailmentEventForFanCommandStmt                        *sql.Stmt
+	lockCurtailmentEventScopeForWriteStmt                        *sql.Stmt
+	lockCurtailmentFanDeviceForWriteStmt                         *sql.Stmt
+	lockCurtailmentFanDevicesForWriteStmt                        *sql.Stmt
+	lockCurtailmentGroupsForWriteStmt                            *sql.Stmt
+	lockCurtailmentResponseProfileAutomationMutationStmt         *sql.Stmt
+	lockCurtailmentResponseProfileDeviceSitesByOrgStmt           *sql.Stmt
+	lockCurtailmentResponseProfileRevisionForExecutionStmt       *sql.Stmt
+	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
+	lockCurtailmentTargetPairingStatusesForWriteStmt             *sql.Stmt
+	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
+	lockDeviceByIdentifierStmt                                   *sql.Stmt
+	lockDevicesForReassignStmt                                   *sql.Stmt
+	lockFleetNodeByIDStmt                                        *sql.Stmt
+	lockFleetNodePairingDeviceStmt                               *sql.Stmt
+	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
+	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
+	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
+	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
+	lockInventorySitesStmt                                       *sql.Stmt
+	lockMaintenanceBuildingForTicketStmt                         *sql.Stmt
+	lockMaintenanceMinerForTicketStmt                            *sql.Stmt
+	lockMaintenanceRackForTicketStmt                             *sql.Stmt
+	lockMaintenanceSiteForTicketStmt                             *sql.Stmt
+	lockRackPlacementForWriteStmt                                *sql.Stmt
+	lockRacksForReparentStmt                                     *sql.Stmt
+	lockReleaseChannelScopesStmt                                 *sql.Stmt
+	lockRepairTicketCommentCreateKeyStmt                         *sql.Stmt
+	lockRepairTicketCreateKeyStmt                                *sql.Stmt
+	lockSchedulePriorityStmt                                     *sql.Stmt
+	lockSiteForWriteStmt                                         *sql.Stmt
+	markCommandBatchFinishedStmt                                 *sql.Stmt
+	markCommandBatchFinishedWithStartedAtStmt                    *sql.Stmt
+	markCommandBatchProcessingStmt                               *sql.Stmt
+	markFirmwareRolloutDevicesSentStmt                           *sql.Stmt
+	markFirmwareRolloutDevicesVerifiedStmt                       *sql.Stmt
+	markRepairTicketPartsConsumedStmt                            *sql.Stmt
+	negateSchedulePrioritiesStmt                                 *sql.Stmt
+	nextRepairTicketNumberStmt                                   *sql.Stmt
+	observeFirmwareRolloutReservationsOfflineStmt                *sql.Stmt
+	pairDeviceToFleetNodeStmt                                    *sql.Stmt
+	passwordUpdatedAtStmt                                        *sql.Stmt
+	pauseActiveScheduleStmt                                      *sql.Stmt
+	pauseFirmwareRolloutStmt                                     *sql.Stmt
+	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
+	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
+	prunePermissionsOutsideKeysStmt                              *sql.Stmt
+	queryComponentKeysWithErrorsStmt                             *sql.Stmt
+	queryDeviceIDsWithErrorsStmt                                 *sql.Stmt
+	queryErrorsStmt                                              *sql.Stmt
+	reapMessagesStmt                                             *sql.Stmt
+	reassignDevicesUnderBuildingStmt                             *sql.Stmt
+	reassignDevicesUnderBuildingsBulkStmt                        *sql.Stmt
+	reassignRacksUnderBuildingStmt                               *sql.Stmt
+	reassignRacksUnderBuildingsBulkStmt                          *sql.Stmt
+	reconcileAuthenticationNeededPairingStatusByIdentifierStmt   *sql.Stmt
+	reconcileCloudAuthNeededByIdentifierStmt                     *sql.Stmt
+	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
+	recordCurtailPendingDispatchStmt                             *sql.Stmt
+	recordFirmwareDeploymentStmt                                 *sql.Stmt
+	recordFirmwareRolloutActionStmt                              *sql.Stmt
+	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
+	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
+	releaseInventoryPartStmt                                     *sql.Stmt
+	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
+	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
+	removeDevicesFromAnyRackStmt                                 *sql.Stmt
+	removeDevicesFromDeviceSetStmt                               *sql.Stmt
+	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
+	requestRigConfigReconciliationStmt                           *sql.Stmt
+	requestRigConfigReconciliationForDevicesStmt                 *sql.Stmt
+	requeueFirmwareRolloutDevicesStmt                            *sql.Stmt
+	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
+	reserveInventoryPartStmt                                     *sql.Stmt
+	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
+	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
+	resetReapedFirmwareStatusesStmt                              *sql.Stmt
+	resolveCurtailmentTopologyDispatchStmt                       *sql.Stmt
+	resolveInventorySiteByNameStmt                               *sql.Stmt
+	resolveMaintenanceAssigneeStmt                               *sql.Stmt
+	resolveMaintenanceLocationContextStmt                        *sql.Stmt
+	resolveMaintenanceMinerContextStmt                           *sql.Stmt
+	resolveReleaseChannelScopeStmt                               *sql.Stmt
+	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
+	resumeFirmwareRolloutStmt                                    *sql.Stmt
+	resumePausedScheduleStmt                                     *sql.Stmt
+	retryRigConfigReconciliationStmt                             *sql.Stmt
+	revertScheduleToActiveStmt                                   *sql.Stmt
+	revokeAllSessionsByUserIDStmt                                *sql.Stmt
+	revokeApiKeyStmt                                             *sql.Stmt
+	revokeApiKeysByFleetNodeIDStmt                               *sql.Stmt
+	revokePermissionFromRoleStmt                                 *sql.Stmt
+	revokeSessionStmt                                            *sql.Stmt
+	setCurtailmentAutomationActiveEventStmt                      *sql.Stmt
+	setCurtailmentAutomationExecutionErrorStmt                   *sql.Stmt
+	setCurtailmentAutomationRestoreStartedStmt                   *sql.Stmt
+	setCurtailmentAutomationRuleEnabledStmt                      *sql.Stmt
+	setDevicePairingAuthNeededIfNotPairedStmt                    *sql.Stmt
+	setFirmwareRolloutControllerWaitStmt                         *sql.Stmt
+	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
+	setInfrastructureControlSubnetsStmt                          *sql.Stmt
+	setLocalTransactionTimeoutStmt                               *sql.Stmt
+	setMQTTSourceConfigEnabledStmt                               *sql.Stmt
+	setRackBuildingPositionStmt                                  *sql.Stmt
+	setRackBuildingPositionBulkClearStmt                         *sql.Stmt
+	setRackBuildingPositionBulkPlaceStmt                         *sql.Stmt
+	setRackSlotPositionStmt                                      *sql.Stmt
+	setSchedulePrioritiesStmt                                    *sql.Stmt
+	setScheduleRunningStmt                                       *sql.Stmt
+	siteBelongsToOrgStmt                                         *sql.Stmt
+	sitesByIDsStmt                                               *sql.Stmt
+	skipFirmwareRolloutDevicesStmt                               *sql.Stmt
+	snapshotFirmwareRolloutDevicesStmt                           *sql.Stmt
+	softDeleteAlertChannelStmt                                   *sql.Stmt
+	softDeleteBuildingStmt                                       *sql.Stmt
+	softDeleteBuildingsBySiteStmt                                *sql.Stmt
+	softDeleteCustomRoleStmt                                     *sql.Stmt
+	softDeleteDeviceSetStmt                                      *sql.Stmt
+	softDeleteDevicesStmt                                        *sql.Stmt
+	softDeleteDiscoveredDeviceByIdentifierStmt                   *sql.Stmt
+	softDeleteDiscoveredDevicesForDeletedDevicesStmt             *sql.Stmt
+	softDeleteFleetNodeStmt                                      *sql.Stmt
+	softDeleteFleetNodesForExpiredEnrollmentsStmt                *sql.Stmt
+	softDeleteInfrastructureDeviceStmt                           *sql.Stmt
+	softDeleteInfrastructureDevicesBySiteStmt                    *sql.Stmt
+	softDeleteInventoryPartStmt                                  *sql.Stmt
+	softDeleteNoteStmt                                           *sql.Stmt
+	softDeleteOrganizationStmt                                   *sql.Stmt
+	softDeletePoolStmt                                           *sql.Stmt
+	softDeleteRepairTicketCommentByAuthorStmt                    *sql.Stmt
+	softDeleteRoleStmt                                           *sql.Stmt
+	softDeleteScheduleStmt                                       *sql.Stmt
+	softDeleteSiteStmt                                           *sql.Stmt
+	softDeleteUserStmt                                           *sql.Stmt
+	softDeleteUserFromOrganizationStmt                           *sql.Stmt
+	sweepAlertRuleConfigsStmt                                    *sql.Stmt
+	sweepCurtailmentTargetsToReleasedStmt                        *sql.Stmt
+	sweepCurtailmentTargetsToRestoreFailedStmt                   *sql.Stmt
+	sweepExpiredEnrollmentsStmt                                  *sql.Stmt
+	sweepExpiredFleetNodeAuthChallengesStmt                      *sql.Stmt
+	sweepExpiredFleetNodeSessionsStmt                            *sql.Stmt
+	transferDiscoveredDeviceAttributionStmt                      *sql.Stmt
+	unassignDeviceBuildingsByRackStmt                            *sql.Stmt
+	unassignDeviceSitesByRackStmt                                *sql.Stmt
+	unassignDevicesFromSiteStmt                                  *sql.Stmt
+	unassignRacksFromBuildingStmt                                *sql.Stmt
+	unassignRacksFromBuildingsBySiteStmt                         *sql.Stmt
+	unassignRacksFromSiteStmt                                    *sql.Stmt
+	unassignRoleStmt                                             *sql.Stmt
+	undeleteOrganizationStmt                                     *sql.Stmt
+	undeleteRoleStmt                                             *sql.Stmt
+	unpairDeviceStmt                                             *sql.Stmt
+	unverifyFirmwareRolloutDevicesStmt                           *sql.Stmt
+	updateAlertChannelStmt                                       *sql.Stmt
+	updateAlertMaintenanceWindowStmt                             *sql.Stmt
+	updateApiKeyLastUsedStmt                                     *sql.Stmt
+	updateBuildingStmt                                           *sql.Stmt
+	updateCurtailmentAutomationRuleStmt                          *sql.Stmt
+	updateCurtailmentEventFanStateStmt                           *sql.Stmt
+	updateCurtailmentEventOperatorFieldsStmt                     *sql.Stmt
+	updateCurtailmentEventStateStmt                              *sql.Stmt
+	updateCurtailmentResponseProfileStmt                         *sql.Stmt
+	updateCurtailmentTargetStateStmt                             *sql.Stmt
+	updateCustomRoleNameStmt                                     *sql.Stmt
+	updateDeviceCustomNamesStmt                                  *sql.Stmt
+	updateDeviceIPAssignmentStmt                                 *sql.Stmt
+	updateDeviceInfoStmt                                         *sql.Stmt
+	updateDevicePairingStatusByIdentifierStmt                    *sql.Stmt
+	updateDeviceSetDescriptionStmt                               *sql.Stmt
+	updateDeviceSetLabelStmt                                     *sql.Stmt
+	updateDeviceSetLabelAndDescriptionStmt                       *sql.Stmt
+	updateDeviceWorkerNameStmt                                   *sql.Stmt
+	updateDeviceWorkerNamePoolSyncStatusByIDStmt                 *sql.Stmt
+	updateDiscoveredDeviceFirmwareVersionStmt                    *sql.Stmt
+	updateFleetNodeLastSeenAtStmt                                *sql.Stmt
+	updateInfrastructureDeviceStmt                               *sql.Stmt
+	updateInventoryPartStmt                                      *sql.Stmt
+	updateLastLoginStmt                                          *sql.Stmt
+	updateMQTTSourceConfigStmt                                   *sql.Stmt
+	updateMessageAfterFailureStmt                                *sql.Stmt
+	updateMessagePermanentlyFailedStmt                           *sql.Stmt
+	updateMessageStatusStmt                                      *sql.Stmt
+	updateMinerPasswordStmt                                      *sql.Stmt
+	updateNoteContentStmt                                        *sql.Stmt
+	updateOpenErrorStmt                                          *sql.Stmt
+	updateOrganizationStmt                                       *sql.Stmt
+	updatePoolStmt                                               *sql.Stmt
+	updateRackInfoStmt                                           *sql.Stmt
+	updateRackPlacementStmt                                      *sql.Stmt
+	updateRackPlacementBulkForBuildingStmt                       *sql.Stmt
+	updateRackPlacementBulkForSiteStmt                           *sql.Stmt
+	updateReleaseChannelStmt                                     *sql.Stmt
+	updateRepairTicketStmt                                       *sql.Stmt
+	updateRoleStmt                                               *sql.Stmt
+	updateScheduleStmt                                           *sql.Stmt
+	updateScheduleAfterRunStmt                                   *sql.Stmt
+	updateSessionActivityStmt                                    *sql.Stmt
+	updateSiteStmt                                               *sql.Stmt
+	updateUserPasswordStmt                                       *sql.Stmt
+	updateUserPasswordAndFlagStmt                                *sql.Stmt
+	updateUserRoleStmt                                           *sql.Stmt
+	updateUserUsernameStmt                                       *sql.Stmt
+	upsertAlertRoutePolicyStmt                                   *sql.Stmt
+	upsertAlertRuleConfigStmt                                    *sql.Stmt
+	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
+	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
+	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
+	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
+	upsertCustomRoleForOrgStmt                                   *sql.Stmt
+	upsertDevicePairingStmt                                      *sql.Stmt
+	upsertDeviceStatusStmt                                       *sql.Stmt
+	upsertDiscoveredDeviceStmt                                   *sql.Stmt
+	upsertDiscoveredDeviceFromFleetNodeStmt                      *sql.Stmt
+	upsertFleetMetricRollupsStmt                                 *sql.Stmt
+	upsertFleetNodeAuthChallengeStmt                             *sql.Stmt
+	upsertFleetNodeSessionStmt                                   *sql.Stmt
+	upsertMQTTSourceStateStmt                                    *sql.Stmt
+	upsertMinerCredentialsStmt                                   *sql.Stmt
+	upsertPermissionStmt                                         *sql.Stmt
+	upsertReleaseChannelFirmwareStmt                             *sql.Stmt
+	upsertReleaseChannelSettingStmt                              *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                                  tx,
-		tx:                                                  tx,
-		acquireReconcileLockStmt:                            q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:                           q.addDevicesToDeviceSetStmt,
-		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:                  q.adminTerminateCurtailmentEventStmt,
-		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
-		assignBuildingToSiteStmt:                            q.assignBuildingToSiteStmt,
-		assignPermissionToRoleStmt:                          q.assignPermissionToRoleStmt,
-		assignRoleStmt:                                      q.assignRoleStmt,
-		beginCurtailmentRestorationStmt:                     q.beginCurtailmentRestorationStmt,
-		bindEnrollmentToFleetNodeStmt:                       q.bindEnrollmentToFleetNodeStmt,
-		buildingBelongsToOrgStmt:                            q.buildingBelongsToOrgStmt,
-		buildingsByIDsStmt:                                  q.buildingsByIDsStmt,
-		bulkInsertCurtailmentTargetsStmt:                    q.bulkInsertCurtailmentTargetsStmt,
-		bumpCurtailmentTargetRetryStmt:                      q.bumpCurtailmentTargetRetryStmt,
-		cancelEnrollmentForFleetNodeStmt:                    q.cancelEnrollmentForFleetNodeStmt,
-		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
-		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,
-		cascadeRackDeviceSitesStmt:                          q.cascadeRackDeviceSitesStmt,
-		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
-		clearRackPlacementForSoftDeleteStmt:                 q.clearRackPlacementForSoftDeleteStmt,
-		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
-		clearRolePermissionsStmt:                            q.clearRolePermissionsStmt,
-		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
-		confirmEnrollmentStmt:                               q.confirmEnrollmentStmt,
-		consumeFleetNodeAuthChallengeStmt:                   q.consumeFleetNodeAuthChallengeStmt,
-		countActiveAssignmentsForRoleStmt:                   q.countActiveAssignmentsForRoleStmt,
-		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
-		countActivityLogsStmt:                               q.countActivityLogsStmt,
-		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
-		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
-		countErrorsStmt:                                     q.countErrorsStmt,
-		countMinersByStateStmt:                              q.countMinersByStateStmt,
-		countOrgScopeSuperAdminsExcludingUserStmt:           q.countOrgScopeSuperAdminsExcludingUserStmt,
-		createApiKeyStmt:                                    q.createApiKeyStmt,
-		createBuildingStmt:                                  q.createBuildingStmt,
-		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
-		createCustomRoleStmt:                                q.createCustomRoleStmt,
-		createDeviceSetStmt:                                 q.createDeviceSetStmt,
-		createFleetNodeStmt:                                 q.createFleetNodeStmt,
-		createFleetNodeApiKeyStmt:                           q.createFleetNodeApiKeyStmt,
-		createNoteStmt:                                      q.createNoteStmt,
-		createOrganizationStmt:                              q.createOrganizationStmt,
-		createPendingEnrollmentStmt:                         q.createPendingEnrollmentStmt,
-		createPoolStmt:                                      q.createPoolStmt,
-		createQueueMessageStmt:                              q.createQueueMessageStmt,
-		createRackExtensionStmt:                             q.createRackExtensionStmt,
-		createScheduleStmt:                                  q.createScheduleStmt,
-		createScheduleTargetStmt:                            q.createScheduleTargetStmt,
-		createSessionStmt:                                   q.createSessionStmt,
-		createSiteStmt:                                      q.createSiteStmt,
-		createUserStmt:                                      q.createUserStmt,
-		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
-		curtailmentEventHasInFlightTargetsStmt:              q.curtailmentEventHasInFlightTargetsStmt,
-		deleteDisabledMQTTSourceConfigByOrgStmt:             q.deleteDisabledMQTTSourceConfigByOrgStmt,
-		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
-		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
-		deletePairingsForFleetNodeStmt:                      q.deletePairingsForFleetNodeStmt,
-		deletePoolStmt:                                      q.deletePoolStmt,
-		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
-		deviceHasActiveCloudPairingStmt:                     q.deviceHasActiveCloudPairingStmt,
-		deviceHasActivePairingStmt:                          q.deviceHasActivePairingStmt,
-		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
-		ensureCurtailmentOrgConfigStmt:                      q.ensureCurtailmentOrgConfigStmt,
-		findDeviceSiteConflictsStmt:                         q.findDeviceSiteConflictsStmt,
-		getActiveCurtailmentEventStmt:                       q.getActiveCurtailmentEventStmt,
-		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
-		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
-		getAddedDeviceSiteConflictsStmt:                     q.getAddedDeviceSiteConflictsStmt,
-		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
-		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
-		getAllDeviceMetricsHourlyAggregatesStmt:             q.getAllDeviceMetricsHourlyAggregatesStmt,
-		getAllDeviceMetricsTimeSeriesStmt:                   q.getAllDeviceMetricsTimeSeriesStmt,
-		getAllDeviceStatusDailyAggregatesStmt:               q.getAllDeviceStatusDailyAggregatesStmt,
-		getAllDeviceStatusHourlyAggregatesStmt:              q.getAllDeviceStatusHourlyAggregatesStmt,
-		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
-		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
-		getAssignmentByIDStmt:                               q.getAssignmentByIDStmt,
-		getAvailableFirmwareVersionsStmt:                    q.getAvailableFirmwareVersionsStmt,
-		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
-		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
-		getBatchLogStmt:                                     q.getBatchLogStmt,
-		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
-		getBuildingStmt:                                     q.getBuildingStmt,
-		getBuildingSiteStmt:                                 q.getBuildingSiteStmt,
-		getBuiltinRoleForOrgStmt:                            q.getBuiltinRoleForOrgStmt,
-		getCurtailmentEventByExternalReferenceStmt:          q.getCurtailmentEventByExternalReferenceStmt,
-		getCurtailmentEventByIdempotencyKeyStmt:             q.getCurtailmentEventByIdempotencyKeyStmt,
-		getCurtailmentEventByUUIDStmt:                       q.getCurtailmentEventByUUIDStmt,
-		getCurtailmentEventDetailByUUIDStmt:                 q.getCurtailmentEventDetailByUUIDStmt,
-		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
-		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,
-		getCurtailmentTargetRollupByEventStmt:               q.getCurtailmentTargetRollupByEventStmt,
-		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
-		getDeviceDeviceSetsStmt:                             q.getDeviceDeviceSetsStmt,
-		getDeviceDeviceSetsByTypeStmt:                       q.getDeviceDeviceSetsByTypeStmt,
-		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
-		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
-		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
-		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
-		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
-		getDeviceIdentifiersByDeviceSetIDStmt:               q.getDeviceIdentifiersByDeviceSetIDStmt,
-		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
-		getDeviceMetricsDailyAggregatesStmt:                 q.getDeviceMetricsDailyAggregatesStmt,
-		getDeviceMetricsHourlyAggregatesStmt:                q.getDeviceMetricsHourlyAggregatesStmt,
-		getDeviceMetricsTimeSeriesStmt:                      q.getDeviceMetricsTimeSeriesStmt,
-		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
-		getDevicePropertiesForRenameStmt:                    q.getDevicePropertiesForRenameStmt,
-		getDevicePropertiesForRenameWithoutTelemetryStmt:    q.getDevicePropertiesForRenameWithoutTelemetryStmt,
-		getDeviceSetStmt:                                    q.getDeviceSetStmt,
-		getDeviceSetTypeStmt:                                q.getDeviceSetTypeStmt,
-		getDeviceSetTypesBatchStmt:                          q.getDeviceSetTypesBatchStmt,
-		getDeviceSiteIDsByMembershipStmt:                    q.getDeviceSiteIDsByMembershipStmt,
-		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
-		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,
-		getDeviceStatusDailyAggregatesStmt:                  q.getDeviceStatusDailyAggregatesStmt,
-		getDeviceStatusForDeviceIdentifiersStmt:             q.getDeviceStatusForDeviceIdentifiersStmt,
-		getDeviceStatusHourlyAggregatesStmt:                 q.getDeviceStatusHourlyAggregatesStmt,
-		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
-		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
-		getDiscoveredDeviceByDeviceIdentifierStmt:           q.getDiscoveredDeviceByDeviceIdentifierStmt,
-		getDiscoveredDeviceByIDStmt:                         q.getDiscoveredDeviceByIDStmt,
-		getDiscoveredDeviceByIPAndPortStmt:                  q.getDiscoveredDeviceByIPAndPortStmt,
-		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
-		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
-		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
-		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
-		getErrorByIDStmt:                                    q.getErrorByIDStmt,
-		getFilteredDeviceIdentifiersStmt:                    q.getFilteredDeviceIdentifiersStmt,
-		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
-		getFleetNodeByIDStmt:                                q.getFleetNodeByIDStmt,
-		getFleetNodeByIDUnscopedStmt:                        q.getFleetNodeByIDUnscopedStmt,
-		getFleetNodeSessionByTokenHashStmt:                  q.getFleetNodeSessionByTokenHashStmt,
-		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
-		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
-		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
-		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
-		getMQTTSourceConfigByOrgStmt:                        q.getMQTTSourceConfigByOrgStmt,
-		getMQTTSourceStateByIDStmt:                          q.getMQTTSourceStateByIDStmt,
-		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
-		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
-		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
-		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
-		getMinerStateCountsByDeviceIDsStmt:                  q.getMinerStateCountsByDeviceIDsStmt,
-		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
-		getNoteStmt:                                         q.getNoteStmt,
-		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
-		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
-		getOrgScopeAssignmentForUserStmt:                    q.getOrgScopeAssignmentForUserStmt,
-		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
-		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,
-		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
-		getOrganizationPrivateKeyStmt:                       q.getOrganizationPrivateKeyStmt,
-		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
-		getPairedDeviceByMACAddressStmt:                     q.getPairedDeviceByMACAddressStmt,
-		getPairedDeviceBySerialNumberStmt:                   q.getPairedDeviceBySerialNumberStmt,
-		getPairedDevicesByMACAddressesStmt:                  q.getPairedDevicesByMACAddressesStmt,
-		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
-		getPendingEnrollmentByCodeHashStmt:                  q.getPendingEnrollmentByCodeHashStmt,
-		getPendingEnrollmentByFleetNodeStmt:                 q.getPendingEnrollmentByFleetNodeStmt,
-		getPermissionByKeyStmt:                              q.getPermissionByKeyStmt,
-		getPermissionsByKeysStmt:                            q.getPermissionsByKeysStmt,
-		getPoolStmt:                                         q.getPoolStmt,
-		getRackDetailsForDevicesStmt:                        q.getRackDetailsForDevicesStmt,
-		getRackInfoStmt:                                     q.getRackInfoStmt,
-		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
-		getRackSlotsStmt:                                    q.getRackSlotsStmt,
-		getRoleByIDStmt:                                     q.getRoleByIDStmt,
-		getRoleByIDForUpdateStmt:                            q.getRoleByIDForUpdateStmt,
-		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
-		getScheduleStmt:                                     q.getScheduleStmt,
-		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,
-		getScheduleForUpdateStmt:                            q.getScheduleForUpdateStmt,
-		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
-		getScheduleTargetsByScheduleIDsStmt:                 q.getScheduleTargetsByScheduleIDsStmt,
-		getSessionByIDStmt:                                  q.getSessionByIDStmt,
-		getSiteStmt:                                         q.getSiteStmt,
-		getTotalDevicesPendingAuthStmt:                      q.getTotalDevicesPendingAuthStmt,
-		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
-		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
-		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
-		getUserByExternalIdStmt:                             q.getUserByExternalIdStmt,
-		getUserByIdStmt:                                     q.getUserByIdStmt,
-		getUserByIdForUpdateStmt:                            q.getUserByIdForUpdateStmt,
-		getUserByUsernameStmt:                               q.getUserByUsernameStmt,
-		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
-		getUserRoleNameStmt:                                 q.getUserRoleNameStmt,
-		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
-		hasUserStmt:                                         q.hasUserStmt,
-		insertActivityLogStmt:                               q.insertActivityLogStmt,
-		insertCurtailmentEventStmt:                          q.insertCurtailmentEventStmt,
-		insertDeviceStmt:                                    q.insertDeviceStmt,
-		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
-		insertErrorStmt:                                     q.insertErrorStmt,
-		insertMQTTSourceConfigStmt:                          q.insertMQTTSourceConfigStmt,
-		insertMinerStateSnapshotStmt:                        q.insertMinerStateSnapshotStmt,
-		insertNotificationHistoryStmt:                       q.insertNotificationHistoryStmt,
-		insertNotificationMetricSamplesStmt:                 q.insertNotificationMetricSamplesStmt,
-		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
-		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
-		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
-		listActiveCurtailmentEventsStmt:                     q.listActiveCurtailmentEventsStmt,
-		listActiveOrganizationIDsStmt:                       q.listActiveOrganizationIDsStmt,
-		listActivityLogsStmt:                                q.listActivityLogsStmt,
-		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
-		listAssignmentsForRoleStmt:                          q.listAssignmentsForRoleStmt,
-		listAssignmentsForUserStmt:                          q.listAssignmentsForUserStmt,
-		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
-		listBuildingRacksStmt:                               q.listBuildingRacksStmt,
-		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
-		listBuiltinRolesForOrgStmt:                          q.listBuiltinRolesForOrgStmt,
-		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
-		listCurtailmentEventsForOrgStmt:                     q.listCurtailmentEventsForOrgStmt,
-		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
-		listCurtailmentTargetsByEventPageStmt:               q.listCurtailmentTargetsByEventPageStmt,
-		listCustomRolesForOrgStmt:                           q.listCustomRolesForOrgStmt,
-		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
-		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
-		listEffectivePermissionsForUserStmt:                 q.listEffectivePermissionsForUserStmt,
-		listEffectivePermissionsForUserForUpdateStmt:        q.listEffectivePermissionsForUserForUpdateStmt,
-		listEnabledMQTTSourcesStmt:                          q.listEnabledMQTTSourcesStmt,
-		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
-		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
-		listFleetNodeDiscoveredDevicesStmt:                  q.listFleetNodeDiscoveredDevicesStmt,
-		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
-		listMQTTSourceConfigsByOrgStmt:                      q.listMQTTSourceConfigsByOrgStmt,
-		listMQTTSourceStatesByOrgStmt:                       q.listMQTTSourceStatesByOrgStmt,
-		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
-		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,
-		listNotesStmt:                                       q.listNotesStmt,
-		listOrganizationsStmt:                               q.listOrganizationsStmt,
-		listPermissionsStmt:                                 q.listPermissionsStmt,
-		listPoolsStmt:                                       q.listPoolsStmt,
-		listRackTypesStmt:                                   q.listRackTypesStmt,
-		listRackZoneRefsStmt:                                q.listRackZoneRefsStmt,
-		listRackZonesStmt:                                   q.listRackZonesStmt,
-		listRacksOutsideBuildingBoundsStmt:                  q.listRacksOutsideBuildingBoundsStmt,
-		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
-		listRolePermissionKeysStmt:                          q.listRolePermissionKeysStmt,
-		listRolesStmt:                                       q.listRolesStmt,
-		listRolesWithDetailsForOrgStmt:                      q.listRolesWithDetailsForOrgStmt,
-		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,
-		listSchedulesStmt:                                   q.listSchedulesStmt,
-		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,
-		listSitesStmt:                                       q.listSitesStmt,
-		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
-		lockAndCountOrgScopeSuperAdminsStmt:                 q.lockAndCountOrgScopeSuperAdminsStmt,
-		lockBuildingForWriteStmt:                            q.lockBuildingForWriteStmt,
-		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
-		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
-		lockFleetNodeByIDStmt:                               q.lockFleetNodeByIDStmt,
-		lockRackPlacementForWriteStmt:                       q.lockRackPlacementForWriteStmt,
-		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
-		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,
-		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
-		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
-		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
-		negateSchedulePrioritiesStmt:                        q.negateSchedulePrioritiesStmt,
-		pairDeviceToFleetNodeStmt:                           q.pairDeviceToFleetNodeStmt,
-		passwordUpdatedAtStmt:                               q.passwordUpdatedAtStmt,
-		pauseActiveScheduleStmt:                             q.pauseActiveScheduleStmt,
-		prunePermissionsOutsideKeysStmt:                     q.prunePermissionsOutsideKeysStmt,
-		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
-		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
-		queryErrorsStmt:                                     q.queryErrorsStmt,
-		reapStuckFirmwareUpdateMessagesStmt:                 q.reapStuckFirmwareUpdateMessagesStmt,
-		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
-		reassignDevicesToSiteStmt:                           q.reassignDevicesToSiteStmt,
-		reassignDevicesUnderBuildingStmt:                    q.reassignDevicesUnderBuildingStmt,
-		reassignRacksUnderBuildingStmt:                      q.reassignRacksUnderBuildingStmt,
-		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
-		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
-		resetCurtailmentTargetsForRecurtailStmt:             q.resetCurtailmentTargetsForRecurtailStmt,
-		resetCurtailmentTargetsForRestoreStmt:               q.resetCurtailmentTargetsForRestoreStmt,
-		resumeCurtailmentFromRestoringStmt:                  q.resumeCurtailmentFromRestoringStmt,
-		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
-		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
-		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,
-		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
-		revokeApiKeysByFleetNodeIDStmt:                      q.revokeApiKeysByFleetNodeIDStmt,
-		revokePermissionFromRoleStmt:                        q.revokePermissionFromRoleStmt,
-		revokeSessionStmt:                                   q.revokeSessionStmt,
-		setDevicePairingAuthNeededIfNotPairedStmt:           q.setDevicePairingAuthNeededIfNotPairedStmt,
-		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
-		setMQTTSourceConfigEnabledStmt:                      q.setMQTTSourceConfigEnabledStmt,
-		setRackBuildingPositionStmt:                         q.setRackBuildingPositionStmt,
-		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
-		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
-		setScheduleRunningStmt:                              q.setScheduleRunningStmt,
-		siteBelongsToOrgStmt:                                q.siteBelongsToOrgStmt,
-		softDeleteBuildingStmt:                              q.softDeleteBuildingStmt,
-		softDeleteBuildingsBySiteStmt:                       q.softDeleteBuildingsBySiteStmt,
-		softDeleteCustomRoleStmt:                            q.softDeleteCustomRoleStmt,
-		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
-		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
-		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
-		softDeleteDiscoveredDevicesForDeletedDevicesStmt:    q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
-		softDeleteFleetNodeStmt:                             q.softDeleteFleetNodeStmt,
-		softDeleteFleetNodesForExpiredEnrollmentsStmt:       q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
-		softDeleteNoteStmt:                                  q.softDeleteNoteStmt,
-		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
-		softDeletePoolStmt:                                  q.softDeletePoolStmt,
-		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
-		softDeleteScheduleStmt:                              q.softDeleteScheduleStmt,
-		softDeleteSiteStmt:                                  q.softDeleteSiteStmt,
-		softDeleteUserStmt:                                  q.softDeleteUserStmt,
-		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
-		sweepCurtailmentTargetsToRestoreFailedStmt:          q.sweepCurtailmentTargetsToRestoreFailedStmt,
-		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
-		sweepExpiredFleetNodeAuthChallengesStmt:             q.sweepExpiredFleetNodeAuthChallengesStmt,
-		sweepExpiredFleetNodeSessionsStmt:                   q.sweepExpiredFleetNodeSessionsStmt,
-		transferDiscoveredDeviceAttributionStmt:             q.transferDiscoveredDeviceAttributionStmt,
-		unassignDeviceSitesByRackStmt:                       q.unassignDeviceSitesByRackStmt,
-		unassignDevicesFromSiteStmt:                         q.unassignDevicesFromSiteStmt,
-		unassignRacksFromBuildingStmt:                       q.unassignRacksFromBuildingStmt,
-		unassignRacksFromBuildingsBySiteStmt:                q.unassignRacksFromBuildingsBySiteStmt,
-		unassignRacksFromSiteStmt:                           q.unassignRacksFromSiteStmt,
-		unassignRoleStmt:                                    q.unassignRoleStmt,
-		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                                    q.undeleteRoleStmt,
-		unpairDeviceStmt:                                    q.unpairDeviceStmt,
-		updateApiKeyLastUsedStmt:                            q.updateApiKeyLastUsedStmt,
-		updateBuildingStmt:                                  q.updateBuildingStmt,
-		updateCurtailmentEventOperatorFieldsStmt:            q.updateCurtailmentEventOperatorFieldsStmt,
-		updateCurtailmentEventStateStmt:                     q.updateCurtailmentEventStateStmt,
-		updateCurtailmentTargetStateStmt:                    q.updateCurtailmentTargetStateStmt,
-		updateCustomRoleNameStmt:                            q.updateCustomRoleNameStmt,
-		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
-		updateDeviceInfoStmt:                                q.updateDeviceInfoStmt,
-		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,
-		updateDeviceSetDescriptionStmt:                      q.updateDeviceSetDescriptionStmt,
-		updateDeviceSetLabelStmt:                            q.updateDeviceSetLabelStmt,
-		updateDeviceSetLabelAndDescriptionStmt:              q.updateDeviceSetLabelAndDescriptionStmt,
-		updateDeviceWorkerNameStmt:                          q.updateDeviceWorkerNameStmt,
-		updateDeviceWorkerNamePoolSyncStatusByIDStmt:        q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
-		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
-		updateFleetNodeLastSeenAtStmt:                       q.updateFleetNodeLastSeenAtStmt,
-		updateLastLoginStmt:                                 q.updateLastLoginStmt,
-		updateMQTTSourceConfigStmt:                          q.updateMQTTSourceConfigStmt,
-		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
-		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
-		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
-		updateMinerPasswordStmt:                             q.updateMinerPasswordStmt,
-		updateNoteContentStmt:                               q.updateNoteContentStmt,
-		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,
-		updateOrganizationStmt:                              q.updateOrganizationStmt,
-		updatePoolStmt:                                      q.updatePoolStmt,
-		updateRackInfoStmt:                                  q.updateRackInfoStmt,
-		updateRackPlacementStmt:                             q.updateRackPlacementStmt,
-		updateRoleStmt:                                      q.updateRoleStmt,
-		updateScheduleStmt:                                  q.updateScheduleStmt,
-		updateScheduleAfterRunStmt:                          q.updateScheduleAfterRunStmt,
-		updateSessionActivityStmt:                           q.updateSessionActivityStmt,
-		updateSiteStmt:                                      q.updateSiteStmt,
-		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
-		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
-		updateUserRoleStmt:                                  q.updateUserRoleStmt,
-		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
-		upsertBuiltinRoleForOrgStmt:                         q.upsertBuiltinRoleForOrgStmt,
-		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
-		upsertCurtailmentReconcilerHeartbeatStmt:            q.upsertCurtailmentReconcilerHeartbeatStmt,
-		upsertCustomRoleForOrgStmt:                          q.upsertCustomRoleForOrgStmt,
-		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
-		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,
-		upsertDiscoveredDeviceStmt:                          q.upsertDiscoveredDeviceStmt,
-		upsertDiscoveredDeviceFromFleetNodeStmt:             q.upsertDiscoveredDeviceFromFleetNodeStmt,
-		upsertFleetNodeAuthChallengeStmt:                    q.upsertFleetNodeAuthChallengeStmt,
-		upsertFleetNodeSessionStmt:                          q.upsertFleetNodeSessionStmt,
-		upsertMQTTSourceStateStmt:                           q.upsertMQTTSourceStateStmt,
-		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
-		upsertPermissionStmt:                                q.upsertPermissionStmt,
+		db:                                             tx,
+		tx:                                             tx,
+		acquireFleetRuntimeLeaseStmt:                   q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                       q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                      q.addDevicesToDeviceSetStmt,
+		adminResetUserPasswordStmt:                     q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:             q.adminTerminateCurtailmentEventStmt,
+		advanceFirmwareRolloutStageStmt:                q.advanceFirmwareRolloutStageStmt,
+		advanceFleetMetricRollupProgressStmt:           q.advanceFleetMetricRollupProgressStmt,
+		allDevicesBelongToOrgStmt:                      q.allDevicesBelongToOrgStmt,
+		appendFirmwareRolloutDevicesStmt:               q.appendFirmwareRolloutDevicesStmt,
+		applyFleetNodeRecoveredEndpointStmt:            q.applyFleetNodeRecoveredEndpointStmt,
+		applyFleetNodeRecoveryAuthenticationNeededStmt: q.applyFleetNodeRecoveryAuthenticationNeededStmt,
+		assignBuildingToSiteStmt:                       q.assignBuildingToSiteStmt,
+		assignBuildingsToSiteBulkStmt:                  q.assignBuildingsToSiteBulkStmt,
+		assignDevicesToBuildingStmt:                    q.assignDevicesToBuildingStmt,
+		assignDevicesToSiteStmt:                        q.assignDevicesToSiteStmt,
+		assignPermissionToRoleStmt:                     q.assignPermissionToRoleStmt,
+		assignRoleStmt:                                 q.assignRoleStmt,
+		beginCurtailmentRestorationStmt:                q.beginCurtailmentRestorationStmt,
+		beginCurtailmentTopologyTargetRestoreStmt:      q.beginCurtailmentTopologyTargetRestoreStmt,
+		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
+		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
+		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
+		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,
+		bulkAssignTicketsStmt:                                        q.bulkAssignTicketsStmt,
+		bulkCloseTicketsStmt:                                         q.bulkCloseTicketsStmt,
+		bulkConfirmCurtailmentTargetsStmt:                            q.bulkConfirmCurtailmentTargetsStmt,
+		bulkInsertCurtailmentTargetsStmt:                             q.bulkInsertCurtailmentTargetsStmt,
+		bulkInsertNotificationHistoryStmt:                            q.bulkInsertNotificationHistoryStmt,
+		bulkMarkTicketsUrgentStmt:                                    q.bulkMarkTicketsUrgentStmt,
+		bulkRefreshAllPairedTargetReadinessStmt:                      q.bulkRefreshAllPairedTargetReadinessStmt,
+		bulkUpdateTicketStatusStmt:                                   q.bulkUpdateTicketStatusStmt,
+		bumpCurtailmentTargetRetryStmt:                               q.bumpCurtailmentTargetRetryStmt,
+		cancelActiveFirmwareRolloutStmt:                              q.cancelActiveFirmwareRolloutStmt,
+		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
+		cancelFirmwareRolloutStmt:                                    q.cancelFirmwareRolloutStmt,
+		cancelPendingEnrollmentStmt:                                  q.cancelPendingEnrollmentStmt,
+		cascadeAddedDeviceBuildingsStmt:                              q.cascadeAddedDeviceBuildingsStmt,
+		cascadeAddedDeviceSitesStmt:                                  q.cascadeAddedDeviceSitesStmt,
+		cascadeDevicesSiteForBuildingStmt:                            q.cascadeDevicesSiteForBuildingStmt,
+		cascadeDirectDeviceSitesByBuildingsStmt:                      q.cascadeDirectDeviceSitesByBuildingsStmt,
+		cascadeRackDeviceBuildingsStmt:                               q.cascadeRackDeviceBuildingsStmt,
+		cascadeRackDeviceBuildingsBulkStmt:                           q.cascadeRackDeviceBuildingsBulkStmt,
+		cascadeRackDeviceSitesStmt:                                   q.cascadeRackDeviceSitesStmt,
+		cascadeRackDeviceSitesBulkStmt:                               q.cascadeRackDeviceSitesBulkStmt,
+		checkFirmwareArtifactInUseStmt:                               q.checkFirmwareArtifactInUseStmt,
+		claimAllPairedPolicyTargetsStmt:                              q.claimAllPairedPolicyTargetsStmt,
+		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
+		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
+		claimRigConfigReconciliationStmt:                             q.claimRigConfigReconciliationStmt,
+		classifyFleetRuntimeLeaseAcquisitionStmt:                     q.classifyFleetRuntimeLeaseAcquisitionStmt,
+		clearCurtailmentAutomationActiveEventStmt:                    q.clearCurtailmentAutomationActiveEventStmt,
+		clearDeviceBuildingsByBuildingStmt:                           q.clearDeviceBuildingsByBuildingStmt,
+		clearDeviceBuildingsBySiteStmt:                               q.clearDeviceBuildingsBySiteStmt,
+		clearDeviceBuildingsOnSiteMismatchStmt:                       q.clearDeviceBuildingsOnSiteMismatchStmt,
+		clearDeviceSitesAndBuildingsStmt:                             q.clearDeviceSitesAndBuildingsStmt,
+		clearRackPlacementForSoftDeleteStmt:                          q.clearRackPlacementForSoftDeleteStmt,
+		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
+		clearReleaseChannelFirmwareStmt:                              q.clearReleaseChannelFirmwareStmt,
+		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
+		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
+		completeDelegatedFirmwareRolloutStmt:                         q.completeDelegatedFirmwareRolloutStmt,
+		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
+		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
+		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
+		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
+		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
+		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
+		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
+		countActivityLogsStmt:                                        q.countActivityLogsStmt,
+		countBuildingsBySiteStmt:                                     q.countBuildingsBySiteStmt,
+		countCompletedTicketsStmt:                                    q.countCompletedTicketsStmt,
+		countComponentsWithErrorsStmt:                                q.countComponentsWithErrorsStmt,
+		countConflictingCurtailmentFanClaimsStmt:                     q.countConflictingCurtailmentFanClaimsStmt,
+		countCurtailmentAutomationRulesByMQTTSourceStmt:              q.countCurtailmentAutomationRulesByMQTTSourceStmt,
+		countCurtailmentAutomationRulesByResponseProfileStmt:         q.countCurtailmentAutomationRulesByResponseProfileStmt,
+		countCurtailmentResponseProfilesBySiteStmt:                   q.countCurtailmentResponseProfilesBySiteStmt,
+		countCurtailmentScopeConflictsStmt:                           q.countCurtailmentScopeConflictsStmt,
+		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
+		countErrorsStmt:                                              q.countErrorsStmt,
+		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
+		countInventoryPartsStmt:                                      q.countInventoryPartsStmt,
+		countInventoryPartsBySiteStmt:                                q.countInventoryPartsBySiteStmt,
+		countMinersByStateStmt:                                       q.countMinersByStateStmt,
+		countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt: q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt,
+		countOrgScopeSuperAdminsExcludingUserStmt:                    q.countOrgScopeSuperAdminsExcludingUserStmt,
+		countQueueMessagesByBatchStmt:                                q.countQueueMessagesByBatchStmt,
+		countRacksBySiteStmt:                                         q.countRacksBySiteStmt,
+		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
+		countReleaseChannelFirmwarePreviewMembersStmt:                q.countReleaseChannelFirmwarePreviewMembersStmt,
+		countRepairTicketsStmt:                                       q.countRepairTicketsStmt,
+		countRepairTicketsByBuildingStmt:                             q.countRepairTicketsByBuildingStmt,
+		countRepairTicketsBySiteStmt:                                 q.countRepairTicketsBySiteStmt,
+		countResponseProfilesByInfrastructureDeviceStmt:              q.countResponseProfilesByInfrastructureDeviceStmt,
+		countResponseProfilesByInfrastructureDevicesStmt:             q.countResponseProfilesByInfrastructureDevicesStmt,
+		countUnexpiredAlertMaintenanceWindowsStmt:                    q.countUnexpiredAlertMaintenanceWindowsStmt,
+		createApiKeyStmt:                                             q.createApiKeyStmt,
+		createBuildingStmt:                                           q.createBuildingStmt,
+		createCommandBatchLogStmt:                                    q.createCommandBatchLogStmt,
+		createCustomRoleStmt:                                         q.createCustomRoleStmt,
+		createDeviceSetStmt:                                          q.createDeviceSetStmt,
+		createFirmwareRolloutStmt:                                    q.createFirmwareRolloutStmt,
+		createFirmwareRolloutEventStmt:                               q.createFirmwareRolloutEventStmt,
+		createFleetNodeStmt:                                          q.createFleetNodeStmt,
+		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
+		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
+		createInventoryPartStmt:                                      q.createInventoryPartStmt,
+		createNoteStmt:                                               q.createNoteStmt,
+		createOrganizationStmt:                                       q.createOrganizationStmt,
+		createPendingEnrollmentStmt:                                  q.createPendingEnrollmentStmt,
+		createPoolStmt:                                               q.createPoolStmt,
+		createQueueMessageStmt:                                       q.createQueueMessageStmt,
+		createQueueMessagesStmt:                                      q.createQueueMessagesStmt,
+		createRackExtensionStmt:                                      q.createRackExtensionStmt,
+		createReleaseChannelStmt:                                     q.createReleaseChannelStmt,
+		createRepairTicketStmt:                                       q.createRepairTicketStmt,
+		createRepairTicketCommentStmt:                                q.createRepairTicketCommentStmt,
+		createScheduleStmt:                                           q.createScheduleStmt,
+		createScheduleTargetStmt:                                     q.createScheduleTargetStmt,
+		createSessionStmt:                                            q.createSessionStmt,
+		createSiteStmt:                                               q.createSiteStmt,
+		createUserStmt:                                               q.createUserStmt,
+		createUserOrganizationStmt:                                   q.createUserOrganizationStmt,
+		curtailmentEventHasInFlightTargetsStmt:                       q.curtailmentEventHasInFlightTargetsStmt,
+		deleteActiveRepairTicketPartsStmt:                            q.deleteActiveRepairTicketPartsStmt,
+		deleteAlertMaintenanceWindowStmt:                             q.deleteAlertMaintenanceWindowStmt,
+		deleteAlertRouteChannelsStmt:                                 q.deleteAlertRouteChannelsStmt,
+		deleteAlertRoutePolicyStmt:                                   q.deleteAlertRoutePolicyStmt,
+		deleteAlertRuleConfigStmt:                                    q.deleteAlertRuleConfigStmt,
+		deleteCurtailmentAutomationRuleByOrgStmt:                     q.deleteCurtailmentAutomationRuleByOrgStmt,
+		deleteCurtailmentResponseProfileByOrgStmt:                    q.deleteCurtailmentResponseProfileByOrgStmt,
+		deleteCurtailmentResponseProfilesBySiteStmt:                  q.deleteCurtailmentResponseProfilesBySiteStmt,
+		deleteDisabledMQTTSourceConfigByOrgStmt:                      q.deleteDisabledMQTTSourceConfigByOrgStmt,
+		deleteExpiredSessionsStmt:                                    q.deleteExpiredSessionsStmt,
+		deleteFleetMetricRollupsForWindowStmt:                        q.deleteFleetMetricRollupsForWindowStmt,
+		deleteFleetNodeDevicePairingsStmt:                            q.deleteFleetNodeDevicePairingsStmt,
+		deleteMinerCredentialsByDeviceIDAndOrgIDStmt:                 q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt,
+		deleteMinerCredentialsForDeviceIdentifiersStmt:               q.deleteMinerCredentialsForDeviceIdentifiersStmt,
+		deleteMinerCredentialsForFleetNodeStmt:                       q.deleteMinerCredentialsForFleetNodeStmt,
+		deleteOrganizationStmt:                                       q.deleteOrganizationStmt,
+		deletePairingsForFleetNodeStmt:                               q.deletePairingsForFleetNodeStmt,
+		deletePoolStmt:                                               q.deletePoolStmt,
+		deleteReleaseChannelStmt:                                     q.deleteReleaseChannelStmt,
+		deleteReleaseChannelTargetsStmt:                              q.deleteReleaseChannelTargetsStmt,
+		deleteReleasedFirmwareRolloutReservationsStmt:                q.deleteReleasedFirmwareRolloutReservationsStmt,
+		deleteScheduleTargetsStmt:                                    q.deleteScheduleTargetsStmt,
+		deviceHasActiveCloudPairingStmt:                              q.deviceHasActiveCloudPairingStmt,
+		deviceHasActivePairingStmt:                                   q.deviceHasActivePairingStmt,
+		deviceSetBelongsToOrgStmt:                                    q.deviceSetBelongsToOrgStmt,
+		deviceSetsByIDsStmt:                                          q.deviceSetsByIDsStmt,
+		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
+		disableSyncCommitStmt:                                        q.disableSyncCommitStmt,
+		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
+		excludeFirmwareRolloutDevicesStmt:                            q.excludeFirmwareRolloutDevicesStmt,
+		findDeviceBuildingConflictsStmt:                              q.findDeviceBuildingConflictsStmt,
+		findDeviceSiteConflictsStmt:                                  q.findDeviceSiteConflictsStmt,
+		findDevicesInBuildingLessPlacedRacksStmt:                     q.findDevicesInBuildingLessPlacedRacksStmt,
+		findDevicesInSiteLessRacksStmt:                               q.findDevicesInSiteLessRacksStmt,
+		findDevicesWithSiteOrBuildingStmt:                            q.findDevicesWithSiteOrBuildingStmt,
+		finishFirmwareRolloutStmt:                                    q.finishFirmwareRolloutStmt,
+		finishTerminalCommandBatchesStmt:                             q.finishTerminalCommandBatchesStmt,
+		forceReleaseCurtailmentEventStmt:                             q.forceReleaseCurtailmentEventStmt,
+		getActiveFirmwareRolloutForPairStmt:                          q.getActiveFirmwareRolloutForPairStmt,
+		getActiveSchedulesStmt:                                       q.getActiveSchedulesStmt,
+		getActiveUnpairedDiscoveredDevicesStmt:                       q.getActiveUnpairedDiscoveredDevicesStmt,
+		getAddedDeviceSiteConflictsStmt:                              q.getAddedDeviceSiteConflictsStmt,
+		getAlertChannelStmt:                                          q.getAlertChannelStmt,
+		getAlertChannelByNameStmt:                                    q.getAlertChannelByNameStmt,
+		getAlertRuleConfigStmt:                                       q.getAlertRuleConfigStmt,
+		getAllDeviceInfoForCapabilityCheckStmt:                       q.getAllDeviceInfoForCapabilityCheckStmt,
+		getAllDeviceMetricsDailyAggregatesStmt:                       q.getAllDeviceMetricsDailyAggregatesStmt,
+		getAllDeviceMetricsHourlyAggregatesStmt:                      q.getAllDeviceMetricsHourlyAggregatesStmt,
+		getAllDeviceMetricsRawBucketAggregatesStmt:                   q.getAllDeviceMetricsRawBucketAggregatesStmt,
+		getAllDeviceMetricsTimeSeriesStmt:                            q.getAllDeviceMetricsTimeSeriesStmt,
+		getAllDeviceStatusDailyAggregatesStmt:                        q.getAllDeviceStatusDailyAggregatesStmt,
+		getAllDeviceStatusHourlyAggregatesStmt:                       q.getAllDeviceStatusHourlyAggregatesStmt,
+		getAllMinerStateSnapshotDeviceRollups1mStmt:                  q.getAllMinerStateSnapshotDeviceRollups1mStmt,
+		getAllMinerStateSnapshotDeviceRollupsDailyStmt:               q.getAllMinerStateSnapshotDeviceRollupsDailyStmt,
+		getAllMinerStateSnapshotDeviceRollupsHourlyStmt:              q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt,
+		getAllPairedDeviceIdentifiersStmt:                            q.getAllPairedDeviceIdentifiersStmt,
+		getApiKeyByHashStmt:                                          q.getApiKeyByHashStmt,
+		getAssignmentByIDStmt:                                        q.getAssignmentByIDStmt,
+		getAvailableFirmwareVersionsStmt:                             q.getAvailableFirmwareVersionsStmt,
+		getAvailableModelsStmt:                                       q.getAvailableModelsStmt,
+		getBatchHeaderForOrgStmt:                                     q.getBatchHeaderForOrgStmt,
+		getBatchLogStmt:                                              q.getBatchLogStmt,
+		getBatchStatusAndDeviceCountsStmt:                            q.getBatchStatusAndDeviceCountsStmt,
+		getBuildingStmt:                                              q.getBuildingStmt,
+		getBuildingSiteStmt:                                          q.getBuildingSiteStmt,
+		getBuildingSiteIDStmt:                                        q.getBuildingSiteIDStmt,
+		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
+		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
+		getCurtailmentAutomationRuleByOrgStmt:                        q.getCurtailmentAutomationRuleByOrgStmt,
+		getCurtailmentEventByExternalReferenceStmt:                   q.getCurtailmentEventByExternalReferenceStmt,
+		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,
+		getCurtailmentEventByUUIDStmt:                                q.getCurtailmentEventByUUIDStmt,
+		getCurtailmentEventDetailByUUIDStmt:                          q.getCurtailmentEventDetailByUUIDStmt,
+		getCurtailmentOrgConfigStmt:                                  q.getCurtailmentOrgConfigStmt,
+		getCurtailmentReconcilerHeartbeatStmt:                        q.getCurtailmentReconcilerHeartbeatStmt,
+		getCurtailmentResponseProfileByOrgStmt:                       q.getCurtailmentResponseProfileByOrgStmt,
+		getCurtailmentTargetRollupByEventStmt:                        q.getCurtailmentTargetRollupByEventStmt,
+		getDeviceByDeviceIdentifierStmt:                              q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                                            q.getDeviceByIDStmt,
+		getDeviceCommandRoutesStmt:                                   q.getDeviceCommandRoutesStmt,
+		getDeviceDeviceSetsStmt:                                      q.getDeviceDeviceSetsStmt,
+		getDeviceDeviceSetsByTypeStmt:                                q.getDeviceDeviceSetsByTypeStmt,
+		getDeviceIDByDeviceIdentifierStmt:                            q.getDeviceIDByDeviceIdentifierStmt,
+		getDeviceIDByIdentifierStmt:                                  q.getDeviceIDByIdentifierStmt,
+		getDeviceIDsByDeviceIdentifiersStmt:                          q.getDeviceIDsByDeviceIdentifiersStmt,
+		getDeviceIDsWithIdentifiersStmt:                              q.getDeviceIDsWithIdentifiersStmt,
+		getDeviceIdentifierByIDStmt:                                  q.getDeviceIdentifierByIDStmt,
+		getDeviceIdentifiersByDeviceSetIDStmt:                        q.getDeviceIdentifiersByDeviceSetIDStmt,
+		getDeviceIdentitiesStmt:                                      q.getDeviceIdentitiesStmt,
+		getDeviceInfoForCapabilityCheckStmt:                          q.getDeviceInfoForCapabilityCheckStmt,
+		getDeviceMetricsDailyAggregatesStmt:                          q.getDeviceMetricsDailyAggregatesStmt,
+		getDeviceMetricsHourlyAggregatesStmt:                         q.getDeviceMetricsHourlyAggregatesStmt,
+		getDeviceMetricsRawBucketAggregatesStmt:                      q.getDeviceMetricsRawBucketAggregatesStmt,
+		getDeviceMetricsTimeSeriesStmt:                               q.getDeviceMetricsTimeSeriesStmt,
+		getDevicePairingStatusByDeviceDatabaseIDStmt:                 q.getDevicePairingStatusByDeviceDatabaseIDStmt,
+		getDevicePropertiesForRenameStmt:                             q.getDevicePropertiesForRenameStmt,
+		getDevicePropertiesForRenameWithoutTelemetryStmt:             q.getDevicePropertiesForRenameWithoutTelemetryStmt,
+		getDeviceSetStmt:                                             q.getDeviceSetStmt,
+		getDeviceSetTypeStmt:                                         q.getDeviceSetTypeStmt,
+		getDeviceSetTypesBatchStmt:                                   q.getDeviceSetTypesBatchStmt,
+		getDeviceSiteIDsByMembershipStmt:                             q.getDeviceSiteIDsByMembershipStmt,
+		getDeviceStatusStmt:                                          q.getDeviceStatusStmt,
+		getDeviceStatusByDeviceIdentifierStmt:                        q.getDeviceStatusByDeviceIdentifierStmt,
+		getDeviceStatusDailyAggregatesStmt:                           q.getDeviceStatusDailyAggregatesStmt,
+		getDeviceStatusForDeviceIdentifiersStmt:                      q.getDeviceStatusForDeviceIdentifiersStmt,
+		getDeviceStatusHourlyAggregatesStmt:                          q.getDeviceStatusHourlyAggregatesStmt,
+		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt:          q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
+		getDirectProtoMinerProxyTargetStmt:                           q.getDirectProtoMinerProxyTargetStmt,
+		getDiscoveredDeviceByDeviceIdentifierStmt:                    q.getDiscoveredDeviceByDeviceIdentifierStmt,
+		getDiscoveredDeviceByIDStmt:                                  q.getDiscoveredDeviceByIDStmt,
+		getDiscoveredDeviceByIPAndPortStmt:                           q.getDiscoveredDeviceByIPAndPortStmt,
+		getDistinctActivityUsersStmt:                                 q.getDistinctActivityUsersStmt,
+		getDistinctDeviceSiteIDsStmt:                                 q.getDistinctDeviceSiteIDsStmt,
+		getDistinctEventTypesStmt:                                    q.getDistinctEventTypesStmt,
+		getDistinctScopeTypesStmt:                                    q.getDistinctScopeTypesStmt,
+		getEnabledCurtailmentAutomationRuleByEventStmt:               q.getEnabledCurtailmentAutomationRuleByEventStmt,
+		getErrorByErrorIDStmt:                                        q.getErrorByErrorIDStmt,
+		getErrorByIDStmt:                                             q.getErrorByIDStmt,
+		getFilteredDeviceIdentifiersStmt:                             q.getFilteredDeviceIdentifiersStmt,
+		getFilteredDeviceIdsStmt:                                     q.getFilteredDeviceIdsStmt,
+		getFilteredTicketStatsStmt:                                   q.getFilteredTicketStatsStmt,
+		getFirmwareRolloutStmt:                                       q.getFirmwareRolloutStmt,
+		getFirmwareRolloutForUpdateStmt:                              q.getFirmwareRolloutForUpdateStmt,
+		getFirmwareRolloutPollWatermarkStmt:                          q.getFirmwareRolloutPollWatermarkStmt,
+		getFirmwareRolloutWithChannelStmt:                            q.getFirmwareRolloutWithChannelStmt,
+		getFleetMetricRollupCoverageStmt:                             q.getFleetMetricRollupCoverageStmt,
+		getFleetNodeByIDStmt:                                         q.getFleetNodeByIDStmt,
+		getFleetNodeByIDUnscopedStmt:                                 q.getFleetNodeByIDUnscopedStmt,
+		getFleetNodePairedDeviceIdentifierStmt:                       q.getFleetNodePairedDeviceIdentifierStmt,
+		getFleetNodeSessionByTokenHashStmt:                           q.getFleetNodeSessionByTokenHashStmt,
+		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
+		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
+		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
+		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
+		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
+		getInventoryInsightsStmt:                                     q.getInventoryInsightsStmt,
+		getInventoryPartStmt:                                         q.getInventoryPartStmt,
+		getInventoryPartForUpdateStmt:                                q.getInventoryPartForUpdateStmt,
+		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,
+		getLatestAllDeviceMetricsStmt:                                q.getLatestAllDeviceMetricsStmt,
+		getLatestDeviceMetricsStmt:                                   q.getLatestDeviceMetricsStmt,
+		getLatestFirmwareRolloutForPairStmt:                          q.getLatestFirmwareRolloutForPairStmt,
+		getLatestFleetMetricRollupBucketStmt:                         q.getLatestFleetMetricRollupBucketStmt,
+		getMQTTSourceConfigByOrgStmt:                                 q.getMQTTSourceConfigByOrgStmt,
+		getMQTTSourceStateByIDStmt:                                   q.getMQTTSourceStateByIDStmt,
+		getMaxPriorityStmt:                                           q.getMaxPriorityStmt,
+		getMessagesToProcessStmt:                                     q.getMessagesToProcessStmt,
+		getMinerCredentialsByDeviceIDStmt:                            q.getMinerCredentialsByDeviceIDStmt,
+		getMinerModelGroupsStmt:                                      q.getMinerModelGroupsStmt,
+		getMinerStateCountsByDeviceIDsStmt:                           q.getMinerStateCountsByDeviceIDsStmt,
+		getMinerStateSnapshotDeviceRollups1mStmt:                     q.getMinerStateSnapshotDeviceRollups1mStmt,
+		getMinerStateSnapshotDeviceRollupsDailyStmt:                  q.getMinerStateSnapshotDeviceRollupsDailyStmt,
+		getMinerStateSnapshotDeviceRollupsHourlyStmt:                 q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
+		getMinerStateSnapshotsStmt:                                   q.getMinerStateSnapshotsStmt,
+		getNoteStmt:                                                  q.getNoteStmt,
+		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
+		getOfflineFleetNodeDevicesStmt:                               q.getOfflineFleetNodeDevicesStmt,
+		getOpenErrorByDedupKeyStmt:                                   q.getOpenErrorByDedupKeyStmt,
+		getOrgDeviceMetricsHourlyAggregatesStmt:                      q.getOrgDeviceMetricsHourlyAggregatesStmt,
+		getOrgDeviceMetricsRawBucketAggregatesStmt:                   q.getOrgDeviceMetricsRawBucketAggregatesStmt,
+		getOrgDeviceStatusHourlyAggregatesStmt:                       q.getOrgDeviceStatusHourlyAggregatesStmt,
+		getOrgFleetMetricRollupsStmt:                                 q.getOrgFleetMetricRollupsStmt,
+		getOrgScopeAssignmentForUserStmt:                             q.getOrgScopeAssignmentForUserStmt,
+		getOrganizationByIDStmt:                                      q.getOrganizationByIDStmt,
+		getOrganizationByNameStmt:                                    q.getOrganizationByNameStmt,
+		getOrganizationByOrgIDStmt:                                   q.getOrganizationByOrgIDStmt,
+		getOrganizationsForUserStmt:                                  q.getOrganizationsForUserStmt,
+		getPairedDeviceByMACAddressStmt:                              q.getPairedDeviceByMACAddressStmt,
+		getPairedDeviceBySerialNumberStmt:                            q.getPairedDeviceBySerialNumberStmt,
+		getPairedDevicesByMACAddressesStmt:                           q.getPairedDevicesByMACAddressesStmt,
+		getPairedDevicesIdsStmt:                                      q.getPairedDevicesIdsStmt,
+		getPairedProtoDeviceIdentifiersByIdentifiersStmt:             q.getPairedProtoDeviceIdentifiersByIdentifiersStmt,
+		getPendingEnrollmentByCodeHashStmt:                           q.getPendingEnrollmentByCodeHashStmt,
+		getPendingEnrollmentByFleetNodeStmt:                          q.getPendingEnrollmentByFleetNodeStmt,
+		getPermissionByKeyStmt:                                       q.getPermissionByKeyStmt,
+		getPermissionsByKeysStmt:                                     q.getPermissionsByKeysStmt,
+		getPoolStmt:                                                  q.getPoolStmt,
+		getQueueMessagesByBatchStmt:                                  q.getQueueMessagesByBatchStmt,
+		getRackDetailsForDevicesStmt:                                 q.getRackDetailsForDevicesStmt,
+		getRackInfoStmt:                                              q.getRackInfoStmt,
+		getRackInfoBatchStmt:                                         q.getRackInfoBatchStmt,
+		getRackSlotsStmt:                                             q.getRackSlotsStmt,
+		getReleaseChannelStmt:                                        q.getReleaseChannelStmt,
+		getReleaseChannelDeletionStateStmt:                           q.getReleaseChannelDeletionStateStmt,
+		getReleaseChannelFirmwareStmt:                                q.getReleaseChannelFirmwareStmt,
+		getReleaseChannelForUpdateStmt:                               q.getReleaseChannelForUpdateStmt,
+		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
+		getRepairTicketStmt:                                          q.getRepairTicketStmt,
+		getRepairTicketCommentByIdempotencyKeyStmt:                   q.getRepairTicketCommentByIdempotencyKeyStmt,
+		getRepairTicketCommentSiteForUpdateStmt:                      q.getRepairTicketCommentSiteForUpdateStmt,
+		getRepairTicketForUpdateStmt:                                 q.getRepairTicketForUpdateStmt,
+		getRepairTicketIDByIdempotencyKeyStmt:                        q.getRepairTicketIDByIdempotencyKeyStmt,
+		getRoleByIDStmt:                                              q.getRoleByIDStmt,
+		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
+		getRunningPowerTargetScheduleOverlapsStmt:                    q.getRunningPowerTargetScheduleOverlapsStmt,
+		getScheduleStmt:                                              q.getScheduleStmt,
+		getScheduleByIDForProcessorStmt:                              q.getScheduleByIDForProcessorStmt,
+		getScheduleForUpdateStmt:                                     q.getScheduleForUpdateStmt,
+		getScheduleTargetsStmt:                                       q.getScheduleTargetsStmt,
+		getScheduleTargetsByScheduleIDsStmt:                          q.getScheduleTargetsByScheduleIDsStmt,
+		getSessionByIDStmt:                                           q.getSessionByIDStmt,
+		getSiteStmt:                                                  q.getSiteStmt,
+		getSiteBySlugStmt:                                            q.getSiteBySlugStmt,
+		getTotalDevicesPendingAuthStmt:                               q.getTotalDevicesPendingAuthStmt,
+		getTotalMinerStateSnapshotsStmt:                              q.getTotalMinerStateSnapshotsStmt,
+		getTotalPairedDevicesStmt:                                    q.getTotalPairedDevicesStmt,
+		getTotalPoolsStmt:                                            q.getTotalPoolsStmt,
+		getUserByExternalIdStmt:                                      q.getUserByExternalIdStmt,
+		getUserByIdStmt:                                              q.getUserByIdStmt,
+		getUserByIdForUpdateStmt:                                     q.getUserByIdForUpdateStmt,
+		getUserByUsernameStmt:                                        q.getUserByUsernameStmt,
+		getUserRoleInOrganizationStmt:                                q.getUserRoleInOrganizationStmt,
+		getUserRoleNameStmt:                                          q.getUserRoleNameStmt,
+		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
+		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
+		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
+		hasUserStmt:                                                  q.hasUserStmt,
+		insertActivityLogStmt:                                        q.insertActivityLogStmt,
+		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
+		insertAlertMaintenanceWindowStmt:                             q.insertAlertMaintenanceWindowStmt,
+		insertAlertRouteChannelsStmt:                                 q.insertAlertRouteChannelsStmt,
+		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
+		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
+		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
+		insertDeviceStmt:                                             q.insertDeviceStmt,
+		insertDeviceMetricsStmt:                                      q.insertDeviceMetricsStmt,
+		insertErrorStmt:                                              q.insertErrorStmt,
+		insertMQTTSourceConfigStmt:                                   q.insertMQTTSourceConfigStmt,
+		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
+		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
+		insertNotificationMetricSamplesStmt:                          q.insertNotificationMetricSamplesStmt,
+		insertReleaseChannelMinerTargetsStmt:                         q.insertReleaseChannelMinerTargetsStmt,
+		insertReleaseChannelTargetsStmt:                              q.insertReleaseChannelTargetsStmt,
+		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
+		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
+		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
+		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,
+		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
+		listActiveCurtailmentTargetDevicesByOrgStmt:                  q.listActiveCurtailmentTargetDevicesByOrgStmt,
+		listActiveFirmwareRolloutsStmt:                               q.listActiveFirmwareRolloutsStmt,
+		listActiveNotificationGroupsStmt:                             q.listActiveNotificationGroupsStmt,
+		listActiveNotificationsStmt:                                  q.listActiveNotificationsStmt,
+		listActiveNotificationsByAlertStmt:                           q.listActiveNotificationsByAlertStmt,
+		listActiveOrganizationIDsStmt:                                q.listActiveOrganizationIDsStmt,
+		listActivityLogsStmt:                                         q.listActivityLogsStmt,
+		listAlertChannelsStmt:                                        q.listAlertChannelsStmt,
+		listAlertMaintenanceWindowsStmt:                              q.listAlertMaintenanceWindowsStmt,
+		listAlertRoutePoliciesStmt:                                   q.listAlertRoutePoliciesStmt,
+		listAlertRuleConfigsStmt:                                     q.listAlertRuleConfigsStmt,
+		listApiKeysByOrganizationStmt:                                q.listApiKeysByOrganizationStmt,
+		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
+		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
+		listBatchDeviceResultsStmt:                                   q.listBatchDeviceResultsStmt,
+		listBuildingNamesBySiteStmt:                                  q.listBuildingNamesBySiteStmt,
+		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
+		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
+		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
+		listCompletedTicketAssigneesStmt:                             q.listCompletedTicketAssigneesStmt,
+		listCompletedTicketsStmt:                                     q.listCompletedTicketsStmt,
+		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
+		listCurtailmentBuildingScopeCoverageStmt:                     q.listCurtailmentBuildingScopeCoverageStmt,
+		listCurtailmentCandidatesByOrgStmt:                           q.listCurtailmentCandidatesByOrgStmt,
+		listCurtailmentEventsForOrgStmt:                              q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentGroupScopeCoverageStmt:                        q.listCurtailmentGroupScopeCoverageStmt,
+		listCurtailmentRackScopeCoverageStmt:                         q.listCurtailmentRackScopeCoverageStmt,
+		listCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		listCurtailmentResponseProfilesByOrgStmt:                     q.listCurtailmentResponseProfilesByOrgStmt,
+		listCurtailmentTargetSiteCoverageByEventStmt:                 q.listCurtailmentTargetSiteCoverageByEventStmt,
+		listCurtailmentTargetSiteCoverageByEventsStmt:                q.listCurtailmentTargetSiteCoverageByEventsStmt,
+		listCurtailmentTargetsByEventStmt:                            q.listCurtailmentTargetsByEventStmt,
+		listCurtailmentTargetsByEventPageStmt:                        q.listCurtailmentTargetsByEventPageStmt,
+		listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt:      q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt,
+		listCustomRolesForOrgStmt:                                    q.listCustomRolesForOrgStmt,
+		listDeviceIDsByIdentifiersStmt:                               q.listDeviceIDsByIdentifiersStmt,
+		listDeviceSetMembersPaginatedStmt:                            q.listDeviceSetMembersPaginatedStmt,
+		listDeviceSetMembersPaginatedAfterStmt:                       q.listDeviceSetMembersPaginatedAfterStmt,
+		listDeviceSetMembersPaginatedFilteredStmt:                    q.listDeviceSetMembersPaginatedFilteredStmt,
+		listDeviceSetMembersPaginatedFilteredAfterStmt:               q.listDeviceSetMembersPaginatedFilteredAfterStmt,
+		listEarlierCurtailmentReservationDevicesStmt:                 q.listEarlierCurtailmentReservationDevicesStmt,
+		listEarlierCurtailmentTopologyReservationScopesStmt:          q.listEarlierCurtailmentTopologyReservationScopesStmt,
+		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
+		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,
+		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:        q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
+		listEnabledMQTTSourcesStmt:                                   q.listEnabledMQTTSourcesStmt,
+		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,
+		listFirmwareRolloutDevicesStmt:                               q.listFirmwareRolloutDevicesStmt,
+		listFirmwareRolloutDispatchCompletionsStmt:                   q.listFirmwareRolloutDispatchCompletionsStmt,
+		listFirmwareRolloutEventsStmt:                                q.listFirmwareRolloutEventsStmt,
+		listFirmwareRolloutOfflineSlotsStmt:                          q.listFirmwareRolloutOfflineSlotsStmt,
+		listFirmwareRolloutsStmt:                                     q.listFirmwareRolloutsStmt,
+		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
+		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
+		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
+		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
+		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
+		listInventoryPartsStmt:                                       q.listInventoryPartsStmt,
+		listMQTTSourceConfigsByOrgStmt:                               q.listMQTTSourceConfigsByOrgStmt,
+		listMQTTSourceStatesByOrgStmt:                                q.listMQTTSourceStatesByOrgStmt,
+		listMQTTSourcesWithActiveCurtailmentStmt:                     q.listMQTTSourcesWithActiveCurtailmentStmt,
+		listMaintenanceAssigneesStmt:                                 q.listMaintenanceAssigneesStmt,
+		listManagedFirmwareUpdateDevicesStmt:                         q.listManagedFirmwareUpdateDevicesStmt,
+		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
+		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
+		listNotesStmt:                                                q.listNotesStmt,
+		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
+		listOrganizationsStmt:                                        q.listOrganizationsStmt,
+		listPartsBySiteStmt:                                          q.listPartsBySiteStmt,
+		listPermissionsStmt:                                          q.listPermissionsStmt,
+		listPoolsStmt:                                                q.listPoolsStmt,
+		listRackTypesStmt:                                            q.listRackTypesStmt,
+		listRackZoneRefsStmt:                                         q.listRackZoneRefsStmt,
+		listRackZonesStmt:                                            q.listRackZonesStmt,
+		listRacksOutsideBuildingBoundsStmt:                           q.listRacksOutsideBuildingBoundsStmt,
+		listRecentlyResolvedCurtailedDevicesByOrgStmt:                q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
+		listRecentlyResolvedCurtailedDevicesByScopeStmt:              q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
+		listReleaseChannelFirmwareStmt:                               q.listReleaseChannelFirmwareStmt,
+		listReleaseChannelFirmwareNeedingRolloutStmt:                 q.listReleaseChannelFirmwareNeedingRolloutStmt,
+		listReleaseChannelMembersStmt:                                q.listReleaseChannelMembersStmt,
+		listReleaseChannelMembershipConflictsPageStmt:                q.listReleaseChannelMembershipConflictsPageStmt,
+		listReleaseChannelMinersPageStmt:                             q.listReleaseChannelMinersPageStmt,
+		listReleaseChannelMismatchedMembersStmt:                      q.listReleaseChannelMismatchedMembersStmt,
+		listReleaseChannelModelGroupsPageStmt:                        q.listReleaseChannelModelGroupsPageStmt,
+		listReleaseChannelPageFirmwareStmt:                           q.listReleaseChannelPageFirmwareStmt,
+		listReleaseChannelPageMemberModelsStmt:                       q.listReleaseChannelPageMemberModelsStmt,
+		listReleaseChannelPageTargetsStmt:                            q.listReleaseChannelPageTargetsStmt,
+		listReleaseChannelSuppressedMembersStmt:                      q.listReleaseChannelSuppressedMembersStmt,
+		listReleaseChannelTargetsStmt:                                q.listReleaseChannelTargetsStmt,
+		listReleaseChannelsStmt:                                      q.listReleaseChannelsStmt,
+		listReleaseChannelsPageStmt:                                  q.listReleaseChannelsPageStmt,
+		listRepairTicketCommentsStmt:                                 q.listRepairTicketCommentsStmt,
+		listRepairTicketPartsStmt:                                    q.listRepairTicketPartsStmt,
+		listRepairTicketsStmt:                                        q.listRepairTicketsStmt,
+		listResponseProfileInfrastructureDevicesByOrgStmt:            q.listResponseProfileInfrastructureDevicesByOrgStmt,
+		listRigConfigReconciliationTargetsStmt:                       q.listRigConfigReconciliationTargetsStmt,
+		listRolePermissionKeysStmt:                                   q.listRolePermissionKeysStmt,
+		listRolesStmt:                                                q.listRolesStmt,
+		listRolesWithDetailsForOrgStmt:                               q.listRolesWithDetailsForOrgStmt,
+		listScheduleIDStatusesStmt:                                   q.listScheduleIDStatusesStmt,
+		listSchedulesStmt:                                            q.listSchedulesStmt,
+		listSiteNetworkConfigsForOverlapStmt:                         q.listSiteNetworkConfigsForOverlapStmt,
+		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
+		listSitesStmt:                                                q.listSitesStmt,
+		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
+		listTerminalFirmwareRolloutsNeedingProvenanceStmt:            q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
+		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
+		lockActiveSuperAdminUsersStmt:                                q.lockActiveSuperAdminUsersStmt,
+		lockAlertMaintenanceWindowOrgForWriteStmt:                    q.lockAlertMaintenanceWindowOrgForWriteStmt,
+		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
+		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
+		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
+		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
+		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
+		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
+		lockCurtailmentAutomationRuleMutationStmt:                    q.lockCurtailmentAutomationRuleMutationStmt,
+		lockCurtailmentEventByUUIDForWriteStmt:                       q.lockCurtailmentEventByUUIDForWriteStmt,
+		lockCurtailmentEventForFanCommandStmt:                        q.lockCurtailmentEventForFanCommandStmt,
+		lockCurtailmentEventScopeForWriteStmt:                        q.lockCurtailmentEventScopeForWriteStmt,
+		lockCurtailmentFanDeviceForWriteStmt:                         q.lockCurtailmentFanDeviceForWriteStmt,
+		lockCurtailmentFanDevicesForWriteStmt:                        q.lockCurtailmentFanDevicesForWriteStmt,
+		lockCurtailmentGroupsForWriteStmt:                            q.lockCurtailmentGroupsForWriteStmt,
+		lockCurtailmentResponseProfileAutomationMutationStmt:         q.lockCurtailmentResponseProfileAutomationMutationStmt,
+		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		lockCurtailmentResponseProfileRevisionForExecutionStmt:       q.lockCurtailmentResponseProfileRevisionForExecutionStmt,
+		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
+		lockCurtailmentTargetPairingStatusesForWriteStmt:             q.lockCurtailmentTargetPairingStatusesForWriteStmt,
+		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
+		lockDeviceByIdentifierStmt:                                   q.lockDeviceByIdentifierStmt,
+		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
+		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
+		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,
+		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
+		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
+		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
+		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
+		lockInventorySitesStmt:                                       q.lockInventorySitesStmt,
+		lockMaintenanceBuildingForTicketStmt:                         q.lockMaintenanceBuildingForTicketStmt,
+		lockMaintenanceMinerForTicketStmt:                            q.lockMaintenanceMinerForTicketStmt,
+		lockMaintenanceRackForTicketStmt:                             q.lockMaintenanceRackForTicketStmt,
+		lockMaintenanceSiteForTicketStmt:                             q.lockMaintenanceSiteForTicketStmt,
+		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
+		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,
+		lockReleaseChannelScopesStmt:                                 q.lockReleaseChannelScopesStmt,
+		lockRepairTicketCommentCreateKeyStmt:                         q.lockRepairTicketCommentCreateKeyStmt,
+		lockRepairTicketCreateKeyStmt:                                q.lockRepairTicketCreateKeyStmt,
+		lockSchedulePriorityStmt:                                     q.lockSchedulePriorityStmt,
+		lockSiteForWriteStmt:                                         q.lockSiteForWriteStmt,
+		markCommandBatchFinishedStmt:                                 q.markCommandBatchFinishedStmt,
+		markCommandBatchFinishedWithStartedAtStmt:                    q.markCommandBatchFinishedWithStartedAtStmt,
+		markCommandBatchProcessingStmt:                               q.markCommandBatchProcessingStmt,
+		markFirmwareRolloutDevicesSentStmt:                           q.markFirmwareRolloutDevicesSentStmt,
+		markFirmwareRolloutDevicesVerifiedStmt:                       q.markFirmwareRolloutDevicesVerifiedStmt,
+		markRepairTicketPartsConsumedStmt:                            q.markRepairTicketPartsConsumedStmt,
+		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
+		nextRepairTicketNumberStmt:                                   q.nextRepairTicketNumberStmt,
+		observeFirmwareRolloutReservationsOfflineStmt:                q.observeFirmwareRolloutReservationsOfflineStmt,
+		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
+		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
+		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
+		pauseFirmwareRolloutStmt:                                     q.pauseFirmwareRolloutStmt,
+		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
+		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
+		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
+		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,
+		queryDeviceIDsWithErrorsStmt:                                 q.queryDeviceIDsWithErrorsStmt,
+		queryErrorsStmt:                                              q.queryErrorsStmt,
+		reapMessagesStmt:                                             q.reapMessagesStmt,
+		reassignDevicesUnderBuildingStmt:                             q.reassignDevicesUnderBuildingStmt,
+		reassignDevicesUnderBuildingsBulkStmt:                        q.reassignDevicesUnderBuildingsBulkStmt,
+		reassignRacksUnderBuildingStmt:                               q.reassignRacksUnderBuildingStmt,
+		reassignRacksUnderBuildingsBulkStmt:                          q.reassignRacksUnderBuildingsBulkStmt,
+		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:   q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
+		reconcileCloudAuthNeededByIdentifierStmt:                     q.reconcileCloudAuthNeededByIdentifierStmt,
+		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
+		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
+		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
+		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
+		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
+		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
+		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
+		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
+		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
+		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
+		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
+		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
+		requestRigConfigReconciliationForDevicesStmt:                 q.requestRigConfigReconciliationForDevicesStmt,
+		requeueFirmwareRolloutDevicesStmt:                            q.requeueFirmwareRolloutDevicesStmt,
+		requeueRigConfigReconciliationAfterTerminalFailureStmt:       q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
+		reserveInventoryPartStmt:                                     q.reserveInventoryPartStmt,
+		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
+		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
+		resetReapedFirmwareStatusesStmt:                              q.resetReapedFirmwareStatusesStmt,
+		resolveCurtailmentTopologyDispatchStmt:                       q.resolveCurtailmentTopologyDispatchStmt,
+		resolveInventorySiteByNameStmt:                               q.resolveInventorySiteByNameStmt,
+		resolveMaintenanceAssigneeStmt:                               q.resolveMaintenanceAssigneeStmt,
+		resolveMaintenanceLocationContextStmt:                        q.resolveMaintenanceLocationContextStmt,
+		resolveMaintenanceMinerContextStmt:                           q.resolveMaintenanceMinerContextStmt,
+		resolveReleaseChannelScopeStmt:                               q.resolveReleaseChannelScopeStmt,
+		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
+		resumeFirmwareRolloutStmt:                                    q.resumeFirmwareRolloutStmt,
+		resumePausedScheduleStmt:                                     q.resumePausedScheduleStmt,
+		retryRigConfigReconciliationStmt:                             q.retryRigConfigReconciliationStmt,
+		revertScheduleToActiveStmt:                                   q.revertScheduleToActiveStmt,
+		revokeAllSessionsByUserIDStmt:                                q.revokeAllSessionsByUserIDStmt,
+		revokeApiKeyStmt:                                             q.revokeApiKeyStmt,
+		revokeApiKeysByFleetNodeIDStmt:                               q.revokeApiKeysByFleetNodeIDStmt,
+		revokePermissionFromRoleStmt:                                 q.revokePermissionFromRoleStmt,
+		revokeSessionStmt:                                            q.revokeSessionStmt,
+		setCurtailmentAutomationActiveEventStmt:                      q.setCurtailmentAutomationActiveEventStmt,
+		setCurtailmentAutomationExecutionErrorStmt:                   q.setCurtailmentAutomationExecutionErrorStmt,
+		setCurtailmentAutomationRestoreStartedStmt:                   q.setCurtailmentAutomationRestoreStartedStmt,
+		setCurtailmentAutomationRuleEnabledStmt:                      q.setCurtailmentAutomationRuleEnabledStmt,
+		setDevicePairingAuthNeededIfNotPairedStmt:                    q.setDevicePairingAuthNeededIfNotPairedStmt,
+		setFirmwareRolloutControllerWaitStmt:                         q.setFirmwareRolloutControllerWaitStmt,
+		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
+		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
+		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,
+		setMQTTSourceConfigEnabledStmt:                               q.setMQTTSourceConfigEnabledStmt,
+		setRackBuildingPositionStmt:                                  q.setRackBuildingPositionStmt,
+		setRackBuildingPositionBulkClearStmt:                         q.setRackBuildingPositionBulkClearStmt,
+		setRackBuildingPositionBulkPlaceStmt:                         q.setRackBuildingPositionBulkPlaceStmt,
+		setRackSlotPositionStmt:                                      q.setRackSlotPositionStmt,
+		setSchedulePrioritiesStmt:                                    q.setSchedulePrioritiesStmt,
+		setScheduleRunningStmt:                                       q.setScheduleRunningStmt,
+		siteBelongsToOrgStmt:                                         q.siteBelongsToOrgStmt,
+		sitesByIDsStmt:                                               q.sitesByIDsStmt,
+		skipFirmwareRolloutDevicesStmt:                               q.skipFirmwareRolloutDevicesStmt,
+		snapshotFirmwareRolloutDevicesStmt:                           q.snapshotFirmwareRolloutDevicesStmt,
+		softDeleteAlertChannelStmt:                                   q.softDeleteAlertChannelStmt,
+		softDeleteBuildingStmt:                                       q.softDeleteBuildingStmt,
+		softDeleteBuildingsBySiteStmt:                                q.softDeleteBuildingsBySiteStmt,
+		softDeleteCustomRoleStmt:                                     q.softDeleteCustomRoleStmt,
+		softDeleteDeviceSetStmt:                                      q.softDeleteDeviceSetStmt,
+		softDeleteDevicesStmt:                                        q.softDeleteDevicesStmt,
+		softDeleteDiscoveredDeviceByIdentifierStmt:                   q.softDeleteDiscoveredDeviceByIdentifierStmt,
+		softDeleteDiscoveredDevicesForDeletedDevicesStmt:             q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
+		softDeleteFleetNodeStmt:                                      q.softDeleteFleetNodeStmt,
+		softDeleteFleetNodesForExpiredEnrollmentsStmt:                q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
+		softDeleteInfrastructureDeviceStmt:                           q.softDeleteInfrastructureDeviceStmt,
+		softDeleteInfrastructureDevicesBySiteStmt:                    q.softDeleteInfrastructureDevicesBySiteStmt,
+		softDeleteInventoryPartStmt:                                  q.softDeleteInventoryPartStmt,
+		softDeleteNoteStmt:                                           q.softDeleteNoteStmt,
+		softDeleteOrganizationStmt:                                   q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                                           q.softDeletePoolStmt,
+		softDeleteRepairTicketCommentByAuthorStmt:                    q.softDeleteRepairTicketCommentByAuthorStmt,
+		softDeleteRoleStmt:                                           q.softDeleteRoleStmt,
+		softDeleteScheduleStmt:                                       q.softDeleteScheduleStmt,
+		softDeleteSiteStmt:                                           q.softDeleteSiteStmt,
+		softDeleteUserStmt:                                           q.softDeleteUserStmt,
+		softDeleteUserFromOrganizationStmt:                           q.softDeleteUserFromOrganizationStmt,
+		sweepAlertRuleConfigsStmt:                                    q.sweepAlertRuleConfigsStmt,
+		sweepCurtailmentTargetsToReleasedStmt:                        q.sweepCurtailmentTargetsToReleasedStmt,
+		sweepCurtailmentTargetsToRestoreFailedStmt:                   q.sweepCurtailmentTargetsToRestoreFailedStmt,
+		sweepExpiredEnrollmentsStmt:                                  q.sweepExpiredEnrollmentsStmt,
+		sweepExpiredFleetNodeAuthChallengesStmt:                      q.sweepExpiredFleetNodeAuthChallengesStmt,
+		sweepExpiredFleetNodeSessionsStmt:                            q.sweepExpiredFleetNodeSessionsStmt,
+		transferDiscoveredDeviceAttributionStmt:                      q.transferDiscoveredDeviceAttributionStmt,
+		unassignDeviceBuildingsByRackStmt:                            q.unassignDeviceBuildingsByRackStmt,
+		unassignDeviceSitesByRackStmt:                                q.unassignDeviceSitesByRackStmt,
+		unassignDevicesFromSiteStmt:                                  q.unassignDevicesFromSiteStmt,
+		unassignRacksFromBuildingStmt:                                q.unassignRacksFromBuildingStmt,
+		unassignRacksFromBuildingsBySiteStmt:                         q.unassignRacksFromBuildingsBySiteStmt,
+		unassignRacksFromSiteStmt:                                    q.unassignRacksFromSiteStmt,
+		unassignRoleStmt:                                             q.unassignRoleStmt,
+		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                                             q.undeleteRoleStmt,
+		unpairDeviceStmt:                                             q.unpairDeviceStmt,
+		unverifyFirmwareRolloutDevicesStmt:                           q.unverifyFirmwareRolloutDevicesStmt,
+		updateAlertChannelStmt:                                       q.updateAlertChannelStmt,
+		updateAlertMaintenanceWindowStmt:                             q.updateAlertMaintenanceWindowStmt,
+		updateApiKeyLastUsedStmt:                                     q.updateApiKeyLastUsedStmt,
+		updateBuildingStmt:                                           q.updateBuildingStmt,
+		updateCurtailmentAutomationRuleStmt:                          q.updateCurtailmentAutomationRuleStmt,
+		updateCurtailmentEventFanStateStmt:                           q.updateCurtailmentEventFanStateStmt,
+		updateCurtailmentEventOperatorFieldsStmt:                     q.updateCurtailmentEventOperatorFieldsStmt,
+		updateCurtailmentEventStateStmt:                              q.updateCurtailmentEventStateStmt,
+		updateCurtailmentResponseProfileStmt:                         q.updateCurtailmentResponseProfileStmt,
+		updateCurtailmentTargetStateStmt:                             q.updateCurtailmentTargetStateStmt,
+		updateCustomRoleNameStmt:                                     q.updateCustomRoleNameStmt,
+		updateDeviceCustomNamesStmt:                                  q.updateDeviceCustomNamesStmt,
+		updateDeviceIPAssignmentStmt:                                 q.updateDeviceIPAssignmentStmt,
+		updateDeviceInfoStmt:                                         q.updateDeviceInfoStmt,
+		updateDevicePairingStatusByIdentifierStmt:                    q.updateDevicePairingStatusByIdentifierStmt,
+		updateDeviceSetDescriptionStmt:                               q.updateDeviceSetDescriptionStmt,
+		updateDeviceSetLabelStmt:                                     q.updateDeviceSetLabelStmt,
+		updateDeviceSetLabelAndDescriptionStmt:                       q.updateDeviceSetLabelAndDescriptionStmt,
+		updateDeviceWorkerNameStmt:                                   q.updateDeviceWorkerNameStmt,
+		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                 q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
+		updateDiscoveredDeviceFirmwareVersionStmt:                    q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateFleetNodeLastSeenAtStmt:                                q.updateFleetNodeLastSeenAtStmt,
+		updateInfrastructureDeviceStmt:                               q.updateInfrastructureDeviceStmt,
+		updateInventoryPartStmt:                                      q.updateInventoryPartStmt,
+		updateLastLoginStmt:                                          q.updateLastLoginStmt,
+		updateMQTTSourceConfigStmt:                                   q.updateMQTTSourceConfigStmt,
+		updateMessageAfterFailureStmt:                                q.updateMessageAfterFailureStmt,
+		updateMessagePermanentlyFailedStmt:                           q.updateMessagePermanentlyFailedStmt,
+		updateMessageStatusStmt:                                      q.updateMessageStatusStmt,
+		updateMinerPasswordStmt:                                      q.updateMinerPasswordStmt,
+		updateNoteContentStmt:                                        q.updateNoteContentStmt,
+		updateOpenErrorStmt:                                          q.updateOpenErrorStmt,
+		updateOrganizationStmt:                                       q.updateOrganizationStmt,
+		updatePoolStmt:                                               q.updatePoolStmt,
+		updateRackInfoStmt:                                           q.updateRackInfoStmt,
+		updateRackPlacementStmt:                                      q.updateRackPlacementStmt,
+		updateRackPlacementBulkForBuildingStmt:                       q.updateRackPlacementBulkForBuildingStmt,
+		updateRackPlacementBulkForSiteStmt:                           q.updateRackPlacementBulkForSiteStmt,
+		updateReleaseChannelStmt:                                     q.updateReleaseChannelStmt,
+		updateRepairTicketStmt:                                       q.updateRepairTicketStmt,
+		updateRoleStmt:                                               q.updateRoleStmt,
+		updateScheduleStmt:                                           q.updateScheduleStmt,
+		updateScheduleAfterRunStmt:                                   q.updateScheduleAfterRunStmt,
+		updateSessionActivityStmt:                                    q.updateSessionActivityStmt,
+		updateSiteStmt:                                               q.updateSiteStmt,
+		updateUserPasswordStmt:                                       q.updateUserPasswordStmt,
+		updateUserPasswordAndFlagStmt:                                q.updateUserPasswordAndFlagStmt,
+		updateUserRoleStmt:                                           q.updateUserRoleStmt,
+		updateUserUsernameStmt:                                       q.updateUserUsernameStmt,
+		upsertAlertRoutePolicyStmt:                                   q.upsertAlertRoutePolicyStmt,
+		upsertAlertRuleConfigStmt:                                    q.upsertAlertRuleConfigStmt,
+		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
+		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
+		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
+		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
+		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,
+		upsertDevicePairingStmt:                                      q.upsertDevicePairingStmt,
+		upsertDeviceStatusStmt:                                       q.upsertDeviceStatusStmt,
+		upsertDiscoveredDeviceStmt:                                   q.upsertDiscoveredDeviceStmt,
+		upsertDiscoveredDeviceFromFleetNodeStmt:                      q.upsertDiscoveredDeviceFromFleetNodeStmt,
+		upsertFleetMetricRollupsStmt:                                 q.upsertFleetMetricRollupsStmt,
+		upsertFleetNodeAuthChallengeStmt:                             q.upsertFleetNodeAuthChallengeStmt,
+		upsertFleetNodeSessionStmt:                                   q.upsertFleetNodeSessionStmt,
+		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
+		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
+		upsertPermissionStmt:                                         q.upsertPermissionStmt,
+		upsertReleaseChannelFirmwareStmt:                             q.upsertReleaseChannelFirmwareStmt,
+		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
 	}
 }

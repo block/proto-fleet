@@ -28,10 +28,6 @@ service CurtailmentService {
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
-    // Get the most-recent pending, active, or restoring event.
-    rpc GetActiveCurtailment(GetActiveCurtailmentRequest)
-        returns (GetActiveCurtailmentResponse);
-
     // List every active (pending/active/restoring) event for the org.
     // Multiple can be active at once when scoped to disjoint device sets.
     rpc ListActiveCurtailments(ListActiveCurtailmentsRequest)
@@ -63,6 +59,13 @@ service CurtailmentService {
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
+    // Admin recovery RPC: immediately release curtailment ownership without
+    // issuing restore commands. This is distinct from StopCurtailment
+    // (graceful restore) and AdminTerminateEvent (Stop-first terminal
+    // recovery). Session-only, Admin role; reason required.
+    rpc ForceReleaseCurtailmentOwnership(ForceReleaseCurtailmentOwnershipRequest)
+        returns (ForceReleaseCurtailmentOwnershipResponse);
+
     // IngestCurtailmentSignal starts a curtailment event from an
     // external dispatch signal. signal_payload is provider-opaque;
     // per-provider adapters decode it. Idempotent on
@@ -88,6 +91,35 @@ service CurtailmentService {
         returns (SetMqttCurtailmentSourceEnabledResponse);
     rpc DeleteMqttCurtailmentSource(DeleteMqttCurtailmentSourceRequest)
         returns (DeleteMqttCurtailmentSourceResponse);
+
+    // Curtailment response profiles. Profiles define response behavior only;
+    // automation binds triggers/sources to profiles in a separate surface.
+    rpc ListCurtailmentResponseProfiles(ListCurtailmentResponseProfilesRequest)
+        returns (ListCurtailmentResponseProfilesResponse);
+    rpc GetCurtailmentResponseProfile(GetCurtailmentResponseProfileRequest)
+        returns (GetCurtailmentResponseProfileResponse);
+    rpc CreateCurtailmentResponseProfile(CreateCurtailmentResponseProfileRequest)
+        returns (CreateCurtailmentResponseProfileResponse);
+    rpc UpdateCurtailmentResponseProfile(UpdateCurtailmentResponseProfileRequest)
+        returns (UpdateCurtailmentResponseProfileResponse);
+    rpc DeleteCurtailmentResponseProfile(DeleteCurtailmentResponseProfileRequest)
+        returns (DeleteCurtailmentResponseProfileResponse);
+
+    // Curtailment automation rules. Automation binds an MQTT source trigger to
+    // a response profile; MQTT target=0 starts curtailment and target=100
+    // restores/no-ops.
+    rpc ListCurtailmentAutomationRules(ListCurtailmentAutomationRulesRequest)
+        returns (ListCurtailmentAutomationRulesResponse);
+    rpc GetCurtailmentAutomationRule(GetCurtailmentAutomationRuleRequest)
+        returns (GetCurtailmentAutomationRuleResponse);
+    rpc CreateCurtailmentAutomationRule(CreateCurtailmentAutomationRuleRequest)
+        returns (CreateCurtailmentAutomationRuleResponse);
+    rpc UpdateCurtailmentAutomationRule(UpdateCurtailmentAutomationRuleRequest)
+        returns (UpdateCurtailmentAutomationRuleResponse);
+    rpc SetCurtailmentAutomationRuleEnabled(SetCurtailmentAutomationRuleEnabledRequest)
+        returns (SetCurtailmentAutomationRuleEnabledResponse);
+    rpc DeleteCurtailmentAutomationRule(DeleteCurtailmentAutomationRuleRequest)
+        returns (DeleteCurtailmentAutomationRuleResponse);
 }
 
 // --- Enums ---
@@ -138,12 +170,12 @@ enum CurtailmentLevel {
     CURTAILMENT_LEVEL_FULL            = 2;  // v1: complete shutdown
 }
 
-// CurtailmentPriority controls cooldown and hysteresis behavior.
+// CurtailmentPriority controls curtailment urgency.
 enum CurtailmentPriority {
     CURTAILMENT_PRIORITY_UNSPECIFIED = 0;
-    CURTAILMENT_PRIORITY_NORMAL      = 1;  // default; respects hysteresis and cooldowns
+    CURTAILMENT_PRIORITY_NORMAL      = 1;  // default priority
     CURTAILMENT_PRIORITY_HIGH        = 2;
-    // EMERGENCY bypasses cooldown/min-duration, but not maintenance checks.
+    // EMERGENCY bypasses min-duration, but not maintenance checks.
     CURTAILMENT_PRIORITY_EMERGENCY   = 3;
 }
 
@@ -175,6 +207,10 @@ enum CurtailmentTargetState {
     CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
     CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
     CURTAILMENT_TARGET_STATE_DRIFTED        = 4;  // re-dispatching
+    // Policy-owned but not currently dispatchable. Used by all-paired
+    // durable targeting so the event owns miners that are offline or not yet
+    // commandable, then dispatches them once they become actionable.
+    CURTAILMENT_TARGET_STATE_UNAVAILABLE    = 9;
 
     // Terminal outcomes.
     CURTAILMENT_TARGET_STATE_RESOLVED       = 5;  // event ended cleanly for this target
@@ -201,20 +237,37 @@ enum CurtailmentTargetPhase {
 // ScopeWholeOrg selects every miner in the caller organization.
 message ScopeWholeOrg {}
 
-// ScopeDeviceSets selects miners in device sets.
-message ScopeDeviceSets {
-    repeated string device_set_ids = 1 [(buf.validate.field).repeated = {
-        min_items: 1
-        items: { string: { min_len: 1 } }
-    }];
+// ScopeBuilding selects miners assigned directly to a building or to one of
+// its racks.
+message ScopeBuilding {
+    int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
 // ScopeDeviceList selects explicit device identifiers.
 message ScopeDeviceList {
     repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
         min_items: 1
+        max_items: 10000
         items: { string: { min_len: 1 } }
     }];
+}
+
+// CurtailmentScope is a terminal selector. Repeated entries may select multiple
+// values of the same terminal type; mixing selector cases is invalid.
+message CurtailmentScope {
+    reserved 2;
+    reserved "device_set_ids";
+
+    oneof scope {
+        option (buf.validate.oneof).required = true;
+
+        ScopeWholeOrg   whole_org          = 1;
+        ScopeDeviceList device_identifiers = 3;
+        ScopeSite       site               = 4;
+        ScopeBuilding   building           = 5;
+        ScopeRack       rack               = 6;
+        ScopeGroup      group              = 7;
+    }
 }
 
 // --- Mode parameter messages ---
@@ -247,6 +300,9 @@ message FullFleetParams {}
 
 // CurtailmentEvent is the full event returned by Get/List/Start RPCs.
 message CurtailmentEvent {
+    reserved 8;
+    reserved "device_set_ids";
+
     // Stable external event identifier.
     string event_uuid = 1;
 
@@ -259,10 +315,12 @@ message CurtailmentEvent {
     // Original request scope and mode params.
     oneof scope {
         ScopeWholeOrg   whole_org           = 7;
-        ScopeDeviceSets device_set_ids      = 8;
         ScopeDeviceList device_identifiers  = 9;
         ScopeSite       site                = 25;
     }
+    // Clients should read scopes. Singular oneof fields remain populated when
+    // an event was started with one whole-org, site, or explicit-miner selector.
+    repeated CurtailmentScope scopes = 35;
     oneof mode_params {
         FixedKwParams      fixed_kw       = 10;
         FixedCountParams   fixed_count    = 11;
@@ -277,11 +335,33 @@ message CurtailmentEvent {
     uint32 min_curtailed_duration_sec = 17;
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
+    bool   force_include_all_paired_miners = 44;
 
-    // Server-resolved batch size stamped at Start as
-    // max(restore_batch_size, ceil(0.01 × selected_target_count))
-    // clamped to [10, 100]. Clients display this; restorer reads it.
+    // Version of the executable scope representation persisted for this
+    // event. Zero identifies the pre-versioned site/miner contract.
+    uint32 scope_schema_version = 52 [(buf.validate.field).uint32.lte = 1];
+
+    // Facility fans claimed for this event. These settings are stamped at
+    // Start so later response-profile edits cannot change an active sequence.
+    repeated int64 facility_fan_device_ids = 45;
+    uint32 fan_off_delay_sec = 46;
+    uint32 fan_restore_delay_sec = 47;
+    google.protobuf.Timestamp fan_off_sent_at = 48;
+    google.protobuf.Timestamp fan_on_sent_at = 49;
+    string fan_last_error = 50;
+    google.protobuf.Timestamp fan_airflow_reopened_at = 51;
+
+    // Server-resolved restore batch size stamped at Start. restore_batch_size=0
+    // means restore all pending targets in one wave up to the server's explicit
+    // max restore wave size; positive values are used as the caller's explicit
+    // restore wave size.
+    // Clients display this; restorer reads it.
     uint32 effective_batch_size = 24;
+
+    // Profile-backed executions can throttle Curtail dispatch separately from
+    // Restore. Unset curtail_batch_size means all selected targets.
+    optional uint32 curtail_batch_size = 26;
+    uint32 curtail_batch_interval_sec = 27;
 
     // Operator-supplied reason.
     string reason = 20;
@@ -301,6 +381,11 @@ message CurtailmentEvent {
     // Per-state target counts for summaries.
     CurtailmentTargetRollup target_rollup = 40;
 
+    // Target site coverage for event shapes whose authorization is derived
+    // from concrete targets. Incomplete coverage means at least one target no
+    // longer maps to a live device with a known site assignment.
+    CurtailmentTargetSiteCoverage target_site_coverage = 43;
+
     // Full target details.
     repeated CurtailmentTarget targets = 41;
 
@@ -318,6 +403,14 @@ message CurtailmentTargetRollup {
     int32 released       = 6;
     int32 restore_failed = 7;
     int32 total          = 8;
+    int32 unavailable    = 9;
+    repeated CurtailmentUnavailableReason unavailable_reasons = 10;
+}
+
+// CurtailmentUnavailableReason summarizes why targets are unavailable.
+message CurtailmentUnavailableReason {
+    string reason = 1;  // canonical reason code, e.g. "offline"
+    int32  count  = 2;
 }
 
 // CurtailmentTarget is one event-scoped target.
@@ -384,11 +477,14 @@ message SkippedCandidate {
 // PreviewCurtailmentPlan
 
 message PreviewCurtailmentPlanRequest {
+    reserved 2;
+    reserved "device_set_ids";
+
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
+        message: "set scopes or exactly one singular scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -400,13 +496,18 @@ message PreviewCurtailmentPlanRequest {
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
     };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
+    };
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
-        ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 27;
     }
+    repeated CurtailmentScope scopes = 29 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -444,6 +545,40 @@ message PreviewCurtailmentPlanRequest {
     // Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
     optional uint32 candidate_min_power_w_override = 26 [(buf.validate.field).uint32 = {gte: 1, lte: 10000000}];
 
+    // How long restored targets remain excluded from selection. Zero disables cooldown.
+    uint32 post_event_cooldown_sec = 28 [(buf.validate.field).uint32 = {lte: 86400}];
+
+    // Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
+    // set, the event targets all paired-like miners in scope and holds
+    // unavailable miners until they become commandable.
+    //
+    // Maintenance interaction: MAINTENANCE-status miners are curtailed only
+    // when include_maintenance/force_include_maintenance are also set (the
+    // ProtoFleet UI always couples them). Without the maintenance pair, the
+    // event still owns maintenance-flagged miners but holds them in the
+    // UNAVAILABLE state until maintenance clears.
+    bool force_include_all_paired_miners = 30;
+
+    // New topology selectors require version 1. Zero keeps current site/miner
+    // callers valid while the server-first rollout is in progress.
+    uint32 scope_schema_version = 31 [(buf.validate.field).uint32.lte = 1];
+
+    // Set together when previewing values copied from a saved response profile.
+    int64 response_profile_id = 32 [(buf.validate.field).int64.gte = 0];
+    string expected_response_profile_revision = 33 [(buf.validate.field).string.max_len = 36];
+
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 34 [(buf.validate.field).uint32.const = 1];
+
+    option (buf.validate.message).cel = {
+        id: "response_profile_revision_pair"
+        message: "response_profile_id and expected_response_profile_revision must be set together"
+        expression: "(this.response_profile_id > 0) == (this.expected_response_profile_revision != '')"
+    };
+
     reserved 11 to 23;
 }
 
@@ -467,16 +602,24 @@ message PreviewCurtailmentPlanResponse {
 
     // Excluded candidates with canonical reasons.
     repeated SkippedCandidate skipped_candidates = 20;
+
+    // FULL_FLEET all-paired policy summary. For normal requests these echo the
+    // selected candidate count and zero unavailable targets.
+    uint32 policy_target_count = 21;
+    uint32 unavailable_target_count = 22;
 }
 
 // StartCurtailment
 
 message StartCurtailmentRequest {
+    reserved 2;
+    reserved "device_set_ids";
+
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
+        message: "set scopes or exactly one singular scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -488,13 +631,23 @@ message StartCurtailmentRequest {
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
     };
+    option (buf.validate.message).cel = {
+        id: "curtail_batch_interval_requires_size"
+        message: "curtail_batch_interval_sec requires curtail_batch_size"
+        expression: "!has(this.curtail_batch_interval_sec) || has(this.curtail_batch_size)"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
+    };
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
-        ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 28;
     }
+    repeated CurtailmentScope scopes = 36 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -523,11 +676,17 @@ message StartCurtailmentRequest {
 
     // Operational controls.
     uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = no cap
-    // 0 = server default. Persisted as the per-event preferred batch size;
-    // the adaptive [10, 100] envelope is applied by the server at restore time.
+    // Default 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size. Positive values are persisted and used as
+    // the caller's explicit restore wave size.
     uint32 restore_batch_size         = 21 [(buf.validate.field).uint32 = {lte: 10000}];
-    uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // 0 = server default
+    uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // Default 0 = no wait between restore waves.
     uint32 min_curtailed_duration_sec = 23;
+    // Unset curtail_batch_size lets the server choose the manual curtail
+    // dispatch wave. This is independent from restore_batch_size; immediate
+    // restore does not imply immediate curtail dispatch.
+    optional uint32 curtail_batch_size = 34 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
+    optional uint32 curtail_batch_interval_sec = 35 [(buf.validate.field).uint32 = {lte: 3600}];
 
     // include_maintenance requires force_include_maintenance.
     bool include_maintenance       = 24;
@@ -541,6 +700,52 @@ message StartCurtailmentRequest {
     // normalization. Default false; otherwise `max_duration_seconds=0` is
     // normalized to the per-org default at handler entry.
     bool allow_unbounded = 27;
+
+    // How long restored targets remain excluded from selection. Zero disables cooldown.
+    uint32 post_event_cooldown_sec = 29 [(buf.validate.field).uint32 = {lte: 86400}];
+
+    // Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
+    // set, the event targets all paired-like miners in scope and holds
+    // unavailable miners until they become commandable.
+    //
+    // Maintenance interaction: MAINTENANCE-status miners are curtailed only
+    // when include_maintenance/force_include_maintenance are also set (the
+    // ProtoFleet UI always couples them). Without the maintenance pair, the
+    // event still owns maintenance-flagged miners but holds them in the
+    // UNAVAILABLE state until maintenance clears.
+    bool force_include_all_paired_miners = 37;
+
+    // Optional facility-fan sequence copied from a response profile. Start
+    // accepts legacy persisted profiles above the current create-profile cap;
+    // each fan may be claimed by only one non-terminal event at a time.
+    repeated int64 facility_fan_device_ids = 38 [(buf.validate.field).repeated = {
+        max_items: 1024
+        unique: true
+        items: { int64: {gt: 0} }
+    }];
+    uint32 fan_off_delay_sec = 39 [(buf.validate.field).uint32.lte = 3600];
+    uint32 fan_restore_delay_sec = 40 [(buf.validate.field).uint32.lte = 3600];
+
+    // New topology selectors require version 1. Zero keeps current site/miner
+    // callers valid while the server-first rollout is in progress.
+    uint32 scope_schema_version = 41 [(buf.validate.field).uint32.lte = 1];
+
+    // Set together when starting values copied from a saved response profile.
+    // The server locks this revision in the event-create transaction.
+    int64 response_profile_id = 42 [(buf.validate.field).int64.gte = 0];
+    string expected_response_profile_revision = 43 [(buf.validate.field).string.max_len = 36];
+
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 44 [(buf.validate.field).uint32.const = 1];
+
+    option (buf.validate.message).cel = {
+        id: "response_profile_revision_pair"
+        message: "response_profile_id and expected_response_profile_revision must be set together"
+        expression: "(this.response_profile_id > 0) == (this.expected_response_profile_revision != '')"
+    };
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
@@ -560,7 +765,10 @@ message UpdateCurtailmentEventRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     optional string reason                     = 10 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    // Same-value echo only; restore batch size is frozen at Start.
+    // Changing this value after Start is rejected.
     optional uint32 restore_batch_size         = 11 [(buf.validate.field).uint32 = {lte: 10000}];
+    // 0 = no wait between restore waves.
     optional uint32 restore_batch_interval_sec = 12 [(buf.validate.field).uint32 = {lte: 3600}];
     optional uint32 max_duration_seconds       = 13 [(buf.validate.field).uint32 = {lte: 604800}];
 }
@@ -569,7 +777,9 @@ message UpdateCurtailmentEventResponse {
     CurtailmentEvent event = 1;
 }
 
-// StopCurtailment starts restore; min duration may block normal priority.
+// StopCurtailment starts restore. Normal stops can be blocked by
+// min_curtailed_duration_sec or by an enabled MQTT automation rule that still
+// has OFF demand asserted for an automation-owned event.
 message StopCurtailmentRequest {
     // Tag 2 / name was an early `restore_batch_size_override`; reserve
     // both so an old client's payload can't alias to `force=true`.
@@ -578,7 +788,8 @@ message StopCurtailmentRequest {
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Admin-gated bypass of `min_curtailed_duration_sec`.
+    // Admin-gated bypass of min_curtailed_duration_sec and active automation
+    // OFF-demand restore guards.
     bool force = 3;
 }
 
@@ -586,21 +797,17 @@ message StopCurtailmentResponse {
     CurtailmentEvent event = 1;
 }
 
-// GetActiveCurtailment returns the caller's active event, if any.
-message GetActiveCurtailmentRequest {}
-
-message GetActiveCurtailmentResponse {
-    // The most-recent pending/active/restoring event, or empty when none.
-    // Multiple events can be active per org (one per disjoint device scope);
-    // use ListActiveCurtailments to enumerate them all.
-    optional CurtailmentEvent event = 1;
-}
-
 // ListActiveCurtailments returns every non-terminal event for the caller's
 // org. Multiple can be active when they target disjoint device scopes (e.g.
-// one per site). Each event carries its metadata, scope, and mode params but
+// one per site). Each event carries its metadata, scope, mode params,
+// target-site coverage, and a live `target_rollup` (per-state counts of the
+// event's current target set, the operational truth for active displays) but
 // omits per-device targets and the decision snapshot; use GetCurtailmentEvent
-// for full per-target detail.
+// for full per-target detail and event-start snapshot context.
+//
+// Whole-org events omit `target_rollup` when the caller's curtailment:read
+// grant is narrowed at any site: the rollup aggregates target counts across
+// every site, so it requires unnarrowed org-wide read.
 message ListActiveCurtailmentsRequest {}
 
 message ListActiveCurtailmentsResponse {
@@ -689,7 +896,37 @@ message AdminTerminateEventResponse {
     CurtailmentEvent event = 1;
 }
 
+message ForceReleaseCurtailmentOwnershipRequest {
+    string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+
+    // Operator-supplied reason recorded on the audit row and swept targets.
+    string reason = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message ForceReleaseCurtailmentOwnershipResponse {
+    CurtailmentEvent event = 1;
+
+    // Number of non-terminal target rows released by this recovery action.
+    uint32 released_target_count = 2;
+
+    // True when curtailment ownership was released by the persisted recovery
+    // transaction. This is separate from event.state so clients do not infer
+    // force-release semantics from a generic CANCELLED event.
+    bool ownership_released = 3;
+
+    // Always false for force-release: this path does not issue restore
+    // commands or claim miners were gracefully restored.
+    bool restore_attempted = 4;
+
+    // True when this recovery action also disabled the automation rule that
+    // owned the event.
+    bool automation_disabled = 5;
+}
+
 message IngestCurtailmentSignalRequest {
+    reserved 11;
+    reserved "device_set_ids_override";
+
     // Provider identifier; must match a registered adapter. max_len is
     // intentionally tighter than StartCurtailmentRequest.external_source
     // (256) — provider names are short identifiers ("ercot-qse",
@@ -714,7 +951,6 @@ message IngestCurtailmentSignalRequest {
     // Optional scope override; adapter picks the default when unset.
     oneof scope_override {
         ScopeWholeOrg   whole_org_override          = 10;
-        ScopeDeviceSets device_set_ids_override     = 11;
         ScopeDeviceList device_identifiers_override = 12;
     }
 
@@ -784,6 +1020,9 @@ message MqttCurtailmentSourceStatus {
     int32 subscribed_broker_count = 4;
     bool stale = 5;
 
+    // Last signal fields are the operator-facing source signal. During a
+    // pending retry window they project the pending edge so clients can show
+    // the demand being retried instead of the last settled source state.
     string last_target = 10;
     google.protobuf.Timestamp last_target_at = 11;
     google.protobuf.Timestamp last_received_at = 12;
@@ -818,7 +1057,7 @@ message CreateMqttCurtailmentSourceRequest {
     string mqtt_password = 8 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
 
     string payload_format = 11 [(buf.validate.field).string.max_len = 64];
-    uint32 staleness_threshold_sec = 13;
+    uint32 staleness_threshold_sec = 13 [(buf.validate.field).uint32.lte = 86400];
 }
 
 message CreateMqttCurtailmentSourceResponse {
@@ -842,7 +1081,7 @@ message UpdateMqttCurtailmentSourceRequest {
     optional string mqtt_password = 9 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
 
     optional string payload_format = 13 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
-    optional uint32 staleness_threshold_sec = 15;
+    optional uint32 staleness_threshold_sec = 15 [(buf.validate.field).uint32.lte = 86400];
     optional bool clear_staleness_threshold_sec = 16;
 }
 
@@ -888,3 +1127,362 @@ message DeleteMqttCurtailmentSourceRequest {
 }
 
 message DeleteMqttCurtailmentSourceResponse {}
+
+// --- Response profiles ---
+
+message CurtailmentResponseProfile {
+    int64 profile_id = 1;
+    string profile_name = 2;
+
+    // Unset site means the profile applies to the whole org.
+    ScopeSite site = 3;
+    // Executable terminal selector. Repeated entries share one selector type.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
+
+    CurtailmentMode mode = 4;
+    CurtailmentStrategy strategy = 5;
+    CurtailmentLevel level = 6;
+    CurtailmentPriority priority = 7;
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 8;
+    }
+
+    // Unset curtail_batch_size means curtail all selected miners in scope.
+    optional uint32 curtail_batch_size = 10;
+    uint32 curtail_batch_interval_sec = 11;
+    // 0 = restore all pending targets in one wave up to the server's explicit
+    // max restore wave size.
+    uint32 restore_batch_size = 12;
+    // 0 = no wait between restore waves.
+    uint32 restore_batch_interval_sec = 13;
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16;
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
+    bool force_include_all_paired_miners = 18;
+
+    // Facility fans coordinated with this profile. Devices are validated to
+    // belong to the organization, but may be selected independently of the
+    // miner and site scope.
+    repeated int64 facility_fan_device_ids = 19 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+    // Delay after miners are confirmed curtailed before facility fans turn off.
+    uint32 fan_off_delay_sec = 22 [(buf.validate.field).uint32.lte = 3600];
+    // Delay after facility fans turn on before miners begin restoring.
+    uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 3600];
+
+    // Version of the executable scope representation persisted for this
+    // profile. Zero identifies the pre-versioned site/miner contract.
+    uint32 scope_schema_version = 24 [(buf.validate.field).uint32.lte = 1];
+
+    // Opaque execution revision. It changes whenever execution-affecting
+    // profile values change and must be supplied by derived mutations.
+    string revision = 25;
+
+    google.protobuf.Timestamp created_at = 20;
+    google.protobuf.Timestamp updated_at = 21;
+}
+
+message ListCurtailmentResponseProfilesRequest {}
+
+message ListCurtailmentResponseProfilesResponse {
+    repeated CurtailmentResponseProfile profiles = 1;
+}
+
+message GetCurtailmentResponseProfileRequest {
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message CreateCurtailmentResponseProfileRequest {
+    option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "set scopes or site"
+        expression: "(this.scopes.size() > 0) != has(this.site)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+    };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
+    };
+
+    string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Unset site means the profile applies to the whole org.
+    ScopeSite site = 2;
+    // Required unless site is populated; scopes replaces site when set.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
+
+    CurtailmentMode mode = 3 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [1, 8]
+    }];
+    CurtailmentStrategy strategy = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1]
+    }];
+    CurtailmentLevel level = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 2]
+    }];
+    CurtailmentPriority priority = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 7;
+    }
+
+    // Unset curtail_batch_size means curtail all selected miners in scope.
+    optional uint32 curtail_batch_size = 10 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
+    optional uint32 curtail_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
+    // Omitted or 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size.
+    optional uint32 restore_batch_size = 12 [(buf.validate.field).uint32 = {lte: 10000}];
+    // Omitted or 0 = no wait between restore waves.
+    optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
+    bool force_include_all_paired_miners = 18;
+    repeated int64 facility_fan_device_ids = 19 [(buf.validate.field).repeated = {
+        max_items: 8
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+    uint32 fan_off_delay_sec = 22 [(buf.validate.field).uint32.lte = 3600];
+    uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 3600];
+    uint32 scope_schema_version = 24 [(buf.validate.field).uint32.lte = 1];
+}
+
+message CreateCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message UpdateCurtailmentResponseProfileRequest {
+    option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "set scopes or site"
+        expression: "(this.scopes.size() > 0) != has(this.site)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+    };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
+    };
+
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+    string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Unset site means the profile applies to the whole org.
+    ScopeSite site = 3;
+    // Required unless site is populated; scopes replaces site when set.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
+
+    CurtailmentMode mode = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [1, 8]
+    }];
+    CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1]
+    }];
+    CurtailmentLevel level = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 2]
+    }];
+    CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 8;
+    }
+
+    // Unset curtail_batch_size means curtail all selected miners in scope.
+    optional uint32 curtail_batch_size = 10 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
+    optional uint32 curtail_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
+    // Omitted or 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size.
+    optional uint32 restore_batch_size = 12 [(buf.validate.field).uint32 = {lte: 10000}];
+    // Omitted or 0 = no wait between restore waves.
+    optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
+    bool force_include_all_paired_miners = 18;
+    repeated int64 facility_fan_device_ids = 19 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+    uint32 fan_off_delay_sec = 22 [(buf.validate.field).uint32.lte = 3600];
+    uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 3600];
+    // False or omitted preserves the existing facility fan settings so clients
+    // generated before those fields existed cannot clear them accidentally.
+    // True replaces all three settings; empty IDs and zero delays clear them.
+    bool replace_facility_fan_settings = 24;
+    uint32 scope_schema_version = 25 [(buf.validate.field).uint32.lte = 1];
+    string expected_revision = 26 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
+}
+
+message UpdateCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message DeleteCurtailmentResponseProfileRequest {
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteCurtailmentResponseProfileResponse {}
+
+// --- Automation rules ---
+
+enum CurtailmentAutomationTriggerType {
+    CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED = 0;
+    CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT        = 1;
+}
+
+enum CurtailmentAutomationSignal {
+    CURTAILMENT_AUTOMATION_SIGNAL_UNSPECIFIED = 0;
+    CURTAILMENT_AUTOMATION_SIGNAL_OFF         = 1;
+    CURTAILMENT_AUTOMATION_SIGNAL_ON          = 2;
+}
+
+message CurtailmentAutomationRule {
+    int64 rule_id = 1;
+    string rule_name = 2;
+    CurtailmentAutomationTriggerType trigger_type = 3;
+
+    int64 mqtt_source_id = 4;
+    string mqtt_source_name = 5;
+    int64 response_profile_id = 6;
+    string response_profile_name = 7;
+
+    bool enabled = 8;
+
+    CurtailmentAutomationSignal current_signal = 10;
+    google.protobuf.Timestamp last_signal_at = 11;
+    string active_event_uuid = 12;
+    google.protobuf.Timestamp last_started_at = 13;
+    google.protobuf.Timestamp last_restored_at = 14;
+    string last_error = 15;
+    google.protobuf.Timestamp last_error_at = 16;
+
+    google.protobuf.Timestamp created_at = 20;
+    google.protobuf.Timestamp updated_at = 21;
+}
+
+message ListCurtailmentAutomationRulesRequest {}
+
+message ListCurtailmentAutomationRulesResponse {
+    repeated CurtailmentAutomationRule rules = 1;
+}
+
+message GetCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message CreateCurtailmentAutomationRuleRequest {
+    string rule_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    CurtailmentAutomationTriggerType trigger_type = 2 [(buf.validate.field).enum.defined_only = true];
+    int64 mqtt_source_id = 3 [(buf.validate.field).int64.gt = 0];
+    int64 response_profile_id = 4 [(buf.validate.field).int64.gt = 0];
+    optional bool enabled = 5;
+    string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
+}
+
+message CreateCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message UpdateCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+    string rule_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    CurtailmentAutomationTriggerType trigger_type = 3 [(buf.validate.field).enum.defined_only = true];
+    int64 mqtt_source_id = 4 [(buf.validate.field).int64.gt = 0];
+    int64 response_profile_id = 5 [(buf.validate.field).int64.gt = 0];
+    string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
+}
+
+message UpdateCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message SetCurtailmentAutomationRuleEnabledRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+    bool enabled = 2;
+    string expected_response_profile_revision = 3 [(buf.validate.field).string.max_len = 36];
+
+    option (buf.validate.message).cel = {
+        id: "enabled_automation_profile_revision"
+        message: "expected_response_profile_revision must be set when enabling an automation rule"
+        expression: "!this.enabled || this.expected_response_profile_revision != ''"
+    };
+}
+
+message SetCurtailmentAutomationRuleEnabledResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message DeleteCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteCurtailmentAutomationRuleResponse {}
+
+message CurtailmentTargetSiteCoverage {
+    bool   complete             = 1;
+    uint32 target_count         = 2;
+    uint32 mapped_target_count  = 3;
+    uint32 unknown_target_count = 4;
+}
+
+// ScopeRack selects miners in a rack's live membership.
+message ScopeRack {
+    int64 rack_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+// ScopeGroup selects miners in a group's live membership.
+message ScopeGroup {
+    int64 group_id = 1 [(buf.validate.field).int64.gt = 0];
+}

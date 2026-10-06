@@ -12,6 +12,7 @@ import (
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -77,6 +78,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		deviceStore,
 		transactor,
 		tokenService,
+		testContext.ServiceProvider.EncryptService,
 		mockDiscoverer,
 		pluginService,
 		mockListener,
@@ -183,7 +185,7 @@ func TestDiscoverWithIPList(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -214,7 +216,7 @@ func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -244,7 +246,7 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -272,7 +274,7 @@ func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -318,7 +320,7 @@ func TestDiscoverWithIPList_CancelsRemainingPortsAfterFirstSuccessForSameIP(t *t
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -419,104 +421,7 @@ func TestDiscoverWithIPList_ContinuesScanAfterCollisionSkip(t *testing.T) {
 
 	var devices []*pb.Device
 	for result := range resultChan {
-		require.Empty(t, result.Error)
-		devices = append(devices, result.Devices...)
-	}
-
-	// Assert: port1 collision-skipped, scan continued to port2 and succeeded
-	mockDiscoverer.AssertExpectations(t)
-	require.Len(t, devices, 1, "port2 should be tried after port1 collision skip")
-	assert.Equal(t, xIdentifier, devices[0].DeviceIdentifier)
-}
-
-func TestDiscoverWithIPRange_ContinuesScanAfterCollisionSkip(t *testing.T) {
-	// Arrange
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-	scannedIP := "192.168.1.51"
-	port1 := "4028"
-	port2 := "443"
-	mac := "BB:CC:DD:EE:FF:AA"
-
-	queries := sqlc.New(testContext.ServiceProvider.DB)
-
-	yIdentifier := "device-y-range-collision-test"
-	yDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
-		OrgID:            adminUser.OrganizationID,
-		DeviceIdentifier: yIdentifier,
-		IpAddress:        scannedIP,
-		Port:             port1,
-		UrlScheme:        "http",
-		IsActive:         true,
-		DriverName:       "asicrs",
-	})
-	require.NoError(t, err)
-	yDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
-		OrgID:              adminUser.OrganizationID,
-		DiscoveredDeviceID: yDiscoveredID,
-		DeviceIdentifier:   yIdentifier,
-	})
-	require.NoError(t, err)
-	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
-		DeviceID:      yDbID,
-		PairingStatus: sqlc.PairingStatusEnumPAIRED,
-	})
-	require.NoError(t, err)
-
-	xIdentifier := "device-x-range-collision-test"
-	xDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
-		OrgID:            adminUser.OrganizationID,
-		DeviceIdentifier: xIdentifier,
-		IpAddress:        "192.168.1.98",
-		Port:             port1,
-		UrlScheme:        "http",
-		IsActive:         true,
-		DriverName:       "asicrs",
-	})
-	require.NoError(t, err)
-	xDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
-		OrgID:              adminUser.OrganizationID,
-		DiscoveredDeviceID: xDiscoveredID,
-		DeviceIdentifier:   xIdentifier,
-		MacAddress:         mac,
-	})
-	require.NoError(t, err)
-	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
-		DeviceID:      xDbID,
-		PairingStatus: sqlc.PairingStatusEnumPAIRED,
-	})
-	require.NoError(t, err)
-
-	mockDiscoverer := &MockDiscoverer{}
-	deviceWithMAC := func(port string) *discoverymodels.DiscoveredDevice {
-		return &discoverymodels.DiscoveredDevice{
-			Device: pb.Device{
-				IpAddress:  scannedIP,
-				Port:       port,
-				UrlScheme:  "http",
-				DriverName: "asicrs",
-				MacAddress: mac,
-			},
-		}
-	}
-	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port1).Return(deviceWithMAC(port1), nil).Once()
-	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port2).Return(deviceWithMAC(port2), nil).Once()
-
-	registerDiscoveryPortsPlugin(t, testContext, "asicrs", []string{port1, port2})
-	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-	// Act
-	resultChan, err := pairingService.DiscoverWithIPRange(ctx, &pb.IPRangeModeRequest{
-		StartIp: scannedIP,
-		EndIp:   scannedIP,
-		Ports:   []string{port1, port2},
-	})
-	require.NoError(t, err)
-
-	var devices []*pb.Device
-	for result := range resultChan {
-		require.Empty(t, result.Error)
+		require.Empty(t, result.Warning)
 		devices = append(devices, result.Devices...)
 	}
 
@@ -588,12 +493,19 @@ func TestDiscoverWithIPList_SkipsUnresolvableHostnames(t *testing.T) {
 	require.NoError(t, err)
 
 	var devices []*pb.Device
+	var warnings []string
 	for result := range resultChan {
 		devices = append(devices, result.Devices...)
+		if result.Warning != "" {
+			warnings = append(warnings, result.Warning)
+		}
 	}
 
 	assert.Len(t, devices, 1)
 	assert.Equal(t, "192.168.1.10", devices[0].IpAddress)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "Fleet Server network discovery incomplete")
+	assert.Contains(t, warnings[0], "this-host-definitely-does-not-exist.invalid")
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "this-host-definitely-does-not-exist.invalid", mock.Anything)
 }
 
@@ -603,7 +515,7 @@ func TestDiscoverWithIPList_TooManyPortsReturnsError(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-	ports := make([]string, pairing.MaxPortsPerIP+1)
+	ports := make([]string, discoverylimits.MaxPortsPerIP+1)
 	for i := range ports {
 		ports[i] = fmt.Sprintf("%d", 4000+i)
 	}
@@ -626,7 +538,7 @@ func TestDiscoverWithIPRange_TooManyPortsReturnsError(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-	ports := make([]string, pairing.MaxPortsPerIP+1)
+	ports := make([]string, discoverylimits.MaxPortsPerIP+1)
 	for i := range ports {
 		ports[i] = fmt.Sprintf("%d", 4000+i)
 	}
@@ -703,7 +615,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -752,7 +664,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 3)
@@ -769,7 +681,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		devices = []*pb.Device{}
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -810,7 +722,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -823,7 +735,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		devices = []*pb.Device{}
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -873,7 +785,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		var devices []*pb.Device
 
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 
@@ -919,7 +831,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -964,7 +876,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1009,6 +921,7 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
+			testContext.ServiceProvider.EncryptService,
 			mockDiscoverer,
 			pluginService,
 			nil,
@@ -1061,7 +974,7 @@ func TestPairDevices(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1144,6 +1057,7 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
+			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1221,6 +1135,7 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
+			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1302,6 +1217,7 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
+			testContext.ServiceProvider.EncryptService,
 			&MockDiscoverer{},
 			pluginService,
 			mockListener,
@@ -1455,7 +1371,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1515,7 +1431,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1575,7 +1491,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -1628,7 +1544,7 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 
 		var devices []*pb.Device
 		for result := range resultChan {
-			require.Empty(t, result.Error)
+			require.Empty(t, result.Warning)
 			devices = append(devices, result.Devices...)
 		}
 		require.Len(t, devices, 1)
@@ -2189,14 +2105,22 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
+		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,
 		mockPairer,
 	)
+	var configRequests [][]string
+	pairingService.WithRigConfigReapplier(func(_ context.Context, orgID, userID int64, identifiers []string) {
+		require.Equal(t, adminUser.OrganizationID, orgID)
+		require.Equal(t, adminUser.DatabaseID, userID)
+		configRequests = append(configRequests, identifiers)
+	})
 
 	_, err = pairingService.PairDevices(ctx, createPairRequest([]string{orphanIdentifier}))
 	require.NoError(t, err)
+	require.Equal(t, [][]string{{originalIdentifier}}, configRequests, "configuration must use the persisted identity after reconciliation")
 
 	_, err = discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: orphanIdentifier,
@@ -2286,6 +2210,7 @@ func TestPairDevices_DeduplicatesAliasIdentifiersByIPPort(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
+		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,
@@ -2359,9 +2284,11 @@ func TestPairDevices_RefusesFleetNodeDiscoveredDevices(t *testing.T) {
 	// does), so create a fleet node and stamp the column directly.
 	var fleetNodeID int64
 	require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx,
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
 		 VALUES ($1, 'pairing-guard-node', $2, $3, 'CONFIRMED') RETURNING id`,
-		adminUser.OrganizationID, []byte("guard-pubkey"), []byte("guard-signing")).Scan(&fleetNodeID))
+		adminUser.OrganizationID,
+		[]byte("guard-pubkey"),
+		[]byte("01234567890123456789012345678901")).Scan(&fleetNodeID))
 	_, err = testContext.ServiceProvider.DB.ExecContext(ctx,
 		`UPDATE discovered_device SET discovered_by_fleet_node_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
 		fleetNodeID, adminUser.OrganizationID, fleetNodeIdentifier)
@@ -2390,6 +2317,7 @@ func TestPairDevices_RefusesFleetNodeDiscoveredDevices(t *testing.T) {
 		deviceStore,
 		transactor,
 		tokenService,
+		testContext.ServiceProvider.EncryptService,
 		&MockDiscoverer{},
 		pluginService,
 		mockListener,

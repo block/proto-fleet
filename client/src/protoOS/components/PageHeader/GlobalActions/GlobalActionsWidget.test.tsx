@@ -17,7 +17,7 @@ describe("GlobalActionsWidget", () => {
   });
 
   test("renders ellipsis button", () => {
-    const { container } = render(
+    const { container, getByLabelText, getByTestId } = render(
       <PopoverProvider>
         <GlobalActionsWidget {...defaultProps} />
       </PopoverProvider>,
@@ -25,6 +25,9 @@ describe("GlobalActionsWidget", () => {
 
     const button = container.querySelector("button");
     expect(button).toBeInTheDocument();
+    expect(getByLabelText("Global actions")).toBeInTheDocument();
+    expect(getByTestId("global-actions-widget")).toHaveClass("!h-8", "!w-8", "!p-0");
+    expect(getByTestId("global-actions-widget").querySelector("svg")?.parentElement).toHaveClass("h-4", "shrink-0");
   });
 
   test("opens popover when ellipsis button is clicked", () => {

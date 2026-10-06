@@ -296,8 +296,6 @@ func extractCredentials(secret sdk.SecretBundle) (string, error) {
     switch kind := secret.Kind.(type) {
     case sdk.BearerToken:
         return kind.Token, nil
-    case sdk.APIKey:
-        return kind.Key, nil
     case sdk.UsernamePassword:
         return kind.Password, nil
     default:

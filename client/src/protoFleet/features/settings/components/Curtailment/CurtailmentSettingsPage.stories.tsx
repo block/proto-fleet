@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { CurtailmentSource } from "./types";
+import type { AutomationRule, CurtailmentSource, ResponseProfile } from "./types";
 
+import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 const formatStorySignalUpdate = (isoString: string): string =>
@@ -23,6 +24,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: formatStorySignalUpdate("2026-06-09T15:10:00Z"),
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-beta-mqtt",
@@ -37,7 +39,8 @@ const storySources: CurtailmentSource[] = [
     lastTarget: "100",
     lastSeen: formatStorySignalUpdate("2026-06-09T15:10:30Z"),
     health: "connected",
-    enabled: true,
+    enabled: false,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-gamma-mqtt",
@@ -53,6 +56,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: formatStorySignalUpdate("2026-06-09T14:58:00Z"),
     health: "noSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-delta-mqtt",
@@ -68,6 +72,158 @@ const storySources: CurtailmentSource[] = [
     lastSeen: "-",
     health: "waitingForSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
+  },
+];
+
+const storyResponseProfiles: ResponseProfile[] = [
+  {
+    id: "standard-shed",
+    name: "Standard shed",
+    targetSummary: "50% reduction",
+    scope: "Whole fleet",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
+  },
+  {
+    id: "emergency-shed",
+    name: "Emergency shed",
+    targetSummary: "100% reduction",
+    scope: "Whole fleet",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore immediately",
+    deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
+    formValues: {
+      name: "Emergency shed",
+      actionType: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticImmediateRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "50",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "0",
+      restoreIntervalSec: "0",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+  {
+    id: "partial-reduction",
+    name: "Partial reduction",
+    targetSummary: "2,000 kW target",
+    scope: "Whole fleet",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
+    formValues: {
+      name: "Partial reduction",
+      actionType: "fixedKwReduction",
+      targetKw: "2000",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "50",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "",
+      restoreIntervalSec: "",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+  {
+    id: "staged-reduction",
+    name: "Staged reduction",
+    targetSummary: "650 kW target",
+    scope: "Whole fleet",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
+    formValues: {
+      name: "Staged reduction",
+      actionType: "fixedKwReduction",
+      targetKw: "650",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "10",
+      curtailBatchIntervalSec: "60",
+      restoreBatchSize: "10",
+      restoreIntervalSec: "120",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+];
+
+const storyAutomationRules: AutomationRule[] = [
+  {
+    id: "ercot-ers-obligation",
+    priority: 1,
+    name: "ERCOT ERS obligation",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Alpha MQTT grid signal changes to 0",
+    sourceId: "site-alpha-mqtt",
+    responseProfileId: "emergency-shed",
+    enabled: true,
+  },
+  {
+    id: "high-lmp-spike",
+    priority: 2,
+    name: "High LMP spike",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Beta MQTT grid signal changes to 0",
+    sourceId: "site-beta-mqtt",
+    responseProfileId: "partial-reduction",
+    enabled: true,
+  },
+  {
+    id: "peak-tou-window",
+    priority: 3,
+    name: "Peak TOU window",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Gamma MQTT grid signal changes to 0",
+    sourceId: "site-gamma-mqtt",
+    responseProfileId: "targeted-miners",
+    enabled: false,
   },
 ];
 
@@ -76,16 +232,28 @@ const meta = {
   component: CurtailmentSettingsContent,
   render: (args) => {
     const sourcesKey = args.initialSources?.map((source) => source.id).join(":") ?? "empty";
+    const responseProfilesKey = args.initialResponseProfiles?.map((profile) => profile.id).join(":") ?? "empty";
+    const automationRulesKey = args.initialAutomationRules?.map((rule) => rule.id).join(":") ?? "empty";
 
     return (
       <div className="min-h-screen bg-surface-base p-10 phone:p-6">
-        <CurtailmentSettingsContent key={`${sourcesKey}-${String(args.initialSourceModalOpen)}`} {...args} />
+        <CurtailmentSettingsContent
+          key={[
+            responseProfilesKey,
+            sourcesKey,
+            automationRulesKey,
+            String(args.initialResponseProfileModalOpen),
+            String(args.initialSourceModalOpen),
+          ].join("-")}
+          {...args}
+        />
       </div>
     );
   },
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [withMockedMinerSelectionApis],
   tags: ["autodocs"],
 } satisfies Meta<typeof CurtailmentSettingsContent>;
 
@@ -95,7 +263,9 @@ type Story = StoryObj<typeof meta>;
 
 export const SettingsPage: Story = {
   args: {
+    initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
   },
 };
 
@@ -103,7 +273,26 @@ export const EmptyState: Story = {};
 
 export const AddSourceDialog: Story = {
   args: {
+    initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
     initialSourceModalOpen: true,
+  },
+};
+
+export const AddResponseProfileDialog: Story = {
+  args: {
+    initialResponseProfiles: storyResponseProfiles,
+    initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
+    initialResponseProfileModalOpen: true,
+    onCreateResponseProfile: async (values) => ({
+      ...storyResponseProfiles[0],
+      id: "new-response-profile",
+      revision: "33333333-3333-4333-8333-333333333333",
+      name: values.name,
+      formValues: values,
+    }),
+    onTestResponseProfileCurtailment: async () => undefined,
   },
 };

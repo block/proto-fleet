@@ -9,10 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -37,23 +39,23 @@ func (f *fakeMessageQueue) Enqueue(_ context.Context, batchUUID string, ct comma
 	return f.enqueueReturnError
 }
 
-func (f *fakeMessageQueue) Dequeue(context.Context) ([]queue.Message, error) {
+func (f *fakeMessageQueue) EnqueueMany(_ context.Context, batchUUID string, ct commandtype.Type, messages []queue.EnqueueMessage) error {
+	f.enqueueCalls++
+	f.lastBatchUUID = batchUUID
+	f.lastCommandType = ct
+	f.lastDeviceIDs = f.lastDeviceIDs[:0]
+	for _, message := range messages {
+		f.lastDeviceIDs = append(f.lastDeviceIDs, message.DeviceID)
+		f.lastPayload = message.Payload
+	}
+	return f.enqueueReturnError
+}
+
+func (f *fakeMessageQueue) Dequeue(context.Context, int32) ([]queue.Message, error) {
 	panic("Dequeue not used")
-}
-func (f *fakeMessageQueue) MarkSuccess(context.Context, int64) error {
-	panic("MarkSuccess not used")
-}
-func (f *fakeMessageQueue) MarkFailed(context.Context, int64, string) error {
-	panic("MarkFailed not used")
-}
-func (f *fakeMessageQueue) MarkPermanentlyFailed(context.Context, int64, string) error {
-	panic("MarkPermanentlyFailed not used")
 }
 func (f *fakeMessageQueue) IsBatchFinished(context.Context, string) (bool, error) {
 	return true, nil
-}
-func (f *fakeMessageQueue) IsBatchProcessing(context.Context, string) (bool, error) {
-	return false, nil
 }
 func (f *fakeMessageQueue) MaxFailureRetries() int32 { return 0 }
 
@@ -70,7 +72,7 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	store := &recordingActivityStore{}
 	svc := &Service{
 		config:           &Config{},
-		executionService: &ExecutionService{queueProcessorRunning: true},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		messageQueue:     q,
 		activitySvc:      activity.NewService(store),
 	}
@@ -87,6 +89,49 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	}
 	svc.startStatusUpdateRoutineOverride = func(string, onFinishedCallbackFunc) {}
 	return svc, q, store
+}
+
+func TestEncryptLocalCurtailmentConfigHidesCredentialsInQueuePayload(t *testing.T) {
+	t.Parallel()
+
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+	require.NoError(t, err)
+	svc := &Service{encryptService: encryptSvc}
+	config := sdk.CurtailmentConfig{Providers: []sdk.CurtailmentProviderConfig{{
+		Name:     "maestro",
+		Password: "broker-secret",
+	}}}
+
+	payload, err := svc.encryptLocalCurtailmentConfig(config)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(payload)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "broker-secret")
+	var encodedFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &encodedFields))
+	assert.NotContains(t, encodedFields, "config")
+	assert.Nil(t, payload.FleetNodeEncryptedConfig)
+	require.NotEmpty(t, payload.LocalConfigCiphertext)
+
+	plaintext, err := encryptSvc.Decrypt(payload.LocalConfigCiphertext)
+	require.NoError(t, err)
+	defer clear(plaintext)
+	var roundTrip sdk.CurtailmentConfig
+	require.NoError(t, json.Unmarshal(plaintext, &roundTrip))
+	require.Len(t, roundTrip.Providers, 1)
+	assert.Equal(t, "broker-secret", roundTrip.Providers[0].Password)
+}
+
+func TestProtoRigCurtailmentSelectorRequiresFullyPairedDevices(t *testing.T) {
+	t.Parallel()
+
+	filter := protoRigCurtailmentSelector().GetAllDevices()
+	require.NotNil(t, filter)
+	assert.Equal(t, []string{"Proto"}, filter.Manufacturers)
+	assert.Equal(t, []fleetpb.PairingStatus{
+		fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+	}, filter.PairingStatus)
+	assert.Equal(t, []string{"PAIRED"}, pairingStatusValuesForSelector(filter))
 }
 
 func TestCurtail_HappyPath_QueueReceivesCommand(t *testing.T) {

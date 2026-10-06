@@ -118,10 +118,9 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 // notepad) where a role assignment at any scope makes the caller a
 // member of the surface the resource serves; such resources have no
 // site dimension, so narrowing has nothing to act on and union
-// semantics are deliberate. Membership matches FlatKeys(), which is
-// what UserInfo.permissions projects for the client's coarse gating —
-// gating the server on HasAnywhere keeps both sides of that contract
-// in agreement.
+// semantics are deliberate. The auth service projects only these
+// org-shared note capabilities into UserInfo.permissions from any
+// assignment; other permission keys retain the default-scope projection.
 func (e *EffectivePermissions) HasAnywhere(key string) bool {
 	if e == nil {
 		return false
@@ -135,6 +134,56 @@ func (e *EffectivePermissions) HasAnywhere(key string) bool {
 		}
 	}
 	return false
+}
+
+// SiteScopeFor projects the user's site-level authority for one
+// permission key into a shape a store-layer query can consume, so list
+// endpoints can filter rows in SQL instead of fetching everything and
+// dropping unreadable rows per-item.
+//
+// Two shapes, following the narrowing semantics on the type doc:
+//
+//   - orgWide true: the user holds key at org scope. sites is the
+//     DENYLIST — the sites where a site-scope assignment narrows key
+//     away. Every other site is allowed.
+//   - orgWide false: no org-scope grant. sites is the ALLOWLIST — the
+//     sites whose site-scope assignments grant key. Empty means the
+//     user can act nowhere; callers should short-circuit to an empty
+//     result without querying.
+//
+// sites is sorted for deterministic query parameters and test
+// assertions. A nil receiver denies everything: (false, nil).
+func (e *EffectivePermissions) SiteScopeFor(key string) (orgWide bool, sites []int64) {
+	if e == nil {
+		return false, nil
+	}
+	orgWide = e.orgScope[key]
+	for siteID, perms := range e.bySite {
+		if orgWide && !perms[key] {
+			// Site-scope assignment narrows the org grant away here.
+			sites = append(sites, siteID)
+		}
+		if !orgWide && perms[key] {
+			// Site-scope assignment grants key here.
+			sites = append(sites, siteID)
+		}
+	}
+	sort.Slice(sites, func(i, j int) bool { return sites[i] < sites[j] })
+	return orgWide, sites
+}
+
+// HasOrgWide reports whether key is held at org scope and remains effective at
+// every site where this user has a narrower site-scope assignment.
+func (e *EffectivePermissions) HasOrgWide(key string) bool {
+	if e == nil || !e.orgScope[key] {
+		return false
+	}
+	for siteID := range e.bySite {
+		if !e.Has(key, ResourceContext{SiteID: &siteID}) {
+			return false
+		}
+	}
+	return true
 }
 
 // StrictlyDominates reports whether this EffectivePermissions
@@ -205,26 +254,17 @@ func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
 	return true
 }
 
-// FlatKeys returns every distinct permission key the user holds across
-// every assignment, sorted lexicographically. UserInfo.permissions is
-// projected from this for the client's coarse "has the permission
-// anywhere" gating; the server still enforces scope via Has() on the
-// actual call.
-func (e *EffectivePermissions) FlatKeys() []string {
+// Keys returns every distinct default-scope permission key the user holds,
+// sorted lexicographically. UserInfo.permissions is projected from this for
+// client UI gates that map to org-scoped RPCs. Narrower resource-scoped grants
+// should be exposed separately so site-only authority is not confused for
+// org-wide authority.
+func (e *EffectivePermissions) Keys() []string {
 	if e == nil {
 		return nil
 	}
-	seen := make(map[string]bool)
+	out := make([]string, 0, len(e.orgScope))
 	for k := range e.orgScope {
-		seen[k] = true
-	}
-	for _, siteKeys := range e.bySite {
-		for k := range siteKeys {
-			seen[k] = true
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for k := range seen {
 		out = append(out, k)
 	}
 	sort.Strings(out)

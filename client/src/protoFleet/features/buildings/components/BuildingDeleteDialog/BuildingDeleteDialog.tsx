@@ -19,10 +19,8 @@ const noun = (n: bigint, singular: string, plural: string) => (n === 1n ? singul
 const buildCascadeSummary = (building: BuildingWithCounts, parentSiteName?: string): string => {
   const { rackCount } = building;
   const target = parentSiteName ? `"${parentSiteName}"` : "this site";
-  // Rack-only language for PR 3 — `BuildingWithCounts` does not
-  // expose device_count. The plan's "indirect device impact" line
-  // depends on a follow-up that extends the response shape; see plan
-  // §450 for the working answer.
+  // Describe rack impact because `BuildingWithCounts` does not expose
+  // device_count for a summary of indirect device impact.
   return `Deleting will unassign ${rackCount} ${noun(rackCount, "rack", "racks")} from this building and clear their zone labels. They will remain directly assigned to ${target}.`;
 };
 

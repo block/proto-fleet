@@ -24,8 +24,8 @@ import {
   reorderMinerTableColumns,
   updateMinerTableColumnVisibility,
 } from "./minerTableColumnPreferences";
-import { Dismiss, Grip } from "@/shared/assets/icons";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { Grip } from "@/shared/assets/icons";
+import { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Modal from "@/shared/components/Modal";
 
@@ -119,34 +119,29 @@ const ManageColumnsModal = ({ preferences, onDismiss, onSave }: ManageColumnsMod
   const columnIds = useMemo(() => draftPreferences.columns.map((column) => column.id), [draftPreferences.columns]);
 
   return (
-    <Modal open onDismiss={onDismiss} showHeader={false} bodyClassName="text-text-primary">
+    <Modal
+      open
+      onDismiss={onDismiss}
+      title="Manage columns"
+      description="Choose which data to display and rearrange columns to match your workflow."
+      buttonSize={sizes.base}
+      buttons={[
+        {
+          text: "Reset to defaults",
+          variant: variants.secondary,
+          onClick: handleResetToDefaults,
+          testId: "manage-columns-reset-button",
+        },
+        {
+          text: "Save",
+          variant: variants.primary,
+          onClick: handleSave,
+          testId: "manage-columns-save-button",
+        },
+      ]}
+      bodyClassName="text-text-primary"
+    >
       <div className="flex flex-col gap-6" data-testid="manage-columns-modal">
-        <div className="flex items-center gap-4">
-          <Button
-            ariaLabel="Close dialog"
-            variant={variants.secondary}
-            prefixIcon={<Dismiss width="w-5" />}
-            onClick={onDismiss}
-          />
-
-          <div className="ml-auto flex items-center gap-3">
-            <Button
-              text="Reset to defaults"
-              variant={variants.secondary}
-              size={sizes.base}
-              onClick={handleResetToDefaults}
-            />
-            <Button text="Save" variant={variants.primary} size={sizes.base} onClick={handleSave} />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <h2 className="text-heading-300 text-text-primary">Manage columns</h2>
-          <p className="text-300 text-text-primary-70">
-            Choose which data to display and rearrange columns to match your workflow.
-          </p>
-        </div>
-
         <div className="flex flex-col">
           <div className="border-b border-border-5 py-2 text-emphasis-300 text-text-primary">Column</div>
 

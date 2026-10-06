@@ -16,7 +16,7 @@ var commandTypeCapabilityMap = map[pb.CommandType][]string{
 	pb.CommandType_COMMAND_TYPE_SET_COOLING_MODE:      {sdk.CapabilityCoolingModeAir, sdk.CapabilityCoolingModeImmerse},
 	pb.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS:   {sdk.CapabilityPoolConfig},
 	pb.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS:         {sdk.CapabilityLogsDownload},
-	pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE:       {sdk.CapabilityManualUpload},
+	pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE:       {sdk.CapabilityManualUpload, sdk.CapabilityReboot},
 	pb.CommandType_COMMAND_TYPE_SET_POWER_TARGET:      {sdk.CapabilityPowerModeEfficiency},
 	pb.CommandType_COMMAND_TYPE_UPDATE_MINER_PASSWORD: {sdk.CapabilityUpdateMinerPassword},
 	// CURTAIL: dispatch sends FULL level only, so Efficiency-only devices

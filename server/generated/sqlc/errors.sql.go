@@ -15,7 +15,6 @@ import (
 )
 
 const closeStaleErrors = `-- name: CloseStaleErrors :execresult
-
 UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP
 WHERE closed_at IS NULL
@@ -33,9 +32,6 @@ type CloseStaleErrorsParams struct {
 	StatusCutoffTime sql.NullTime
 }
 
-// ============================================================================
-// Error Lifecycle Management
-// ============================================================================
 // Closes stale errors only when device was successfully polled after the staleness cutoff time.
 // This ensures we have confirmed the error is absent from a recent poll.
 func (q *Queries) CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error) {
@@ -886,6 +882,37 @@ func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]Que
 		return nil, err
 	}
 	return items, nil
+}
+
+const refreshOpenErrorsLastSeenByDevice = `-- name: RefreshOpenErrorsLastSeenByDevice :execresult
+
+UPDATE errors
+SET last_seen_at = GREATEST(last_seen_at, $1::timestamptz),
+    updated_at = CURRENT_TIMESTAMP
+WHERE errors.org_id = $2
+  AND errors.closed_at IS NULL
+  AND errors.device_id = (
+    SELECT id
+    FROM device
+    WHERE device_identifier = $3
+      AND device.org_id = $2
+      AND deleted_at IS NULL
+  )
+`
+
+type RefreshOpenErrorsLastSeenByDeviceParams struct {
+	ObservedAt       time.Time
+	OrgID            int64
+	DeviceIdentifier string
+}
+
+// ============================================================================
+// Error Lifecycle Management
+// ============================================================================
+// Refreshes open errors for a device after an incomplete diagnostics poll.
+// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
+func (q *Queries) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
+	return q.exec(ctx, q.refreshOpenErrorsLastSeenByDeviceStmt, refreshOpenErrorsLastSeenByDevice, arg.ObservedAt, arg.OrgID, arg.DeviceIdentifier)
 }
 
 const updateOpenError = `-- name: UpdateOpenError :exec

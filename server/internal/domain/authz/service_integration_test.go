@@ -1,13 +1,18 @@
 package authz_test
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
+	"connectrpc.com/authn"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -37,7 +42,7 @@ func setupOrgWithSuperAdmin(t *testing.T, db *sql.DB) (int64, int64) {
 func TestService_CreateCustomRole_Succeeds(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	orgID, userID := setupOrgWithSuperAdmin(t, db)
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 
 	view, err := svc.CreateCustomRole(t.Context(), userID, orgID,
 		"Floor Manager", "  trim me  ",
@@ -77,7 +82,7 @@ func TestService_CreateCustomRole_PrivilegeParityRejectsBeyondCaller(t *testing.
 	})
 	require.NoError(t, err)
 
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 	_, err = svc.CreateCustomRole(ctx, callerID, orgID,
 		"Reboot Plus", "",
 		[]string{authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot},
@@ -100,7 +105,7 @@ func TestService_CreateCustomRole_DeactivatedCallerCannotPersistGrants(t *testin
 	)
 	require.NoError(t, err)
 
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 	_, err = svc.CreateCustomRole(ctx, userID, orgID,
 		"Should Fail", "",
 		[]string{authz.PermFleetRead},
@@ -112,7 +117,7 @@ func TestService_CreateCustomRole_DeactivatedCallerCannotPersistGrants(t *testin
 func TestService_UpdateCustomRole_RejectsBuiltins(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	orgID, userID := setupOrgWithSuperAdmin(t, db)
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 
 	for _, key := range []string{"SUPER_ADMIN", "ADMIN", "FIELD_TECH"} {
 		builtinRoleID := getBuiltinRoleID(t, db, orgID, key)
@@ -128,7 +133,7 @@ func TestService_UpdateCustomRole_RejectsBuiltins(t *testing.T) {
 func TestService_DeleteCustomRole_RejectsBuiltins(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	orgID, callerID := setupOrgWithSuperAdmin(t, db)
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 
 	for _, key := range []string{"SUPER_ADMIN", "ADMIN", "FIELD_TECH"} {
 		builtinRoleID := getBuiltinRoleID(t, db, orgID, key)
@@ -142,7 +147,7 @@ func TestService_DeleteCustomRole_RejectsRoleWithActiveAssignments(t *testing.T)
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	orgID, callerID := setupOrgWithSuperAdmin(t, db)
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 
 	view, err := svc.CreateCustomRole(ctx, callerID, orgID,
 		"Operator", "",
@@ -175,7 +180,7 @@ func TestService_DeleteCustomRole_DeactivatedAssigneeDoesNotBlockDeletion(t *tes
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	orgID, callerID := setupOrgWithSuperAdmin(t, db)
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 
 	view, err := svc.CreateCustomRole(ctx, callerID, orgID,
 		"Old Operator", "",
@@ -211,7 +216,7 @@ func TestService_DeleteCustomRole_CrossOrgRoleIDMaskedAsInvalidArgument(t *testi
 	orgA, callerA := setupOrgWithSuperAdmin(t, db)
 	orgB, callerB := setupOrgWithSuperAdmin(t, db)
 
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 	roleInB, err := svc.CreateCustomRole(ctx, callerB, orgB,
 		"OrgB Role", "",
 		[]string{authz.PermFleetRead},
@@ -231,7 +236,7 @@ func TestService_ListRoles_BuiltinOrderAndCustomMemberCount(t *testing.T) {
 	ctx := t.Context()
 	orgID, callerID := setupOrgWithSuperAdmin(t, db)
 
-	svc := authz.NewService(db)
+	svc := authz.NewService(db, nil)
 	custom, err := svc.CreateCustomRole(ctx, callerID, orgID,
 		"Site Lead", "",
 		[]string{authz.PermFleetRead, authz.PermSiteRead},
@@ -268,6 +273,84 @@ func TestService_ListRoles_BuiltinOrderAndCustomMemberCount(t *testing.T) {
 		[]string{authz.PermFleetRead, authz.PermSiteRead},
 		roles[3].PermissionKeys,
 	)
+}
+
+// ctxWithSession attaches session info so activity.StampActor can
+// attribute logged events to the acting caller, mirroring what the
+// authn middleware does on a live request.
+func ctxWithSession(t *testing.T, externalUserID, username string, orgID int64) context.Context {
+	t.Helper()
+	return authn.SetInfo(t.Context(), &session.Info{
+		SessionID:      "test-session",
+		OrganizationID: orgID,
+		ExternalUserID: externalUserID,
+		Username:       username,
+	})
+}
+
+// countActivityEvents returns how many activity_log rows exist for the
+// given org and event_type.
+func countActivityEvents(t *testing.T, db *sql.DB, orgID int64, eventType string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM activity_log WHERE organization_id = $1 AND event_type = $2`,
+		orgID, eventType,
+	).Scan(&n))
+	return n
+}
+
+// TestService_RoleMutations_WriteActivityLog covers the audit-log gap
+// where role CRUD produced no activity rows even though role assignment
+// (update_user_role) did. Each mutation must emit exactly one event
+// attributed to the caller.
+func TestService_RoleMutations_WriteActivityLog(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	orgID, callerID := setupOrgWithSuperAdmin(t, db)
+	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(db))
+	svc := authz.NewService(db, activitySvc)
+	ctx := ctxWithSession(t, "ext-caller", "caller", orgID)
+
+	view, err := svc.CreateCustomRole(ctx, callerID, orgID,
+		"Auditable Role", "",
+		[]string{authz.PermFleetRead, authz.PermMinerRead},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, countActivityEvents(t, db, orgID, "create_role"))
+
+	_, err = svc.UpdateCustomRole(ctx, callerID, orgID, view.ID,
+		"Auditable Role", "now with a description",
+		[]string{authz.PermFleetRead, authz.PermMinerRead},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, countActivityEvents(t, db, orgID, "update_role"))
+
+	require.NoError(t, svc.DeleteCustomRole(ctx, callerID, orgID, view.ID))
+	require.Equal(t, 1, countActivityEvents(t, db, orgID, "delete_role"))
+
+	// The event must be attributed to the acting caller via StampActor.
+	var username string
+	require.NoError(t, db.QueryRow(
+		`SELECT username FROM activity_log WHERE organization_id = $1 AND event_type = 'create_role'`,
+		orgID,
+	).Scan(&username))
+	require.Equal(t, "caller", username)
+}
+
+// TestService_RoleMutations_NoActivityLogWhenRejected ensures a failed
+// mutation leaves no audit row: the log call sits after the transaction
+// commits, so a rejected delete must not emit an event.
+func TestService_RoleMutations_NoActivityLogWhenRejected(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	orgID, callerID := setupOrgWithSuperAdmin(t, db)
+	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(db))
+	svc := authz.NewService(db, activitySvc)
+	ctx := ctxWithSession(t, "ext-caller", "caller", orgID)
+
+	// Deleting a non-existent role id is rejected before any write.
+	err := svc.DeleteCustomRole(ctx, callerID, orgID, 999_999_999)
+	require.Error(t, err)
+	require.Equal(t, 0, countActivityEvents(t, db, orgID, "delete_role"))
 }
 
 // createCustomRoleWithPermissions inserts a custom role directly via

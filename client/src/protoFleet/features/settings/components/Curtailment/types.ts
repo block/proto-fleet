@@ -1,5 +1,10 @@
+import { type CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
+
 export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
+
+export const DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC = 240;
+export const MAX_SOURCE_STALENESS_THRESHOLD_SEC = 24 * 60 * 60;
 
 export type CurtailmentSource = {
   id: string;
@@ -18,6 +23,7 @@ export type CurtailmentSource = {
   lastSeen: string;
   health: CurtailmentHealth;
   enabled: boolean;
+  stalenessThresholdSec: number;
 };
 
 export type CurtailmentSourceFormValues = {
@@ -28,19 +34,76 @@ export type CurtailmentSourceFormValues = {
   topic: string;
   username: string;
   password: string;
+  stalenessThresholdSec: string;
+};
+
+export type ResponseProfileActionType = "fullFleet" | "fixedKwReduction";
+export type ResponseProfileSelectionStrategy = "leastEfficientFirst";
+export type ResponseProfileMinerSelectionMode = "subset" | "all";
+export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automaticImmediateRestore";
+export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
+export type ResponseProfileScopeType = CurtailmentTerminalScopeType;
+
+export function isResponseProfileAutomationReady(scopeType: ResponseProfileScopeType | undefined): boolean {
+  return scopeType !== undefined;
+}
+
+export type ResponseProfileFormValues = {
+  name: string;
+  actionType: ResponseProfileActionType;
+  targetKw: string;
+  toleranceKw: string;
+  priority: "normal" | "emergency";
+  postEventCooldownSec: string;
+  scopeType: ResponseProfileScopeType;
+  buildingTargetIds: string[];
+  rackTargetIds: string[];
+  groupTargetIds: string[];
+  deviceIdentifiers: string[];
+  minerSelectionMode?: ResponseProfileMinerSelectionMode;
+  siteSelection?: ResponseProfileSiteSelection;
+  siteId: string;
+  siteName: string;
+  siteIds?: string[];
+  siteNamesById?: Record<string, string>;
+  selectionStrategy: ResponseProfileSelectionStrategy;
+  restoreBehavior: ResponseProfileRestoreBehavior;
+  minDurationSec: string;
+  maxDurationSec: string;
+  curtailBatchSize: string;
+  curtailBatchIntervalSec: string;
+  restoreBatchSize: string;
+  restoreIntervalSec: string;
+  facilityFanDeviceIds?: string[];
+  fanOffDelaySec?: string;
+  fanRestoreDelaySec?: string;
+  responseDeadlineMinutes: string;
+  includeMaintenance: boolean;
+  forceIncludeAllPairedMiners?: boolean;
 };
 
 export type ResponseProfile = {
   id: string;
+  revision?: string;
   name: string;
   targetSummary: string;
   scope: string;
   selectionStrategy: string;
   restoreBehavior: string;
   deadlineSummary: string;
+  formValues?: ResponseProfileFormValues;
+  isReadOnly?: boolean;
+  isAutomationReady: boolean;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
+
+export type AutomationRuleFormValues = {
+  name: string;
+  sourceId: string;
+  responseProfileId: string;
+  responseProfileRevision: string;
+};
 
 export type AutomationRule = {
   id: string;
@@ -50,5 +113,6 @@ export type AutomationRule = {
   conditionSummary: string;
   sourceId?: string;
   responseProfileId: string;
+  responseProfileName?: string;
   enabled: boolean;
 };

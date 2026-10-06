@@ -8,6 +8,7 @@ import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   MinerListFilterSchema,
   type MinerStateSnapshot,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -23,6 +24,7 @@ import { useMinerActions } from "@/protoFleet/features/fleetManagement/component
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { usePermissions } from "@/protoFleet/store";
 import {
+  ChevronDown,
   Lock,
   MiningPools,
   Play,
@@ -34,6 +36,8 @@ import {
   Terminal,
   Unpair,
 } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 export type GroupScope = {
@@ -43,11 +47,19 @@ export type GroupScope = {
 };
 
 interface FleetGroupActionsMenuProps {
-  scope: GroupScope;
+  scopes: GroupScope[];
   ariaLabel: string;
   testIdPrefix?: string;
-  // Rendered between the wired top + bottom bulk clusters.
+  // Rendered between the wired top + bottom bulk clusters when a single
+  // scope is selected (row-level menu). For actions that make sense
+  // against multiple scopes (e.g. bulk reparent), use bulkExtraActions.
   extraActions?: RowAction[];
+  // Rendered in the same cluster slot when more than one scope is
+  // selected (multi-select bulk bar).
+  bulkExtraActions?: RowAction[];
+  onActionStart?: () => void;
+  onActionComplete?: () => void;
+  presentation?: "row" | "bulk";
 }
 
 const TOP_WIRED_KEYS = [
@@ -100,8 +112,42 @@ const ACTION_ICON: Record<WiredActionKey, ReactElement> = {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+const SCOPED_MINER_LOOKUP_PERMISSION = "miner:read";
+type ScopedMinerLookupResult = {
+  deviceIdentifiers: string[];
+  includesUnauthenticatedMiner: boolean;
+};
 
-const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = [] }: FleetGroupActionsMenuProps) => {
+const pluralizeScopeKind = (kind: GroupScope["kind"], count: number) => {
+  if (count === 1) return kind;
+  return kind === "site" ? "sites" : kind === "building" ? "buildings" : "racks";
+};
+
+const capitalizeScopeKind = (kind: GroupScope["kind"]) => kind.charAt(0).toUpperCase() + kind.slice(1);
+
+const FleetGroupActionsMenu = ({
+  scopes,
+  ariaLabel,
+  testIdPrefix,
+  extraActions = [],
+  bulkExtraActions = [],
+  onActionStart,
+  onActionComplete,
+  presentation = "row",
+}: FleetGroupActionsMenuProps) => {
+  const scopeKind = scopes[0]?.kind ?? "site";
+  const scopeIds = useMemo(() => scopes.map((scope) => scope.id), [scopes]);
+  const scopeLabel = useMemo(
+    () => (scopes.length === 1 ? scopes[0]?.name : `${scopes.length} ${pluralizeScopeKind(scopeKind, scopes.length)}`),
+    [scopeKind, scopes],
+  );
+  const emptyScopeMessage = useMemo(
+    () =>
+      scopes.length === 1
+        ? `${capitalizeScopeKind(scopeKind)} ${scopeLabel} contains no miners.`
+        : `${scopeLabel} contain no miners.`,
+    [scopeKind, scopeLabel, scopes.length],
+  );
   // Scoped miners — fetched lazily on first action click, re-fetched
   // each click to catch membership changes from unpair / assignment.
   const [ids, setIds] = useState<string[]>([]);
@@ -127,13 +173,18 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     completeBatchOperation,
     removeDevicesFromBatch,
     miners: minerSnapshots,
+    onActionStart,
+    onActionComplete,
   });
   const permissions = usePermissions();
 
-  // Mirrors `usePermittedActions` from MinerActionsMenu so read-only
-  // roles don't see entries that would 403 on click. Server enforces.
+  // Mirrors `usePermittedActions` from MinerActionsMenu so roles don't
+  // see entries that would 403 on click. Group actions also require
+  // miner:read up front because every wired entry first resolves the
+  // scoped descendants via ListMinerStateSnapshots. Server enforces.
   const permittedKeys = useMemo(() => {
     const allowed = new Set<WiredActionKey>();
+    if (!permissions.includes(SCOPED_MINER_LOOKUP_PERMISSION)) return allowed;
     const lookup: Record<string, string | readonly string[] | undefined> = ACTION_PERMISSIONS;
     const hasAll = (required: string | readonly string[] | undefined): boolean => {
       if (required === undefined) return true;
@@ -146,15 +197,19 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     return allowed;
   }, [permissions]);
 
-  const fetchDeviceIds = useCallback(async (): Promise<string[]> => {
+  const fetchDeviceIds = useCallback(async (): Promise<ScopedMinerLookupResult> => {
+    if (scopeIds.length === 0) {
+      throw new Error("No fleet groups selected.");
+    }
+
     const collected: string[] = [];
     const snapshotMap: Record<string, MinerStateSnapshot> = {};
     const filterInit =
-      scope.kind === "building"
-        ? { buildingIds: [scope.id] }
-        : scope.kind === "rack"
-          ? { rackIds: [scope.id] }
-          : { siteIds: [scope.id] };
+      scopeKind === "building"
+        ? { buildingIds: scopeIds }
+        : scopeKind === "rack"
+          ? { rackIds: scopeIds }
+          : { siteIds: scopeIds };
     const filter = create(MinerListFilterSchema, filterInit);
     let cursor = "";
     let exhausted = false;
@@ -175,52 +230,72 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
       cursor = response.cursor;
     }
     if (!exhausted) {
-      throw new Error(`Too many miners in ${scope.name} (over ${MAX_MINERS}). Filter the list and try again.`);
+      throw new Error(`Too many miners in ${scopeLabel} (over ${MAX_MINERS}). Filter the list and try again.`);
     }
     idsLoadedRef.current = true;
     setIds(collected);
     setMinerSnapshots(snapshotMap);
-    return collected;
-  }, [scope.id, scope.kind, scope.name]);
+    return {
+      deviceIdentifiers: collected,
+      includesUnauthenticatedMiner: Object.values(snapshotMap).some(
+        (miner) => miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED,
+      ),
+    };
+  }, [scopeIds, scopeKind, scopeLabel]);
 
   useEffect(() => {
     if (!pendingAction) return;
     if (ids.length === 0) return;
     if (firedTickRef.current === pendingAction.tick) return;
     const entry = minerActions.popoverActions.find((action) => action.action === pendingAction.key);
-    if (!entry) return;
+    if (!entry) {
+      firedTickRef.current = pendingAction.tick;
+      onActionComplete?.();
+      return;
+    }
     firedTickRef.current = pendingAction.tick;
     void entry.actionHandler();
-  }, [pendingAction, ids, minerActions.popoverActions]);
+  }, [pendingAction, ids, minerActions.popoverActions, onActionComplete]);
 
   const handleTrigger = useCallback(
     async (key: WiredActionKey) => {
       if (isBusy) return;
       setIsBusy(true);
+      onActionStart?.();
       const loadingToast = pushToast({
-        message: `Loading miners in ${scope.name}…`,
+        message: `Loading miners in ${scopeLabel}…`,
         status: STATUSES.loading,
         longRunning: true,
       });
-      let deviceIdentifiers: string[];
+      let lookupResult: ScopedMinerLookupResult;
       try {
-        deviceIdentifiers = await fetchDeviceIds();
+        lookupResult = await fetchDeviceIds();
       } catch (err) {
-        const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scope.name}.`;
+        const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scopeLabel}.`;
         updateToast(loadingToast, { message, status: STATUSES.error });
         setIsBusy(false);
+        onActionComplete?.();
         return;
       }
       removeToast(loadingToast);
       setIsBusy(false);
-      if (deviceIdentifiers.length === 0) {
-        pushToast({ message: `No miners in ${scope.name}.`, status: STATUSES.queued });
+      if (lookupResult.deviceIdentifiers.length === 0) {
+        pushToast({ message: emptyScopeMessage, status: STATUSES.error });
+        onActionComplete?.();
+        return;
+      }
+      if (key !== deviceActions.unpair && lookupResult.includesUnauthenticatedMiner) {
+        pushToast({
+          message: `Some miners in ${scopeLabel} need authentication before this action can run. Unpair those miners or authenticate them first.`,
+          status: STATUSES.error,
+        });
+        onActionComplete?.();
         return;
       }
       tickRef.current += 1;
       setPendingAction({ key, tick: tickRef.current });
     },
-    [fetchDeviceIds, isBusy, scope.name],
+    [emptyScopeMessage, fetchDeviceIds, isBusy, onActionComplete, onActionStart, scopeLabel],
   );
 
   const clearPendingAction = useCallback(() => {
@@ -272,7 +347,16 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
 
   const topWiredEntries = useMemo(() => TOP_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const bottomWiredEntries = useMemo(() => BOTTOM_WIRED_KEYS.filter(keepEntry), [keepEntry]);
-  const visibleExtraActions = useMemo(() => extraActions.filter((entry) => !entry.hidden), [extraActions]);
+  // Pick the extra-action set by presentation, not selected count: the
+  // bulk action bar (presentation="bulk") always wants bulkExtraActions
+  // even when exactly one row is checkbox-selected, while the row menu
+  // (presentation="row") wants the per-row extras. Keying on
+  // scopes.length dropped the bulk reparent actions for a single
+  // selection.
+  const visibleExtraActions = useMemo(
+    () => (presentation === "bulk" ? bulkExtraActions : extraActions).filter((entry) => !entry.hidden),
+    [bulkExtraActions, extraActions, presentation],
+  );
 
   // Cluster boundary rules: divider between top↔extras and (when no
   // extras) top↔bottom; never between extras↔bottom so Edit and
@@ -323,14 +407,38 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     return entries;
   }, [topWiredEntries, visibleExtraActions, bottomWiredEntries, handleTrigger, testIdPrefix]);
 
+  const testIdBase = testIdPrefix ?? "fleet-group-actions";
+
   return (
     <>
-      <RowActionsMenu
-        actions={rowActions}
-        ariaLabel={ariaLabel}
-        testIdPrefix={testIdPrefix ?? "fleet-group-actions"}
-        disabled={isBusy}
-      />
+      {presentation === "bulk" ? (
+        <div className="flex flex-wrap justify-start gap-3">
+          {keepEntry(deviceActions.reboot) ? (
+            <Button
+              className="bg-grayscale-white-10! text-grayscale-white-90!"
+              size={sizes.compact}
+              variant={variants.secondary}
+              testId={`${testIdBase}-quick-${deviceActions.reboot}`}
+              disabled={isBusy}
+              onClick={() => void handleTrigger(deviceActions.reboot)}
+            >
+              Reboot
+            </Button>
+          ) : null}
+          <RowActionsMenu
+            actions={rowActions}
+            ariaLabel={ariaLabel}
+            testIdPrefix={testIdBase}
+            triggerLabel="More"
+            triggerClassName="bg-grayscale-white-10! text-grayscale-white-90!"
+            triggerVariant={variants.secondary}
+            triggerSuffixIcon={<ChevronDown width={iconSizes.xSmall} />}
+            disabled={isBusy}
+          />
+        </div>
+      ) : (
+        <RowActionsMenu actions={rowActions} ariaLabel={ariaLabel} testIdPrefix={testIdBase} disabled={isBusy} />
+      )}
       <UnsupportedMinersModal
         open={minerActions.unsupportedMinersInfo.visible}
         unsupportedGroups={minerActions.unsupportedMinersInfo.unsupportedGroups}
@@ -353,7 +461,7 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
               actionConfirmation={action.confirmation!}
               onConfirmation={handleConfirmClick}
               onCancel={handleCancelClick}
-              testId={`${testIdPrefix ?? "fleet-group-actions"}-${action.action}-confirm`}
+              testId={`${testIdBase}-${action.action}-confirm`}
             />
           );
         })}

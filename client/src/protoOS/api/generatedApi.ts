@@ -107,12 +107,12 @@ export interface AsicTelemetry {
 export interface AuthTokens {
   /**
    * JWT access token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   access_token: string;
   /**
    * JWT refresh token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   refresh_token: string;
 }
@@ -329,6 +329,197 @@ export interface CoolingStatusCoolingstatus {
    * @example 50
    */
   target_temperature_c?: number;
+}
+
+/**
+ * Configuration for the rig curtailment service and its enabled curtailment providers.
+ * @example {"enabled":true,"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]}
+ */
+export interface CurtailmentConfig {
+  /**
+   * Whether curtailment-service should subscribe to providers and control mining.
+   * @example true
+   */
+  enabled?: boolean;
+  /**
+   * Behavior when no provider has a fresh valid target. closed curtails; open allows operation.
+   * @example "closed"
+   */
+  fail_policy?: "closed" | "open";
+  /**
+   * mcdd gRPC address used when NATS commands are unavailable for the required control path.
+   * @example "127.0.0.1:2122"
+   */
+  mcdd_grpc_addr?: string;
+  /**
+   * Local NATS URL used by miner-api-server and curtailment-service. Only nats://localhost:4222 is accepted.
+   * @example "nats://localhost:4222"
+   */
+  nats_url?: "nats://localhost:4222";
+  /**
+   * Curtailment providers to evaluate. Enabled providers are ordered by their own precedence rules.
+   * @example [{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]
+   */
+  providers?: CurtailmentProviderConfig[];
+  /**
+   * Policy used when curtailment is lifted. respect_manual_stop resumes only mining that the service stopped.
+   * @example "respect_manual_stop"
+   */
+  restore_policy?: "respect_manual_stop";
+  /**
+   * Go duration syntax. Must be no longer than the API curtailment status TTL of 60s.
+   * @example "15s"
+   */
+  status_publish_interval?: string;
+}
+
+/**
+ * Configuration for one Maestro MQTT curtailment provider.
+ * @example {"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}
+ */
+export interface CurtailmentProviderConfig {
+  /** @example ["10.155.0.3","10.155.0.4"] */
+  brokers?: string[];
+  /**
+   * Whether this provider should connect and participate in target selection.
+   * @example true
+   */
+  enabled?: boolean;
+  /**
+   * Provider instance name used in status output.
+   * @example "maestro"
+   */
+  name?: string;
+  /**
+   * Plaintext MQTT password stored in the YAML config.
+   * @example "mqtt-password"
+   */
+  password?: string;
+  /**
+   * MQTT broker port shared by all brokers for this provider.
+   * @min 1
+   * @max 65535
+   * @example 1883
+   */
+  port?: number;
+  /**
+   * MQTT subscription QoS level.
+   * @min 0
+   * @max 2
+   * @example 1
+   */
+  qos?: number;
+  /**
+   * Go duration to wait before reconnecting to a disconnected broker.
+   * @example "5s"
+   */
+  reconnect_backoff?: string;
+  /**
+   * Go duration after which the provider target is stale and fail_policy is applied.
+   * @example "4m"
+   */
+  stale_after?: string;
+  /**
+   * MQTT topic carrying Maestro site power targets.
+   * @example "maestro/target"
+   */
+  topic?: string;
+  /**
+   * Provider implementation type. Only maestro_mqtt is currently supported.
+   * @example "maestro_mqtt"
+   */
+  type?: "maestro_mqtt";
+  /**
+   * MQTT username for broker authentication.
+   * @example "maestro"
+   */
+  username?: string;
+}
+
+/**
+ * Latest curtailment state observed by miner-api-server from curtailment-service status messages.
+ * @example {"active":true,"known":true,"fail_policy":"closed","provider":"maestro","reason":"target_off","selected_broker":"10.155.0.3:1883","target":0,"provider_timestamp":1778539005,"last_message_age_ms":1250,"last_valid_message":"2026-06-24T06:00:00Z","updated_at":"2026-06-24T06:00:01Z","last_command":"stop_mining","restore_pending":true}
+ */
+export interface CurtailmentStatus {
+  /**
+   * Whether the selected curtailment signal currently requires mining to be stopped.
+   * @example true
+   */
+  active?: boolean;
+  /**
+   * Provider or service error associated with the current status, when present.
+   * @example "broker connection failed"
+   */
+  error?: string | null;
+  /**
+   * Configured fail behavior used when provider targets are stale or missing.
+   * @example "closed"
+   */
+  fail_policy?: string | null;
+  /**
+   * Whether a fresh curtailment-service status message is available.
+   * @example true
+   */
+  known?: boolean;
+  /**
+   * Most recent mining control command issued by curtailment-service.
+   * @example "stop_mining"
+   */
+  last_command?: string | null;
+  /**
+   * Most recent mining control command error, when present.
+   * @example "mcdd unavailable"
+   */
+  last_command_error?: string | null;
+  /**
+   * Age in milliseconds of the selected valid provider message.
+   * @format int64
+   * @example 1250
+   */
+  last_message_age_ms?: number | null;
+  /**
+   * Wall-clock time when the selected provider last produced a valid message.
+   * @format date-time
+   * @example "2026-06-24T06:00:00Z"
+   */
+  last_valid_message?: string | null;
+  /**
+   * Provider that supplied the selected target.
+   * @example "maestro"
+   */
+  provider?: string | null;
+  /**
+   * Unix epoch seconds from the selected provider payload.
+   * @format int64
+   * @example 1778539005
+   */
+  provider_timestamp?: number | null;
+  /**
+   * Reason for the current curtailment decision.
+   * @example "target_off"
+   */
+  reason?: string | null;
+  /**
+   * Whether the service intends to resume mining when curtailment lifts.
+   * @example true
+   */
+  restore_pending?: boolean;
+  /**
+   * Broker endpoint whose target currently wins provider precedence.
+   * @example "10.155.0.3:1883"
+   */
+  selected_broker?: string | null;
+  /**
+   * Selected Maestro target percentage. Zero means OFF and 100 means ON.
+   * @example 0
+   */
+  target?: number | null;
+  /**
+   * Wall-clock time when curtailment-service published this status.
+   * @format date-time
+   * @example "2026-06-24T06:00:01Z"
+   */
+  updated_at?: string | null;
 }
 
 export interface DeletePoolParams {
@@ -593,7 +784,7 @@ export interface GetSystemLogsParams {
    */
   lines?: number;
   /**
-   * Source of logs to fetch. Defaults to miner software logs.
+   * Source of logs to fetch. Defaults to `miner_sw`, which returns the combined miner software-stack logs (mcdd, all hashboard-service and psu-service instances, miner-ui-service, and miner-api-server) merged in timestamp order. `os` returns kernel logs, `pool_sw` the pool interface (mcdd), and `miner_web_server` the API server only.
    * @default "miner_sw"
    * @example "miner_sw"
    */
@@ -625,12 +816,65 @@ export enum HashboardFieldType {
   Efficiency = "efficiency",
 }
 
+/** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+export interface HashboardFwUpdateProgress {
+  /**
+   * Attempt counter for retries. `0` means not yet started; otherwise 1..=`max_attempts`.
+   * @example 1
+   */
+  attempt?: number;
+  /**
+   * Maximum number of attempts the service will make before giving up.
+   * @example 3
+   */
+  max_attempts?: number;
+  /**
+   * Operator-facing message. Empty for in-flight `Writing` events; populated for terminal states with a description of the outcome.
+   * @example "Firmware update completed: 1.2.3"
+   */
+  message?: string;
+  /**
+   * 0-100 during `Writing`; jumps to 100 once `Activating` is reached.
+   * @format float
+   * @example 47.5
+   */
+  progress_percent?: number;
+  /**
+   * Phase of the update.
+   *  - `Idle`: never attempted since boot.
+   *  - `Queued`: scheduled, not yet started.
+   *  - `Preparing` / `Writing` / `Activating` / `Rebooting`: in flight.
+   *  - `Complete`: succeeded.
+   *  - `Failed`: gave up after the retry budget was exhausted.
+   *  - `NoUpdateRequired`: the running firmware already matches the target image.
+   * @example "Writing"
+   */
+  state?:
+    | "Idle"
+    | "Queued"
+    | "Preparing"
+    | "Writing"
+    | "Activating"
+    | "Rebooting"
+    | "Complete"
+    | "Failed"
+    | "NoUpdateRequired";
+}
+
 /** Information about mining hashboards configuration and status */
 export interface HashboardInfo {
   /** @example "1.0" */
   api_version?: string;
   /** @example "B3a" */
-  board?: "CpuSimulated" | "B2" | "B3a" | "B3b" | "B3bSim" | "B4_128" | "B4_192" | "B4Sim";
+  board?:
+    | "CpuSimulated"
+    | "B2"
+    | "B3a"
+    | "B3b"
+    | "B3bSim"
+    | "B4_128"
+    | "B4_192"
+    | "B4Sim";
   /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
@@ -642,6 +886,8 @@ export interface HashboardInfo {
   ec_logs_path?: string;
   /** Firmware version and build information */
   firmware?: FWInfo;
+  /** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+  fw_update?: HashboardFwUpdateProgress;
   /**
    * Hashboard serial number.
    * @example "YWWLMMMMRRFSSSSS"
@@ -690,6 +936,8 @@ export interface HashboardStatsHashboardstats {
    * @example 40.05
    */
   efficiency_jth?: number | null;
+  /** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+  fw_update?: HashboardFwUpdateProgress;
   /**
    * The current hashrate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
    * @example 300.05
@@ -728,10 +976,16 @@ export interface HashboardStatsHashboardstats {
    */
   slot?: number;
   /**
-   * The current state or condition of the hashboard.
+   * The current state or condition of the hashboard. `Updating` indicates a firmware update is in flight; see `fw_update` for progress detail.
    * @example "Running"
    */
-  status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
+  status?:
+    | "Running"
+    | "Stopped"
+    | "Updating"
+    | "Error"
+    | "Overheated"
+    | "Unknown";
   /**
    * The present voltage being supplied to the hashboard in millivolts.
    * @example 16200.05
@@ -812,10 +1066,27 @@ export interface HashrateWindow {
 
 export interface LocateSystemParams {
   /**
-   * The duration in seconds for which to turn on the LED, with a max value of 300 seconds. If not specified, a default value of 30 seconds will be used. Requests made while the LED is on will be ignored.
-   * @default 30
+   * Whether to enable (true) or disable (false) the locate LED pattern. Defaults to true. When false, the LED pattern is cleared immediately and `led_on_time` is ignored.
+   * @default true
+   */
+  enable?: boolean;
+  /**
+   * The duration in seconds for which to turn on the LED. A value of 0 (the default, also used for negative values) enables the LED persistently until an `enable=false` request is made. Ignored when `enable=false`.
+   * @default 0
    */
   led_on_time?: number;
+}
+
+/**
+ * Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN.
+ * @example "UNLOCKED"
+ */
+export enum LockStatus {
+  OPEN = "OPEN",
+  CLOSED = "CLOSED",
+  UNLOCKED = "UNLOCKED",
+  UNINITIALIZED = "UNINITIALIZED",
+  UNKNOWN = "UNKNOWN",
 }
 
 /** System log entries from various sources (OS, miner software, pool software) */
@@ -975,6 +1246,7 @@ export interface MiningStatusMiningstatus {
     | "DegradedMining"
     | "PoweringOff"
     | "Stopped"
+    | "Curtailed"
     | "NoPools"
     | "Error";
 }
@@ -1171,6 +1443,11 @@ export enum PerformanceMode {
 /** Mining pool configuration with connection details and priorities */
 export interface Pool {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; may be empty only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.
    * @example 100
    */
@@ -1253,7 +1530,7 @@ export interface Pool {
   rejected?: number;
   /** The status field indicates the state of the mining pool. An "Idle" status indicates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   user?: PoolUsername;
@@ -1270,6 +1547,11 @@ export type PoolConfig = PoolConfigInner[];
 /** Individual pool configuration with connection details */
 export interface PoolConfigInner {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * User-defined display name for this pool.
    * @example "Primary Pool"
    */
@@ -1278,7 +1560,7 @@ export interface PoolConfigInner {
   password?: PoolPassword;
   /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
   priority?: PoolPriority;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;
@@ -1302,10 +1584,7 @@ export interface PoolResponse {
   pool?: Pool;
 }
 
-/**
- * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
- * @example "stratum+tcp://stratum.braiins.com:3333"
- */
+/** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
 export type PoolUrl = string;
 
 /**
@@ -1364,7 +1643,7 @@ export enum PsuFieldType {
 
 /** Per-PSU firmware update progress */
 export interface PsuFwupProgress {
-  /** Optional status message (firmware name on start, error on failure) */
+  /** Optional status message (firmware name on start, no-op reason, or error on failure) */
   message?: string;
   /**
    * Upload progress percentage (0-100)
@@ -1374,7 +1653,13 @@ export interface PsuFwupProgress {
   /** The physical slot where the PSU is inserted in the system. (1-3) */
   psu_slot: number;
   /** Current firmware update state */
-  state: "idle" | "uploading" | "verifying" | "complete" | "failed";
+  state:
+    | "idle"
+    | "uploading"
+    | "verifying"
+    | "complete"
+    | "failed"
+    | "not_needed";
 }
 
 /** Power supply unit information and status */
@@ -1516,7 +1801,7 @@ export interface PsusInfo {
 export interface RefreshRequest {
   /**
    * The JWT refresh token to be validated.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   refresh_token: string;
 }
@@ -1525,7 +1810,7 @@ export interface RefreshRequest {
 export interface RefreshResponse {
   /**
    * A new JWT access token.
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   * @example "example.jwt.token"
    */
   access_token: string;
 }
@@ -1538,13 +1823,48 @@ export interface SWInfo {
   version?: string;
 }
 
-/** Response indicating whether the system is in a secure state */
+/** Configuration for secure override state */
+export interface SecureConfig {
+  /**
+   * True creates /etc/secure_override; false removes it
+   * @example true
+   */
+  secure_override: boolean;
+}
+
+/** Response indicating whether the system is in a secure state and the cached component state used to derive it. */
 export interface SecureResponse {
   /**
    * True if the device is locked and the device certificate is valid
    * @example true
    */
   secure: boolean;
+  /** Cached secure-related component state. */
+  state: SecureResponseState;
+}
+
+/** Cached secure-related component state. */
+export interface SecureResponseState {
+  /**
+   * Device certificate validity reported by attestation_ta_client.
+   * @example "VALID"
+   */
+  "certificate-validity": string;
+  /**
+   * Currently active NATS service mode: open, secure, none, or unknown.
+   * @example "secure"
+   */
+  "nats-service": string;
+  /**
+   * Secure boot status reported by lock_ctrl_ta_client: OPEN, CLOSED, UNLOCKED, UNINITIALIZED, or UNKNOWN. UNINITIALIZED means optee ta was never initialized on device equivalent of OPEN state. This hardware status is independent of the effective secure override.
+   * @example "CLOSED"
+   */
+  secureboot: string;
+  /**
+   * systemd active state for the SSH service.
+   * @example "active"
+   */
+  sshd: string;
 }
 
 /** Request to set the authentication public key */
@@ -1619,7 +1939,12 @@ export interface SystemInfoSysteminfo {
    */
   product_name?: string;
   /** @example "STM32MP157F" */
-  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";
+  soc?:
+    | "STM32MP157F"
+    | "STM32MP157D"
+    | "STM32MP151F"
+    | "STM32MP131F"
+    | "unknown";
   /** Current status and information about system software updates */
   sw_update_status?: UpdateStatus;
   /**
@@ -1635,11 +1960,6 @@ export interface SystemInfoSysteminfo {
 
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
-  /**
-   * True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.
-   * @example false
-   */
-  default_password_active?: boolean;
   /** @example true */
   onboarded?: boolean;
   /** @example true */
@@ -1722,9 +2042,14 @@ export interface TemperatureResponseTemperaturedata {
 
 /** Configuration for testing connection to a mining pool */
 export interface TestConnection {
+  /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
   /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
   password?: PoolPassword;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;
@@ -1794,10 +2119,7 @@ export type TimeSeriesLevelConfig =
        * @example ["hashrate","inletTemp","outletTemp"]
        */
       fields: HashboardFieldType[];
-      /**
-       * Optional array of zero-based indexes to filter data. If omitted, returns all available items
-       * @example [0,2]
-       */
+      /** Optional array of zero-based indexes to filter data. If omitted, returns all available items */
       indexes?: number[];
       /** Hashboard level type */
       type: "hashboard";
@@ -1809,10 +2131,7 @@ export type TimeSeriesLevelConfig =
        * @example ["hashrate","temperature"]
        */
       fields: AsicFieldType[];
-      /**
-       * Optional array of zero-based ASIC indexes to filter data. If omitted, returns all available ASICs
-       * @example [0,2]
-       */
+      /** Optional array of zero-based ASIC indexes to filter data. If omitted, returns all available ASICs */
       indexes?: number[];
       /** ASIC level type */
       type: "asic";
@@ -1824,10 +2143,7 @@ export type TimeSeriesLevelConfig =
        * @example ["inputVoltage","outputPower","hotspotTemp"]
        */
       fields: PsuFieldType[];
-      /**
-       * Optional array of zero-based PSU indexes to filter data. If omitted, returns all available PSUs
-       * @example [0,1]
-       */
+      /** Optional array of zero-based PSU indexes to filter data. If omitted, returns all available PSUs */
       indexes?: number[];
       /** PSU level type */
       type: "psu";
@@ -1959,8 +2275,8 @@ export interface UnlockConfig {
 
 /** Response containing device lock status */
 export interface UnlockResponse {
-  /** @example "UNLOCKED" */
-  "lock-status"?: string;
+  /** Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN. */
+  "lock-status"?: LockStatus;
 }
 
 /** Current status and information about system software updates */
@@ -2038,16 +2354,22 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
 
 export interface ApiConfig<SecurityDataType = unknown> {
   baseUrl?: string;
   baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
-  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
+  securityWorker?: (
+    securityData: SecurityDataType | null,
+  ) => Promise<RequestParams | void> | RequestParams | void;
   customFetch?: typeof fetch;
 }
 
-export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
+export interface HttpResponse<D extends unknown, E extends unknown = unknown>
+  extends Response {
   data: D;
   error: E;
 }
@@ -2067,7 +2389,8 @@ export class HttpClient<SecurityDataType = unknown> {
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
+    fetch(...fetchParams);
 
   private baseApiParams: RequestParams = {
     credentials: "same-origin",
@@ -2100,9 +2423,15 @@ export class HttpClient<SecurityDataType = unknown> {
 
   protected toQueryString(rawQuery?: QueryParamsType): string {
     const query = rawQuery || {};
-    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
+    const keys = Object.keys(query).filter(
+      (key) => "undefined" !== typeof query[key],
+    );
     return keys
-      .map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key)))
+      .map((key) =>
+        Array.isArray(query[key])
+          ? this.addArrayQueryParam(query, key)
+          : this.addQueryParam(query, key),
+      )
       .join("&");
   }
 
@@ -2113,10 +2442,17 @@ export class HttpClient<SecurityDataType = unknown> {
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
     [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
     [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
-    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.Text]: (input: any) =>
+      input !== null && typeof input !== "string"
+        ? JSON.stringify(input)
+        : input,
     [ContentType.FormData]: (input: any) => {
       if (input instanceof FormData) {
         return input;
@@ -2138,7 +2474,10 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
   };
 
-  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
+  protected mergeRequestParams(
+    params1: RequestParams,
+    params2?: RequestParams,
+  ): RequestParams {
     return {
       ...this.baseApiParams,
       ...params1,
@@ -2151,7 +2490,9 @@ export class HttpClient<SecurityDataType = unknown> {
     };
   }
 
-  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
+  protected createAbortSignal = (
+    cancelToken: CancelToken,
+  ): AbortSignal | undefined => {
     if (this.abortControllers.has(cancelToken)) {
       const abortController = this.abortControllers.get(cancelToken);
       if (abortController) {
@@ -2195,15 +2536,26 @@ export class HttpClient<SecurityDataType = unknown> {
     const payloadFormatter = this.contentFormatters[type || ContentType.Json];
     const responseFormat = format || requestParams.format;
 
-    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
-      ...requestParams,
-      headers: {
-        ...(requestParams.headers || {}),
-        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
+    return this.customFetch(
+      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
+      {
+        ...requestParams,
+        headers: {
+          ...(requestParams.headers || {}),
+          ...(type && type !== ContentType.FormData
+            ? { "Content-Type": type }
+            : {}),
+        },
+        signal:
+          (cancelToken
+            ? this.createAbortSignal(cancelToken)
+            : requestParams.signal) || null,
+        body:
+          typeof body === "undefined" || body === null
+            ? null
+            : payloadFormatter(body),
       },
-      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
-      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
-    }).then(async (response) => {
+    ).then(async (response) => {
       const r = response as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
@@ -2237,14 +2589,16 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.8.1
+ * @version 1.8.2
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl http://127.0.0.1:8080
  * @contact <mining.support@block.xyz>
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
-export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description The get pools endpoint returns the full list of currently configured pools.
@@ -2307,7 +2661,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: ({ id }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
+    editPool: (
+      { id }: EditPoolParams,
+      data: PoolConfigInner,
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
@@ -2372,7 +2730,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Change the current password to a new password. Requires the current password for verification. The new password cannot be the same as the default password. After a successful password change, all existing JWT tokens are invalidated and clients must re-authenticate.
+     * @description Change the current password to a new password. Requires the current password for verification.
      *
      * @tags Authentication
      * @name ChangePassword
@@ -2471,6 +2829,62 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<SystemStatuses, any>({
         path: `/api/v1/system/status`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Return the curtailment service configuration.
+     *
+     * @tags Curtailment
+     * @name GetCurtailmentConfig
+     * @request GET:/api/v1/curtailment/config
+     * @secure
+     */
+    getCurtailmentConfig: (params: RequestParams = {}) =>
+      this.request<CurtailmentConfig, MessageResponse>({
+        path: `/api/v1/curtailment/config`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Validate and replace the curtailment service YAML configuration.
+     *
+     * @tags Curtailment
+     * @name PutCurtailmentConfig
+     * @request PUT:/api/v1/curtailment/config
+     * @secure
+     */
+    putCurtailmentConfig: (
+      data: CurtailmentConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<CurtailmentConfig, MessageResponse>({
+        path: `/api/v1/curtailment/config`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Return the latest curtailment status published by curtailment-service.
+     *
+     * @tags Curtailment
+     * @name GetCurtailmentStatus
+     * @request GET:/api/v1/curtailment/status
+     * @secure
+     */
+    getCurtailmentStatus: (params: RequestParams = {}) =>
+      this.request<CurtailmentStatus, MessageResponse>({
+        path: `/api/v1/curtailment/status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2606,7 +3020,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/system/locate
      * @secure
      */
-    locateSystem: (query: LocateSystemParams = {}, params: RequestParams = {}) =>
+    locateSystem: (
+      query: LocateSystemParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/locate`,
         method: "POST",
@@ -2624,7 +3041,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/logs
      * @secure
      */
-    getSystemLogs: (query: GetSystemLogsParams = {}, params: RequestParams = {}) =>
+    getSystemLogs: (
+      query: GetSystemLogsParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<LogsResponse, MessageResponse>({
         path: `/api/v1/system/logs`,
         method: "GET",
@@ -2744,6 +3164,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Sets or clears the secure override marker and returns the refreshed secure status. SSH/NATS service changes are applied asynchronously after the response.
+     *
+     * @tags System
+     * @name PutSecureStatus
+     * @request PUT:/api/v1/system/secure
+     * @secure
+     */
+    putSecureStatus: (data: SecureConfig, params: RequestParams = {}) =>
+      this.request<SecureResponse, MessageResponse>({
+        path: `/api/v1/system/secure`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description The get UNLOCK endpoint returns current lock status of the control board.
      *
      * @tags System
@@ -2783,13 +3222,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashboards
      * @name GetAllHashboards
      * @request GET:/api/v1/hashboards
-     * @secure
      */
     getAllHashboards: (params: RequestParams = {}) =>
       this.request<HashboardsInfo, MessageResponse>({
         path: `/api/v1/hashboards`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2802,7 +3239,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashboards/{hb_sn}
      * @secure
      */
-    getHashboardStatus: ({ hbSn }: GetHashboardStatusParams, params: RequestParams = {}) =>
+    getHashboardStatus: (
+      { hbSn }: GetHashboardStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashboardStats, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
@@ -2819,7 +3259,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicStatus: ({ hbSn, asicId }: GetAsicStatusParams, params: RequestParams = {}) =>
+    getAsicStatus: (
+      { hbSn, asicId }: GetAsicStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
@@ -2836,7 +3279,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate
      * @secure
      */
-    getMinerHashrate: (query: GetMinerHashrateParams = {}, params: RequestParams = {}) =>
+    getMinerHashrate: (
+      query: GetMinerHashrateParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate`,
         method: "GET",
@@ -2854,7 +3300,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate/{hb_sn}
      * @secure
      */
-    getHashboardHashrate: ({ hbSn, ...query }: GetHashboardHashrateParams, params: RequestParams = {}) =>
+    getHashboardHashrate: (
+      { hbSn, ...query }: GetHashboardHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}`,
         method: "GET",
@@ -2872,7 +3321,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicHashrate: ({ hbSn, asicId, ...query }: GetAsicHashrateParams, params: RequestParams = {}) =>
+    getAsicHashrate: (
+      { hbSn, asicId, ...query }: GetAsicHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}/${asicId}`,
         method: "GET",
@@ -2890,7 +3342,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature
      * @secure
      */
-    getMinerTemperature: (query: GetMinerTemperatureParams = {}, params: RequestParams = {}) =>
+    getMinerTemperature: (
+      query: GetMinerTemperatureParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature`,
         method: "GET",
@@ -2908,7 +3363,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature/{hb_sn}
      * @secure
      */
-    getHashboardTemperature: ({ hbSn, ...query }: GetHashboardTemperatureParams, params: RequestParams = {}) =>
+    getHashboardTemperature: (
+      { hbSn, ...query }: GetHashboardTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}`,
         method: "GET",
@@ -2926,7 +3384,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicTemperature: ({ hbSn, asicId, ...query }: GetAsicTemperatureParams, params: RequestParams = {}) =>
+    getAsicTemperature: (
+      { hbSn, asicId, ...query }: GetAsicTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}/${asicId}`,
         method: "GET",
@@ -2944,7 +3405,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/power
      * @secure
      */
-    getMinerPower: (query: GetMinerPowerParams = {}, params: RequestParams = {}) =>
+    getMinerPower: (
+      query: GetMinerPowerParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power`,
         method: "GET",
@@ -2960,13 +3424,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hardware, PSUs, Hashboards, Fans
      * @name GetHardware
      * @request GET:/api/v1/hardware
-     * @secure
      */
     getHardware: (params: RequestParams = {}) =>
       this.request<HardwareInfo, MessageResponse>({
         path: `/api/v1/hardware`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2977,13 +3439,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name ListPowerSupplies
      * @request GET:/api/v1/hardware/psus
-     * @secure
      */
     listPowerSupplies: (params: RequestParams = {}) =>
       this.request<PsusInfo, MessageResponse>({
         path: `/api/v1/hardware/psus`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2994,13 +3454,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name GetPowerSupplies
      * @request GET:/api/v1/power-supplies
-     * @secure
      */
     getPowerSupplies: (params: RequestParams = {}) =>
       this.request<PowerSuppliesResponse, MessageResponse>({
         path: `/api/v1/power-supplies`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -3020,7 +3478,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * Per-PSU type overrides. Keys are PSU slot IDs (1-3). Omitted slots use auto-detection.
          * @example {"1":"boco_bs502a17","2":"boco_bs402a17"}
          */
-        psu_types?: Record<string, "chicony_s24" | "boco_bs402a17" | "boco_bs502a17">;
+        psu_types?: Record<
+          string,
+          "chicony_s24" | "boco_bs402a17" | "boco_bs502a17"
+        >;
       },
       params: RequestParams = {},
     ) =>
@@ -3043,7 +3504,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/power/{hb_sn}
      * @secure
      */
-    getHashboardPower: ({ hbSn, ...query }: GetHashboardPowerParams, params: RequestParams = {}) =>
+    getHashboardPower: (
+      { hbSn, ...query }: GetHashboardPowerParams,
+      params: RequestParams = {},
+    ) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power/${hbSn}`,
         method: "GET",
@@ -3061,7 +3525,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/efficiency
      * @secure
      */
-    getMinerEfficiency: (query: GetMinerEfficiencyParams = {}, params: RequestParams = {}) =>
+    getMinerEfficiency: (
+      query: GetMinerEfficiencyParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency`,
         method: "GET",
@@ -3079,7 +3546,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/efficiency/{hb_sn}
      * @secure
      */
-    getHashboardEfficiency: ({ hbSn, ...query }: GetHashboardEfficiencyParams, params: RequestParams = {}) =>
+    getHashboardEfficiency: (
+      { hbSn, ...query }: GetHashboardEfficiencyParams,
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency/${hbSn}`,
         method: "GET",
@@ -3184,12 +3654,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/tag
      */
     getSystemTag: (params: RequestParams = {}) =>
-      this.request<string | number | boolean | object | any[], MessageResponse>({
-        path: `/api/v1/system/tag`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
+      this.request<string | number | boolean | object | any[], MessageResponse>(
+        {
+          path: `/api/v1/system/tag`,
+          method: "GET",
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * @description Set or update the system tag value. Accepts any non-null JSON value (string, number, boolean, object, or array). Maximum size is 10 KiB when serialized.
@@ -3199,7 +3671,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/tag
      * @secure
      */
-    putSystemTag: (data: string | number | boolean | object | any[], params: RequestParams = {}) =>
+    putSystemTag: (
+      data: string | number | boolean | object | any[],
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/tag`,
         method: "PUT",
@@ -3249,7 +3724,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/telemetry
      * @secure
      */
-    setSystemTelemetryEnabled: (data: TelemetryConfig, params: RequestParams = {}) =>
+    setSystemTelemetryEnabled: (
+      data: TelemetryConfig,
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryResponse, MessageResponse | TelemetryResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
@@ -3288,7 +3766,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/telemetry
      * @secure
      */
-    getCurrentTelemetry: (query: GetCurrentTelemetryParams = {}, params: RequestParams = {}) =>
+    getCurrentTelemetry: (
+      query: GetCurrentTelemetryParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryData, MessageResponse>({
         path: `/api/v1/telemetry`,
         method: "GET",
@@ -3339,7 +3820,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     clearAuthKey: (params: RequestParams = {}) =>
-      this.request<MessageResponse, ErrorResponse | MessageResponse>({
+      this.request<MessageResponse, ErrorResponse>({
         path: `/api/v1/pairing/auth-key`,
         method: "DELETE",
         secure: true,

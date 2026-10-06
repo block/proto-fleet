@@ -40,3 +40,12 @@ JOIN user_organization uo ON r.id = uo.role_id
 WHERE uo.user_id = $1
   AND uo.organization_id = $2
   AND uo.deleted_at IS NULL;
+
+-- name: GetUserRoleNameForUpdate :one
+SELECT r.name
+FROM role r
+JOIN user_organization uo ON r.id = uo.role_id
+WHERE uo.user_id = $1
+  AND uo.organization_id = $2
+  AND uo.deleted_at IS NULL
+FOR UPDATE OF uo;

@@ -30,4 +30,5 @@ const (
 	// race-loser's reason + actor in the audit feed.
 	ActivityTypeAdminTerminatedReplay = "curtailment_admin_terminated_replay"
 	ActivityTypeUpdated               = "curtailment_updated"
+	ActivityTypeForceReleased         = "curtailment_force_released"
 )

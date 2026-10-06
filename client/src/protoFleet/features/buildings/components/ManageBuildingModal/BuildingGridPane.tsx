@@ -36,7 +36,7 @@ interface BuildingGridPaneProps {
   // pane shows a "Building settings" link that opens the settings modal.
   onOpenSettings: () => void;
   // Compact summary line: "N of M cells filled" — surfaces in the right
-  // pane's mini-header just like AssignMinersModal's rack pane.
+  // pane's mini-header just like ManageRackModal's rack pane.
   assignedCount: number;
   totalCells: number;
 }

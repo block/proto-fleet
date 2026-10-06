@@ -1,4 +1,5 @@
 import BuildingDeleteDialog from "../BuildingDeleteDialog";
+import BuildingRacksPicker from "../BuildingRacksPicker";
 import BuildingSettingsModal from "../BuildingSettingsModal";
 import ManageBuildingModal from "../ManageBuildingModal";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -43,6 +44,7 @@ const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
           // fire on its own. Surface refreshBuildings here so host
           // caches (rack_count, layout) re-pull from the server.
           onSaved={modals.refreshBuildings}
+          unassignedMinerCount={modals.manageUnassignedMinerCount}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (
@@ -75,6 +77,33 @@ const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
             await modals.detailsSaveEdit(values);
           }}
           onDeleteRequested={modals.requestDeleteCurrent}
+          onDismiss={modals.dismiss}
+          saving={modals.saving}
+        />
+      ) : null}
+      {state.kind === "racksPicker" && state.row.building ? (
+        <BuildingRacksPicker
+          siteId={state.row.building.siteId ?? 0n}
+          buildingId={state.row.building.id}
+          buildingName={state.row.building.name}
+          currentRackIds={state.currentRackIds}
+          onConfirm={(delta) => {
+            void (async () => {
+              await modals.pickerAssignRacks({
+                added: delta.added.map((a) => a.rackId),
+                removed: delta.removed,
+              });
+              // Closes either way. The removals commit before the additions, so
+              // a failure can leave some of the delta applied, and the picker's
+              // seeded selection came from before the write — keeping it open to
+              // retry would show membership the server has already moved past.
+              // The toast names the failure; reopening seeds from fresh data.
+              modals.dismiss();
+            })();
+          }}
+          // Created racks are already in the building; there is no working set
+          // here to inject them into, so the host's cache is what has to re-pull.
+          onCreated={modals.refreshBuildings}
           onDismiss={modals.dismiss}
           saving={modals.saving}
         />

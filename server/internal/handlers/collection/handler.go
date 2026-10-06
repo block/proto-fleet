@@ -2,6 +2,7 @@ package collection
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -25,10 +26,80 @@ func NewHandler(svc *collection.Service) *Handler {
 	}
 }
 
+// authorizeRackPlacement mirrors the device_set.v1 handler: it gates a rack
+// placement on site:manage and stashes the authorized sites for the service
+// (authz.AuthorizedPlacement). A move checks both source (currentSiteID, nil
+// for a new rack) and destination; the destination narrows to the building's
+// parent site, falling back to ORG scope when it resolves to no site.
+func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
+	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
+	if err != nil {
+		return ctx, err
+	}
+	sites := distinctSites(currentSiteID, targetSiteID)
+	// Destination with no site to narrow on (site-less building, or nothing else
+	// being checked) still needs org-scoped site:manage.
+	destSiteLessBuilding := buildingID != nil && *buildingID > 0 && targetSiteID == nil
+	if destSiteLessBuilding || len(sites) == 0 {
+		sites = append(sites, nil)
+	}
+	for _, site := range sites {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site}); err != nil {
+			return ctx, err
+		}
+	}
+	return authz.WithAuthorizedPlacement(ctx, authz.AuthorizedPlacement{
+		CurrentSiteID: currentSiteID,
+		TargetSiteID:  targetSiteID,
+	}), nil
+}
+
+// resolvePlacementTargetSite maps a placement request to the destination
+// site_id: a building_id resolves to its parent site, an explicit site_id is
+// used directly, and an unassign (id == 0) or a site-less building resolves to
+// no site (nil).
+func (h *Handler) resolvePlacementTargetSite(ctx context.Context, orgID int64, siteID, buildingID *int64) (*int64, error) {
+	if buildingID != nil && *buildingID > 0 {
+		return h.collectionSvc.ResolveBuildingSite(ctx, orgID, *buildingID)
+	}
+	if siteID != nil && *siteID > 0 {
+		return siteID, nil
+	}
+	return nil, nil
+}
+
+// distinctSites returns the distinct non-nil site ids among the given sites,
+// so an in-place re-assert (source == destination) is checked once and a nil
+// (untouched) side is skipped.
+func distinctSites(sites ...*int64) []*int64 {
+	var out []*int64
+	seen := make(map[int64]struct{}, len(sites))
+	for _, s := range sites {
+		if s == nil {
+			continue
+		}
+		if _, dup := seen[*s]; dup {
+			continue
+		}
+		seen[*s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 // CreateCollection creates a new collection.
 func (h *Handler) CreateCollection(ctx context.Context, r *connect.Request[pb.CreateCollectionRequest]) (*connect.Response[pb.CreateCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
+	}
+	// Creating a rack under a site/building persists that placement, so gate it
+	// on site:manage. New rack, so no source site — destination only.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, nil /* currentSiteID */, ri.SiteId, ri.BuildingId)
+		if err != nil {
+			return nil, err
+		}
 	}
 	result, err := h.collectionSvc.CreateCollection(ctx, r.Msg)
 	if err != nil {
@@ -51,8 +122,22 @@ func (h *Handler) GetCollection(ctx context.Context, r *connect.Request[pb.GetCo
 
 // UpdateCollection updates a collection's label and/or description.
 func (h *Handler) UpdateCollection(ctx context.Context, r *connect.Request[pb.UpdateCollectionRequest]) (*connect.Response[pb.UpdateCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
+	}
+	// Placement intent (site_id/building_id, incl. 0 to unassign) is a MOVE, so
+	// gate on site:manage against both current site and destination. Metadata-only
+	// edits (label/zone/dims, membership) stay rack:manage.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		currentSiteID, err := h.collectionSvc.ResolveRackSite(ctx, info.OrganizationID, r.Msg.CollectionId)
+		if err != nil {
+			return nil, err
+		}
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, currentSiteID, ri.SiteId, ri.BuildingId)
+		if err != nil {
+			return nil, err
+		}
 	}
 	result, err := h.collectionSvc.UpdateCollection(ctx, r.Msg)
 	if err != nil {
@@ -79,30 +164,6 @@ func (h *Handler) ListCollections(ctx context.Context, r *connect.Request[pb.Lis
 		return nil, err
 	}
 	result, err := h.collectionSvc.ListCollections(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(result), nil
-}
-
-// AddDevicesToCollection adds devices to a collection.
-func (h *Handler) AddDevicesToCollection(ctx context.Context, r *connect.Request[pb.AddDevicesToCollectionRequest]) (*connect.Response[pb.AddDevicesToCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.collectionSvc.AddDevicesToCollection(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(result), nil
-}
-
-// RemoveDevicesFromCollection removes devices from a collection.
-func (h *Handler) RemoveDevicesFromCollection(ctx context.Context, r *connect.Request[pb.RemoveDevicesFromCollectionRequest]) (*connect.Response[pb.RemoveDevicesFromCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.collectionSvc.RemoveDevicesFromCollection(ctx, r.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -207,12 +268,43 @@ func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[pb.ListR
 
 // SaveRack atomically creates or updates a rack with membership and slot assignments.
 func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[pb.SaveRackRequest]) (*connect.Response[pb.SaveRackResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.collectionSvc.SaveRack(ctx, r.Msg)
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(result), nil
+	// Placement intent gates on site:manage. SaveRack with a collection_id is a
+	// move, so resolve and authorize the current site too; a create has none.
+	// Omitted placement preserves the current site/building and stays rack:manage.
+	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		var currentSiteID *int64
+		if r.Msg.CollectionId != nil {
+			currentSiteID, err = h.collectionSvc.ResolveRackSite(ctx, info.OrganizationID, *r.Msg.CollectionId)
+			if err != nil {
+				return nil, err
+			}
+		}
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, currentSiteID, ri.SiteId, ri.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// collection.v1 is deprecated and its SaveRackResponse has no conflict
+	// field, so it can't carry the site-strip confirmation contract that
+	// device_set.v1 uses. Pass force=false and, if the save would strip a
+	// member's site/building, fail loudly instead of silently clearing it;
+	// callers needing the confirm-and-force flow must use device_set.v1.
+	result, err := h.collectionSvc.SaveRack(ctx, r.Msg, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Conflicts) > 0 {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%d device(s) would lose their site/building placement by joining this rack; use device_set.v1.SaveRack with force_clear_conflicting_site to confirm",
+			len(result.Conflicts)))
+	}
+	return connect.NewResponse(&pb.SaveRackResponse{
+		Collection:          result.Collection,
+		AssignedCount:       result.AssignedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
+	}), nil
 }

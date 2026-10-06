@@ -4,10 +4,12 @@ import { test as base } from "@playwright/test";
 import { CommonSteps } from "../helpers/commonSteps";
 import { ActivityPage } from "../pages/activity";
 import { AddMinersPage } from "../pages/addMiners";
+import { AlertsPage } from "../pages/alerts";
 import { AuthPage } from "../pages/auth";
 import { LoginModalComponent } from "../pages/components/loginModal";
 import { EditPoolPage } from "../pages/editPool";
 import { EnergyPage } from "../pages/energy";
+import { FleetLocationsPage } from "../pages/fleetLocations";
 import { GroupsPage } from "../pages/groups";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -16,11 +18,15 @@ import { RacksPage } from "../pages/racks";
 import { ServerLogsPage } from "../pages/serverLogs";
 import { SettingsPage } from "../pages/settings";
 import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
+import { SettingsCurtailmentPage } from "../pages/settingsCurtailment";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
+import { SettingsNodesPage } from "../pages/settingsNodes";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
 import { SettingsTeamPage } from "../pages/settingsTeam";
+import { SettingsUpdatesPage } from "../pages/settingsUpdates";
+import { SingleMinerPage } from "../pages/singleMiner";
 
 type PageFixtures = {
   activityPage: ActivityPage;
@@ -30,16 +36,22 @@ type PageFixtures = {
   groupsPage: GroupsPage;
   racksPage: RacksPage;
   serverLogsPage: ServerLogsPage;
+  singleMinerPage: SingleMinerPage;
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
   settingsFirmwarePage: SettingsFirmwarePage;
+  settingsCurtailmentPage: SettingsCurtailmentPage;
   settingsApiKeysPage: SettingsApiKeysPage;
+  settingsNodesPage: SettingsNodesPage;
   settingsSchedulesPage: SettingsSchedulesPage;
   settingsSecurityPage: SettingsSecurityPage;
   settingsTeamPage: SettingsTeamPage;
+  settingsUpdatesPage: SettingsUpdatesPage;
   settingsPoolsPage: SettingsPoolsPage;
+  alertsPage: AlertsPage;
   editPoolPage: EditPoolPage;
   energyPage: EnergyPage;
+  fleetLocationsPage: FleetLocationsPage;
   newPoolModal: NewPoolModalPage;
   loginModal: LoginModalComponent;
   commonSteps: CommonSteps;
@@ -67,6 +79,9 @@ export const test = base.extend<PageFixtures>({
   serverLogsPage: async ({ page, isMobile }, use) => {
     await use(new ServerLogsPage(page, isMobile));
   },
+  singleMinerPage: async ({ page, isMobile }, use) => {
+    await use(new SingleMinerPage(page, isMobile));
+  },
   addMinersPage: async ({ page, isMobile }, use) => {
     await use(new AddMinersPage(page, isMobile));
   },
@@ -76,8 +91,14 @@ export const test = base.extend<PageFixtures>({
   settingsFirmwarePage: async ({ page, isMobile }, use) => {
     await use(new SettingsFirmwarePage(page, isMobile));
   },
+  settingsCurtailmentPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsCurtailmentPage(page, isMobile));
+  },
   settingsApiKeysPage: async ({ page, isMobile }, use) => {
     await use(new SettingsApiKeysPage(page, isMobile));
+  },
+  settingsNodesPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsNodesPage(page, isMobile));
   },
   settingsSchedulesPage: async ({ page, isMobile }, use) => {
     await use(new SettingsSchedulesPage(page, isMobile));
@@ -88,8 +109,14 @@ export const test = base.extend<PageFixtures>({
   settingsTeamPage: async ({ page, isMobile }, use) => {
     await use(new SettingsTeamPage(page, isMobile));
   },
+  settingsUpdatesPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsUpdatesPage(page, isMobile));
+  },
   settingsPoolsPage: async ({ page, isMobile }, use) => {
     await use(new SettingsPoolsPage(page, isMobile));
+  },
+  alertsPage: async ({ page, isMobile }, use) => {
+    await use(new AlertsPage(page, isMobile));
   },
   editPoolPage: async ({ page, isMobile }, use) => {
     await use(new EditPoolPage(page, isMobile));
@@ -97,14 +124,17 @@ export const test = base.extend<PageFixtures>({
   energyPage: async ({ page, isMobile }, use) => {
     await use(new EnergyPage(page, isMobile));
   },
+  fleetLocationsPage: async ({ page, isMobile }, use) => {
+    await use(new FleetLocationsPage(page, isMobile));
+  },
   newPoolModal: async ({ page, isMobile }, use) => {
     await use(new NewPoolModalPage(page, isMobile));
   },
   loginModal: async ({ page, isMobile }, use) => {
     await use(new LoginModalComponent(page, isMobile));
   },
-  commonSteps: async ({ authPage, minersPage }, use) => {
-    await use(new CommonSteps(authPage, minersPage));
+  commonSteps: async ({ authPage, minersPage, settingsPage, settingsTeamPage }, use) => {
+    await use(new CommonSteps(authPage, minersPage, settingsPage, settingsTeamPage));
   },
 });
 

@@ -15,6 +15,9 @@ const (
 	StatusAuthenticationNeeded = "AUTHENTICATION_NEEDED"
 	StatusPending              = "PENDING"
 	StatusFailed               = "FAILED"
+	// StatusDefaultPassword marks a paired device still using the factory
+	// default password; it must be changed before the device can be operated.
+	StatusDefaultPassword = "DEFAULT_PASSWORD"
 )
 
 type Pairer interface {

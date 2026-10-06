@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -23,15 +25,18 @@ import (
 type fakeFleetNodeGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	expectedCode     string
-	expectedAPIKey   string
-	fleetNodeID      int64
-	identityPub      ed25519.PublicKey
-	challenge        []byte
-	sessionToken     string
-	sessionExpiresAt time.Time
-	registerError    error
-	beginAuthError   error
+	expectedCode          string
+	expectedAPIKey        string
+	fleetNodeID           int64
+	identityPub           ed25519.PublicKey
+	challenge             []byte
+	sessionToken          string
+	sessionExpiresAt      time.Time
+	registerError         error
+	beginAuthError        error
+	completeAuthMu        sync.Mutex
+	completeAuthCalls     int
+	completeAuthResponder func(call int) error
 
 	registered        bool
 	signatureVerified bool
@@ -40,6 +45,11 @@ type fakeFleetNodeGateway struct {
 	heartbeatsReceived   []heartbeatRecord
 	expectedSessionToken string
 	onHeartbeat          func(count int)
+
+	artifactMu             sync.Mutex
+	commandArtifactUploads []*pb.UploadCommandArtifactRequest
+	commandArtifactRef     *pb.CommandArtifactRef
+	commandArtifactErr     error
 }
 
 type heartbeatRecord struct {
@@ -84,10 +94,26 @@ func (f *fakeFleetNodeGateway) CompleteAuthHandshake(_ context.Context, req *con
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("bad signature"))
 	}
 	f.signatureVerified = true
+	f.completeAuthMu.Lock()
+	f.completeAuthCalls++
+	call := f.completeAuthCalls
+	responder := f.completeAuthResponder
+	f.completeAuthMu.Unlock()
+	if responder != nil {
+		if err := responder(call); err != nil {
+			return nil, err
+		}
+	}
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: f.sessionToken,
 		ExpiresAt:    timestamppb.New(f.sessionExpiresAt),
 	}), nil
+}
+
+func (f *fakeFleetNodeGateway) completeAuthCount() int {
+	f.completeAuthMu.Lock()
+	defer f.completeAuthMu.Unlock()
+	return f.completeAuthCalls
 }
 
 func (f *fakeFleetNodeGateway) UploadHeartbeat(_ context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
@@ -106,6 +132,31 @@ func (f *fakeFleetNodeGateway) UploadHeartbeat(_ context.Context, req *connect.R
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{ReceivedAt: timestamppb.Now()}), nil
 }
 
+func (f *fakeFleetNodeGateway) UploadCommandArtifact(_ context.Context, stream *connect.ClientStream[pb.UploadCommandArtifactRequest]) (*connect.Response[pb.UploadCommandArtifactResponse], error) {
+	requests := []*pb.UploadCommandArtifactRequest{}
+	for stream.Receive() {
+		cloned := proto.Clone(stream.Msg())
+		clonedReq, ok := cloned.(*pb.UploadCommandArtifactRequest)
+		if !ok {
+			return nil, fmt.Errorf("clone command artifact upload request: got %T", cloned)
+		}
+		requests = append(requests, clonedReq)
+	}
+	if err := stream.Err(); err != nil {
+		return nil, fmt.Errorf("receive command artifact upload: %w", err)
+	}
+
+	f.artifactMu.Lock()
+	f.commandArtifactUploads = append(f.commandArtifactUploads, requests...)
+	ref := f.commandArtifactRef
+	err := f.commandArtifactErr
+	f.artifactMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UploadCommandArtifactResponse{Artifact: ref}), nil
+}
+
 func (f *fakeFleetNodeGateway) heartbeatCount() int {
 	f.heartbeatMu.Lock()
 	defer f.heartbeatMu.Unlock()
@@ -117,6 +168,14 @@ func (f *fakeFleetNodeGateway) heartbeats() []heartbeatRecord {
 	defer f.heartbeatMu.Unlock()
 	out := make([]heartbeatRecord, len(f.heartbeatsReceived))
 	copy(out, f.heartbeatsReceived)
+	return out
+}
+
+func (f *fakeFleetNodeGateway) artifactUploads() []*pb.UploadCommandArtifactRequest {
+	f.artifactMu.Lock()
+	defer f.artifactMu.Unlock()
+	out := make([]*pb.UploadCommandArtifactRequest, len(f.commandArtifactUploads))
+	copy(out, f.commandArtifactUploads)
 	return out
 }
 

@@ -71,5 +71,6 @@ type Result struct {
 // Mode applies mode-specific selection to a ranked candidate list.
 // Implementations MUST be pure: no I/O, no time, no shared state.
 type Mode interface {
+	RequiresDualSignalTelemetry() bool
 	Select(ranked []Candidate) Result
 }

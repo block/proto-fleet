@@ -138,8 +138,8 @@ test.describe("Mining Pools", () => {
     let amountOfMiners: number;
 
     await test.step("Select all miners and open pool editor", async () => {
-      amountOfMiners = await minersPage.getMinersCount();
       await minersPage.clickSelectAllCheckbox();
+      amountOfMiners = await minersPage.getSelectedMinersCount();
       await minersPage.clickActionsMenuButton();
       await minersPage.clickEditMiningPoolButton();
       await loginModal.loginAsAdmin();
@@ -161,7 +161,7 @@ test.describe("Mining Pools", () => {
     });
 
     await test.step("Validate the pool has been assigned", async () => {
-      await minersPage.validateNoMinerWithIssue("Pool required");
+      await minersPage.validateNoActionableMinerWithIssue("Pool required", amountOfMiners);
     });
   });
 

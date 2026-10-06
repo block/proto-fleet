@@ -167,6 +167,15 @@ func TestService_Update_RejectsAbsoluteCapViolations(t *testing.T) {
 			},
 			msg: "restore_batch_interval_sec must be <=",
 		},
+		{
+			name: "restore_batch_size above absolute ceiling",
+			req: UpdateRequest{
+				OrgID:            orgID,
+				EventUUID:        eventUUID,
+				RestoreBatchSize: int32Ptr(RestoreBatchSizeMax + 1),
+			},
+			msg: "restore_batch_size must be <=",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,6 +210,32 @@ func TestService_Update_RejectsNonAdminLargeInterval(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec")
+}
+
+func TestService_Update_RejectsRestoreBatchSizeChange(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	currentBatch := int32(20)
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:               1,
+		EventUUID:        eventUUID,
+		OrgID:            orgID,
+		State:            models.EventStateActive,
+		RestoreBatchSize: currentBatch,
+	}
+	svc := NewService(store)
+
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:            orgID,
+		EventUUID:        eventUUID,
+		RestoreBatchSize: int32Ptr(0),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "restore_batch_size cannot be changed after Start")
+	assert.Equal(t, 0, store.updateOperatorFieldsCalls)
 }
 
 // TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault mirrors

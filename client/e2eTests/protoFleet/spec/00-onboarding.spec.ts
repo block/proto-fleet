@@ -10,13 +10,7 @@ test.describe("Proto Fleet - Onboarding", () => {
 
   test("Onboard the admin user @setup", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickContinue();
-    });
-
-    await test.step("Validate admin is logged in", async () => {
-      await authPage.validateLoggedIn();
+      await authPage.completeInitialSetupOrLogin(testConfig.users.admin.username, testConfig.users.admin.password);
     });
   });
 
@@ -137,8 +131,8 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S19 miners authenticated, but S21 and S17 not", async () => {
         await homePage.validateTextInToast("You authenticated 2 of 4 miners.");
-        await homePage.validateCalloutInModal("Try your username and password again.");
-        await homePage.clickCalloutButton();
+        await homePage.validateAuthenticationError("Try your username and password again.");
+        await homePage.dismissAuthenticationError();
         const miners = await homePage.getListOfMinersToAuthenticate();
         expect(miners).toHaveLength(2);
         expect(miners).toContain("Antminer S21 XP");
@@ -154,8 +148,8 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S21 miner's authentication failed", async () => {
         await homePage.validateTextInToast("Authentication failed. Please check your credentials and try again.");
-        await homePage.validateCalloutInModal("Try your username and password again.");
-        await homePage.clickCalloutButton();
+        await homePage.validateAuthenticationError("Try your username and password again.");
+        await homePage.dismissAuthenticationError();
       });
 
       await test.step("Authenticating S21 miner", async () => {
@@ -166,7 +160,7 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S21 miner successfully authenticated", async () => {
         await homePage.validateTextInToast("1 miner authenticated.");
-        await homePage.validateNoCalloutInModal();
+        await homePage.validateNoAuthenticationError();
       });
 
       await test.step("Bulk authenticate last miner - S17", async () => {

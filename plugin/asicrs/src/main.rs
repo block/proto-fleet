@@ -1,3 +1,7 @@
+// ASIC-RS exposes deeply nested async miner-factory futures. Rust nightly's
+// auto-trait solver needs more than the default recursion depth to prove Send.
+#![recursion_limit = "256"]
+
 mod capabilities;
 mod config;
 mod device;

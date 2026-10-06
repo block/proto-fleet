@@ -1,13 +1,22 @@
 // Package models holds the domain types for sites.
 package models
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrSiteSlugCollision is returned by stores when the generated slug
+// lost a race against another live site in the same org. The service
+// handles it by generating the next suffix candidate and retrying.
+var ErrSiteSlugCollision = errors.New("site slug collision")
 
 // Site is the canonical domain shape for a site row.
 type Site struct {
 	ID              int64
 	OrgID           int64
 	Name            string
+	Slug            string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
@@ -25,16 +34,26 @@ type Site struct {
 // so the delete-confirm dialog has impact numbers without a second
 // round trip.
 type SiteWithCounts struct {
-	Site          Site
-	DeviceCount   int64
-	BuildingCount int64
-	RackCount     int64
+	Site                      Site
+	DeviceCount               int64
+	BuildingCount             int64
+	RackCount                 int64
+	InfrastructureDeviceCount int64
+	ListStats                 *FleetListStats
 }
 
-// CreateSiteParams is the input shape for the Create flow.
+// CreateSiteParams is the input shape for the Create flow. The site fields are
+// always used; the trailing seed fields are optional (#559) — when BuildingIDs,
+// RackIDs, and/or DeviceIdentifiers are non-empty, CreateSite assigns them to
+// the new site in the SAME transaction, so a failure anywhere (including an
+// unresolvable device conflict) rolls the site INSERT back too. The three id
+// sets are independent: a seeded device need not belong to any seeded rack or
+// building (it becomes a direct site member), and a seeded rack need not belong
+// to any seeded building. Empty seed fields = a plain create.
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
+	Slug            string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
@@ -44,13 +63,23 @@ type CreateSiteParams struct {
 	PostalCode      string
 	Country         string
 	Notes           string
+
+	// Optional seed (see type doc).
+	BuildingIDs                         []int64
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
 }
 
 // UpdateSiteParams is the input shape for the Update flow.
 type UpdateSiteParams struct {
-	OrgID           int64
-	ID              int64
-	Name            string
+	OrgID int64
+	ID    int64
+	Name  string
+	// Slug is populated by the service layer (regenerated from Name on a
+	// rename, carried through unchanged otherwise); it is never taken from
+	// the API request.
+	Slug            string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
@@ -64,9 +93,11 @@ type UpdateSiteParams struct {
 
 // DeleteSiteResult carries the cascade impact for the delete activity log.
 type DeleteSiteResult struct {
-	UnassignedDeviceCount int64
-	UnassignedRackCount   int64
-	DeletedBuildingCount  int64
+	UnassignedDeviceCount            int64
+	UnassignedRackCount              int64
+	DeletedBuildingCount             int64
+	DeletedResponseProfileCount      int64
+	DeletedInfrastructureDeviceCount int64
 }
 
 // PerDeviceConflictReason enumerates why a device was rejected by a
@@ -94,27 +125,53 @@ type PerDeviceConflict struct {
 	ConflictingSiteID int64
 }
 
-// ReassignDevicesToSiteParams is the input shape for the bulk reassign
+// AssignDevicesToSiteParams is the input shape for the bulk assign
 // flow. TargetSiteID == nil means "Unassigned".
-type ReassignDevicesToSiteParams struct {
-	OrgID             int64
-	TargetSiteID      *int64
-	DeviceIdentifiers []string
+//
+// When ForceClearConflictingRackMembership is true the service, inside
+// the same transaction as the site write, drops any existing rack
+// membership for the listed devices before applying the site update.
+// This closes the cross-site reparent orphan window the client-side
+// remove-then-reassign loop in MinerReparentPicker had. When false
+// (default), a device sitting in a rack at a different site rejects
+// the whole batch with PerDeviceConflict[].
+type AssignDevicesToSiteParams struct {
+	OrgID                               int64
+	TargetSiteID                        *int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
 }
 
-// AssignBuildingToSiteParams is the input shape for the building site
-// reassignment flow. TargetSiteID == nil means "Unassigned".
-type AssignBuildingToSiteParams struct {
+// AssignBuildingsToSiteParams is the input shape for the bulk
+// building→site assignment flow. TargetSiteID == nil means "Unassigned";
+// the entire batch is applied in one transaction.
+type AssignBuildingsToSiteParams struct {
 	OrgID        int64
-	BuildingID   int64
+	BuildingIDs  []int64
 	TargetSiteID *int64
 }
 
-// AssignBuildingToSiteResult is the cascade-impact tally for the
-// building → site move.
-type AssignBuildingToSiteResult struct {
+// AssignBuildingsToSiteResult is the aggregate cascade-impact tally
+// across every building in the batch.
+type AssignBuildingsToSiteResult struct {
 	ReassignedRackCount   int64
 	ReassignedDeviceCount int64
+}
+
+// AssignRacksToSiteParams is the input shape for the bulk rack→site
+// partial-update flow. TargetSiteID == nil means "Unassigned"; the
+// entire batch applies in one transaction.
+type AssignRacksToSiteParams struct {
+	OrgID        int64
+	RackIDs      []int64
+	TargetSiteID *int64
+}
+
+// AssignRacksToSiteResult carries cascade impact + the count of racks
+// whose building_id was cleared on the site transition.
+type AssignRacksToSiteResult struct {
+	ReassignedDeviceCount int64
+	ClearedBuildingCount  int64
 }
 
 // SiteNetworkConfigEntry is a (name, network_config) tuple used by the
@@ -128,18 +185,51 @@ type SiteNetworkConfigEntry struct {
 // SiteStats is the rollup returned by GetSiteStats. Scope is every
 // live device with site_id matching the requested site, racked or not.
 type SiteStats struct {
-	SiteID                   int64
-	BuildingCount            int32
-	DeviceCount              int32
-	ReportingCount           int32
-	HashrateReportingCount   int32
-	EfficiencyReportingCount int32
-	PowerReportingCount      int32
-	TotalHashrateThs         float64
-	AvgEfficiencyJth         float64
-	TotalPowerKw             float64
-	HashingCount             int32
-	BrokenCount              int32
-	OfflineCount             int32
-	SleepingCount            int32
+	SiteID                    int64
+	BuildingCount             int32
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
+}
+
+// FleetListStats is the lightweight rollup attached to list rows.
+type FleetListStats struct {
+	BuildingCount             int32
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
 }

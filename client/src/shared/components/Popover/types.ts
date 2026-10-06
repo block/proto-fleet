@@ -14,4 +14,6 @@ export type PopoverContentProps = {
   titleSize?: string;
   closePopover?: () => void;
   closeIgnoreSelectors?: string[];
+  // Ignore specific outside pointer events without changing focus or Escape dismissal.
+  closeShouldIgnore?: (event: MouseEvent | TouchEvent) => boolean;
 };

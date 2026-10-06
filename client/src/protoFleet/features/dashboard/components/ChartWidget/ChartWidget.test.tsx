@@ -71,7 +71,8 @@ describe("ChartWidget", () => {
     const widget = container.firstChild as HTMLElement;
     expect(widget).toHaveClass("custom-class");
     expect(widget).toHaveClass("rounded-xl");
-    expect(widget).toHaveClass("bg-surface-base");
+    expect(widget).toHaveClass("bg-surface-elevated-base");
+    expect(widget).toHaveClass("shadow-100");
     expect(widget).toHaveClass("p-10");
   });
 

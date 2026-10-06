@@ -1,7 +1,11 @@
 import { ReactNode, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
@@ -32,31 +36,34 @@ type MinerStatusProps = {
   errors: ErrorMessage[];
   activeBatches: BatchOperation[];
   errorsLoaded: boolean;
+  isRefreshing?: boolean;
   onClick?: () => void;
 };
 
-const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: MinerStatusProps) => {
+const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing, onClick }: MinerStatusProps) => {
   const deviceStatusFromStore = miner.deviceStatus;
 
   // Compute status flags
   const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsPasswordChange = miner.pairingStatus === PairingStatus.DEFAULT_PASSWORD;
+  const needsRemediation = needsAuthentication || needsPasswordChange;
   const isPaired = miner.pairingStatus === PairingStatus.PAIRED;
   // Paired miners with UNSPECIFIED device_status (typically freshly paired, not yet polled)
   // are treated as offline — this matches the Fleet Health dashboard and Offline filter.
   const isOffline =
     deviceStatusFromStore === DeviceStatus.OFFLINE || (deviceStatusFromStore === DeviceStatus.UNSPECIFIED && isPaired);
-  // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
-  // (could be sleeping OR showing as inactive because we can't authenticate)
+  // Password remediation should outrank a sleeping/maintenance device status.
   const isSleeping =
     (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
-    !needsAuthentication;
+    !needsRemediation;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
+  const isUnavailable = miner.offlineReason === DeviceOfflineReason.FLEET_NODE_UNAVAILABLE;
 
   const needsAttention = useNeedsAttention(
-    needsAuthentication,
+    needsRemediation,
     needsMiningPool,
     errors,
     hasDeviceError,
@@ -68,9 +75,12 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
 
   // Determine StatusCircle visual indicator based on flags
   // Priority: (offline | sleeping) > needs attention > normal
-  // Note: isSleeping is already filtered to exclude auth-needed devices
+  // Note: isSleeping is already filtered to exclude remediation statuses
   const circleStatus = useMemo(() => {
-    if (isOffline || isSleeping) {
+    if (isOffline) {
+      return statuses.inactive;
+    }
+    if (isSleeping) {
       return statuses.sleeping;
     }
     if (needsAttention) {
@@ -82,6 +92,25 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   // Check for active batch operations FIRST (highest priority)
   const activeBatch = activeBatches[0];
   const batchLoadingMessage = activeBatch ? statusColumnLoadingMessages[activeBatch.action] : null;
+
+  if (isRefreshing) {
+    return (
+      <StatusWrapper onClick={onClick}>
+        <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        <ProgressCircular size={14} indeterminate />
+        <span className="text-text-primary-50">Refreshing</span>
+      </StatusWrapper>
+    );
+  }
+
+  if (isUnavailable) {
+    return (
+      <StatusWrapper onClick={onClick}>
+        <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        Unavailable
+      </StatusWrapper>
+    );
+  }
 
   if (isActionLoading(activeBatch, deviceStatusFromStore)) {
     const content = (

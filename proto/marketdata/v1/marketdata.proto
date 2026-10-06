@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/block/proto-fleet/server/generated/grpc/marketdata/v1;marketdatav1";
+
+// MarketMetric is a last-known-good sample. An absent metric means unavailable,
+// never zero. retrieved_at is the server's fetch time, not an exchange timestamp.
+message MarketMetric {
+  double value = 1;
+  google.protobuf.Timestamp retrieved_at = 2;
+  string source = 3;
+  // The server marks retained samples stale when a refresh cannot replace them.
+  bool stale = 4;
+}
+
+message GetMarketDataRequest {}
+
+message GetMarketDataResponse {
+  bool enabled = 1;
+  MarketMetric bitcoin_price_usd = 2;
+  // Estimated gross revenue in USD for 1 PH/s for one day, including transaction
+  // fees and excluding pool fees and operating costs. Not a licensed index.
+  MarketMetric estimated_hashprice_usd_per_ph_day = 3;
+  // Estimated network hashes per second, averaged over the latest 1008 blocks.
+  MarketMetric network_hashrate_hs = 4;
+  // Minimum upstream refresh cadence; browsers may poll the shared cache faster.
+  uint32 refresh_interval_seconds = 5;
+}
+
+service MarketDataService {
+  // Returns a process-wide snapshot. When the cache is due, starts or joins an
+  // on-demand upstream refresh and waits for it; concurrent readers share that
+  // refresh. A fresh cache is returned without contacting upstream providers.
+  rpc GetMarketData(GetMarketDataRequest) returns (GetMarketDataResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

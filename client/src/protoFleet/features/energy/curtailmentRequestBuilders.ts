@@ -1,15 +1,19 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  type CurtailmentScopeSelection,
+  normalizeCurtailmentSelectionValues,
+  parseCurtailmentTargetId,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
   type UpdateCurtailmentEventRequest,
@@ -24,9 +28,28 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
+export const customResponseProfileId = "customPlan";
+export const curtailmentExecutionSchemaVersion = 1;
+
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
-  "scope" | "mode" | "strategy" | "level" | "priority" | "modeParams" | "includeMaintenance" | "forceIncludeMaintenance"
+  | "scopes"
+  | "scopeSchemaVersion"
+  | "executionSchemaVersion"
+  | "mode"
+  | "strategy"
+  | "level"
+  | "priority"
+  | "modeParams"
+  | "includeMaintenance"
+  | "forceIncludeMaintenance"
+  | "forceIncludeAllPairedMiners"
+  | "postEventCooldownSec"
+>;
+
+type ResponseProfileExecutionFields = Pick<
+  StartCurtailmentRequest,
+  "responseProfileId" | "expectedResponseProfileRevision"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -37,6 +60,14 @@ const minCurtailedDurationOptions: OptionalUint32FieldOptions = {
   label: "min curtailed duration",
   max: curtailmentNumericFieldLimits.minDurationSec,
 };
+const curtailBatchSizeOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch size",
+  max: curtailmentNumericFieldLimits.curtailBatchSize,
+};
+const curtailBatchIntervalOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch interval",
+  max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+};
 const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
   label: "restore batch size",
   max: curtailmentNumericFieldLimits.restoreBatchSize,
@@ -45,18 +76,18 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
-const maxInt64 = 9_223_372_036_854_775_807n;
-const baseTenIntegerPattern = /^[0-9]+$/;
-
-export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
-  const trimmed = value?.trim() ?? "";
-  if (!baseTenIntegerPattern.test(trimmed)) {
-    return undefined;
-  }
-
-  const parsed = BigInt(trimmed);
-  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
-}
+const fanOffDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan off delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan restore delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const postEventCooldownOptions: OptionalUint32FieldOptions = {
+  label: "post-event cooldown",
+  max: curtailmentNumericFieldLimits.postEventCooldownSec,
+};
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -77,6 +108,15 @@ function getOptionalUpdateUint32Setting(value: string, options: OptionalUint32Fi
   return parsedField.parsed;
 }
 
+function getOptionalPositiveUint32Setting(value: string, options: OptionalUint32FieldOptions): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  return nextValue;
+}
+
 function getChangedUpdateStringSetting(value: string, initialValue?: string): string | undefined {
   const trimmedValue = value.trim();
   if (initialValue === undefined) {
@@ -84,6 +124,23 @@ function getChangedUpdateStringSetting(value: string, initialValue?: string): st
   }
 
   return trimmedValue === initialValue.trim() ? undefined : trimmedValue;
+}
+
+function getChangedParsedUpdateUint32Setting(
+  nextValue: number | undefined,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  if (initialValue === undefined || initialValue.trim() === "") {
+    return nextValue;
+  }
+
+  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
+  if (nextValue === undefined || nextValue === previousValue) {
+    return undefined;
+  }
+
+  return nextValue;
 }
 
 function getChangedUpdatePositiveUint32Setting(
@@ -96,16 +153,16 @@ function getChangedUpdatePositiveUint32Setting(
     throw new Error(`Enter ${options.label} greater than 0.`);
   }
 
-  if (initialValue === undefined || initialValue.trim() === "") {
-    return nextValue;
-  }
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
+}
 
-  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
-  if (nextValue === undefined || nextValue === previousValue) {
-    return undefined;
-  }
-
-  return nextValue;
+function getChangedUpdateUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -119,34 +176,64 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["scope"] {
-  switch (values.scopeType) {
-    case "wholeOrg":
-      return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
-    case "site":
-      {
-        const siteId = parseCurtailmentSiteId(values.siteId);
-        if (siteId !== undefined) {
-          return { case: "site", value: create(ScopeSiteSchema, { siteId }) };
-        }
-      }
-      break;
-    case "explicitMiners":
-      if (values.deviceIdentifiers.length > 0) {
-        return {
-          case: "deviceIdentifiers",
-          value: create(ScopeDeviceListSchema, { deviceIdentifiers: values.deviceIdentifiers }),
-        };
-      }
-      break;
-    case "deviceSet":
-      break;
+export function getResponseProfileExecutionFields(
+  values: Pick<CurtailmentSubmitValues, "responseProfileId" | "responseProfileRevision">,
+): ResponseProfileExecutionFields | undefined {
+  if (values.responseProfileId === customResponseProfileId) {
+    return { responseProfileId: 0n, expectedResponseProfileRevision: "" };
   }
 
-  throw new Error("Unsupported curtailment target scope.");
+  const responseProfileId = parseCurtailmentTargetId(values.responseProfileId);
+  const expectedResponseProfileRevision = values.responseProfileRevision?.trim();
+  if (responseProfileId === undefined || !expectedResponseProfileRevision) {
+    return undefined;
+  }
+
+  return { responseProfileId, expectedResponseProfileRevision };
+}
+
+// Logical placement scopes can back the durable all-paired policy. Explicit
+// miner lists remain snapshots until their closed-loop lifecycle is supported.
+export function supportsAllPairedTargeting(
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+): boolean {
+  if (values.curtailmentMode !== "fullFleet") {
+    return false;
+  }
+  const scopes = buildCurtailmentScopes(values);
+  return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
+}
+
+// Targeting all paired miners also opts in miners flagged for maintenance:
+// parking them as unavailable would contradict the operator's explicit
+// "all paired" choice, and both flags sit behind the same server-side admin
+// gate as the all-paired control itself. Saved profiles may independently opt
+// into maintenance miners, so executions must preserve that stored setting.
+// Custom plans still derive maintenance inclusion solely from the visible
+// all-paired control.
+export function buildForceInclusionFields(
+  values: CurtailmentScopeSelection &
+    Pick<
+      CurtailmentSubmitValues,
+      "responseProfileId" | "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners"
+    >,
+): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  const includeMaintenance =
+    values.responseProfileId === customResponseProfileId ? forceIncludeAllPairedMiners : values.includeMaintenance;
+  // The proto validator requires include_maintenance == force_include_maintenance.
+  return {
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
+    forceIncludeAllPairedMiners,
+  };
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
+  const scopes = buildCurtailmentScopes(values);
+  if (scopes === undefined) {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const fixedKwModeFields =
     values.curtailmentMode === "fixedKwReduction"
       ? {
@@ -162,24 +249,57 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
         };
 
   return {
-    scope: buildScope(values),
+    scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeMaintenance: values.includeMaintenance,
+    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
+    ...buildForceInclusionFields(values),
   };
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
+  if (responseProfileExecutionFields === undefined) {
+    throw new Error("Reload the response profile before starting curtailment.");
+  }
+  const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
+  const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
+    values.curtailBatchIntervalSec,
+    curtailBatchIntervalOptions,
+  );
+  if (curtailBatchSize === undefined && curtailBatchIntervalSec !== undefined) {
+    throw new Error("Enter curtail batch size before adding a curtail batch interval.");
+  }
+
+  const facilityFanDeviceIds = [
+    ...new Set(
+      normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
+        const id = parseCurtailmentTargetId(value);
+        if (id === undefined) {
+          throw new Error("Facility fan IDs must be positive integers.");
+        }
+        return id;
+      }),
+    ),
+  ];
+
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
+    ...responseProfileExecutionFields,
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    curtailBatchSize,
+    curtailBatchIntervalSec,
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
     minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    facilityFanDeviceIds,
+    fanOffDelaySec: getOptionalUint32Setting(values.fanOffDelaySec ?? "", fanOffDelayOptions),
+    fanRestoreDelaySec: getOptionalUint32Setting(values.fanRestoreDelaySec ?? "", fanRestoreDelayOptions),
     reason: values.reason.trim(),
   });
 }
@@ -197,7 +317,7 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
+    restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
       restoreBatchIntervalOptions,

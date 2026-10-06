@@ -15,7 +15,10 @@ type MinerNameProps = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
+  onRefreshMinersComplete?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
+  onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
+  onMinerRefreshStateChange?: (deviceIdentifier: string, isRefreshing: boolean) => void;
 };
 
 const MinerName = ({
@@ -25,16 +28,21 @@ const MinerName = ({
   onOpenStatusFlow,
   miners,
   onRefetchMiners,
+  onRefreshMinersComplete,
   onWorkerNameUpdated,
+  onMergeMiners,
+  onMinerRefreshStateChange,
 }: MinerNameProps) => {
   const deviceIdentifier = miner.deviceIdentifier;
   const name = miner.name || deviceIdentifier;
   const deviceStatus = miner.deviceStatus;
 
   const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsPasswordChange = miner.pairingStatus === PairingStatus.DEFAULT_PASSWORD;
+  const actionsRestricted = needsAuthentication || needsPasswordChange;
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const hasFirmwareStatus = deviceStatus === DeviceStatus.UPDATING || deviceStatus === DeviceStatus.REBOOT_REQUIRED;
-  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, false, hasFirmwareStatus);
+  const needsAttention = useNeedsAttention(actionsRestricted, needsMiningPool, errors, false, hasFirmwareStatus);
 
   return (
     <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
@@ -50,7 +58,7 @@ const MinerName = ({
             className="cursor-pointer transition-opacity hover:opacity-80"
             aria-label="View issues"
           >
-            <Alert width="w-4" className="text-red-500" />
+            <Alert width="w-4" className="text-intent-critical-fill" />
           </button>
         ) : null}
         <SingleMinerActionsMenu
@@ -59,10 +67,14 @@ const MinerName = ({
           deviceStatus={deviceStatus}
           minerName={name}
           workerName={miner.workerName}
-          needsAuthentication={needsAuthentication}
+          needsAuthentication={actionsRestricted}
+          allowSecurityAction={needsPasswordChange}
           miners={miners}
           onRefetchMiners={onRefetchMiners}
+          onRefreshMinersComplete={onRefreshMinersComplete}
           onWorkerNameUpdated={onWorkerNameUpdated}
+          onMergeMiners={onMergeMiners}
+          onMinerRefreshStateChange={onMinerRefreshStateChange}
         />
       </div>
     </div>

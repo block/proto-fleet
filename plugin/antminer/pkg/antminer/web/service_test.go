@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer/networking"
@@ -87,6 +88,59 @@ func TestGetSystemInfo(t *testing.T) {
 	assert.Equal(t, "Antminer S21", systemInfo.MinerType)
 	assert.Equal(t, "DHCP", systemInfo.NetType)
 	assert.Equal(t, "SMTTATUBDJAAI00A5", systemInfo.SerialNumber)
+}
+
+func TestGetSystemInfoRetriesClosedDigestChallengeConnection(t *testing.T) {
+	var challengeAttempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/cgi-bin/get_system_info.cgi", r.URL.Path)
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			if atomic.AddInt32(&challengeAttempts, 1) == 1 {
+				hijacker, ok := w.(http.Hijacker)
+				require.True(t, ok, "test server should support hijacking")
+				conn, _, err := hijacker.Hijack()
+				require.NoError(t, err)
+				_ = conn.Close()
+				return
+			}
+
+			w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{
+			"minertype": "Antminer S21",
+			"nettype": "DHCP",
+			"netdevice": "eth0",
+			"macaddr": "02:50:53:09:DA:D9",
+			"hostname": "Antminer",
+			"ipaddress": "127.0.0.1",
+			"netmask": "255.255.255.0",
+			"gateway": "",
+			"dnsservers": "",
+			"system_mode": "GNU/Linux",
+			"system_kernel_version": "Linux 4.9.113 #1 SMP PREEMPT Thu Jul 11 17:01:13 CST 2024",
+			"system_filesystem_version": "Thu Jul 11 16:38:25 CST 2024",
+			"firmware_type": "Release",
+			"serinum": "SMTTATUBDJAAI00A5"
+		}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	service := web.NewService()
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+	systemInfo, err := service.GetSystemInfo(t.Context(), connInfo)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Antminer S21", systemInfo.MinerType)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&challengeAttempts))
 }
 
 func TestGetMinerSummary(t *testing.T) {

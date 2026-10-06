@@ -49,7 +49,7 @@ const Hardware = () => {
   return (
     <>
       <h2 className="mb-10 text-heading-300">Hardware</h2>
-      <div className="mb-10">
+      <div className="mb-10" data-testid="hardware-control-board-section">
         <h3 className="mb-2 text-heading-100">Control Board</h3>
         <Row className="flex" attributes={{ role: "row" }}>
           <h4 className="w-92 text-emphasis-300">Type</h4>
@@ -64,7 +64,7 @@ const Hardware = () => {
           <div className="w-46 text-300">{controlBoardInfo?.serial_number ?? skeletonBar}</div>
         </Row>
       </div>
-      <div className="mb-10" role="table">
+      <div className="mb-10" role="table" data-testid="hardware-hashboards-section">
         <h3 className="mb-2 text-heading-100">Hashboards</h3>
         <Row className="flex" attributes={{ role: "row" }}>
           <h4 className="w-46 text-emphasis-300">Position</h4>
@@ -94,7 +94,7 @@ const Hardware = () => {
           );
         })}
       </div>
-      <div className="mb-10">
+      <div className="mb-10" data-testid="hardware-fans-section">
         <h3 className="mb-2 text-heading-100">Fans</h3>
         {showNoFansCallout ? (
           <Callout
@@ -128,7 +128,7 @@ const Hardware = () => {
           </>
         )}
       </div>
-      <div className="mb-10">
+      <div className="mb-10" data-testid="hardware-psus-section">
         <h3 className="mb-2 text-heading-100">Power supply</h3>
         <Row className="flex" attributes={{ role: "row" }}>
           <h4 className="w-46 text-emphasis-300">Position</h4>

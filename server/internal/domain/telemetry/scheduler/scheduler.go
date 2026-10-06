@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"hash/fnv"
 	"log/slog"
 	"slices"
 	"sync"
@@ -10,9 +11,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
+// initialDevicePollSpread is a fixed optimistic startup ramp close to the
+// default effective telemetry cadence. Bulk discovery is distributed across
+// this window instead of releasing every miner at once.
+const initialDevicePollSpread = 15 * time.Second
+
 type scheduler struct {
-	// devices maps each managed device to its last-updated timestamp.
-	devices map[models.DeviceIdentifier]time.Time
+	// devices maps each managed device to its polling schedule.
+	devices map[models.DeviceIdentifier]scheduledDevice
 	// failedDevices tracks consecutive failure counts per device (int), transitioning to
 	// the device's LastUpdatedAt (time.Time) once MaxConsecutiveFailures is reached.
 	failedDevices sync.Map
@@ -21,35 +27,57 @@ type scheduler struct {
 	mu             sync.Mutex
 
 	config Config
+	now    func() time.Time
+}
+
+type scheduledDevice struct {
+	lastUpdated time.Time
+	notBefore   time.Time
 }
 
 //nolint:revive // It is okay and preferred to return a private type here, it forces the use of the constructor, and the scheduler should be managed and stored with interfaces client side.
 func NewScheduler(config Config) *scheduler {
 	return &scheduler{
-		devices:        make(map[models.DeviceIdentifier]time.Time),
+		devices:        make(map[models.DeviceIdentifier]scheduledDevice),
 		managedDevices: sync.Map{},
 		mu:             sync.Mutex{},
 		failedDevices:  sync.Map{},
 		config:         config,
+		now:            time.Now,
 	}
 }
 
 // AddNewDevices adds new devices to the scheduler.
 func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
+	var alreadyManaged []models.DeviceIdentifier
+	addedAt := s.now()
+	spreadBulk := len(deviceID) > 1
 
 	for _, id := range deviceID {
 		if _, exists := s.managedDevices.LoadOrStore(id, true); exists {
-			slog.Warn("Device already managed", "device_id", id)
+			alreadyManaged = append(alreadyManaged, id)
 			continue
 		}
 		s.mu.Lock()
-		s.devices[id] = time.Time{} // Zero time ensures device is immediately eligible for scheduling
+		scheduled := scheduledDevice{}
+		if spreadBulk {
+			scheduled.notBefore = addedAt.Add(initialPollOffset(id))
+		}
+		s.devices[id] = scheduled
 		s.mu.Unlock()
 		slog.Debug("Added new device to scheduler", "device_id", id)
 		// TODO(Briano-block): do we want to fetch historical telemetry data for the new device?
 		// where does our responsibility for telemetry data start and end? at pairing?
 	}
+	logDuplicateSchedulerDevices("scheduler skipped already managed devices", alreadyManaged)
 	return nil
+}
+
+func initialPollOffset(deviceID models.DeviceIdentifier) time.Duration {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(deviceID))
+	spreadMilliseconds := uint32(initialDevicePollSpread / time.Millisecond)
+	return time.Duration(hasher.Sum32()%spreadMilliseconds) * time.Millisecond
 }
 
 // AddDevices adds a device back into the scheduler.
@@ -62,6 +90,12 @@ func (s *scheduler) AddDevices(ctx context.Context, devices ...models.Device) er
 	return s.addDevices(ctx, devices...)
 }
 
+// RequeueDevices adds checked-out devices back to the scheduler without changing
+// their consecutive failure history.
+func (s *scheduler) RequeueDevices(ctx context.Context, devices ...models.Device) error {
+	return s.addDevices(ctx, devices...)
+}
+
 func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) error {
 	var alreadyScheduled []models.DeviceIdentifier
 
@@ -70,9 +104,7 @@ func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) er
 		inQueue, exists := s.managedDevices.Load(device.ID)
 		if !exists {
 			s.mu.Unlock()
-			for _, id := range alreadyScheduled {
-				slog.Warn("Device already scheduled", "device_id", id)
-			}
+			logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
 			return DeviceNotManagedErr{DeviceID: device.ID}
 		}
 		if value, ok := inQueue.(bool); ok && value {
@@ -80,14 +112,32 @@ func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) er
 			continue
 		}
 		s.managedDevices.Store(device.ID, true)
-		s.devices[device.ID] = device.LastUpdatedAt
+		s.devices[device.ID] = scheduledDevice{lastUpdated: device.LastUpdatedAt}
 	}
 	s.mu.Unlock()
 
-	for _, id := range alreadyScheduled {
-		slog.Warn("Device already scheduled", "device_id", id)
-	}
+	logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
 	return nil
+}
+
+func logDuplicateSchedulerDevices(message string, deviceIDs []models.DeviceIdentifier) {
+	if len(deviceIDs) == 0 {
+		return
+	}
+
+	attrs := []any{"count", len(deviceIDs)}
+	sampleSize := min(len(deviceIDs), 5)
+	samples := make([]string, 0, sampleSize)
+	for _, id := range deviceIDs[:sampleSize] {
+		samples = append(samples, id.String())
+	}
+	attrs = append(attrs, "sample_device_ids", samples)
+
+	if len(deviceIDs) == 1 {
+		slog.Debug(message, attrs...)
+		return
+	}
+	slog.Info(message, attrs...)
 }
 
 func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Device) error {
@@ -145,9 +195,10 @@ func (s *scheduler) RemoveDevices(ctx context.Context, deviceID ...models.Device
 func (s *scheduler) FetchDevices(ctx context.Context, before time.Time) ([]models.Device, error) {
 	s.mu.Lock()
 	var stale []models.Device
-	for id, lastUpdated := range s.devices {
-		if lastUpdated.Before(before) {
-			stale = append(stale, models.Device{ID: id, LastUpdatedAt: lastUpdated})
+	now := s.now()
+	for id, scheduled := range s.devices {
+		if scheduled.lastUpdated.Before(before) && !scheduled.notBefore.After(now) {
+			stale = append(stale, models.Device{ID: id, LastUpdatedAt: scheduled.lastUpdated})
 			s.managedDevices.Store(id, false) // Mark as checked out
 			delete(s.devices, id)
 		}
@@ -168,8 +219,8 @@ func (s *scheduler) GetAllDevices(ctx context.Context) ([]models.Device, error) 
 	defer s.mu.Unlock()
 
 	result := make([]models.Device, 0, len(s.devices))
-	for id, lastUpdated := range s.devices {
-		result = append(result, models.Device{ID: id, LastUpdatedAt: lastUpdated})
+	for id, scheduled := range s.devices {
+		result = append(result, models.Device{ID: id, LastUpdatedAt: scheduled.lastUpdated})
 	}
 	return result, nil
 }

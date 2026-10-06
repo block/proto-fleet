@@ -1,19 +1,21 @@
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Divider from "@/shared/components/Divider";
 
 interface ModalSelectAllFooterProps {
   label?: string;
   onSelectAll?: () => void;
   onSelectNone?: () => void;
+  // Disables just the "Select all" button — e.g. while a bulk select-all fetch
+  // is in flight, to prevent duplicate/overlapping requests. "Select none"
+  // stays live so it can double as a cancel.
+  selectAllDisabled?: boolean;
 }
 
-const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectAllFooterProps) => {
+const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone, selectAllDisabled }: ModalSelectAllFooterProps) => {
   return (
-    <>
-      <Divider className="-mx-6 mt-2 !w-[calc(100%+3rem)]" />
-      <div className="flex items-center justify-between pt-5">
-        <div className="text-emphasis-300">{label}</div>
-        <div className="flex items-center gap-2">
+    <div className="-mx-6 -mb-6 shrink-0 border-t border-border-5 bg-surface-elevated-base px-6 pt-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0 truncate text-emphasis-300">{label}</div>
+        <div className="flex shrink-0 items-center gap-2">
           {onSelectAll ? (
             <Button
               className="py-1"
@@ -22,6 +24,7 @@ const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectA
               textColor="text-core-accent-fill"
               textOnlyUnderlineOnHover={false}
               onClick={onSelectAll}
+              disabled={selectAllDisabled}
             >
               Select all
             </Button>
@@ -40,7 +43,7 @@ const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectA
           ) : null}
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

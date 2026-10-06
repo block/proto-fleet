@@ -347,11 +347,6 @@ func (d *MyDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, access
         if err := d.authenticateWithCredentials(device, kind.Username, kind.Password); err != nil {
             return sdk.DeviceInfo{}, err
         }
-    case sdk.APIKey:
-        // Handle API key authentication
-        if err := d.authenticateWithAPIKey(device, kind.Key); err != nil {
-            return sdk.DeviceInfo{}, err
-        }
     default:
         return sdk.DeviceInfo{}, fmt.Errorf("unsupported authentication type: %T", access.Kind)
     }
@@ -490,17 +485,6 @@ secret := sdk.SecretBundle{
         Password: "password123",
     },
     TTL: &duration, // Optional expiration
-}
-```
-
-### API Key Authentication
-
-```go
-secret := sdk.SecretBundle{
-    Version: "v1",
-    Kind: sdk.APIKey{
-        Key: "your-api-key",
-    },
 }
 ```
 

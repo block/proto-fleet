@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
 import { MinerDiscoveryMode } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
-import { Dismiss, LogoAlt } from "@/shared/assets/icons";
+import { useHasPermission } from "@/protoFleet/store";
+import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import { type ButtonProps } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import PageOverlay from "@/shared/components/PageOverlay";
 import Textarea from "@/shared/components/Textarea";
-import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/ipParsing";
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
-  ipListDiscoveryPending: boolean;
+  manualDiscoveryPending: boolean;
   pairingPending: boolean;
   networkInfoPending: boolean;
   scanAvailable: boolean;
@@ -29,6 +35,7 @@ interface MinersProps {
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
+  remoteDiscoveryWarning?: string;
   mode?: MinerDiscoveryMode;
 }
 
@@ -37,7 +44,7 @@ const MIN_LOADING_TIME = 2000;
 
 const Miners = ({
   scanDiscoveryPending,
-  ipListDiscoveryPending,
+  manualDiscoveryPending,
   pairingPending,
   networkInfoPending,
   scanAvailable,
@@ -48,6 +55,7 @@ const Miners = ({
   onRescan,
   onForemanImport,
   foremanImportPending = false,
+  remoteDiscoveryWarning,
   mode = "onboarding",
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
@@ -64,14 +72,15 @@ const Miners = ({
   const [showForemanModal, setShowForemanModal] = useState(false);
   const [foremanApiKey, setForemanApiKey] = useState("");
   const [foremanClientId, setForemanClientId] = useState("");
+  const { isPhone } = useWindowDimensions();
 
-  const discoveryPending = scanDiscoveryPending || ipListDiscoveryPending;
+  const discoveryPending = scanDiscoveryPending || manualDiscoveryPending;
   const showLoadingSkeleton = showScanLoading || discoveryPending;
   const displayMiners = useMemo(() => {
     const seen = new Set<string>();
 
     return foundMiners.filter((miner) => {
-      const identity = miner.ipAddress || miner.deviceIdentifier;
+      const identity = miner.deviceIdentifier || (miner.ipAddress && `${miner.ipAddress}:${miner.port}`);
       if (!identity) {
         return true;
       }
@@ -83,6 +92,24 @@ const Miners = ({
     });
   }, [foundMiners]);
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
+  const useCompactHeaderActions = isPhone;
+  const canReadFleetNodes = useHasPermission("fleetnode:read");
+  const coverageWarning = remoteDiscoveryWarning ? (
+    <Callout
+      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
+      intent="warning"
+      prefixIcon={<Alert />}
+      title={remoteDiscoveryWarning}
+      subtitle={
+        canReadFleetNodes ? (
+          <Link to="/settings/nodes" className="underline">
+            View Fleet Node settings
+          </Link>
+        ) : undefined
+      }
+      testId="remote-discovery-warning"
+    />
+  ) : null;
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -178,8 +205,74 @@ const Miners = ({
     onCancelScan();
   }
 
+  const closeAddMiners = () => {
+    handleScanCancel();
+    setActiveStep("findMiners");
+    setShowModal(false);
+  };
+
+  const headerButtons: ButtonProps[] =
+    showLoadingSkeleton && displayMiners.length === 0
+      ? []
+      : [
+          ...(activeStep === "pairing"
+            ? [
+                {
+                  variant: variants.secondary,
+                  onClick: () => {
+                    setDeselectedMiners([]);
+                    onRescan();
+                  },
+                  text: discoveryPending ? "Scanning" : "Rescan network",
+                  disabled: pairingPending || discoveryPending,
+                  loading: discoveryPending,
+                  testId: "add-miners-rescan-network",
+                },
+              ]
+            : []),
+          ...(activeStep === "pairing" && displayMiners.length > 1
+            ? [
+                {
+                  variant: variants.secondary,
+                  onClick: () => {
+                    setShowFoundMinersModal(true);
+                  },
+                  text: "Choose miners",
+                  disabled: pairingPending,
+                  testId: "add-miners-choose-miners",
+                },
+              ]
+            : []),
+          ...(activeStep === "pairing" && displayMiners.length > 0
+            ? [
+                {
+                  variant: variants.primary,
+                  loading: pairingPending,
+                  ariaLabel: useCompactHeaderActions
+                    ? pairingPending
+                      ? `Adding ${selectedDisplayMiners.length} miners...`
+                      : `Continue with ${selectedDisplayMiners.length} miners`
+                    : undefined,
+                  onClick: () => {
+                    const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
+                    onContinue(selectedMinerIdentifiers);
+                  },
+                  disabled: pairingPending || selectedDisplayMiners.length === 0,
+                  testId: "add-miners-continue",
+                  text: pairingPending
+                    ? useCompactHeaderActions
+                      ? "Adding..."
+                      : `Adding ${selectedDisplayMiners.length} miners...`
+                    : useCompactHeaderActions
+                      ? "Continue"
+                      : `Continue with ${selectedDisplayMiners.length} miners`,
+                },
+              ]
+            : []),
+        ];
+
   return (
-    <div className="h-[calc(100vh-theme(spacing.1)*15)]">
+    <div className="h-[calc(100dvh-theme(spacing.1)*15)]">
       <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
 
       {mode === "onboarding" ? (
@@ -196,11 +289,11 @@ const Miners = ({
       ) : null}
 
       <PageOverlay open={mode === "pairing" || showModal} zIndex="z-50">
-        <div className="h-full w-full overflow-auto bg-surface-base p-6">
+        <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain bg-surface-base pb-[calc(env(safe-area-inset-bottom)+theme(spacing.6))]">
           <Header
-            className="sticky top-0 z-10 pb-14"
+            className="sticky top-0 z-10 bg-surface-base px-6 pt-6 pb-4"
             title="Add miners"
-            titleSize="text-heading-300"
+            titleSize="text-heading-200 truncate"
             {...(pairingPending
               ? {
                   icon: <Dismiss />,
@@ -208,61 +301,20 @@ const Miners = ({
               : {
                   icon: <Dismiss />,
                   iconAriaLabel: "Close add miners",
-                  iconOnClick: () => {
-                    handleScanCancel();
-                    setActiveStep("findMiners");
-                    setShowModal(false);
-                  },
+                  iconOnClick: closeAddMiners,
                 })}
             inline
-            buttons={
-              showLoadingSkeleton && displayMiners.length === 0
-                ? []
-                : [
-                    {
-                      variant: variants.secondary,
-                      onClick: () => {
-                        setDeselectedMiners([]);
-                        onRescan();
-                      },
-                      text: discoveryPending ? "Scanning" : "Rescan network",
-                      disabled: pairingPending || discoveryPending,
-                      loading: discoveryPending,
-                      className: clsx({
-                        hidden: activeStep !== "pairing",
-                      }),
-                    },
-                    {
-                      variant: variants.secondary,
-                      onClick: () => {
-                        setShowFoundMinersModal(true);
-                      },
-                      text: "Choose miners",
-                      disabled: pairingPending,
-                      className: clsx({
-                        hidden: activeStep !== "pairing" || displayMiners.length <= 1,
-                      }),
-                    },
-                    {
-                      variant: variants.primary,
-                      loading: pairingPending,
-                      onClick: () => {
-                        const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
-                        onContinue(selectedMinerIdentifiers);
-                      },
-                      disabled: pairingPending || selectedDisplayMiners.length === 0,
-                      text: pairingPending
-                        ? `Adding ${selectedDisplayMiners.length} miners...`
-                        : `Continue with ${selectedDisplayMiners.length} miners`,
-                      className: clsx({
-                        hidden: activeStep !== "pairing" || displayMiners.length === 0,
-                      }),
-                    },
-                  ]
-            }
-          />
+            centerButton
+            stackButtonsOnPhone={false}
+            buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden tablet:block"}
+            buttons={useCompactHeaderActions ? undefined : headerButtons}
+          >
+            {useCompactHeaderActions ? (
+              <FullScreenModalHeaderActions buttons={headerButtons} triggerTestId="add-miners-more-actions" />
+            ) : null}
+          </Header>
           {activeStep === "findMiners" ? (
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl px-6 pt-10">
               <Header
                 title="Miners"
                 description={
@@ -277,7 +329,9 @@ const Miners = ({
                 inline
               />
 
-              <div className={clsx("my-6 grid gap-4", onForemanImport ? "grid-cols-2" : "grid-cols-1")}>
+              {coverageWarning}
+
+              <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
                   className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6"
                   data-testid="section-scan-network"
@@ -348,7 +402,7 @@ const Miners = ({
                   <Button
                     variant={variants.secondary}
                     size={sizes.base}
-                    loading={ipListDiscoveryPending}
+                    loading={manualDiscoveryPending}
                     onClick={() => {
                       const shouldProceed = handleManualDiscovery();
                       if (shouldProceed) {
@@ -365,7 +419,8 @@ const Miners = ({
             </div>
           ) : null}
           {activeStep === "pairing" ? (
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl px-6 pt-10">
+              {coverageWarning}
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}

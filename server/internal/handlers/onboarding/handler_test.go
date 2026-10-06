@@ -102,7 +102,7 @@ func TestHandler_GetFleetInitStatus(t *testing.T) {
 }
 
 func assertRoleAndOrgCreated(t *testing.T, conn *sql.DB, username string) error {
-	return db.WithTransactionNoResult(t.Context(), conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(t.Context(), conn, func(q sqlc.Querier) error {
 		dbUser, err := q.GetUserByUsername(t.Context(), username)
 		assert.NoError(t, err)
 		dbOrgs, err := q.GetOrganizationsForUser(t.Context(), dbUser.ID)

@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, useEffect, useMemo, useRef } from "react";
+import { type ErrorInfo, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "react-router-dom";
 import clsx from "clsx";
 
@@ -6,6 +6,7 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/routeAuth";
 import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
+import type { ProtoFleetRouteHandle } from "@/protoFleet/routing/routeHandle";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
@@ -13,6 +14,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
+import { reportObservabilityError } from "@/shared/observability";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
@@ -92,10 +94,20 @@ const App = ({ children, fullscreen }: AppProps) => {
     // If not in the config, default to requiring auth
     return requiresAuth[currentPath] !== false;
   }, [currentPath]);
+  const hideShellHeader = useMemo(
+    () => matches.some((match) => (match.handle as ProtoFleetRouteHandle | undefined)?.hideShellHeader === true),
+    [matches],
+  );
 
   const { loading, hasAccess } = useCheckAuthentication(requireAuth);
 
   const isActionBarVisible = useIsActionBarVisible();
+
+  // reportObservabilityError is a stable module-level import, not a reactive
+  // value, so it is intentionally not a dependency (exhaustive-deps agrees).
+  const handleRenderError = useCallback((error: Error, errorInfo: ErrorInfo) => {
+    reportObservabilityError(error, { componentStack: errorInfo.componentStack });
+  }, []);
 
   // Show loading spinner ONLY if auth is required AND (loading OR access denied)
   const showLoading = requireAuth && (loading || hasAccess !== true);
@@ -115,7 +127,7 @@ const App = ({ children, fullscreen }: AppProps) => {
   // RENDER
   // ============================================================================
   return (
-    <ErrorBoundary>
+    <ErrorBoundary onError={handleRenderError}>
       {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
       <div
         className={clsx(
@@ -138,7 +150,7 @@ const App = ({ children, fullscreen }: AppProps) => {
           children
         ) : (
           // Normal mode: Render with AppLayout
-          <AppLayout>{children}</AppLayout>
+          <AppLayout hideShellHeader={hideShellHeader}>{children}</AppLayout>
         )}
       </Suspense>
     </ErrorBoundary>

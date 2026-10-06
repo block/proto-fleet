@@ -4,12 +4,30 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
+
+// likeEscaper makes user text safe to embed in a LIKE/ILIKE pattern that is
+// compared with ESCAPE '\'. Without it a search for "%" or "_" matches every
+// row.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// likeSearchPattern turns a user-entered substring into the '%…%' pattern the
+// search queries compare with ILIKE … ESCAPE '\'. A blank query yields an
+// invalid NullString so those queries take their "no search" branch instead
+// of matching every row that contains a space.
+func likeSearchPattern(query string) sql.NullString {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: "%" + likeEscaper.Replace(query) + "%", Valid: true}
+}
 
 // emptyToNullString returns a NullString that's Valid only when s is
 // non-empty.
@@ -115,4 +133,32 @@ func isUniqueViolation(err error) bool {
 		return true
 	}
 	return false
+}
+
+func isUniqueViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == db.PGUniqueViolation &&
+		pgErr.ConstraintName == constraintName
+}
+
+func isForeignKeyViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == pgErrCodeForeignKeyViolation &&
+		pgErr.ConstraintName == constraintName
+}
+
+// nullInt64sToPtrs converts a slice of sql.NullInt64 (e.g. a DISTINCT
+// nullable-column result) into []*int64, mapping an invalid entry to a
+// nil pointer so callers can distinguish a NULL row from a zero value.
+func nullInt64sToPtrs(in []sql.NullInt64) []*int64 {
+	out := make([]*int64, len(in))
+	for i, n := range in {
+		if n.Valid {
+			v := n.Int64
+			out[i] = &v
+		}
+	}
+	return out
 }

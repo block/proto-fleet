@@ -33,9 +33,6 @@ func convertAuthenticationCapabilities(caps sdk.Capabilities) *capabilitiespb.Au
 	if caps[sdk.CapabilityBasicAuth] {
 		methods = append(methods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_BASIC)
 	}
-	if caps[sdk.CapabilityAsymmetricAuth] {
-		methods = append(methods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_ASYMMETRIC_KEY)
-	}
 
 	if len(methods) == 0 {
 		return nil

@@ -2,10 +2,18 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -21,17 +29,113 @@ type simMinerContainer struct {
 	mappedPort string
 }
 
+// The sim miner image is built once per test binary and reused by every
+// container, under a tag that Terminate must not delete.
+//
+// Building per container is unsafe here. Every build uses the same context and
+// Dockerfile, so the cache resolves them all to a single image digest, and
+// testcontainers tags each one with a fresh UUID by default. Terminate then
+// removes that tag with force and PruneChildren unless KeepImage is set, and
+// because the throwaway tag was the digest's only reference, the digest itself
+// is deleted. A later build resolves to that same digest while the removal is
+// still in flight, and container creation fails with:
+//
+//	failed to get digest sha256:...: open /var/lib/docker/image/overlay2/imagedb/content/sha256/...: no such file or directory
+//
+// The localhost registry qualifier marks this as a local image and prevents
+// TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX from rewriting the tag between the
+// direct BuildImage call and GenericContainer.
+const simMinerImageRepo = "localhost:5000/proto-fleet-fake-proto-rig"
+
+var (
+	simMinerImageOnce sync.Once
+	simMinerImageRef  string
+	simMinerImageErr  error
+)
+
+// simMinerImageTag scopes the tag to this test binary. Two invocations sharing
+// a Docker daemon (parallel packages, or a public and a downstream checkout on
+// one machine) would otherwise retag the same name and start containers from
+// each other's revision.
+//
+// The suffix is random rather than the PID, because binaries in separate PID
+// namespaces can share a daemon through a mounted socket and collide.
+func simMinerImageTag() string {
+	return "driver-tests-" + uuid.NewString()
+}
+
+// simMinerImage builds the fake-proto-rig image on first use and returns the
+// tag every sim miner container should run from.
+func simMinerImage(ctx context.Context) (string, error) {
+	simMinerImageOnce.Do(func() {
+		provider, err := testcontainers.NewDockerProvider()
+		if err != nil {
+			simMinerImageErr = fmt.Errorf("create docker provider: %w", err)
+			return
+		}
+		defer provider.Close()
+
+		req := testcontainers.ContainerRequest{
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:    "../../../..",
+				Dockerfile: "server/fake-proto-rig/Dockerfile",
+				Repo:       simMinerImageRepo,
+				Tag:        simMinerImageTag(),
+				KeepImage:  true,
+			},
+		}
+
+		tag, err := provider.BuildImage(ctx, &req)
+		if err != nil {
+			simMinerImageErr = fmt.Errorf("build sim miner image: %w", err)
+			return
+		}
+
+		simMinerImageRef = tag
+	})
+
+	return simMinerImageRef, simMinerImageErr
+}
+
+// TestMain drops the retained image once every test in the binary is done.
+// Nothing else deletes it, since KeepImage suppresses Terminate's cleanup.
+// Removing by tag only untags when another tag shares the digest, so this
+// cannot pull the image out from under a concurrent test binary.
+func TestMain(m *testing.M) {
+	code := m.Run()
+
+	if simMinerImageRef != "" {
+		// The test timeout alarm no longer protects cleanup after m.Run, and the
+		// Docker client has no default HTTP timeout. Keep cleanup best-effort: a
+		// daemon disappearing after successful tests should warn, not fail them.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		provider, err := testcontainers.NewDockerProvider()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: create Docker provider for sim miner image cleanup: %v\n", err)
+		} else {
+			if _, err := provider.Client().ImageRemove(ctx, simMinerImageRef, client.ImageRemoveOptions{}); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "warning: remove retained sim miner image %s: %v\n", simMinerImageRef, err)
+			}
+			_ = provider.Close()
+		}
+		cancel()
+	}
+
+	os.Exit(code)
+}
+
 // startSimMiner starts a sim miner container and returns connection details
 func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 	if testing.Short() {
 		t.Skip("Skipping sim miner tests in short mode")
 	}
 
+	image, err := simMinerImage(ctx)
+	require.NoError(t, err, "Failed to build sim miner image")
+
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    "../../../..",
-			Dockerfile: "server/fake-proto-rig/Dockerfile",
-		},
+		Image:        image,
 		ExposedPorts: []string{"8080/tcp"},
 		WaitingFor:   wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(2 * time.Minute),
 	}
@@ -147,12 +251,9 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		// This should fail because driver expects a specific port but we're trying a different one
 		_, err = driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.Error(t, err, "Discovery should fail when driver port doesn't match target port")
-		assert.Contains(
-			t,
-			err.Error(),
-			"proto miners are configured for port",
-			"strict-port discovery should fail before any network call; the reported target port may be a Docker-mapped test port",
-		)
+		var sdkErr sdk.SDKError
+		assert.ErrorAs(t, err, &sdkErr)
+		assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 	})
 
 	t.Run("concurrent discovery", func(t *testing.T) {
@@ -363,6 +464,75 @@ func TestDiscoverDevice_ContextCancellation(t *testing.T) {
 	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "80")
 	require.Error(t, err)
 	// The error might be context canceled or connection failure, both are acceptable
+}
+
+func TestDiscoverDeviceClassifiesHTTPResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		status       int
+		body         string
+		truncateBody bool
+		wantCode     sdk.ErrorCode
+	}{
+		{name: "unrelated service", status: http.StatusNotFound, wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "transient server failure", status: http.StatusServiceUnavailable, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "HTML login page", status: http.StatusOK, body: "<!DOCTYPE html><html><body>Log in</body></html>", wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "missing identity", status: http.StatusOK, body: "{}", wantCode: sdk.ErrCodeDeviceNotFound},
+		{name: "truncated JSON", status: http.StatusOK, body: `{"cb_sn":"miner"`, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "empty body", status: http.StatusOK, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "interrupted HTML transfer", status: http.StatusOK, body: "<html><body>Log in", truncateBody: true, wantCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "Proto miner", status: http.StatusOK, body: `{"cb_sn":"miner","mac":"00:11:22:33:44:55"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.truncateBody {
+					w.Header().Set("Content-Length", strconv.Itoa(len(tc.body)+10))
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			portNumber, err := strconv.Atoi(port)
+			require.NoError(t, err)
+			driver, err := New(portNumber)
+			require.NoError(t, err)
+
+			info, err := driver.DiscoverDevice(t.Context(), host, port)
+			if tc.wantCode == "" {
+				require.NoError(t, err)
+				assert.Equal(t, "miner", info.SerialNumber)
+				assert.Equal(t, "00:11:22:33:44:55", info.MacAddress)
+				return
+			}
+
+			require.Error(t, err)
+			var sdkErr sdk.SDKError
+			assert.ErrorAs(t, err, &sdkErr)
+			assert.Equal(t, tc.wantCode, sdkErr.Code)
+		})
+	}
+}
+
+func TestDiscoverDevicePreservesHTTPSMissAcrossHTTPFallback(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html><body>Log in</body></html>"))
+	}))
+	defer server.Close()
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	portNumber, err := strconv.Atoi(port)
+	require.NoError(t, err)
+	driver, err := New(portNumber)
+	require.NoError(t, err)
+
+	_, err = driver.DiscoverDevice(t.Context(), host, port)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 // TestDiscoverDevice_SchemeNegotiation tests HTTPS->HTTP fallback with sim miner

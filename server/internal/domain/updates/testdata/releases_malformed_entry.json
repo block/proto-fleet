@@ -1,0 +1,16 @@
+[
+  {
+    "tag_name": 12345,
+    "html_url": null,
+    "published_at": "not-a-timestamp",
+    "prerelease": "maybe",
+    "draft": false
+  },
+  {
+    "tag_name": "v0.2.9-rc.5",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.9-rc.5",
+    "published_at": "2026-07-18T12:00:00Z",
+    "prerelease": true,
+    "draft": false
+  }
+]

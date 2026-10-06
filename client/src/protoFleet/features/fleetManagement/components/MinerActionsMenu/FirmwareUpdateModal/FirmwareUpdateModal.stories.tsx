@@ -21,6 +21,7 @@ export const Default = () => {
       ) : null}
       <FirmwareUpdateModal
         open={open}
+        target={{ targetManufacturer: "Proto", targetModel: "Rig" }}
         onConfirm={(firmwareFileId) => {
           action("onConfirm")(firmwareFileId);
           setOpen(false);

@@ -26,6 +26,11 @@ type Config struct {
 
 	// MaxTimeSeriesRows is the maximum number of rows to return from time series queries
 	MaxTimeSeriesRows int `json:"max_time_series_rows" default:"100000" env:"MAX_TIME_SERIES_ROWS"`
+
+	// AsyncMetricCommit commits metric batches with synchronous_commit=off,
+	// trading a sub-second loss window on OS crash for lower write latency
+	// on slow storage. Commands and configuration writes stay synchronous.
+	AsyncMetricCommit bool `json:"async_metric_commit" default:"false" env:"ASYNC_METRIC_COMMIT"`
 }
 
 // DefaultConfig returns the default configuration for the TimescaleDB store.

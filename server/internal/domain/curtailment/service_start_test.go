@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -50,6 +52,206 @@ func TestService_Start_RejectsEmptyReason(t *testing.T) {
 			assert.Contains(t, err.Error(), "reason")
 		})
 	}
+}
+
+func TestService_Start_FixedKWTopologyScopesFreezeSelectedTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scope     Scope
+		seed      func(*fakeStore, int64, *models.Candidate)
+		wantScope string
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+			wantScope: `{"building_ids":[7],"scope_schema_version":1}`,
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+			wantScope: `{"rack_ids":[8],"scope_schema_version":1}`,
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+			wantScope: `{"group_ids":[9],"scope_schema_version":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.TargetKW = 2
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, tc.name+"-miner", plan.Selected[0].DeviceIdentifier)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastTopologyFilter.BuildingIDs)
+			assert.Equal(t, tc.scope.RackIDs, store.lastTopologyFilter.RackIDs)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastTopologyFilter.GroupIDs)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastListCandidateBuildings)
+			assert.Equal(t, tc.scope.RackIDs, store.lastListCandidateRacks)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastListCandidateGroups)
+			assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
+			assert.Equal(t, models.LoopTypeOpen, store.lastInsertEvent.LoopType)
+			assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+			assert.JSONEq(t, tc.wantScope, string(store.lastInsertEvent.ScopeJSON))
+			require.Len(t, store.lastInsertTargets, 1)
+			assert.Equal(t, tc.name+"-miner", store.lastInsertTargets[0].DeviceIdentifier)
+		})
+	}
+}
+
+func TestService_Start_TopologyFullFleetStartsClosedLoopWithoutFrozenTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+		seed  func(*fakeStore, int64, *models.Candidate)
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.Mode = models.ModeFullFleet
+			req.TargetKW = 0
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+			assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+			assert.Empty(t, store.lastInsertTargets)
+		})
+	}
+}
+
+func TestService_Start_AllPairedTopologyFullFleetPersistsPolicyTargets(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("building-miner", 3000, 100, 30)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	require.Len(t, store.lastInsertTargets, 1)
+	assert.Equal(t, candidate.DeviceIdentifier, store.lastInsertTargets[0].DeviceIdentifier)
+}
+
+func TestService_Start_EmptyAllPairedTopologyPersistsPendingWatcher(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("unpaired-building-miner", 3000, 100, 30)
+	candidate.PairingStatus = "UNPAIRED"
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Empty(t, plan.Selected)
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+	assert.Nil(t, store.lastInsertEvent.StartedAt)
+	assert.Empty(t, store.lastInsertTargets)
+}
+
+func TestService_Start_EmptyTopologyScopeReturnsInsufficientLoadWithoutPersisting(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		GroupIDs:      []int64{9},
+	}
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
+	assert.Zero(t, store.insertEventCalls)
 }
 
 func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
@@ -91,6 +293,74 @@ func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
 	assert.Contains(t, err.Error(), "force_include_maintenance")
+}
+
+func TestService_Start_RejectsNonAdminForceIncludeAllPairedMiners(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
+func TestService_Start_RejectsForceIncludeAllPairedMinersOutsideFullFleet(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFixedKw
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
+// Explicit miners do not currently run the policy's release/reopen admission
+// loop, so an all-paired event there would release unpaired miners and never
+// reclaim them. The service rejects the combination.
+func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *testing.T) {
+	t.Parallel()
+
+	scopes := map[string]Scope{
+		"device list": {Type: models.ScopeTypeDeviceList, DeviceIdentifiers: []string{"miner-1"}},
+	}
+	for name, scope := range scopes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.Mode = models.ModeFullFleet
+			req.Scope = scope
+			req.ForceIncludeAllPairedMiners = true
+			req.CanUseAdminControls = true
+
+			_, err := svc.Start(t.Context(), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "whole-org, site, building, rack, or group scope")
+		})
+	}
+}
+
+func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.CurtailBatchIntervalSec = 15
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
 }
 
 func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
@@ -199,7 +469,18 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
+func TestService_Start_RejectsOversizedRestoreBatchSize(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.RestoreBatchSize = RestoreBatchSizeMax + 1
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "restore_batch_size")
+}
+
+func TestService_Start_PersistsZeroRestoreBatchInterval(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -213,8 +494,8 @@ func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, store.lastInsertEvent.RestoreBatchIntervalSec)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, plan.EffectiveRestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), plan.EffectiveRestoreBatchIntervalSec)
 }
 
 func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
@@ -279,6 +560,49 @@ func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *t
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec must be <=")
 }
 
+func TestService_Start_RejectsFacilityFanDelaysAboveSafetyCeiling(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*StartRequest){
+		func(req *StartRequest) { req.FanOffDelaySec = facilityFanDelayUpperBoundSec + 1 },
+		func(req *StartRequest) { req.FanRestoreDelaySec = facilityFanDelayUpperBoundSec + 1 },
+	} {
+		req := validStartRequest(1)
+		mutate(&req)
+		_, err := NewService(newFakeStore()).Start(t.Context(), req)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), "must be <=")
+	}
+}
+
+func TestValidateStartRequest_AllowsLegacyFacilityFanListAboveNewSelectionCeiling(t *testing.T) {
+	t.Parallel()
+
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = make([]int64, facilityFanDeviceCountMax+1)
+	for index := range req.FacilityFanDeviceIDs {
+		req.FacilityFanDeviceIDs[index] = int64(index + 1)
+	}
+
+	require.NoError(t, validateStartRequest(req))
+}
+
+func TestValidateStartRequest_RejectsFacilityFanListAboveLegacyCeiling(t *testing.T) {
+	t.Parallel()
+
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = make([]int64, facilityFanDeviceCountLegacyMax+1)
+	for index := range req.FacilityFanDeviceIDs {
+		req.FacilityFanDeviceIDs[index] = int64(index + 1)
+	}
+
+	err := validateStartRequest(req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must contain at most 1024 devices")
+}
+
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -288,6 +612,54 @@ func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "source_actor_type")
+}
+
+func TestService_Start_RejectsReservedAutomationExternalSourceForManualActors(t *testing.T) {
+	t.Parallel()
+
+	for _, externalSource := range []string{
+		automationExternalSource,
+		" " + automationExternalSource,
+		automationExternalSource + " ",
+	} {
+		t.Run(externalSource, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.ExternalSource = stringPtr(externalSource)
+			externalReference := "9001"
+			req.ExternalReference = &externalReference
+
+			_, err := svc.Start(t.Context(), req)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "external_source")
+		})
+	}
+}
+
+func TestService_Start_RejectsReservedAutomationIdempotencyKeyForManualActors(t *testing.T) {
+	t.Parallel()
+
+	for _, idempotencyKey := range []string{
+		automationRuleIdempotencyPrefix + "9001",
+		" " + automationRuleIdempotencyPrefix + "9001",
+		automationRuleIdempotencyPrefix + "9001 ",
+	} {
+		t.Run(idempotencyKey, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.IdempotencyKey = stringPtr(idempotencyKey)
+
+			_, err := svc.Start(t.Context(), req)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "idempotency_key")
+		})
+	}
 }
 
 // TestService_Start_RejectsMissingCreatedByUserID pins the service-level
@@ -423,10 +795,78 @@ func TestService_Start_PersistsSiteScope(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	require.Len(t, plan.Selected, 1)
-	require.NotNil(t, store.lastListCandidatesSiteID)
-	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
 	assert.Equal(t, models.ScopeTypeSite, store.lastInsertEvent.ScopeType)
 	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
+}
+
+func TestService_Start_PersistsAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+		fanID  = int64(31)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{minerWithEff("miner", 4000, 100, 40)}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.TargetKW = 3
+	req.FacilityFanDeviceIDs = []int64{fanID}
+	req.AuthorizedFanSites = map[int64]int64{fanID: siteID}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{fanID}, store.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, map[int64]int64{fanID: siteID}, store.lastInsertEvent.ExpectedFacilityFanSites)
+	req.AuthorizedFanSites[fanID] = siteID + 1
+	assert.Equal(t, siteID, store.lastInsertEvent.ExpectedFacilityFanSites[fanID], "insert params must own the authorization snapshot")
+}
+
+func TestService_Start_RejectsIncompleteAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = []int64{31}
+	req.AuthorizedFanSites = map[int64]int64{}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "authorized facility fan sites")
+}
+
+func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID     = int64(1)
+		siteID    = int64(99)
+		otherSite = int64(100)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true, otherSite: true}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID:    {minerWithEff("site-miner", 4000, 100, 40)},
+		otherSite: {minerWithEff("other-site-miner", 4000, 100, 40)},
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeMixed, SiteIDs: []int64{siteID, otherSite}}
+	req.Mode = models.ModeFullFleet
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
+	assert.JSONEq(t, `{"site_ids":[99,100]}`, string(store.lastInsertEvent.ScopeJSON))
+	assert.Empty(t, store.lastInsertTargets)
 }
 
 // --- insufficient-load path ---
@@ -543,6 +983,37 @@ func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
 	}
 }
 
+func TestService_Start_EmergencyPersistsZeroCooldown(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("recent", 3000, 100, 50),
+		minerWithEff("fresh", 3000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Priority = models.PriorityEmergency
+	req.PostEventCooldownSec = 600
+	req.TargetKW = 1
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	assert.Zero(t, store.cooldownCalls)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
+
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Zero(t, snapshot.PostEventCooldownSec)
+}
+
 func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(7)
@@ -563,6 +1034,34 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 	assert.True(t, store.lastInsertEvent.AllowUnbounded)
 	assert.Nil(t, store.lastInsertEvent.MaxDurationSeconds,
 		"allow_unbounded events must persist max_duration_seconds = NULL")
+}
+
+func TestStartRequiresAdminControls(t *testing.T) {
+	t.Parallel()
+
+	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
+	tests := []struct {
+		name string
+		req  StartRequest
+		want bool
+	}{
+		{name: "ordinary settings"},
+		{name: "allow unbounded", req: StartRequest{AllowUnbounded: true}, want: true},
+		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
+		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
+		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
+		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
+		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, startRequiresAdminControls(tt.req, orgConfig))
+		})
+	}
 }
 
 func TestService_Start_ForwardsIdempotencyAndExternalAttribution(t *testing.T) {
@@ -668,10 +1167,11 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		candidateCount   int
 		want             int32
 	}{
-		{"small_fleet_floors_to_10", 0, 5, 10},
-		{"restore_batch_size_floors_formula", 60, 5, 60},
-		{"five_thousand_picks_50", 10, 5000, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+		{"immediate_restore_claims_all_selected", 0, 5, 5},
+		{"immediate_restore_at_resolved_miner_limit", 0, int(RestoreBatchSizeMax), RestoreBatchSizeMax},
+		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
+		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
+		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -696,6 +1196,57 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, store.lastInsertEvent.EffectiveBatchSize,
 				"effective_batch_size is stamped from the selected-target count at Start")
+		})
+	}
+}
+
+func TestService_Start_DecouplesRestoreBatchFromManualCurtailBatch(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		restoreBatchSize int32
+		candidateCount   int
+		wantRestoreBatch int32
+		wantCurtailBatch int32
+	}{
+		{
+			name:             "immediate_restore_uses_adaptive_manual_curtail_batch",
+			restoreBatchSize: 0,
+			candidateCount:   5_000,
+			wantRestoreBatch: 5_000,
+			wantCurtailBatch: 50,
+		},
+		{
+			name:             "positive_restore_batch_uses_adaptive_manual_curtail_batch",
+			restoreBatchSize: 250,
+			candidateCount:   10_000,
+			wantRestoreBatch: 250,
+			wantCurtailBatch: 100,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			cands := make([]*models.Candidate, tc.candidateCount)
+			for i := range cands {
+				cands[i] = minerWithEff(fmt.Sprintf("m%d", i), 1500, 100, 40)
+			}
+			store.candidatesByOrg[orgID] = cands
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.RestoreBatchSize = tc.restoreBatchSize
+			req.TargetKW = float64(tc.candidateCount) * 10
+			req.ToleranceKW = req.TargetKW - 1
+
+			_, err := svc.Start(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRestoreBatch, store.lastInsertEvent.EffectiveBatchSize)
+			require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+			assert.Equal(t, tc.wantCurtailBatch, *store.lastInsertEvent.CurtailBatchSize)
 		})
 	}
 }

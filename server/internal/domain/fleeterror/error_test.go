@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,14 @@ func TestFleetErrorUnwrap(t *testing.T) {
 		fe := NewInternalError("static message")
 		assert.Nil(t, errors.Unwrap(fe))
 	})
+}
+
+func TestNotActiveErrorIsMachineReadableAndRetryable(t *testing.T) {
+	err := NewNotActiveError()
+
+	require.Equal(t, connect.CodeUnavailable, err.GRPCCode)
+	require.Equal(t, int32(commonv1.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), err.FleetErrorCode)
+	require.Equal(t, ErrorCodeTypeCommon, err.FleetErrorCodeType)
 }
 
 func TestConnectionError(t *testing.T) {
@@ -337,6 +346,26 @@ func TestIsFailedPreconditionError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsFailedPreconditionError(tt.err)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsResourceExhaustedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil},
+		{name: "fleet error", err: NewResourceExhaustedErrorf("too many miners"), want: true},
+		{name: "wrapped fleet error", err: fmt.Errorf("resolve scope: %w", NewResourceExhaustedErrorf("too many miners")), want: true},
+		{name: "connect error", err: connect.NewError(connect.CodeResourceExhausted, errors.New("too many miners")), want: true},
+		{name: "different error", err: NewInvalidArgumentError("invalid scope")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsResourceExhaustedError(tt.err))
 		})
 	}
 }

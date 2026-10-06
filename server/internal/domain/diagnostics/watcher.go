@@ -69,6 +69,8 @@ func newWatcher(s *Service, orgID int64, opts *WatchOptions, config Config) *wat
 		baseFilter.ComponentTypes = opts.Filter.ComponentTypes
 		baseFilter.MinerErrors = opts.Filter.MinerErrors
 		baseFilter.Severities = opts.Filter.Severities
+		baseFilter.SiteIDs = opts.Filter.SiteIDs
+		baseFilter.IncludeUnassigned = opts.Filter.IncludeUnassigned
 		baseFilter.Logic = opts.Filter.Logic
 	}
 
@@ -111,21 +113,27 @@ func (w *watcher) pollAndSend(ctx context.Context) {
 	// during the query execution would be missed by the next poll.
 	pollStartTime := time.Now()
 	filter := w.buildFilterWithTimeFrom()
-
-	// Query the store directly - we only need raw errors, not the grouping/pagination
-	// logic that Service.Query() provides. This is more efficient for watch polling.
-	errors, err := w.service.errorStore.QueryErrors(ctx, &models.QueryOptions{
+	opts := &models.QueryOptions{
 		OrgID:    w.orgID,
 		Filter:   filter,
 		PageSize: MaxPageSize,
-	})
+	}
+
+	scoped, err := w.service.applySiteScope(ctx, opts)
 	if err != nil {
-		hasFilter := w.opts != nil && w.opts.Filter != nil
-		slog.Warn("watch poll failed",
-			"error", err,
-			"orgID", w.orgID,
-			"hasFilter", hasFilter,
-			"pollInterval", w.pollInterval)
+		w.logPollFailure(err)
+		return
+	}
+	if !scoped {
+		w.lastPollTime = pollStartTime
+		return
+	}
+
+	// Query the store directly - we only need raw errors, not the grouping/pagination
+	// logic that Service.Query() provides. This is more efficient for watch polling.
+	errors, err := w.service.errorStore.QueryErrors(ctx, opts)
+	if err != nil {
+		w.logPollFailure(err)
 		return
 	}
 
@@ -160,8 +168,26 @@ func (w *watcher) pollAndSend(ctx context.Context) {
 
 // buildFilterWithTimeFrom updates the base filter with time_from set to lastPollTime.
 func (w *watcher) buildFilterWithTimeFrom() *models.QueryFilter {
-	w.baseFilter.TimeFrom = &w.lastPollTime
-	return w.baseFilter
+	filter := *w.baseFilter
+	filter.DeviceIdentifiers = append([]string(nil), w.baseFilter.DeviceIdentifiers...)
+	filter.DeviceTypes = append([]string(nil), w.baseFilter.DeviceTypes...)
+	filter.ComponentIDs = append([]string(nil), w.baseFilter.ComponentIDs...)
+	filter.ComponentTypes = append([]models.ComponentType(nil), w.baseFilter.ComponentTypes...)
+	filter.MinerErrors = append([]models.MinerError(nil), w.baseFilter.MinerErrors...)
+	filter.Severities = append([]models.Severity(nil), w.baseFilter.Severities...)
+	filter.SiteIDs = append([]int64(nil), w.baseFilter.SiteIDs...)
+	t := w.lastPollTime
+	filter.TimeFrom = &t
+	return &filter
+}
+
+func (w *watcher) logPollFailure(err error) {
+	hasFilter := w.opts != nil && w.opts.Filter != nil
+	slog.Warn("watch poll failed",
+		"error", err,
+		"orgID", w.orgID,
+		"hasFilter", hasFilter,
+		"pollInterval", w.pollInterval)
 }
 
 // Threshold for escalating dropped update warnings from Warn to Error level.

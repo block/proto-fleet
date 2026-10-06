@@ -1,7 +1,6 @@
-// Shared site-address formatter. Three surfaces format the same shape
-// (SiteSettingsSingleView, SitesAllTable, ManageSiteModal preview), so
-// drift between them would surface as inconsistent display. Centralize
-// the join + ordering rules here.
+// Shared site-address formatter. Site detail and modal preview surfaces format
+// the same shape, so drift between them would surface as inconsistent display.
+// Centralize the join + ordering rules here.
 
 interface AddressParts {
   address?: string | null;

@@ -6,7 +6,7 @@ import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
 import PowerTarget from "./PowerTarget";
 import FirmwareUpdateStatus from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatus";
-import { Pause } from "@/shared/assets/icons";
+import { Menu } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
@@ -21,7 +21,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
       {/* Top bar */}
       <div className="flex h-12 w-full items-center justify-between gap-2 self-start px-4 py-2">
         <div className="inline-flex items-center gap-2">
-          <Pause
+          <Menu
             ariaLabel="Open navigation menu"
             className="text-text-primary"
             onClick={openMenu}

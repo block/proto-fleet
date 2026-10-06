@@ -33,8 +33,9 @@ func (s *Session) Close() {
 // terminal ack. scope bounds which reported devices are admitted (nil =
 // unconstrained); kind tags the admitting report RPC; pair is non-nil only for
 // pairing (gateway persistence context; its target set caps the report quota).
-// Many commands may be in flight per node concurrently.
-func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
+// minimumCommandProtocolVersion is checked before the command is registered or
+// enqueued. Many commands may be in flight per node concurrently.
+func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
@@ -48,12 +49,12 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 		pair:       pair,
 		done:       make(chan struct{}),
 	}
-	outgoing, connDone, err := r.addCmd(fleetNodeID, c)
+	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
 		if errors.Is(err, errDuplicateCommandID) {
 			return nil, fleeterror.NewInternalError(err.Error())
 		}
-		return nil, err // ErrNoActiveStream
+		return nil, err
 	}
 
 	session := &Session{r: r, fleetNodeID: fleetNodeID, cmd: c}
@@ -64,10 +65,24 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 	return session, nil
 }
 
+func cloneArtifactExpectations(in []ArtifactExpectation) []artifactExpectation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]artifactExpectation, len(in))
+	for i, expectation := range in {
+		out[i] = artifactExpectation{ArtifactExpectation: expectation}
+	}
+	return out
+}
+
 // enqueue hands cmd to the connection's outbound queue, returning ErrNoActiveStream
 // if the connection drops first or an Internal error if ctx expires. The caller owns
 // freeing the inflight entry on failure (Session.Close / removeCmd).
 func (r *Registry) enqueue(ctx context.Context, outgoing chan<- *gatewaypb.ControlCommand, connDone <-chan struct{}, cmd *gatewaypb.ControlCommand) error {
+	if err := ctx.Err(); err != nil {
+		return fleeterror.NewInternalErrorf("send command: %v", err)
+	}
 	select {
 	case outgoing <- cmd:
 		return nil

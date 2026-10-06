@@ -43,8 +43,9 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
   return (
     <div className="relative" ref={triggerRef}>
       <button
-        className={clsx("align-middle", {
-          "text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50": !disabled,
+        aria-label="Row actions"
+        className={clsx("flex h-8 w-8 items-center justify-center text-text-primary", {
+          "hover:cursor-pointer hover:opacity-70": !disabled,
           "cursor-not-allowed text-text-primary-30": disabled,
         })}
         data-testid="list-actions-trigger"

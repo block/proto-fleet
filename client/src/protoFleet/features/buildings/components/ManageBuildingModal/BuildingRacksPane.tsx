@@ -31,6 +31,10 @@ interface BuildingRacksPaneProps {
   // empty-state copy so the operator can find their way to the bulk-add
   // surface even before any rack lands.
   onOpenManageRacks: () => void;
+  // Count of miners assigned directly to this building (no rack) — surfaced
+  // when the building is created from a bulk "New building" action seeded
+  // with loose miners. Interim representation pending a fuller design pass.
+  unassignedMinerCount?: number;
   saving?: boolean;
 }
 
@@ -54,7 +58,7 @@ interface RackRowProps {
   onRemove: (rackId: bigint) => void;
 }
 
-// Row layout mirrors MinerRow from AssignMinersModal: leading icon column
+// Row layout mirrors MinerRow from ManageRackModal: leading icon column
 // (arrow when selected / checkmark when placed), title + subtitle stack,
 // trailing hint or position label, and a trailing remove control. Manual
 // mode is the only state where rows are interactive — byName mode
@@ -150,6 +154,7 @@ const BuildingRacksPane = ({
   onSelectRack,
   onRemoveRack,
   onOpenManageRacks,
+  unassignedMinerCount,
   saving = false,
 }: BuildingRacksPaneProps) => {
   const isManual = assignmentMode === "manual";
@@ -209,6 +214,11 @@ const BuildingRacksPane = ({
             ))}
           </div>
         )}
+        {unassignedMinerCount ? (
+          <p className="text-200 text-text-primary-50" data-testid="manage-building-unassigned-miners">
+            {unassignedMinerCount} {unassignedMinerCount === 1 ? "miner" : "miners"} unassigned to a rack
+          </p>
+        ) : null}
       </section>
     </div>
   );

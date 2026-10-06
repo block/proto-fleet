@@ -3,13 +3,16 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceActions, settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
-
-const mockWindowOpen = vi.fn();
-vi.stubGlobal("open", mockWindowOpen);
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const {
   mockAuthenticateFleetModal,
   mockBulkActionConfirmDialog,
+  mockNavigate,
+  mockOpenMinerView,
+  mockCompleteBatchOperation,
+  mockRemoveDevicesFromBatch,
+  mockStartBatchOperation,
   mockWithCapabilityCheck,
   mockPushToast,
   mockRemoveToast,
@@ -19,6 +22,7 @@ const {
   mockUpdateWorkerNameDialog,
   mockUseMinerCommand,
   mockUseMinerActions,
+  mockRefreshMiners,
   mockUseUpdateWorkerNames,
 } = vi.hoisted(() => {
   const mockWithCapabilityCheck = vi.fn(async (_action: string, onProceed: (...args: unknown[]) => void) => {
@@ -26,16 +30,28 @@ const {
   });
   const mockUpdateSingleWorkerName = vi.fn();
   const mockStreamCommandBatchUpdates = vi.fn();
+  const mockRefreshMiners = vi.fn();
+  const mockNavigate = vi.fn();
+  const mockOpenMinerView = vi.fn();
+  const mockStartBatchOperation = vi.fn();
+  const mockCompleteBatchOperation = vi.fn();
+  const mockRemoveDevicesFromBatch = vi.fn();
 
   return {
     mockAuthenticateFleetModal: vi.fn(() => null),
     mockBulkActionConfirmDialog: vi.fn(() => null),
+    mockNavigate,
+    mockOpenMinerView,
+    mockCompleteBatchOperation,
+    mockRemoveDevicesFromBatch,
+    mockStartBatchOperation,
     mockWithCapabilityCheck,
     mockPushToast: vi.fn(() => 1),
     mockRemoveToast: vi.fn(),
     mockStreamCommandBatchUpdates,
     mockUpdateSingleWorkerName,
     mockUpdateToast: vi.fn(),
+    mockRefreshMiners,
     mockUpdateWorkerNameDialog: vi.fn(() => null),
     mockUseMinerCommand: vi.fn(() => ({
       streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
@@ -114,6 +130,21 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
   useMinerCommand: mockUseMinerCommand,
 }));
 
+vi.mock("@/protoFleet/api/useRefreshMiners", () => ({
+  default: () => ({
+    refreshMiners: mockRefreshMiners,
+    refreshing: new Set<string>(),
+  }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => ({
+  useBatchActions: () => ({
+    startBatchOperation: mockStartBatchOperation,
+    completeBatchOperation: mockCompleteBatchOperation,
+    removeDevicesFromBatch: mockRemoveDevicesFromBatch,
+  }),
+}));
+
 vi.mock("@/protoFleet/store/hooks/useFleet", () => ({
   useMinerDeviceStatus: vi.fn(() => undefined),
 }));
@@ -190,11 +221,20 @@ vi.mock("@/shared/features/toaster", () => ({
   },
 }));
 
+vi.mock("@/shared/hooks/useNavigate", () => ({
+  useNavigate: () => mockNavigate,
+}));
+
+vi.mock("@/protoFleet/components/SingleMinerWrapper/useOpenMinerView", () => ({
+  useOpenMinerView: () => mockOpenMinerView,
+}));
+
 describe("SingleMinerActionsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPushToast.mockReturnValue(1);
     mockStreamCommandBatchUpdates.mockResolvedValue(undefined);
+    mockRefreshMiners.mockResolvedValue({ snapshots: [], errors: {} });
   });
 
   it("renders 'Update worker name' when pool editing is available", () => {
@@ -263,12 +303,12 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("update-worker-names-popover-button")).toBeInTheDocument();
   });
 
-  it("does not render 'View miner' menu item when minerUrl is not provided", () => {
+  it("renders 'View miner' menu item without requiring minerUrl", () => {
     render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" />);
 
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
 
-    expect(screen.queryByText("View miner")).not.toBeInTheDocument();
+    expect(screen.getByText("View miner")).toBeInTheDocument();
   });
 
   it("renders 'View miner' menu item when minerUrl is provided", () => {
@@ -280,14 +320,64 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("viewMiner-popover-button")).toBeInTheDocument();
   });
 
-  it("opens miner URL in new tab when 'View miner' is clicked", () => {
-    const minerUrl = "http://192.168.1.42";
-    render(<SingleMinerActionsMenu deviceIdentifier="my-device-abc" minerUrl={minerUrl} />);
+  it("opens the row's miner via the shared opener when 'View miner' is clicked", () => {
+    const miner = {
+      deviceIdentifier: "my-device-abc",
+      url: "http://192.168.1.42",
+      embeddedWebViewAvailable: true,
+    } as MinerStateSnapshot;
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="my-device-abc"
+        minerUrl="http://192.168.1.42"
+        miners={{ "my-device-abc": miner }}
+      />,
+    );
 
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
 
-    expect(mockWindowOpen).toHaveBeenCalledWith(minerUrl, "_blank", "noopener,noreferrer");
+    expect(mockOpenMinerView).toHaveBeenCalledWith(miner);
+  });
+
+  it("refreshes a row without calling the full miner refetch callback", async () => {
+    const refreshedSnapshot = { deviceIdentifier: "test-device-123" };
+    const onActionComplete = vi.fn();
+    const onMergeMiners = vi.fn();
+    const onRefreshMinersComplete = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onMinerRefreshStateChange = vi.fn();
+    mockRefreshMiners.mockResolvedValue({
+      snapshots: [refreshedSnapshot],
+      errors: {},
+    });
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="test-device-123"
+        minerName="Test miner"
+        onActionComplete={onActionComplete}
+        onMergeMiners={onMergeMiners}
+        onMinerRefreshStateChange={onMinerRefreshStateChange}
+        onRefreshMinersComplete={onRefreshMinersComplete}
+        onRefetchMiners={onRefetchMiners}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByTestId("refreshStatus-popover-button"));
+
+    await waitFor(() => {
+      expect(mockRefreshMiners).toHaveBeenCalledWith(["test-device-123"]);
+    });
+
+    expect(onMergeMiners).toHaveBeenCalledWith([refreshedSnapshot]);
+    expect(onRefreshMinersComplete).toHaveBeenCalledTimes(1);
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onMinerRefreshStateChange).toHaveBeenNthCalledWith(1, "test-device-123", true);
+    expect(onMinerRefreshStateChange).toHaveBeenNthCalledWith(2, "test-device-123", false);
+    expect(onActionComplete).toHaveBeenCalledTimes(1);
   });
 
   it("authenticates before updating a single worker name", async () => {
@@ -648,16 +738,17 @@ describe("SingleMinerActionsMenu", () => {
       return render(<SingleMinerActionsMenu deviceIdentifier="test-device" {...props} />);
     }
 
-    it("shows only Unpair when needsAuthentication is true and no minerUrl", () => {
+    it("shows Unpair and View miner when needsAuthentication is true", () => {
       renderWithActions({ needsAuthentication: true });
 
       fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
 
       expect(screen.getByText("Unpair")).toBeInTheDocument();
+      expect(screen.getByText("View miner")).toBeInTheDocument();
       expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
-      expect(screen.queryByText("View miner")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("shows Unpair and View miner when needsAuthentication is true and minerUrl is set", () => {
@@ -670,6 +761,7 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("does not disable the menu button when needsAuthentication is true", () => {

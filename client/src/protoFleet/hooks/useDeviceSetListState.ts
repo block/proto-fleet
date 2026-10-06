@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import {
   SortDirection as ProtoSortDirection,
   type SortConfig,
@@ -38,12 +39,24 @@ const DEFAULT_SORT = toProtoSort("name", SORT_ASC);
 
 type ListFn = (props: ListDeviceSetsProps) => Promise<void>;
 
+export interface DeviceSetSiteFilter {
+  siteIds: bigint[];
+  includeUnassigned: boolean;
+  matchNone?: boolean;
+}
+
 export function useDeviceSetListState(
   listFn: ListFn,
   pageSize: number,
   getErrorComponentTypes?: () => number[],
   getZones?: () => string[],
   getBuildingIds?: () => bigint[],
+  getSiteFilter?: () => DeviceSetSiteFilter,
+  initialSort?: () => { field: DeviceSetColumn; direction: SortDirection },
+  getSiteIds?: () => bigint[],
+  getIncludeUnassigned?: () => boolean,
+  getIncludeNoBuilding?: () => boolean,
+  getTelemetryRanges?: () => FleetListTelemetryRangeFilter[],
 ) {
   const { getDeviceSetStats } = useDeviceSets();
   const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
@@ -59,8 +72,18 @@ export function useDeviceSetListState(
   const [hasNextPage, setHasNextPage] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Sort state
-  const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT);
+  // Sort state. `initialSort` lets the page seed the initial sort from an
+  // external source (typically URL params), so a deep-link or saved-view
+  // activation lands with the right ordering on the very first fetch. After
+  // mount, sort lives in this hook and is updated via `handleSort`; callers
+  // that want URL ↔ hook sync should react to `currentSort` changes.
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
+    if (initialSort) {
+      const s = initialSort();
+      return toProtoSort(s.field, s.direction);
+    }
+    return DEFAULT_SORT;
+  });
   const sortRef = useRef(sortConfig);
   useEffect(() => {
     sortRef.current = sortConfig;
@@ -94,6 +117,20 @@ export function useDeviceSetListState(
       const requestId = ++listRequestId.current;
       setIsLoading(true);
       setError(null);
+      const siteFilter = getSiteFilter?.() ?? {
+        siteIds: getSiteIds?.() ?? [],
+        includeUnassigned: getIncludeUnassigned?.() ?? false,
+      };
+      if (siteFilter.matchNone) {
+        setHasCompletedInitialFetch(true);
+        setDeviceSets([]);
+        setStatsMap(new Map());
+        setCurrentPage(page);
+        setHasNextPage(false);
+        setTotalCount(0);
+        setIsLoading(false);
+        return;
+      }
       listFn({
         pageSize,
         pageToken,
@@ -101,6 +138,10 @@ export function useDeviceSetListState(
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
         zones: getZones?.() ?? [],
         buildingIds: getBuildingIds?.() ?? [],
+        includeNoBuilding: getIncludeNoBuilding?.() ?? false,
+        siteIds: siteFilter.siteIds,
+        includeUnassigned: siteFilter.includeUnassigned,
+        telemetryRanges: getTelemetryRanges?.() ?? [],
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -128,7 +169,19 @@ export function useDeviceSetListState(
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones, getBuildingIds],
+    [
+      listFn,
+      pageSize,
+      fetchStats,
+      getErrorComponentTypes,
+      getZones,
+      getBuildingIds,
+      getSiteFilter,
+      getSiteIds,
+      getIncludeUnassigned,
+      getIncludeNoBuilding,
+      getTelemetryRanges,
+    ],
   );
 
   const resetAndFetch = useCallback(() => {

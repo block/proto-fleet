@@ -1,7 +1,9 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -9,12 +11,23 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+func pairingStatusValues(statuses ...sqlc.PairingStatusEnum) []string {
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		values = append(values, string(status))
+	}
+	return values
+}
 
 // TestGetOfflineDevices_DatabaseIntegration tests the GetOfflineDevices query
 // against a real PostgreSQL database to validate SQL syntax and JOIN conditions
@@ -32,6 +45,18 @@ func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {
 
 	// Seed test data
 	setupOfflineDeviceTestData(t, conn)
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'offline-device-query-node', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("offline-device-query-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err := conn.Exec(`
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, 4, 1)
+	`, fleetNodeID)
+	require.NoError(t, err)
 
 	// Execute the ACTUAL query - this would have caught the JOIN bug
 	devices, err := store.GetOfflineDevices(ctx, 10)
@@ -104,6 +129,356 @@ func TestGetOfflineDevices_InvalidLimit(t *testing.T) {
 	}
 }
 
+func TestFleetNodeEndpointRecoveryConditionalWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	_, err := conn.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'recovery-org', 'Recovery Org') ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+
+	var nodeID, replacementNodeID, discoveredID, deviceID int64
+	nodeIdentity := make([]byte, 32)
+	nodeIdentity[0] = 1
+	replacementIdentity := make([]byte, 32)
+	replacementIdentity[0] = 2
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'recovery-node', $1, $2, 'CONFIRMED') RETURNING id`, nodeIdentity, nodeIdentity).Scan(&nodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'replacement-node', $1, $2, 'CONFIRMED') RETURNING id`, replacementIdentity, replacementIdentity).Scan(&replacementNodeID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.10', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&discoveredID))
+	identifier := fmt.Sprintf("recovery-device-%d", discoveredID)
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, 'aa:bb:cc:dd:ee:01', 'recovery-serial', 1, $2) RETURNING id`, identifier, discoveredID).Scan(&deviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '10 minutes')`, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+	credentialBlob := append([]byte{1}, []byte("PFNC")...)
+	credentialBlob = append(credentialBlob, make([]byte, 28)...)
+	usernameEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	credentialBlob[len(credentialBlob)-1] = 1
+	passwordEnc := base64.StdEncoding.EncodeToString(credentialBlob)
+	_, err = conn.Exec(`INSERT INTO miner_credentials (device_id, username_enc, password_enc) VALUES ($1, $2, $3)`, deviceID, usernameEnc, passwordEnc)
+	require.NoError(t, err)
+	var identitylessDiscoveredID, identitylessDeviceID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, gen_random_uuid()::text, '10.0.0.11', '80', 'http', 'antminer', TRUE, $1) RETURNING id`, nodeID).Scan(&identitylessDiscoveredID))
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, '', '', 1, $2) RETURNING id`, fmt.Sprintf("identityless-recovery-device-%d", identitylessDiscoveredID), identitylessDiscoveredID).Scan(&identitylessDeviceID))
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp) VALUES ($1, 'OFFLINE', NOW() - INTERVAL '20 minutes')`, identitylessDeviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, identitylessDeviceID)
+	require.NoError(t, err)
+
+	targets, err := store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target := targets[0]
+	require.Equal(t, identifier, target.DeviceIdentifier)
+
+	for _, write := range []struct {
+		name  string
+		apply func(context.Context, interfaces.FleetNodeRecoveryTarget, string, string, string) (bool, error)
+	}{
+		{"endpoint", store.ApplyFleetNodeRecoveredEndpoint},
+		{"authentication", store.ApplyFleetNodeRecoveryAuthenticationNeeded},
+	} {
+		t.Run(write.name+" waits for node revocation", func(t *testing.T) {
+			revokeTx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer revokeTx.Rollback()
+			// Leave the binding intact: revocation must exclude the late ack
+			// even before its separate ownership cleanup completes.
+			_, err = revokeTx.Exec(`UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			type applyResult struct {
+				applied bool
+				err     error
+			}
+			result := make(chan applyResult, 1)
+			go func() {
+				ok, applyErr := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+				result <- applyResult{ok, applyErr}
+			}()
+			select {
+			case early := <-result:
+				require.Failf(t, "recovery did not wait for node revocation", "result: %+v", early)
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, revokeTx.Commit())
+			select {
+			case final := <-result:
+				require.NoError(t, final.err)
+				require.False(t, final.applied)
+			case <-time.After(5 * time.Second):
+				require.Fail(t, "recovery did not resume after node revocation")
+			}
+			var ipAddress, pairingStatus string
+			require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+			require.Equal(t, "10.0.0.10", ipAddress)
+			require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+			require.Equal(t, "PAIRED", pairingStatus)
+			_, err = conn.Exec(`UPDATE fleet_node SET enrollment_status='CONFIRMED', deleted_at=NOW() WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+			applied, err := write.apply(ctx, target, "10.0.0.20", "8080", "http")
+			require.NoError(t, err)
+			require.False(t, applied, "a deleted node cannot authorize recovery")
+			_, err = conn.Exec(`UPDATE fleet_node SET deleted_at=NULL WHERE id=$1`, nodeID)
+			require.NoError(t, err)
+		})
+	}
+
+	for _, recoveryFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("endpoint recovery first=%t", recoveryFirst), func(t *testing.T) {
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer tx.Rollback()
+			q := sqlc.New(tx)
+			locked, err := q.LockDeviceByIdentifier(ctx, sqlc.LockDeviceByIdentifierParams{DeviceIdentifier: identifier, OrgID: 1})
+			require.NoError(t, err)
+			require.Equal(t, []int64{deviceID}, locked)
+			if recoveryFirst {
+				_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
+					IpAddress: "10.0.0.20", Port: "8080", UrlScheme: "http",
+					DeviceIdentifier: identifier, OrgID: 1, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
+					MacAddress: target.MacAddress, FleetNodeID: nodeID,
+					ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+				})
+				require.NoError(t, err)
+			} else {
+				row, err := q.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, sqlc.ReconcileAuthenticationNeededPairingStatusByIdentifierParams{
+					DeviceIdentifier: identifier, OrgID: 1,
+					ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+				})
+				require.NoError(t, err)
+				require.True(t, row.Updated)
+			}
+			result := make(chan reconcileResult, 1)
+			go func() {
+				waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				if recoveryFirst {
+					eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(waitCtx, identifier, 1, networking.ConnectionInfo{IPAddress: "10.0.0.10", Port: 80, Protocol: networking.ProtocolHTTP})
+					result <- reconcileResult{eligible, updated, err}
+				} else {
+					applied, err := store.ApplyFleetNodeRecoveredEndpoint(waitCtx, target, "10.0.0.20", "8080", "http")
+					result <- reconcileResult{updated: applied, err: err}
+				}
+			}()
+			select {
+			case early := <-result:
+				require.Failf(t, "write did not wait for the device lock", "result: %+v", early)
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, tx.Commit())
+			select {
+			case final := <-result:
+				require.NoError(t, final.err)
+				require.False(t, final.eligible)
+				require.False(t, final.updated, "the waiting write must recheck the winner's endpoint or pairing status")
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "write did not resume after the device lock was released")
+			}
+			var ipAddress, pairingStatus string
+			require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+			require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+			if recoveryFirst {
+				require.Equal(t, "10.0.0.20", ipAddress)
+				require.Equal(t, "PAIRED", pairingStatus)
+			} else {
+				require.Equal(t, "10.0.0.10", ipAddress)
+				require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+			}
+			_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.10', port='80' WHERE id=$1`, discoveredID)
+			require.NoError(t, err)
+			_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+			require.NoError(t, err)
+		})
+	}
+
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.12' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+	applied, err := store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite a newer discovered endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET ip_address='10.0.0.10' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+
+	applied, err = store.ApplyFleetNodeRecoveredEndpoint(ctx, target, "10.0.0.20", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied)
+	var ipAddress, port string
+	require.NoError(t, conn.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress, &port))
+	require.Equal(t, "10.0.0.20", ipAddress)
+	require.Equal(t, "8080", port)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
+
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8081' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change authentication for a newer endpoint")
+	_, err = conn.Exec(`UPDATE discovered_device SET port='8080' WHERE id=$1`, discoveredID)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not overwrite repaired credentials")
+	var pairingStatus string
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
+	type applyResult struct {
+		applied bool
+		err     error
+	}
+	repairTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer repairTx.Rollback()
+	_, err = repairTx.Exec(`SELECT id FROM device WHERE id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	_, err = repairTx.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, usernameEnc, deviceID)
+	require.NoError(t, err)
+	result := make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not wait for credential repair", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.NoError(t, repairTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "a stale acknowledgement must not undo credential repair")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after credential repair")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE miner_credentials SET password_enc=$1 WHERE device_id=$2`, passwordEnc, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "AUTHENTICATION_NEEDED", pairingStatus)
+	require.NoError(t, conn.QueryRow(`SELECT ip_address FROM discovered_device WHERE id=$1`, discoveredID).Scan(&ipAddress))
+	require.Equal(t, "10.0.0.21", ipAddress, "authentication failure must retain the recovered endpoint for credential retry")
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	targets, err = store.GetOfflineFleetNodeDevices(ctx)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target = targets[0]
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, replacementNodeID, deviceID)
+	require.NoError(t, err)
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.False(t, applied, "a stale acknowledgement must not change a reassigned miner")
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2 AND org_id=1`, nodeID, deviceID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`DELETE FROM miner_credentials WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	credentiallessTarget := target
+	credentiallessTarget.CredentialUsername = nil
+	credentiallessTarget.CredentialPassword = nil
+	applied, err = store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.21", "8080", "http")
+	require.NoError(t, err)
+	require.True(t, applied, "an absent credential snapshot should still apply when credentials remain absent")
+
+	_, err = conn.Exec(`UPDATE device_pairing SET pairing_status='PAIRED' WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	ownerTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer ownerTx.Rollback()
+	_, err = ownerTx.Exec(`SELECT 1 FROM fleet_node_device WHERE device_id=$1 AND org_id=1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+
+	result = make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock ownership", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = ownerTx.Exec(`DELETE FROM fleet_node_device WHERE device_id=$1 AND org_id=1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, ownerTx.Commit())
+
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind unpair must recheck ownership")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after ownership removal")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, deviceID)
+	require.NoError(t, err)
+	statusTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer statusTx.Rollback()
+	_, err = statusTx.Exec(`SELECT 1 FROM device_status WHERE device_id=$1 FOR UPDATE`, deviceID)
+	require.NoError(t, err)
+	result = make(chan applyResult, 1)
+	go func() {
+		ok, applyErr := store.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, credentiallessTarget, "10.0.0.22", "8080", "http")
+		result <- applyResult{applied: ok, err: applyErr}
+	}()
+	select {
+	case early := <-result:
+		require.Failf(t, "recovery write did not lock status", "result: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err = statusTx.Exec(`UPDATE device_status SET status='ACTIVE', status_timestamp=NOW() WHERE device_id=$1`, deviceID)
+	require.NoError(t, err)
+	require.NoError(t, statusTx.Commit())
+	select {
+	case final := <-result:
+		require.NoError(t, final.err)
+		require.False(t, final.applied, "an acknowledgement waiting behind telemetry must recheck offline status")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "recovery write did not resume after status change")
+	}
+	require.NoError(t, conn.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id=$1`, deviceID).Scan(&pairingStatus))
+	require.Equal(t, "PAIRED", pairingStatus)
+}
+
 func TestGetKnownSubnets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -114,10 +489,10 @@ func TestGetKnownSubnets(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		INSERT INTO organization (id, org_id, name)
 		VALUES
-			(1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key'),
-			(2, '00000000-0000-0000-0000-000000000002', 'Other Org', 'test-private-key')
+			(1, '00000000-0000-0000-0000-000000000001', 'Test Org'),
+			(2, '00000000-0000-0000-0000-000000000002', 'Other Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -195,8 +570,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -206,7 +581,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 'test-device-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
 			(2, 1, 'test-device-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc'),
-			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc')
+			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc'),
+			(4, 1, 'test-device-node-owned', 'proto', 'test-manufacturer', 'proto', '192.168.1.103', '50051', 'grpc')
 	`)
 	require.NoError(t, err)
 
@@ -218,7 +594,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 1, 1, 'test-device-001', 'AA:BB:CC:DD:EE:01'),
 			(2, 1, 2, 'test-device-002', 'AA:BB:CC:DD:EE:02'),
-			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03')
+			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03'),
+			(4, 1, 4, 'test-device-node-owned', 'AA:BB:CC:DD:EE:04')
 	`)
 	require.NoError(t, err)
 
@@ -228,7 +605,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'PAIRED', NOW()),
 			(2, 'PAIRED', NOW()),
-			(3, 'PAIRED', NOW())
+			(3, 'PAIRED', NOW()),
+			(4, 'PAIRED', NOW())
 	`)
 	require.NoError(t, err)
 
@@ -238,7 +616,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 		VALUES
 			(1, 'OFFLINE', NOW()),
 			(2, 'OFFLINE', NOW()),
-			(3, 'ACTIVE', NOW())
+			(3, 'ACTIVE', NOW()),
+			(4, 'OFFLINE', NOW())
 	`)
 	require.NoError(t, err)
 }
@@ -724,6 +1103,193 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	require.False(t, identifiers["device-002"], "should NOT include INACTIVE device with error")
 }
 
+func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
+	`)
+	require.NoError(t, err)
+
+	fixtures := []struct {
+		id             int64
+		identifier     string
+		driverName     string
+		pairingStatus  string
+		fleetNodeOwned bool
+		wantAvailable  bool
+	}{
+		{id: 9101, identifier: "direct-paired-proto", driverName: "proto", pairingStatus: "PAIRED", wantAvailable: true},
+		{id: 9102, identifier: "direct-default-proto", driverName: "proto", pairingStatus: "DEFAULT_PASSWORD", wantAvailable: true},
+		{id: 9103, identifier: "direct-auth-proto", driverName: "proto", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 9104, identifier: "direct-paired-ant", driverName: "antminer", pairingStatus: "PAIRED"},
+		{id: 9105, identifier: "discovered-only-proto", driverName: "proto"},
+		{id: 9106, identifier: "fleet-node-proto", driverName: "proto", pairingStatus: "PAIRED", fleetNodeOwned: true},
+	}
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, $1, $2, $3, 'CONFIRMED')
+		RETURNING id
+	`, "web-view-node", []byte("web-view-node-key"), make([]byte, 32)).Scan(&fleetNodeID))
+
+	identifiers := make([]string, 0, len(fixtures))
+	for i, fixture := range fixtures {
+		identifiers = append(identifiers, fixture.identifier)
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', $3, $4, '50051', 'http', TRUE)
+		`, fixture.id, fixture.identifier, fixture.driverName, fmt.Sprintf("10.42.0.%d", i+1))
+		require.NoError(t, err)
+
+		if fixture.pairingStatus == "" {
+			continue
+		}
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES ($1, 1, $1, $2, $3)
+		`, fixture.id, fixture.identifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02d", i+1))
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, $2, NOW())
+		`, fixture.id, fixture.pairingStatus)
+		require.NoError(t, err)
+
+		if fixture.fleetNodeOwned {
+			_, err = conn.Exec(`
+				INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+				VALUES ($1, $2, 1)
+			`, fleetNodeID, fixture.id)
+			require.NoError(t, err)
+		}
+	}
+
+	rows, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 100, &interfaces.MinerFilter{
+		DeviceIdentifiers: identifiers,
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(fixtures)), total)
+
+	byIdentifier := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		byIdentifier[row.DeviceIdentifier] = row.EmbeddedWebViewAvailable
+	}
+
+	for _, fixture := range fixtures {
+		require.Equal(t, fixture.wantAvailable, byIdentifier[fixture.identifier], fixture.identifier)
+	}
+}
+
+func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO discovered_device
+		(id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (9201, 1, 'node-owned-active', 'test-model', 'test-manufacturer', 'proto', '10.42.1.1', '50051', 'http', TRUE)`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (9201, 1, 9201, 'node-owned-active', 'AA:BB:CC:DD:EE:92')`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (9201, 'PAIRED', NOW())`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp)
+		VALUES (9201, 'ACTIVE', NOW())`)
+	require.NoError(t, err)
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`INSERT INTO fleet_node
+		(org_id, name, identity_pubkey, encryption_pubkey, enrollment_status, last_seen_at)
+		VALUES (1, 'stale-node', $1, $2, 'CONFIRMED', NOW() - INTERVAL '3 minutes') RETURNING id`,
+		[]byte("stale-node-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, 9201, 1)`, fleetNodeID)
+	require.NoError(t, err)
+
+	offlineFilter := &interfaces.MinerFilter{DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline}}
+	rows, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	require.True(t, rows[0].FleetNodeUnavailable)
+	identifiers, err := store.GetDeviceIdentifiersByOrgWithFilter(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, []string{"node-owned-active"}, identifiers)
+	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), counts.OfflineCount)
+
+	snapshotAt := time.Now().UTC()
+	queries := sqlc.New(conn)
+	require.NoError(t, queries.InsertMinerStateSnapshot(ctx, snapshotAt))
+	snapshots, err := queries.GetMinerStateSnapshots(ctx, sqlc.GetMinerStateSnapshotsParams{
+		BucketInterval:          "1 minute",
+		OrgID:                   1,
+		StartTime:               snapshotAt.Add(-time.Second),
+		EndTime:                 snapshotAt.Add(time.Second),
+		DeviceIdentifiersFilter: sql.NullString{String: "node-owned-active", Valid: true},
+		DeviceIdentifierValues:  []string{"node-owned-active"},
+	})
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	require.Equal(t, int32(1), snapshots[0].OfflineCount)
+	require.Zero(t, snapshots[0].HashingCount)
+
+	collectionStore := sqlstores.NewSQLCollectionStore(conn)
+	rack, err := collectionStore.CreateCollection(ctx, 1, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "outage-rack", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, interfaces.CreateRackExtensionParams{
+		OrgID: 1, CollectionID: rack.Id, Rows: 1, Columns: 1,
+	}))
+	_, err = collectionStore.AddDevicesToCollection(ctx, 1, rack.Id, []string{"node-owned-active"})
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.SetRackSlotPosition(ctx, rack.Id, "node-owned-active", 0, 0, 1))
+	rackCounts, err := store.GetMinerStateCountsByCollections(ctx, 1, []int64{rack.Id})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), rackCounts[rack.Id].OfflineCount)
+	slotStatuses, err := collectionStore.GetRackSlotStatuses(ctx, 1, []int64{rack.Id})
+	require.NoError(t, err)
+	require.Len(t, slotStatuses[rack.Id], 1)
+	require.Equal(t, collectionpb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE, slotStatuses[rack.Id][0].Status)
+
+	_, err = conn.Exec(`UPDATE fleet_node SET last_seen_at = NOW() WHERE id = $1`, fleetNodeID)
+	require.NoError(t, err)
+	rows, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Zero(t, total)
+	require.Empty(t, rows)
+	identifiers, err = store.GetDeviceIdentifiersByOrgWithFilter(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Empty(t, identifiers)
+	rows, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, &interfaces.MinerFilter{
+		DeviceIdentifiers: []string{"node-owned-active"},
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.False(t, rows[0].FleetNodeUnavailable)
+	require.True(t, rows[0].DeviceStatus.Valid)
+	require.Equal(t, sqlc.DeviceStatusEnumACTIVE, rows[0].DeviceStatus.DeviceStatusEnum)
+}
+
 // TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with
 // NULL device_status go to broken_count, not offline_count.
 func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
@@ -741,7 +1307,7 @@ func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), counts.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), counts.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), counts.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
 }
@@ -792,7 +1358,7 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), counts.BrokenCount)
-	require.Equal(t, int32(1), counts.OfflineCount)
+	require.Equal(t, int32(2), counts.OfflineCount)
 	require.Equal(t, int32(1), counts.HashingCount)
 
 	// Filter by needs attention — should include auth-needed NULL-status miner
@@ -805,15 +1371,20 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	require.Len(t, miners, 1)
 	require.Equal(t, "device-001", miners[0].DeviceIdentifier, "should include auth-needed NULL-status miner")
 
-	// Filter by offline — should include paired NULL-status miner
+	// Filter by offline should include paired-like NULL-status miners.
 	offlineFilter := &interfaces.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
 	}
 	miners, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "offline filter should match 1 miner")
-	require.Len(t, miners, 1)
-	require.Equal(t, "device-002", miners[0].DeviceIdentifier, "should include paired NULL-status miner")
+	require.Equal(t, int64(2), total, "offline filter should match paired-like NULL-status miners")
+	require.Len(t, miners, 2)
+	identifiers := make(map[string]bool, len(miners))
+	for _, miner := range miners {
+		identifiers[miner.DeviceIdentifier] = true
+	}
+	require.True(t, identifiers["device-002"], "should include paired NULL-status miner")
+	require.True(t, identifiers["device-004"], "should include default-password NULL-status miner")
 }
 
 // TestCountMinersByState_FilteredCountsMatchList verifies that GetMinerStateCounts
@@ -831,15 +1402,18 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
 			{id: 1, identifier: "device-001", status: "OFFLINE", pairingStatus: "PAIRED"},               // offline
-			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired → offline
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired -> offline
 			{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},                // hashing
-			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL → broken
+			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL -> broken
 			{id: 5, identifier: "device-005", status: "ERROR", pairingStatus: "PAIRED"},                 // broken
-			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE → broken
-			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error → broken (excluded from Hashing)
+			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE -> broken
+			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error -> broken (excluded from Hashing)
+			{id: 8, identifier: "device-008", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password -> offline
+			{id: 9, identifier: "device-009", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password+error -> offline
 		},
 		errors: []testError{
 			{deviceID: 7, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-007
+			{deviceID: 9, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-009
 		},
 	})
 
@@ -851,7 +1425,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	}
 	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), listTotal, "offline list should match OFFLINE + NULL+paired")
+	require.Equal(t, int64(4), listTotal, "offline list should match OFFLINE + NULL paired-like")
 
 	stateCounts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
@@ -868,7 +1442,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), listTotal,
-		"needs-attention includes ERROR + auth-needed + paired-ACTIVE-with-error")
+		"needs-attention excludes NULL default-password with errors")
 
 	stateCounts, err = store.GetMinerStateCounts(ctx, 1, needsAttentionFilter)
 	require.NoError(t, err)
@@ -897,10 +1471,10 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 		"hashing+broken buckets must sum to filtered list total")
 }
 
-// TestCountMinersByState_NullPairedWithErrorStaysOffline verifies that a PAIRED
-// miner with NULL device_status and an open error is bucketed as offline
-// (not Needs Attention) by both the list filter and the state counts.
-func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
+// TestCountMinersByState_NullPairedLikeWithErrorStaysOffline verifies that
+// paired-like miners with NULL device_status and open errors are bucketed as
+// offline (not Needs Attention) by both the list filter and state counts.
+func TestCountMinersByState_NullPairedLikeWithErrorStaysOffline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -910,10 +1484,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
-			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"}, // NULL+paired with open error
+			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"},
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 		},
 		errors: []testError{
 			{deviceID: 1, orgID: 1, severity: 1, closed: false},
+			{deviceID: 2, orgID: 1, severity: 1, closed: false},
 		},
 	})
 
@@ -925,12 +1501,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "NULL+paired (with error) should be in offline filter")
+	require.Equal(t, int64(2), total, "NULL paired-like devices with errors should be in offline filter")
 
 	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
-	require.Equal(t, int32(1), counts.OfflineCount, "NULL+paired (with error) should count as offline")
-	require.Equal(t, int32(0), counts.BrokenCount, "NULL+paired should NOT count as broken")
+	require.Equal(t, int32(2), counts.OfflineCount, "NULL paired-like devices with errors should count as offline")
+	require.Equal(t, int32(0), counts.BrokenCount, "NULL paired-like devices should NOT count as broken")
 
 	// Needs Attention filter excludes the miner (offline trumps errors).
 	needsAttentionFilter := &interfaces.MinerFilter{
@@ -938,7 +1514,7 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), total, "NULL+paired (with error) should NOT be in needs-attention filter")
+	require.Equal(t, int64(0), total, "NULL paired-like devices with errors should NOT be in needs-attention filter")
 }
 
 // TestGetMinerStateCountsByCollections_AuthNeededNullStatus verifies per-collection
@@ -964,7 +1540,7 @@ func TestGetMinerStateCountsByCollections_AuthNeededNullStatus(t *testing.T) {
 
 	c := counts[collectionID]
 	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), c.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), c.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -998,6 +1574,33 @@ func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T)
 	require.Equal(t, int32(1), c.SleepingCount, "paired with INACTIVE should be sleeping")
 	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
 	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
+}
+
+// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus verifies
+// the site/building stats query (by device IDs) treats DEFAULT_PASSWORD like a
+// paired device for rollups.
+func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	devices := []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active -> hashing
+		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},           // active paired → hashing
+	}
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	c, err := store.GetMinerStateCountsByDeviceIDs(ctx, 1, []string{"device-001", "device-002"})
+	require.NoError(t, err)
+
+	require.Equal(t, int32(0), c.BrokenCount, "default-password should not be a needs-attention status")
+	require.Equal(t, int32(2), c.HashingCount, "active paired-like devices should be hashing")
+	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
+	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
 
 // TestCountMinersByState_ExcludesSoftDeletedDiscoveredDevice verifies that
@@ -1102,8 +1705,8 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1174,14 +1777,15 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 	require.NoError(t, err)
 }
 
-// nullStatusDashboardFixture returns the canonical three-device fixture used to
-// verify NULL device_status bucketing: auth-needed (→ broken), paired (→ offline),
-// and an active paired control (→ hashing).
+// nullStatusDashboardFixture returns the canonical fixture used to verify NULL
+// device_status bucketing: auth-needed (broken), paired-like (offline), and an
+// active paired control (hashing).
 func nullStatusDashboardFixture() []testDevice {
 	return []testDevice{
 		{id: 1, identifier: "device-001", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},
 		{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},
 		{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 4, identifier: "device-004", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 	}
 }
 
@@ -1205,6 +1809,67 @@ func setupCollectionMembership(t *testing.T, conn *sql.DB, collectionID int64, s
 		`, collectionID, setType, device.id, device.identifier)
 		require.NoError(t, err)
 	}
+}
+
+func insertComponentTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity errorspb.Severity, componentType errorspb.ComponentType) {
+	t.Helper()
+
+	errorID := ulid.Make().String()
+	now := time.Now()
+	_, err := conn.Exec(`
+		INSERT INTO errors (error_id, org_id, device_id, miner_error, severity, component_type, summary, first_seen_at, last_seen_at)
+		VALUES ($1, $2, $3, 1000, $4, $5, 'Test component error', $6, $7)
+	`, errorID, orgID, deviceID, int32(severity), int32(componentType), now, now)
+	require.NoError(t, err)
+}
+
+func TestGetComponentErrorCounts_BuildingsIncludesDirectBuildingAssignments(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	directDevice := testDevice{id: 1, identifier: "direct-building-device", status: "ACTIVE", pairingStatus: "PAIRED"}
+	rackDevice := testDevice{id: 2, identifier: "rack-building-device", status: "ACTIVE", pairingStatus: "PAIRED"}
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
+		devices: []testDevice{directDevice, rackDevice},
+	})
+
+	_, err := conn.Exec(`
+		INSERT INTO building (id, org_id, name)
+		VALUES (10, 1, 'Building A')
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`UPDATE device SET building_id = 10 WHERE id = $1`, directDevice.id)
+	require.NoError(t, err)
+
+	setupCollectionMembership(t, conn, 20, "rack", []testDevice{rackDevice})
+	_, err = conn.Exec(`
+		INSERT INTO device_set_rack (device_set_id, org_id, zone, rows, columns, building_id)
+		VALUES (20, 1, 'Zone A', 1, 1, 10)
+	`)
+	require.NoError(t, err)
+
+	insertComponentTestError(t, conn, directDevice.id, 1, errorspb.Severity_SEVERITY_MAJOR, errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD)
+	insertComponentTestError(t, conn, rackDevice.id, 1, errorspb.Severity_SEVERITY_MAJOR, errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD)
+
+	counts, err := store.GetComponentErrorCounts(ctx, 1, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeBuildings,
+		IDs:  []int64{10},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []interfaces.ComponentErrorCount{
+		{
+			ScopeID:       10,
+			ComponentType: int32(errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD),
+			DeviceCount:   2,
+		},
+	}, counts)
 }
 
 // =============================================================================
@@ -1384,8 +2049,8 @@ func setupUpsertDeviceStatusesTestData(t *testing.T, conn *sql.DB, devices []tes
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1424,8 +2089,8 @@ func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devic
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1512,7 +2177,7 @@ func TestGetFilteredDeviceIds_WithDeviceStatusFilter(t *testing.T) {
 					String: string(tt.deviceStatus),
 					Valid:  true,
 				},
-				PairingStatus: sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1558,12 +2223,9 @@ func TestGetFilteredDeviceIds_WithPairingStatusFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
-				OrgID:        1,
-				DeviceStatus: sql.NullString{Valid: false},
-				PairingStatus: sql.NullString{
-					String: string(tt.pairingStatus),
-					Valid:  true,
-				},
+				OrgID:               1,
+				DeviceStatus:        sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(tt.pairingStatus),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1624,10 +2286,7 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 					String: string(tt.deviceStatus),
 					Valid:  true,
 				},
-				PairingStatus: sql.NullString{
-					String: string(tt.pairingStatus),
-					Valid:  true,
-				},
+				PairingStatusValues: pairingStatusValues(tt.pairingStatus),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1638,8 +2297,8 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 	}
 }
 
-// TestGetFilteredDeviceIds_NoFilters verifies returning all paired devices when no filters provided
-func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
+// TestGetFilteredDeviceIds_WithPairedStatusValues verifies returning paired devices when requested.
+func TestGetFilteredDeviceIds_WithPairedStatusValues(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1651,14 +2310,14 @@ func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
 	setupFilteredDeviceIdsTestData(t, conn)
 
 	params := sqlc.GetFilteredDeviceIdsParams{
-		OrgID:         1,
-		DeviceStatus:  sql.NullString{Valid: false},
-		PairingStatus: sql.NullString{Valid: false},
+		OrgID:               1,
+		DeviceStatus:        sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
 	require.NoError(t, err)
-	// Should return all 4 devices with PAIRED status (device 4 is AUTHENTICATION_NEEDED, excluded)
+	// Should return the 3 PAIRED devices (device 4 is AUTHENTICATION_NEEDED, excluded).
 	require.Len(t, deviceIDs, 3)
 	require.ElementsMatch(t, []int64{1, 2, 3}, deviceIDs)
 }
@@ -1682,7 +2341,7 @@ func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
 			String: string(sqlc.DeviceStatusEnumERROR),
 			Valid:  true,
 		},
-		PairingStatus: sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1690,8 +2349,8 @@ func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
 	require.Empty(t, deviceIDs)
 }
 
-// TestGetFilteredDeviceIds_OnlyPairedByDefault verifies default PAIRED filter in query
-func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
+// TestGetFilteredDeviceIds_OnlyPairedWhenRequested verifies the explicit PAIRED filter.
+func TestGetFilteredDeviceIds_OnlyPairedWhenRequested(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1702,11 +2361,10 @@ func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
 
 	setupFilteredDeviceIdsTestData(t, conn)
 
-	// No filters provided - should only return PAIRED devices
 	params := sqlc.GetFilteredDeviceIdsParams{
-		OrgID:         1,
-		DeviceStatus:  sql.NullString{Valid: false},
-		PairingStatus: sql.NullString{Valid: false},
+		OrgID:               1,
+		DeviceStatus:        sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1777,11 +2435,11 @@ func TestGetFilteredDeviceIds_WithManufacturerFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
-				OrgID:              1,
-				DeviceStatus:       sql.NullString{Valid: false},
-				PairingStatus:      sql.NullString{Valid: false},
-				ModelFilter:        tt.modelFilter,
-				ManufacturerFilter: tt.manufacturerFilter,
+				OrgID:               1,
+				DeviceStatus:        sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
+				ModelFilter:         tt.modelFilter,
+				ManufacturerFilter:  tt.manufacturerFilter,
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1797,8 +2455,8 @@ func setupManufacturerFilterTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1849,8 +2507,8 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1963,8 +2621,8 @@ func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2109,8 +2767,8 @@ func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2133,11 +2791,480 @@ func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:FF", 1)
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:FF", 1, "")
 	require.NoError(t, err)
 	require.Equal(t, "legacy-mac-device", pairedDevice.DeviceIdentifier)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
 	require.Equal(t, int64(401), pairedDevice.DiscoveredDeviceID)
+}
+
+// TestGetPairedDeviceByMACAddress_DefaultPasswordDevice verifies a device paired
+// in the DEFAULT_PASSWORD state is still found by MAC reconciliation, so a
+// rediscovery after an IP/subnet move reconnects to the existing row instead of
+// failing on a duplicate insert.
+func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (402, 1, 'default-pw-device', 'test-model', 'Proto', 'proto', '192.168.10.20', '443', 'https', TRUE)
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (402, 1, 402, 'default-pw-device', 'AA:BB:CC:DD:EE:02')
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (402, 'DEFAULT_PASSWORD', NOW())
+	`)
+	require.NoError(t, err)
+
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:02", 1, "")
+	require.NoError(t, err)
+	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
+}
+
+func seedReconcileTestOrg(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+}
+
+func seedReconcileTestDevice(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	discoveredID int64,
+	deviceID int64,
+	deviceIdentifier string,
+	macAddress string,
+	status sqlc.PairingStatusEnum,
+) {
+	t.Helper()
+
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.30', '443', 'https', TRUE)
+	`, discoveredID, deviceIdentifier)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES ($1, 1, $2, $3, $4)
+	`, deviceID, discoveredID, deviceIdentifier, macAddress)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES ($1, $2, NOW())
+	`, deviceID, status)
+	require.NoError(t, err)
+}
+
+type reconcileResult struct {
+	eligible bool
+	updated  bool
+	err      error
+}
+
+func assertConcurrentUnpairWinsReconcile(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	deviceID int64,
+	reconcile func(context.Context) (bool, bool, error),
+	updatedMessage string,
+) {
+	t.Helper()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE device_pairing
+		SET pairing_status = 'UNPAIRED'
+		WHERE device_id = $1
+	`, deviceID)
+	require.NoError(t, err)
+
+	resultCh := make(chan reconcileResult, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eligible, updated, reconcileErr := reconcile(reconcileCtx)
+		resultCh <- reconcileResult{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		require.NoError(t, result.err)
+		require.Fail(t, "expected reconcile to wait behind the concurrent pairing-status transition")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, tx.Commit())
+
+	var result reconcileResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for reconcile result")
+	}
+	require.NoError(t, result.err)
+	require.False(t, result.updated, updatedMessage)
+
+	finalStatus, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumUNPAIRED, finalStatus)
+}
+
+func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	q := sqlc.New(conn)
+	tests := []struct {
+		name          string
+		initialStatus sqlc.PairingStatusEnum
+		targetStatus  sqlc.PairingStatusEnum
+		wantEligible  bool
+		wantUpdated   bool
+		wantFinal     sqlc.PairingStatusEnum
+	}{
+		{
+			name:          "paired promotes to default password",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumDEFAULTPASSWORD,
+		},
+		{
+			name:          "default password clears to paired",
+			initialStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "paired no-op remains eligible",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "unpaired not promoted by stale clear sample",
+			initialStatus: sqlc.PairingStatusEnumUNPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumUNPAIRED,
+		},
+		{
+			name:          "auth needed not promoted",
+			initialStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveredID := int64(5200 + i)
+			deviceID := int64(6200 + i)
+			deviceIdentifier := fmt.Sprintf("default-password-reconcile-%d", i)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+10), tt.initialStatus)
+
+			eligible, updated, err := store.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, string(tt.targetStatus))
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEligible, eligible)
+			require.Equal(t, tt.wantUpdated, updated)
+
+			finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantFinal, finalStatus)
+		})
+	}
+}
+
+func TestReconcileDefaultPasswordPairingStatusByIdentifier_ConcurrentTransitionDoesNotRePair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7200
+	const deviceIdentifier = "default-password-reconcile-concurrent"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EE:77", sqlc.PairingStatusEnumPAIRED)
+
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileDefaultPasswordPairingStatusByIdentifier(
+			reconcileCtx,
+			deviceIdentifier,
+			string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
+		)
+	}, "stale reconcile must not rewrite a row that moved out of paired-like state")
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	q := sqlc.New(conn)
+	tests := []struct {
+		name          string
+		initialStatus sqlc.PairingStatusEnum
+		wantEligible  bool
+		wantUpdated   bool
+		wantFinal     sqlc.PairingStatusEnum
+	}{
+		{
+			name:          "paired moves to auth needed",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "default password moves to auth needed",
+			initialStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "auth needed no-op remains eligible",
+			initialStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+			wantEligible:  true,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "unpaired not resurrected",
+			initialStatus: sqlc.PairingStatusEnumUNPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumUNPAIRED,
+		},
+		{
+			name:          "pending not resurrected",
+			initialStatus: sqlc.PairingStatusEnumPENDING,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumPENDING,
+		},
+		{
+			name:          "failed not resurrected",
+			initialStatus: sqlc.PairingStatusEnumFAILED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumFAILED,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveredID := int64(7300 + i)
+			deviceID := int64(8300 + i)
+			deviceIdentifier := fmt.Sprintf("auth-needed-reconcile-%d", i)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EF:%02X", i+10), tt.initialStatus)
+
+			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEligible, eligible)
+			require.Equal(t, tt.wantUpdated, updated)
+
+			finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantFinal, finalStatus)
+		})
+	}
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_EndpointGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+	const deviceID int64 = 7350
+	const identifier = "auth-needed-endpoint-guard"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, identifier, "AA:BB:CC:DD:EF:70", sqlc.PairingStatusEnumPAIRED)
+	for _, tt := range []struct {
+		name       string
+		identifier string
+		orgID      int64
+		endpoint   networking.ConnectionInfo
+	}{
+		{"IP changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.31", Port: 443, Protocol: networking.ProtocolHTTPS}},
+		{"port changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 80, Protocol: networking.ProtocolHTTPS}},
+		{"scheme changed", identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTP}},
+		{"wrong organization", identifier, 2, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS}},
+		{"missing device", "missing-auth-needed-device", 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, tt.identifier, tt.orgID, tt.endpoint)
+			require.NoError(t, err)
+			require.False(t, eligible)
+			require.False(t, updated)
+			status, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, sqlc.PairingStatusEnumPAIRED, status)
+		})
+	}
+	_, err := conn.ExecContext(ctx, `UPDATE device SET deleted_at=NOW() WHERE id=$1`, deviceID)
+	require.NoError(t, err)
+	eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, identifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
+	require.NoError(t, err)
+	require.False(t, eligible)
+	require.False(t, updated)
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransitionDoesNotRePair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7400
+	const deviceIdentifier = "auth-needed-reconcile-concurrent"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:77", sqlc.PairingStatusEnumPAIRED)
+
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier, 1, networking.ConnectionInfo{IPAddress: "192.168.10.30", Port: 443, Protocol: networking.ProtocolHTTPS})
+	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
+}
+
+func TestCloudAuthReconciliationWaitsForFleetNodeOwnership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7500
+	const deviceIdentifier = "cloud-auth-reconcile-node-race"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:88", sqlc.PairingStatusEnumPAIRED)
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRowContext(ctx, `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'cloud-auth-reconcile-node-race', $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, []byte("cloud-auth-reconcile-node-race"), make([]byte, 32)).Scan(&fleetNodeID))
+
+	assignmentTx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = assignmentTx.Rollback() }()
+	assignmentQueries := sqlc.New(assignmentTx)
+	lockedRows, err := assignmentQueries.LockFleetNodePairingDevice(ctx, sqlc.LockFleetNodePairingDeviceParams{
+		DeviceID: deviceID,
+		OrgID:    1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{deviceID}, lockedRows)
+	_, err = assignmentTx.ExecContext(ctx, `
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, $2, 1)
+	`, fleetNodeID, deviceID)
+	require.NoError(t, err)
+
+	type result struct {
+		eligible bool
+		updated  bool
+		err      error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		store := sqlstores.NewSQLDeviceStore(conn)
+		transactor := sqlstores.NewSQLTransactor(conn)
+		var eligible, updated bool
+		reconcileErr := transactor.RunInTx(reconcileCtx, func(txCtx context.Context) error {
+			locked, lockErr := store.LockDeviceForCloudRecoveryByIdentifier(txCtx, deviceIdentifier, 1)
+			if lockErr != nil || !locked {
+				return lockErr
+			}
+			eligible, updated, lockErr = store.ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(txCtx, deviceIdentifier, 1)
+			return lockErr
+		})
+		resultCh <- result{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.Fail(t, "expected cloud reconciliation to wait for Fleet Node assignment")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, assignmentTx.Commit())
+
+	select {
+	case got := <-resultCh:
+		require.NoError(t, got.err)
+		require.False(t, got.eligible)
+		require.False(t, got.updated)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for cloud reconciliation")
+	}
+
+	status, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumPAIRED, status)
 }
 
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
@@ -2150,8 +3277,8 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2174,7 +3301,7 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AABBCCDDEEFF", 1)
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AABBCCDDEEFF", 1, "")
 	require.NoError(t, err)
 	require.Equal(t, "bare-mac-device", pairedDevice.DeviceIdentifier)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
@@ -2191,8 +3318,8 @@ func TestUpdateWorkerName_StoresWorkerNameWithoutTouchingPoolSyncStatus(t *testi
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2235,8 +3362,8 @@ func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2269,17 +3396,24 @@ func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1)
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
 	require.Error(t, err)
 	require.ErrorContains(t, err, "multiple paired devices found")
+	_, err = conn.Exec("UPDATE device_pairing SET pairing_status = 'AUTHENTICATION_NEEDED' WHERE device_id = 412")
+	require.NoError(t, err)
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "")
+	require.ErrorContains(t, err, "multiple paired devices found")
+	paired, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1, "duplicate-mac-2")
+	require.NoError(t, err)
+	require.Equal(t, "duplicate-mac-1", paired.DeviceIdentifier)
 }
 
 func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2318,8 +3452,8 @@ func seedAvailableFiltersFixtures(t *testing.T, conn *sql.DB, fixtures []availab
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)

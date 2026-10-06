@@ -1,5 +1,5 @@
-// Package telemetry: broadcaster_metrics.go translates the telemetry
-// broadcaster's per-device updates into emissions on the metrics contract
+// Package telemetry: broadcaster_metrics.go translates telemetry writers'
+// per-device updates into emissions on the metrics contract
 // declared in server/internal/infrastructure/metrics.
 package telemetry
 
@@ -17,16 +17,19 @@ import (
 // MetricsEmitter is the subset of metrics.Provider the telemetry observer depends on.
 type MetricsEmitter interface {
 	EmitDeviceOnline(ctx context.Context, labels metrics.DeviceLabels, online bool)
+	EmitDeviceHashing(ctx context.Context, labels metrics.DeviceLabels, ratio float64)
 	EmitDeviceHashrate(ctx context.Context, labels metrics.DeviceLabels, observedTHs, expectedTHs float64)
 	EmitDeviceTemperature(ctx context.Context, labels metrics.DeviceLabels, sensorKind string, maxC, avgC float64)
 	EmitDevicePoolConnected(ctx context.Context, labels metrics.DeviceLabels, connected bool)
 	EmitTelemetryPoll(ctx context.Context, labels metrics.TelemetryPollLabels)
 }
 
-// nopMetricsEmitter is the default emitter installed when notifications are disabled.
+// nopMetricsEmitter is the default emitter installed when alerts are disabled.
 type nopMetricsEmitter struct{}
 
 func (nopMetricsEmitter) EmitDeviceOnline(context.Context, metrics.DeviceLabels, bool) {
+}
+func (nopMetricsEmitter) EmitDeviceHashing(context.Context, metrics.DeviceLabels, float64) {
 }
 func (nopMetricsEmitter) EmitDeviceHashrate(context.Context, metrics.DeviceLabels, float64, float64) {
 }
@@ -94,6 +97,8 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		Driver:         driver,
 	}
 
+	var ratio float64
+	hasReading := false
 	if dm.HashrateHS != nil {
 		observedHS := dm.HashrateHS.Value
 		var nameplateHS *float64
@@ -105,7 +110,15 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		}
 		if observed, expected, ok := sanitizeHashrate(observedHS, nameplateHS, string(deviceID), driver); ok {
 			o.emitter.EmitDeviceHashrate(ctx, labels, observed, expected)
+			ratio, hasReading = hashingRatio(observed, expected), true
 		}
+	}
+	// fleet_device_hashing: the ratio while a device expected to hash has a valid reading, a non-alerting 1.0 once it's no longer expected, and nothing for a still-expected device with a missing/invalid reading so a telemetry gap or buggy plugin can't clear a real low.
+	switch {
+	case !dm.Health.ExpectsHashing():
+		o.emitter.EmitDeviceHashing(ctx, labels, 1)
+	case hasReading:
+		o.emitter.EmitDeviceHashing(ctx, labels, ratio)
 	}
 
 	// Temperature aggregation per sensor kind. The aggregator caps how many
@@ -142,6 +155,10 @@ func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID, siteID int6
 		Driver:         driver,
 	}
 	o.emitter.EmitDeviceOnline(ctx, labels, isOnlineStatus(status))
+	if status == mm.MinerStatusOffline {
+		// Clear a stale low sample only when truly offline; an Error/Critical device still reports telemetry and must keep alerting on low hashrate.
+		o.emitter.EmitDeviceHashing(ctx, labels, 1)
+	}
 }
 
 // onDeviceRemoved is called when a device leaves the fleet.
@@ -149,8 +166,9 @@ func (o *metricsObserver) onDeviceRemoved(_ context.Context, _ models.DeviceIden
 	// no-op: do not emit a final 0 — the contract intentionally lets the series vanish.
 }
 
-// onPollResult is called by the telemetry workers for every poll attempt.
-func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, deviceID models.DeviceIdentifier, success bool) {
+// onPollResult is called for every poll attempt; counts persist aggregated
+// per (org, site, result), so no device identity is forwarded.
+func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, _ models.DeviceIdentifier, success bool) {
 	if o == nil {
 		return
 	}
@@ -161,26 +179,24 @@ func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64,
 	o.emitter.EmitTelemetryPoll(ctx, metrics.TelemetryPollLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
 		SiteID:         metrics.SiteIDToLabel(siteID),
-		DeviceID:       string(deviceID),
 		Result:         result,
 	})
 }
 
-// isOnlineStatus reports whether a MinerStatus should map to fleet_device_online=1.
-func isOnlineStatus(status mm.MinerStatus) bool {
-	switch status {
-	case mm.MinerStatusOffline, mm.MinerStatusError, mm.MinerStatusUnknown:
-		return false
-
-	case mm.MinerStatusActive,
-		mm.MinerStatusInactive,
-		mm.MinerStatusMaintenance,
-		mm.MinerStatusNeedsMiningPool,
-		mm.MinerStatusUpdating,
-		mm.MinerStatusRebootRequired:
-		return true
+// hashingRatio is observed over expected (nameplate) hashrate; with no nameplate it collapses to 1.0 (hashing) / 0.0 (stopped) so the rule's threshold still catches a full stop.
+func hashingRatio(observedTHs, expectedTHs float64) float64 {
+	if expectedTHs > 0 {
+		return observedTHs / expectedTHs
 	}
-	return false
+	if observedTHs > 0 {
+		return 1
+	}
+	return 0
+}
+
+// isOnlineStatus maps a MinerStatus to fleet_device_online=1; only a truly-unreachable device (MinerStatusOffline) is offline, so error/unknown devices stay online.
+func isOnlineStatus(status mm.MinerStatus) bool {
+	return status != mm.MinerStatusOffline
 }
 
 // temperatureAggregate is the per-sensor-kind result of walking a DeviceMetrics value.

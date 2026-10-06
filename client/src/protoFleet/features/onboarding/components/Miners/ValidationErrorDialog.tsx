@@ -1,6 +1,6 @@
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
-import { CategorizedInvalidEntries } from "@/shared/utils/networkDiscovery";
+import { CategorizedInvalidEntries } from "@/shared/utils/ipParsing";
 
 interface ValidationErrorDialogProps {
   open?: boolean;

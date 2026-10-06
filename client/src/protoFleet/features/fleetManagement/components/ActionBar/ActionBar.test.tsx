@@ -58,6 +58,18 @@ describe("Action Bar", () => {
     expect(element).toBeInTheDocument();
   });
 
+  test("reads 'All N … selected' in all mode using totalCount", () => {
+    const { getByText } = render(<ActionBar {...actionBarProps} selectionMode="all" totalCount={42} />);
+
+    expect(getByText("All 42 miners selected")).toBeInTheDocument();
+  });
+
+  test("reads 'All N … matching filters selected' in all mode when filters are active", () => {
+    const { getByText } = render(<ActionBar {...actionBarProps} selectionMode="all" totalCount={7} filtersActive />);
+
+    expect(getByText("All 7 miners matching filters selected")).toBeInTheDocument();
+  });
+
   test("hides action bar when there are no miners", () => {
     let selectedMiners = ["MAC1"];
     const { getByTestId, queryByTestId, rerender } = render(

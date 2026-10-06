@@ -1,10 +1,12 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+go_workspace_manifests := "go.work go.work.sum server/go.mod server/go.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
+
 default:
   just --list
 
 # install all project dependencies
-setup: _server-init _client-init _python-gen-init
+setup: _server-init (_client-init "true") _python-gen-init
 
 # run protoFleet client and server
 dev: build-plugins-docker
@@ -19,8 +21,37 @@ format: _format-server _format-client _format-plugins
 # run all non-mutating quality checks
 check: lint
 
+# run non-mutating checks selected from files changed against a base ref
+check-changed base="origin/main":
+  scripts/check-changed.sh --base {{quote(base)}}
+
+# validate developer workflow configuration and shared agent skills
+test-developer-workflows:
+  scripts/check-changed_test.sh
+  just --list >/dev/null
+
 # run all code generation
-gen: _server-init _client-init _lint-protos _gen-protos _gen-server _format-client _format-server
+gen: gen-protos gen-db-queries gen-go
+  just _format-client
+  just _format-server
+
+# regenerate protobuf consumers and the protobuf-driven Fleet CLI
+gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli
+  #!/usr/bin/env bash
+  set -euo pipefail
+  (cd server && just gen-sdk-protos)
+  goimports -w server/generated/grpc server/cmd/fleetcli
+  (cd client && npx prettier --write 'src/protoFleet/api/generated/**/*.ts')
+
+# regenerate sqlc bindings only
+[working-directory: 'server']
+gen-db-queries: _server-init
+  just gen-db-queries
+
+# run Go generators only
+[working-directory: 'server']
+gen-go: _server-init
+  just gen-go
 
 # --- Plugin builds ---
 
@@ -44,20 +75,22 @@ rebuild-plugin name:
       exit 1
       ;;
   esac
-  # Fleet loads every executable in PLUGINS_DIR, so ensure all siblings are
-  # present and built for linux/arm64 before force-rebuilding the named one.
-  just build-plugins-docker
   case "{{name}}" in
     proto|antminer)
-      (cd plugin/{{name}} && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/{{name}}-plugin .)
-      chmod +x server/plugins/{{name}}-plugin
+      # Keep the other default plugins usable, then rebuild the requested Go
+      # plugin exactly once. The helper only refreshes its sibling when stale.
+      just _asicrs-build-docker
+      just _build-go-plugins-cross linux arm64 server/plugins "{{name}}"
       ;;
     virtual)
+      just _build-go-plugins-cross linux arm64 server/plugins
+      just _asicrs-build-docker
       (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/virtual-plugin .)
-      cp plugin/virtual/config.json server/plugins/
+      cp plugin/virtual/config.json server/plugins/virtual-plugin.json
       chmod +x server/plugins/virtual-plugin
       ;;
     asicrs)
+      just _build-go-plugins-cross linux arm64 server/plugins
       rm -f server/plugins/.asicrs-platform
       just _asicrs-build-docker
       ;;
@@ -101,7 +134,7 @@ test-contract: _asicrs-build
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
       (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
-      (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
+      (cd tests/plugin-contract && go test ./harness && go test -c -o bin/miners.test ./miners/)
     '
 
   # Run each test suite in its own container (isolated network namespace)
@@ -167,6 +200,108 @@ mqtt-sim-down:
 mqtt-sim-logs:
   just mqtt-sim-logs
 
+# start the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-up:
+  just modbus-sim-up
+
+# rebuild and restart the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-rebuild:
+  just modbus-sim-rebuild
+
+# stop the Modbus TCP simulator and remove its dev allowlist
+[working-directory: 'server']
+modbus-sim-down:
+  just modbus-sim-down
+
+# follow Modbus TCP simulator logs
+[working-directory: 'server']
+modbus-sim-logs:
+  just modbus-sim-logs
+
+# start backend, an enrolled fleet node, isolated fake miners, and the ProtoFleet client for manual UI testing
+fleetnode-ui-test-up:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just build-plugins-docker
+  cd server
+  COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml)
+  DEFAULT_FAKE_MINERS=(
+    fake-proto-rig
+    fake-antminer
+    fake-antminer-high-temp
+    fake-antminer-hw-errors
+    fake-antminer-board-dead
+    fake-antminer-pool-issues
+    fake-antminer-rejected-shares
+    proto-sim
+    antminer-sim
+  )
+  "${COMPOSE[@]}" stop "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" rm -f "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" up -d --build timescaledb fleet-api ui-test-proto-rig ui-test-antminer
+  for _ in $(seq 1 90); do
+    if curl -fsS \
+      -H 'Content-Type: application/json' \
+      -d '{}' \
+      http://localhost:4000/onboarding.v1.OnboardingService/GetFleetInitStatus >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  curl -fsS \
+    -H 'Content-Type: application/json' \
+    -d '{}' \
+    http://localhost:4000/onboarding.v1.OnboardingService/GetFleetInitStatus >/dev/null
+  "${COMPOSE[@]}" build fleetnode-ui-test
+  "${COMPOSE[@]}" run --rm \
+    -e FLEET_ADMIN_USERNAME \
+    -e FLEET_ADMIN_PASSWORD \
+    --entrypoint /app/fleetnode-ui-test fleetnode-ui-test \
+    --api-url=http://fleet-api:4000 \
+    --node-server-url=http://fleet-api:4000 \
+    --state-dir=/state
+  "${COMPOSE[@]}" up -d fleetnode-ui-test
+  cd ../client
+  GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+  BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
+  echo "ProtoFleet UI: http://localhost:5173"
+  echo "Fleet node UI-test services are running; use 'just fleetnode-ui-test-down' to stop them."
+  VITE_VERSION="$GIT_VERSION" \
+  VITE_BUILD_DATE="$BUILD_DATE" \
+  VITE_COMMIT="$GIT_COMMIT" \
+  VITE_NOTIFICATIONS_ENABLED=false \
+  npm run dev:protoFleet
+
+# follow logs for the fleetnode manual UI-test stack
+fleetnode-ui-test-logs:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml logs -f \
+    fleet-api fleetnode-ui-test ui-test-proto-rig ui-test-antminer
+
+# stop the fleetnode manual UI-test stack
+fleetnode-ui-test-down:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml down
+
+# remove fleetnode UI-test containers and fleetnode state for a clean re-enrollment
+fleetnode-ui-test-reset:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml)
+  "${COMPOSE[@]}" stop fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
+  "${COMPOSE[@]}" rm -f fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
+  PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+  docker volume rm "${PROJECT}_fleetnode-ui-test-state" >/dev/null 2>&1 || true
+  echo "Fleet node UI-test state reset."
+
 # --- Dependency management ---
 
 # update all Go dependencies across workspace
@@ -193,7 +328,7 @@ update-go-deps:
 # --- Packaging ---
 
 # Build the fleetnode operator CLI into server/.fleetnode/ along with native
-# plugins and an nmap symlink so the binary-adjacent defaults in
+# plugins so the binary-adjacent defaults in
 # `fleetnode run` resolve without flags. Kept separate from server/plugins/
 # because `just dev` puts cross-compiled Linux/arm64 plugins there for the
 # Docker server, and the native agent can't exec ELF binaries.
@@ -203,19 +338,23 @@ build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins") (_asicrs
   cd server
   mkdir -p ./.fleetnode
   go build -o ./.fleetnode/fleetnode ./cmd/fleetnode
-  if NMAP=$(command -v nmap 2>/dev/null); then
-    ln -sfn "$NMAP" ./.fleetnode/nmap
-    echo "linked server/.fleetnode/nmap -> $NMAP"
-  else
-    rm -f ./.fleetnode/nmap
-    echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) so the agent finds it at scan time"
-  fi
   echo "agent staged at server/.fleetnode/fleetnode"
 
 # build Windows installer
 [working-directory: 'deployment-files/windows']
 build-windows-installer:
   powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1
+
+# generate the protobuf-driven Fleet CLI commands
+gen-fleet-cli: _gen-fleet-cli
+
+# build the Fleet CLI for local smoke testing; output lives outside server/ so
+# the docker compose watch never restarts fleet-api over a CLI rebuild
+build-fleet-cli: _server-init _gen-fleet-cli
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p .cache/fleet-cli
+  go build -o .cache/fleet-cli/fleetcli ./server/cmd/fleetcli
 
 # install git hooks via lefthook
 install-hooks:
@@ -235,9 +374,54 @@ install-hooks:
 _server-init:
   go mod download
 
-[working-directory: 'client']
-_client-init:
-  npm clean-install
+_client-init force="false":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  STAMP=.cache/client-deps/install-inputs.hash
+  TREE_LOCK=client/node_modules/.package-lock.json
+  NODE_VERSION="$(node --version)"
+  NPM_VERSION="$(npm --version)"
+  HOST_PLATFORM="$(node -p 'process.platform')"
+  HOST_ARCH="$(node -p 'process.arch')"
+  HOST_LIBC="$(node -p 'process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl") : "none"')"
+  install_args=(--include=dev --include=optional --dry-run=false)
+  if [ -n "${COREPACK_NPM_REGISTRY:-}" ]; then
+    install_args+=(--registry "$COREPACK_NPM_REGISTRY")
+  fi
+  INSTALL_CONFIG="$(
+    cd client
+    npm config list --json "${install_args[@]}"
+  )"
+  WANT_HASH="$(
+    {
+      git hash-object client/package.json client/package-lock.json client/.npmrc
+      printf '%s\n' \
+        "node=$NODE_VERSION" \
+        "npm=$NPM_VERSION" \
+        "host-platform=$HOST_PLATFORM" \
+        "host-arch=$HOST_ARCH" \
+        "host-libc=$HOST_LIBC" \
+        "$INSTALL_CONFIG"
+    } | git hash-object --stdin
+  )"
+  TREE_HASH=""
+  if [ -f "$TREE_LOCK" ]; then
+    TREE_HASH="$(git hash-object "$TREE_LOCK")"
+  fi
+  if [ "{{force}}" != true ] \
+     && [ -d client/node_modules ] \
+     && [ -f "$STAMP" ] \
+     && [ "$(sed -n '1p' "$STAMP")" = "$WANT_HASH" ] \
+     && [ -n "$TREE_HASH" ] \
+     && [ "$(sed -n '2p' "$STAMP")" = "$TREE_HASH" ]; then
+    echo "Client dependencies match install manifests, skipping install."
+    exit 0
+  fi
+  rm -f "$STAMP"
+  (cd client && npm clean-install "${install_args[@]}")
+  TREE_HASH="$(git hash-object "$TREE_LOCK")"
+  mkdir -p "$(dirname "$STAMP")"
+  printf '%s\n%s\n' "$WANT_HASH" "$TREE_HASH" > "$STAMP"
 
 [working-directory: 'packages/proto-python-gen']
 _python-gen-init:
@@ -245,6 +429,13 @@ _python-gen-init:
 
 _lint-protos:
   buf lint
+
+_check-client: _client-init
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd client
+  npm run lint
+  npm exec --no -- tsc --noEmit
 
 [working-directory: 'client']
 _lint-client:
@@ -277,9 +468,12 @@ _format-plugins:
 _gen-protos:
   PATH="$(pwd)/client/node_modules/.bin:$PATH" buf generate
 
-[working-directory: 'server']
-_gen-server:
-    just gen
+_gen-fleet-cli:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p .cache/fleet-cli
+  buf build -o .cache/fleet-cli/fleet-descriptor-set.bin --as-file-descriptor-set
+  go run ./server/tools/generate-fleet-cli
 
 _e2e suite *args:
   #!/usr/bin/env bash
@@ -288,12 +482,14 @@ _e2e suite *args:
   npx playwright install
   npx playwright test {{args}}
 
-# sync Go workspace only when go.work / go.work.sum has changed since last sync
+# sync Go workspace only when workspace configuration or module manifests have changed
 _go-work-sync:
   #!/usr/bin/env bash
   set -euo pipefail
   STAMP=.cache/go-work-sync/stamp
-  if [ -f "$STAMP" ] && ! [ go.work -nt "$STAMP" ] && { [ ! -f go.work.sum ] || ! [ go.work.sum -nt "$STAMP" ]; }; then
+  WORKSPACE_MANIFESTS="{{go_workspace_manifests}}"
+  if [ -f "$STAMP" ] \
+     && [ -z "$(find $WORKSPACE_MANIFESTS -newer "$STAMP" -type f 2>/dev/null | head -1)" ]; then
     exit 0
   fi
   echo "Syncing Go workspace..."
@@ -307,11 +503,12 @@ _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
   # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 {{go_workspace_manifests}}"
   PROTO_BIN={{outdir}}/proto-plugin
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="native"
+  rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
      && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
@@ -326,27 +523,32 @@ _build-go-plugins-native outdir: _go-work-sync
   chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
   echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
-_build-go-plugins-cross goos goarch outdir: _go-work-sync
+_build-go-plugins-cross goos goarch outdir force="": _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
-  PROTO_BIN={{outdir}}/proto-plugin
-  ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
-     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
-     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
-     && [ -z "$(find $SOURCES -newer "$ANT_BIN" -type f 2>/dev/null | head -1)" ]; then
-    echo "Go plugins up to date for {{goos}}/{{goarch}}, skipping build."
-    exit 0
-  fi
-  echo "Building Go plugins for {{goos}}/{{goarch}}..."
+  COMMON_SOURCES="server/sdk/v1 {{go_workspace_manifests}}"
+  rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   mkdir -p {{outdir}}
-  (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
-  (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
-  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  built=false
+  for plugin in proto antminer; do
+    bin="{{outdir}}/${plugin}-plugin"
+    sources="plugin/${plugin} ${COMMON_SOURCES}"
+    if [ "$plugin" = "{{force}}" ] \
+       || [ ! -f "$bin" ] \
+       || [ ! -f "$PLATFORM_MARKER" ] \
+       || [ "$(cat "$PLATFORM_MARKER" 2>/dev/null || true)" != "$WANT_PLATFORM" ] \
+       || [ -n "$(find $sources -newer "$bin" -type f 2>/dev/null | head -1)" ]; then
+      echo "Building ${plugin} plugin for {{goos}}/{{goarch}}..."
+      (cd "plugin/${plugin}" && GOOS={{goos}} GOARCH={{goarch}} go build -o "../../${bin}" .)
+      chmod +x "$bin"
+      built=true
+    fi
+  done
+  if [ "$built" = false ]; then
+    echo "Go plugins up to date for {{goos}}/{{goarch}}, skipping build."
+  fi
   echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _build-go-plugins-multi-arch: _go-work-sync
@@ -356,8 +558,11 @@ _build-go-plugins-multi-arch: _go-work-sync
   mkdir -p deployment-files/server
   (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
+  (cd plugin/virtual && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/virtual-plugin-amd64 .)
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
+  (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/virtual-plugin-arm64 .)
+  cp plugin/virtual/config.json deployment-files/server/virtual-plugin.json
   chmod +x deployment-files/server/*-plugin-*
 
 _asicrs-build outdir="server/plugins":

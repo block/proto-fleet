@@ -8,12 +8,19 @@ import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 
 const API_KEY_PREFIX = "e2e_api_key";
 
-test.describe("Proto Fleet - API Keys", () => {
+test.describe("Proto Fleet - Integrations", () => {
+  let shouldCleanupApiKeys = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupApiKeys = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Revoke any API keys created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupApiKeys) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -35,19 +42,20 @@ test.describe("Proto Fleet - API Keys", () => {
     }
   });
 
-  test("Create and revoke API key", async ({ commonSteps, settingsApiKeysPage }) => {
+  test("Create and revoke API key", { tag: "@smoke" }, async ({ commonSteps, settingsApiKeysPage }) => {
     const apiKeyName = generateRandomText(API_KEY_PREFIX);
 
     await test.step("Log in as admin", async () => {
       await commonSteps.loginAsAdmin();
     });
 
-    await test.step("Navigate to API Keys settings", async () => {
+    await test.step("Navigate to Integrations settings", async () => {
       await settingsApiKeysPage.navigateToApiKeysSettings();
       await settingsApiKeysPage.validateApiKeysPageOpened();
     });
 
     await test.step("Create a new API key without expiration", async () => {
+      shouldCleanupApiKeys = true;
       await settingsApiKeysPage.clickCreateApiKey();
       await settingsApiKeysPage.inputApiKeyName(apiKeyName);
       await settingsApiKeysPage.clickCreateInModal();
@@ -64,6 +72,7 @@ test.describe("Proto Fleet - API Keys", () => {
       await settingsApiKeysPage.clickRevokeApiKey(apiKeyName);
       await settingsApiKeysPage.confirmRevokeApiKey();
       await settingsApiKeysPage.validateApiKeyNotVisible(apiKeyName);
+      shouldCleanupApiKeys = false;
     });
   });
 
@@ -77,7 +86,7 @@ test.describe("Proto Fleet - API Keys", () => {
       await commonSteps.loginAsAdmin();
     });
 
-    await test.step("Navigate to API Keys settings", async () => {
+    await test.step("Navigate to Integrations settings", async () => {
       await settingsApiKeysPage.navigateToApiKeysSettings();
       await settingsApiKeysPage.validateApiKeysPageOpened();
     });
@@ -94,6 +103,7 @@ test.describe("Proto Fleet - API Keys", () => {
     });
 
     await test.step("Create a new API key with a future expiration date", async () => {
+      shouldCleanupApiKeys = true;
       await settingsApiKeysPage.selectExpirationDate(futureDate);
       await settingsApiKeysPage.inputApiKeyName(apiKeyName);
       await settingsApiKeysPage.clickCreateInModal();

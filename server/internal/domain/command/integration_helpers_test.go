@@ -31,7 +31,7 @@ func setupRetentionTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *test
 func seedDeviceLog(t *testing.T, conn *sql.DB, batchUUID string, deviceID int64, status sqlc.DeviceCommandStatusEnum, updatedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      batchUUID,
 			DeviceID:  deviceID,

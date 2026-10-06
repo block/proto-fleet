@@ -91,29 +91,29 @@ func (q *Queries) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentPa
 }
 
 const createFleetNode = `-- name: CreateFleetNode :one
-INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
+INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
 VALUES ($1, $2, $3, $4, 'PENDING')
-RETURNING id, org_id, name, identity_pubkey, miner_signing_pubkey,
+RETURNING id, org_id, name, identity_pubkey, encryption_pubkey,
           enrollment_status, last_seen_at, created_at, updated_at
 `
 
 type CreateFleetNodeParams struct {
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 }
 
 type CreateFleetNodeRow struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error) {
@@ -121,7 +121,7 @@ func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams
 		arg.OrgID,
 		arg.Name,
 		arg.IdentityPubkey,
-		arg.MinerSigningPubkey,
+		arg.EncryptionPubkey,
 	)
 	var i CreateFleetNodeRow
 	err := row.Scan(
@@ -129,7 +129,7 @@ func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
-		&i.MinerSigningPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -174,7 +174,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 }
 
 const getFleetNodeByID = `-- name: GetFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
@@ -186,15 +186,15 @@ type GetFleetNodeByIDParams struct {
 }
 
 type GetFleetNodeByIDRow struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error) {
@@ -205,7 +205,7 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
-		&i.MinerSigningPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -215,22 +215,22 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 }
 
 const getFleetNodeByIDUnscoped = `-- name: GetFleetNodeByIDUnscoped :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND deleted_at IS NULL
 `
 
 type GetFleetNodeByIDUnscopedRow struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error) {
@@ -241,7 +241,7 @@ func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFl
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
-		&i.MinerSigningPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -305,9 +305,10 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 }
 
 const listFleetNodesForOrganization = `-- name: ListFleetNodesForOrganization :many
-SELECT a.id, a.org_id, a.name, a.identity_pubkey, a.miner_signing_pubkey,
+SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
-       COALESCE(pe.status, '')::text AS pending_enrollment_status
+       COALESCE(pe.status, '')::text AS pending_enrollment_status,
+       pe.id AS pending_enrollment_id
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
@@ -322,12 +323,12 @@ type ListFleetNodesForOrganizationRow struct {
 	OrgID                   int64
 	Name                    string
 	IdentityPubkey          []byte
-	MinerSigningPubkey      []byte
 	EnrollmentStatus        string
 	LastSeenAt              sql.NullTime
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	PendingEnrollmentStatus string
+	PendingEnrollmentID     sql.NullInt64
 }
 
 // A fleet node can have multiple pending_enrollment rows over its lifetime
@@ -348,12 +349,12 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 			&i.OrgID,
 			&i.Name,
 			&i.IdentityPubkey,
-			&i.MinerSigningPubkey,
 			&i.EnrollmentStatus,
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PendingEnrollmentStatus,
+			&i.PendingEnrollmentID,
 		); err != nil {
 			return nil, err
 		}
@@ -369,7 +370,7 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 }
 
 const lockFleetNodeByID = `-- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
@@ -382,15 +383,15 @@ type LockFleetNodeByIDParams struct {
 }
 
 type LockFleetNodeByIDRow struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (q *Queries) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error) {
@@ -401,7 +402,7 @@ func (q *Queries) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDPa
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
-		&i.MinerSigningPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,

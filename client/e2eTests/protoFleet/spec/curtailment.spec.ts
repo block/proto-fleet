@@ -26,7 +26,9 @@ test.describe("Proto Fleet - Curtailment", () => {
   });
 
   if (testConfig.target !== "real") {
-    test("Start and stop a whole-fleet curtailment", async ({ commonSteps, energyPage, page }) => {
+    test("Start and stop a whole-fleet curtailment", { tag: "@smoke" }, async ({ commonSteps, energyPage, page }) => {
+      test.setTimeout(testConfig.testTimeout * 2);
+
       const curtailmentReason = generateRandomText(CURTAILMENT_PREFIX);
       const targetKw = "1";
       const restoreBatchIntervalSec = "1";
@@ -67,9 +69,13 @@ test.describe("Proto Fleet - Curtailment", () => {
         expect(requestBody.reason).toBe(curtailmentReason);
         expect(requestBody.mode).toBe("CURTAILMENT_MODE_FIXED_KW");
         expect(requestBody.fixedKw?.targetKw).toBe(Number(targetKw));
-        expect(requestBody.wholeOrg).toEqual({});
-        expect(requestBody.includeMaintenance).toBe(true);
-        expect(requestBody.forceIncludeMaintenance).toBe(true);
+        expect(requestBody.scopes).toEqual([{ wholeOrg: {} }]);
+        // Maintenance-flagged miners are excluded by default; the admin-gated
+        // force_include_maintenance pair is only sent when "Target all paired
+        // miners" opts them in. Proto3 JSON omits false booleans, so assert
+        // falsy rather than an explicit false.
+        expect(requestBody.includeMaintenance).toBeFalsy();
+        expect(requestBody.forceIncludeMaintenance).toBeFalsy();
         expect(requestBody.restoreBatchIntervalSec).toBe(Number(restoreBatchIntervalSec));
         expect(startResponse.status()).toBe(200);
         expect(responseBody.event?.eventUuid).toEqual(expect.any(String));

@@ -1,6 +1,6 @@
 // Package discovery dispatches server-initiated miner discovery to fleet nodes
 // over the ControlStream and streams the results back. It owns the per-node
-// run loop (normalize -> send command -> drain batches until ack) shared by the
+// run loop (validate -> send command -> drain batches until ack) shared by the
 // operator-facing single-node RPC (handlers/fleetnode/admin) and the cloud
 // "Find miners" fan-out (handlers/pairing), plus the helpers that decide which
 // nodes a fan-out should target.
@@ -8,10 +8,12 @@ package discovery
 
 import (
 	"context"
-	"net/netip"
-	"strconv"
+	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -20,8 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
-	"github.com/block/proto-fleet/server/internal/domain/netutil"
-	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
@@ -42,7 +43,8 @@ type nodeLister interface {
 // makes the coupling explicit and lets tests inject a fake without a Registry.
 type nodeRegistry interface {
 	ConnectedFleetNodeIDs() []int64
-	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
+	CommandProtocolUpgradeRequired(fleetNodeID int64) bool
+	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
 }
 
 // Service runs discovery commands against connected fleet nodes.
@@ -55,11 +57,9 @@ func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 	return &Service{registry: registry, enrollment: enrollmentSvc}
 }
 
-// ConfirmedConnectedNodeIDs returns the IDs of fleet nodes in orgID that are both
-// CONFIRMED and currently connected (active ControlStream): the set a fan-out
-// can dispatch to. A node with a live stream but a non-CONFIRMED enrollment
-// status is excluded.
-func (s *Service) ConfirmedConnectedNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
+// EligibleNodeIDs returns the confirmed, connected nodes that support current
+// discovery commands.
+func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
 	nodes, err := s.enrollment.ListFleetNodes(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -73,52 +73,97 @@ func (s *Service) ConfirmedConnectedNodeIDs(ctx context.Context, orgID int64) ([
 	connected := s.registry.ConnectedFleetNodeIDs()
 	out := make([]int64, 0, len(connected))
 	for _, nodeID := range connected {
-		if _, ok := confirmed[nodeID]; ok {
+		if _, ok := confirmed[nodeID]; ok && !s.registry.CommandProtocolUpgradeRequired(nodeID) {
 			out = append(out, nodeID)
 		}
 	}
 	return out, nil
 }
 
-// RunOnNode normalizes req, builds the report scope, dispatches the command over
+// RunOnNode validates req, builds the report scope, dispatches the command over
 // the node's ControlStream, and invokes onBatch for each discovered-device batch
-// until the node acks (or the command times out / the stream drops). It returns
-// nil on an OK or PARTIAL ack, and an error otherwise, including any non-nil
-// error returned by onBatch, which is treated as terminal (the caller's stream
-// is gone, so there is nothing left to forward).
-func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
-	normalized, err := normalizeDiscoverRequest(req)
-	if err != nil {
+// until the node acks (or the command times out / the stream drops). It emits
+// runtime failures as sourced warnings while retaining earlier batches. Validation,
+// authentication, and onBatch failures remain errors. Caller cancellation is quiet.
+// The caller supplies a source label appropriate for its authorization boundary.
+func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
+	req = requestForNode(req)
+	if err := ValidateRequest(req); err != nil {
 		return err
 	}
 
-	payload, err := proto.Marshal(&pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_Discover{Discover: normalized},
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Discover{Discover: req},
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
-	return control.RunCommand(ctx, s.registry, fleetNodeID, cmd, buildReportScope(normalized), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	if err := protovalidate.Validate(cmd); err != nil {
+		return fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
+	}
+	var callbackErr error
+	forward := func(batch *pairingpb.DiscoverResponse) error {
+		callbackErr = onBatch(batch)
+		return callbackErr
+	}
+	warning := func(detail string) error {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil
+		}
+		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
+	}
+	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(req), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
-				if sendErr := onBatch(ev.Batch); sendErr != nil {
+				if sendErr := forward(ev.Batch); sendErr != nil {
 					return true, sendErr
 				}
 			}
+			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				detail := ev.Ack.GetErrorMessage()
+				if detail == "" {
+					detail = "discovery completed partially"
+				}
+				return true, warning(detail)
+			}
 			return false, nil
 		})
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if err == nil || errors.Is(ctx.Err(), context.Canceled) {
+		return nil
+	}
+	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		return err
+	}
+	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
+	return forward(SourceWarning(source, err))
 }
 
-func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.DiscoverRequest, error) {
+// requestForNode translates the shared request flag into the sentinel understood
+// by the Fleet Node command runner. False preserves the target.
+func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
+	if req == nil || req.GetNetworkScan() == nil || !req.GetNetworkScan().GetUseFleetNodeLocalSubnet() {
+		return req
+	}
+	out := proto.CloneOf(req)
+	out.GetNetworkScan().Target = netscan.LocalSubnetTarget
+	return out
+}
+
+// ValidateRequest checks Fleet Node target and port limits before discovery starts.
+// Automatic local-subnet scans validate ports here and resolve targets on the node.
+func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
 		if m.IpList == nil || len(m.IpList.GetIpAddresses()) == 0 {
-			return nil, fleeterror.NewInvalidArgumentError("ip_list.ip_addresses must not be empty")
+			return fleeterror.NewInvalidArgumentError("ip_list.ip_addresses must not be empty")
 		}
 		if err := checkScanLimits(m.IpList.GetIpAddresses(), m.IpList.GetPorts()); err != nil {
-			return nil, err
+			return err
 		}
 		// Every entry must be a valid IP or hostname, and IP literals must be
 		// private. A malformed token (e.g. "bad/entry") is unresolvable for the
@@ -128,133 +173,84 @@ func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.Discove
 		// REPORT_FAILED. Hostnames resolve agent-side to an IP the server can't
 		// check here, so they pass through.
 		for _, e := range m.IpList.GetIpAddresses() {
-			addr, perr := netip.ParseAddr(e)
-			if perr != nil {
-				if !nmaptarget.IsHostname(e) {
-					return nil, fleeterror.NewInvalidArgumentErrorf("ip_list entry %q is not a valid IP address or hostname", e)
-				}
-				continue
+			target, err := netscan.ParseAddrTarget(e)
+			if err != nil {
+				return fleeterror.NewInvalidArgumentErrorf("ip_list entry %q is not a valid IP address or hostname", e)
 			}
-			if !addr.Unmap().IsPrivate() {
-				return nil, fleeterror.NewInvalidArgumentErrorf("ip_list entry %q is not a private (RFC1918/RFC4193) address", e)
+			if !target.IsPrivate() {
+				return fleeterror.NewInvalidArgumentErrorf("ip_list entry %q is not a private (RFC1918/RFC4193) address", e)
 			}
 		}
-		return in, nil
+		return nil
 	case *pairingpb.DiscoverRequest_IpRange:
-		ips, err := expandIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
-		if err != nil {
-			return nil, err
+		if _, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp()); err != nil {
+			return err
 		}
-		if err := checkScanLimits(ips, m.IpRange.GetPorts()); err != nil {
-			return nil, err
+		if err := checkScanLimits(nil, m.IpRange.GetPorts()); err != nil {
+			return err
 		}
-		return &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{
-					IpAddresses: ips,
-					Ports:       m.IpRange.GetPorts(),
-				},
-			},
-		}, nil
-	case *pairingpb.DiscoverRequest_Nmap:
-		target := m.Nmap.GetTarget()
-		// The LocalSubnetTarget sentinel defers the target to the agent (it scans
+		return nil
+	case *pairingpb.DiscoverRequest_NetworkScan:
+		target := m.NetworkScan.GetTarget()
+		// The local-subnet flag or sentinel defers the target to the agent (it scans
 		// its own private subnet(s)), so there is nothing to validate here; the
 		// report scope (buildReportScope) and validateReport still confine reports
 		// to private addresses.
-		if target == nmaptarget.LocalSubnetTarget {
-			if err := checkScanLimits(nil, m.Nmap.GetPorts()); err != nil {
-				return nil, err
+		if m.NetworkScan.GetUseFleetNodeLocalSubnet() || target == netscan.LocalSubnetTarget {
+			if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
+				return err
 			}
-			return in, nil
+			return nil
 		}
-		// Validate against the shared grammar (incl. the /22 CIDR cap), then
-		// reject IPv6 CIDR (both rejections the agent makes) so an unsupported
-		// target fails fast here instead of as a late agent BAD_REQUEST ack.
-		if err := nmaptarget.Validate(target); err != nil {
-			return nil, fleeterror.NewInvalidArgumentError(err.Error())
-		}
-		if prefix, perr := netip.ParsePrefix(target); perr == nil && prefix.Addr().Is6() {
-			return nil, fleeterror.NewInvalidArgumentError("nmap IPv6 CIDR is not supported; use ip_list for IPv6 devices")
+		// Apply the same target grammar and CIDR breadth cap as the agent.
+		parsed, err := netscan.ParseBoundedTarget(target)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentError(err.Error())
 		}
 		// A public target scans fine but every report comes back non-private and
 		// is rejected by validateReport, so fail fast. Hostnames resolve agent-side
 		// and pass through (the report validator still guards what they return).
-		if !nmapTargetIsPrivate(target) {
-			return nil, fleeterror.NewInvalidArgumentError("nmap target must be within a private (RFC1918/RFC4193) range")
+		if !parsed.IsPrivate() {
+			return fleeterror.NewInvalidArgumentError("network scan target must be within a private (RFC1918/RFC4193) range")
 		}
-		if err := checkScanLimits(nil, m.Nmap.GetPorts()); err != nil {
-			return nil, err
+		if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
+			return err
 		}
-		return in, nil
+		return nil
 	case *pairingpb.DiscoverRequest_Mdns:
-		return nil, fleeterror.NewInvalidArgumentError("mdns discovery is not supported on fleet nodes")
+		return fleeterror.NewInvalidArgumentError("mdns discovery is not supported on fleet nodes")
 	default:
-		return nil, fleeterror.NewInvalidArgumentError("discover request mode is required")
+		return fleeterror.NewInvalidArgumentError("discover request mode is required")
 	}
 }
 
 // checkScanLimits enforces the agent's per-command caps (via discoverylimits)
 // and rejects malformed ports before dispatch, so an over-cap or invalid request
 // fails fast with a validation error instead of a late agent BAD_REQUEST ack.
-// The proto caps are the wire ceiling; these are the real limits.
+// These checks match the proto caps and also protect internal dispatch callers.
 func checkScanLimits(ipAddresses, ports []string) error {
 	if len(ipAddresses) > discoverylimits.MaxScanTargets {
 		return fleeterror.NewInvalidArgumentErrorf("too many targets: %d exceeds the limit of %d", len(ipAddresses), discoverylimits.MaxScanTargets)
 	}
-	if len(ports) > discoverylimits.MaxPortsPerIP {
-		return fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), discoverylimits.MaxPortsPerIP)
-	}
-	// Each port must be a bare decimal in 1-65535, matching the agent's
-	// resolveAndValidatePorts; otherwise a token like "80/tcp" or "70000"
-	// dispatches and returns as a late agent BAD_REQUEST ack.
-	for _, p := range ports {
-		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
-			return fleeterror.NewInvalidArgumentErrorf("invalid port %q: must be a decimal in 1-65535", p)
+	if len(ports) > 0 {
+		if _, err := netscan.Ports(ports, nil); err != nil {
+			return fleeterror.NewInvalidArgumentError(err.Error())
 		}
 	}
+
 	return nil
 }
 
-func expandIPv4Range(startStr, endStr string) ([]string, error) {
-	startAddr, err := netutil.ParseIPv4(startStr)
+func validatedIPv4Range(startStr, endStr string) (netscan.Target, error) {
+	target, err := netscan.Range(startStr, endStr)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid start_ip: %v", err)
+		return netscan.Target{}, fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	endAddr, err := netutil.ParseIPv4(endStr)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid end_ip: %v", err)
+	if !target.IsPrivate() {
+		return netscan.Target{}, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
 	}
-	// Both ends must be private. The MaxScanTargets cap below keeps the range far
-	// smaller than the gap between RFC1918 blocks, so private endpoints imply a
-	// fully private range. A public range scans fine but every report is rejected
-	// by validateReport, surfacing as a late REPORT_FAILED.
-	if !startAddr.IsPrivate() || !endAddr.IsPrivate() {
-		return nil, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
+	if target.Count() > discoverylimits.MaxScanTargets {
+		return netscan.Target{}, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
 	}
-	start, end := netutil.IPv4ToUint32(startAddr), netutil.IPv4ToUint32(endAddr)
-	if end < start {
-		return nil, fleeterror.NewInvalidArgumentError("end_ip must be >= start_ip")
-	}
-	// Skip the network (.0) and gateway (.1) start addresses, matching the agent
-	// and cloud pairing. Otherwise expanding to an IP list would scan .0/.1 as
-	// literal targets; gateways answer on many ports and look like miners.
-	start = netutil.AdjustIPv4RangeStart(start)
-	if end < start {
-		return nil, fleeterror.NewInvalidArgumentError("ip range covers only network/gateway addresses")
-	}
-	// uint64 math so a range ending at 255.255.255.255 can't wrap (in uint32,
-	// end-start+1 would overflow to 0, bypassing the cap and never terminating).
-	size := uint64(end) - uint64(start) + 1
-	if size > discoverylimits.MaxScanTargets {
-		return nil, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
-	}
-	out := make([]string, 0, size)
-	for v := start; ; v++ {
-		out = append(out, netutil.Uint32ToIPv4(v))
-		if v == end {
-			break
-		}
-	}
-	return out, nil
+	return target, nil
 }

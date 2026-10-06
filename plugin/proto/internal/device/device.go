@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,14 +34,26 @@ import (
 var _ sdk.Device = (*Device)(nil)
 
 const (
-	defaultStatusTTL          = 30 * time.Second
+	defaultStatusTTL          = 5 * time.Second
 	maxLogLines               = 10000
 	deviceVerificationTimeout = 10 * time.Second
 	firmwareRefreshInterval   = 5 * time.Minute
+	defaultPasswordInterval   = 5 * time.Minute
 
 	teraHashToHashConversion                   = 1e12
 	joulesPerTeraHashToJoulesPerHashConversion = 1e-12
 )
+
+// statusCacheTTL returns the status cache TTL, reading from PROTO_STATUS_CACHE_TTL
+// env var (Go duration string) with a default of 5s.
+func statusCacheTTL() time.Duration {
+	if v := os.Getenv("PROTO_STATUS_CACHE_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return defaultStatusTTL
+}
 
 // Device implements the SDK Device interface for a single Proto miner.
 //
@@ -56,7 +69,9 @@ type Device struct {
 	lastStatusAt time.Time
 	statusTTL    time.Duration
 
-	lastFirmwareCheckAt time.Time
+	lastFirmwareCheckAt        time.Time
+	lastDefaultPasswordCheckAt time.Time
+	lastDefaultPasswordActive  *bool
 
 	mutex            sync.Mutex
 	curtailmentMutex sync.Mutex
@@ -90,19 +105,6 @@ func miningStateBeforeFullCurtail(wasMining bool) fullCurtailMiningState {
 	return fullCurtailMiningStateWasNotMining
 }
 
-func (s fullCurtailMiningState) restoreMiningDecision() (bool, bool) {
-	switch s {
-	case fullCurtailMiningStateUnknown:
-		return false, false
-	case fullCurtailMiningStateWasMining:
-		return true, true
-	case fullCurtailMiningStateWasNotMining:
-		return false, true
-	default:
-		return false, false
-	}
-}
-
 type DeviceOption func(*Device)
 
 func SetStatusTTL(ttl time.Duration) func(*Device) {
@@ -117,35 +119,40 @@ func SetStatusTTL(ttl time.Duration) func(*Device) {
 //   - Connection establishment and validation
 //   - Authentication setup
 //   - Status caching configuration
-func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken, opts ...DeviceOption) (*Device, error) {
+func New(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, opts ...DeviceOption) (*Device, error) {
+	return newWithClientAuth(ctx, deviceID, deviceInfo, func(client *proto.Client) error {
+		return client.SetCredentials(credentials)
+	}, opts...)
+}
+
+func newWithClientAuth(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, configureClient func(*proto.Client) error, opts ...DeviceOption) (*Device, error) {
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
-	if err := client.SetCredentials(bearerToken); err != nil {
-		return nil, fmt.Errorf("failed to set credentials: %w", err)
+	if err := configureClient(client); err != nil {
+		return nil, fmt.Errorf("failed to configure client authentication: %w", err)
 	}
 
 	device := &Device{
 		id:         deviceID,
 		deviceInfo: deviceInfo,
 		client:     client,
-		statusTTL:  defaultStatusTTL,
+		statusTTL:  statusCacheTTL(),
 		mutex:      sync.Mutex{},
 	}
 
-	// If firmware version is already known from pairing, start the refresh
-	// throttle from now so we don't immediately re-fetch what we already have.
-	if deviceInfo.FirmwareVersion != "" {
-		device.lastFirmwareCheckAt = time.Now()
-	}
+	// The supplied firmware version may be stale. Leave the refresh clock unset
+	// so constructor verification reads the current version even when Fleet Node
+	// telemetry creates a fresh device for every sample. Subsequent polls on the
+	// same handle still use the normal refresh interval.
 
 	for _, opt := range opts {
 		opt(device)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), deviceVerificationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, deviceVerificationTimeout)
 	defer cancel()
 
 	if _, err := device.Status(ctx); err != nil {
@@ -225,6 +232,14 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityCurtailFull:       true,
 		sdk.CapabilityCurtailEfficiency: true,
 	}
+	if d.deviceInfo.SerialNumber == "" && d.deviceInfo.MacAddress == "" {
+		info, err := d.client.GetDeviceInfo(ctx)
+		if err != nil {
+			return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
+		}
+		d.deviceInfo.SerialNumber = info.SerialNumber
+		d.deviceInfo.MacAddress = info.MacAddress
+	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
 	if d.deviceInfo.FirmwareVersion == "" {
@@ -258,6 +273,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if err != nil {
 		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
 	}
+	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
+		minerStatus.State = sdk.HealthHealthyInactive
+	}
 
 	telemetryResp, err := d.client.GetTelemetryValues(ctx)
 	if err != nil {
@@ -270,6 +288,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
 	d.refreshFirmwareVersion(ctx, &metrics)
+	d.refreshDefaultPasswordStatus(ctx, &metrics)
 
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
@@ -283,8 +302,8 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
 		return
 	}
-	d.lastFirmwareCheckAt = time.Now()
 	fwVersion, err := d.client.GetFirmwareVersion(ctx)
+	d.lastFirmwareCheckAt = time.Now()
 	if err != nil {
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return
@@ -293,6 +312,29 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		d.deviceInfo.FirmwareVersion = fwVersion
 		metrics.FirmwareVersion = fwVersion
 	}
+}
+
+// refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
+// The value changes only when a password update lands, so reuse the last known
+// value between probes instead of adding a system/status request to every poll.
+func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.DeviceMetrics) {
+	if d.lastDefaultPasswordActive != nil {
+		active := *d.lastDefaultPasswordActive
+		metrics.DefaultPasswordActive = &active
+	}
+	if time.Since(d.lastDefaultPasswordCheckAt) < defaultPasswordInterval {
+		return
+	}
+	defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx)
+	d.lastDefaultPasswordCheckAt = time.Now()
+	if err != nil {
+		// Leave unset (nil) on an initial read failure so the server treats it as
+		// undetermined and doesn't demote a still-default-password device.
+		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
+		return
+	}
+	d.lastDefaultPasswordActive = &defaultPasswordActive
+	metrics.DefaultPasswordActive = &defaultPasswordActive
 }
 
 // GetErrors returns all active and historical errors for the device.
@@ -592,11 +634,23 @@ func (d *Device) curtailFull(ctx context.Context) error {
 	}
 	wasMining := isMiningHealth(metrics.Health)
 
-	if err := d.stopMining(ctx); err != nil {
+	if err := d.curtailMining(ctx); err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
 	d.recordFullCurtailment(wasMining)
 	d.invalidateStatusCache()
+	return nil
+}
+
+func (d *Device) curtailMining(ctx context.Context) error {
+	slog.Info("Plugin device entering full curtailment",
+		"device_id", d.id,
+		"host", d.deviceInfo.Host)
+
+	if err := d.client.CurtailMining(ctx); err != nil {
+		return fmt.Errorf("failed to stop mining for curtailment: %w", err)
+	}
+
 	return nil
 }
 
@@ -621,44 +675,54 @@ func (d *Device) curtailEfficiency(ctx context.Context) error {
 // Uncurtail restores the device based on the active curtailment level.
 func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 	snapshot := d.restoreCurtailmentState()
-	restored := false
 
 	if snapshot.preEfficiencyTarget != nil {
 		if err := d.client.SetPowerTarget(ctx, snapshot.preEfficiencyTarget.CurrentW, snapshot.preEfficiencyTarget.Mode); err != nil {
 			return wrapCurtailDispatchError(d.id, err)
 		}
 		d.invalidateStatusCache()
-		restored = true
 	}
 
-	shouldStartMining := false
-	fullRestoreKnown := false
-	if restoreMining, ok := snapshot.preFullMiningState.restoreMiningDecision(); ok {
-		shouldStartMining = restoreMining
-		fullRestoreKnown = true
-	} else if snapshot.activeLevel == sdk.CurtailLevelFull ||
-		(snapshot.activeLevel == sdk.CurtailLevelUnspecified && snapshot.preEfficiencyTarget == nil) {
+	miningStateToRestore := snapshot.preFullMiningState
+	if miningStateToRestore == fullCurtailMiningStateUnknown &&
+		(snapshot.activeLevel == sdk.CurtailLevelFull ||
+			(snapshot.activeLevel == sdk.CurtailLevelUnspecified && snapshot.preEfficiencyTarget == nil)) {
 		// If plugin-local restore state was lost, keep direct Uncurtail's legacy
 		// explicit-restore behavior.
-		shouldStartMining = true
+		miningStateToRestore = fullCurtailMiningStateWasMining
 	}
 
-	if shouldStartMining {
-		if err := d.startMining(ctx); err != nil {
-			return wrapCurtailDispatchError(d.id, err)
-		}
+	var miningRestoreErr error
+	switch miningStateToRestore {
+	case fullCurtailMiningStateUnknown:
+	case fullCurtailMiningStateWasMining:
+		miningRestoreErr = d.startMining(ctx)
+	case fullCurtailMiningStateWasNotMining:
+		miningRestoreErr = d.stopMining(ctx)
+	}
+	if miningRestoreErr != nil {
+		return wrapCurtailDispatchError(d.id, miningRestoreErr)
+	}
+	if miningStateToRestore != fullCurtailMiningStateUnknown {
 		d.invalidateStatusCache()
 	}
 
-	if snapshot.preEfficiencyTarget == nil && !fullRestoreKnown && snapshot.activeLevel == sdk.CurtailLevelEfficiency {
+	if snapshot.preEfficiencyTarget == nil &&
+		snapshot.preFullMiningState == fullCurtailMiningStateUnknown &&
+		snapshot.activeLevel == sdk.CurtailLevelEfficiency {
 		return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("efficiency curtail restore state missing"))
 	}
 
-	if restored || fullRestoreKnown || shouldStartMining {
+	if snapshot.preEfficiencyTarget != nil || miningStateToRestore != fullCurtailMiningStateUnknown {
 		d.clearCurtailmentState()
 	}
 
 	return nil
+}
+
+// ApplyCurtailmentConfig replaces the Proto rig's local fallback config.
+func (d *Device) ApplyCurtailmentConfig(ctx context.Context, config sdk.CurtailmentConfig) error {
+	return d.client.ApplyCurtailmentConfig(ctx, config)
 }
 
 func (d *Device) recordFullCurtailment(wasMining bool) {
@@ -698,6 +762,13 @@ func (d *Device) restoreCurtailmentState() curtailmentRestoreSnapshot {
 	return snapshot
 }
 
+func (d *Device) hasActiveFullCurtailment() bool {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	return d.curtailmentState.activeLevel == sdk.CurtailLevelFull
+}
+
 func (d *Device) clearCurtailmentState() {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
@@ -713,6 +784,13 @@ func (d *Device) invalidateStatusCache() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.clearStatusCacheLocked()
+}
+
+func (d *Device) invalidateStatusAndFirmwareCaches() {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.clearStatusCacheLocked()
+	d.lastFirmwareCheckAt = time.Time{}
 }
 
 func (d *Device) clearStatusCacheLocked() {
@@ -859,7 +937,7 @@ func (d *Device) Reboot(ctx context.Context) error {
 		return fmt.Errorf("failed to reboot device: %w", err)
 	}
 
-	d.invalidateStatusCache()
+	d.invalidateStatusAndFirmwareCaches()
 
 	return nil
 }
@@ -911,15 +989,11 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 
 // Unpair implements the SDK Device interface.
 //
-// This method clears the authentication key from the device during fleet unpairing.
+// This method disconnects the device from Fleet's local management state.
 func (d *Device) Unpair(ctx context.Context) error {
 	slog.Info("Plugin device starting unpair",
 		"device_id", d.id,
 		"host", d.deviceInfo.Host)
-
-	if err := d.client.ClearAuthKey(ctx); err != nil {
-		return fmt.Errorf("failed to clear auth key: %w", err)
-	}
 
 	// Clear cached status to force fresh data on next query.
 	d.invalidateStatusCache()
@@ -949,6 +1023,9 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {
 		return fmt.Errorf("failed to update miner password: %w", err)
 	}
+	defaultPasswordActive := false
+	d.lastDefaultPasswordActive = &defaultPasswordActive
+	d.lastDefaultPasswordCheckAt = time.Now()
 
 	slog.Info("Plugin device password updated successfully",
 		"device_id", d.id)

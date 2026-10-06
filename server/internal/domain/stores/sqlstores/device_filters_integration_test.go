@@ -82,6 +82,47 @@ func TestZoneFilter_CrossOrgIsolation(t *testing.T) {
 	assert.Equal(t, int64(1), totalB, "total count must reflect the filtered org-scoped result")
 }
 
+func TestMinerSearchFilter_MatchesAllIdentifierFields(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+	user := dbSvc.CreateSuperAdminUser()
+
+	type searchFixture struct {
+		query string
+		id    string
+		setup func(int64)
+	}
+	fixtures := []searchFixture{
+		{query: "name-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "name-marker", "", "", "") }},
+		{query: "serial-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "serial-marker", "", "") }},
+		{query: "aa:bb:cc", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "", "AA:BB:CC:DD:EE:FF", "") }},
+		{query: "192.0.2.42", setup: func(deviceID int64) { setDeviceIP(t, db, deviceID, "192.0.2.42") }},
+		{query: "worker-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "", "", "worker-marker") }},
+	}
+
+	for i := range fixtures {
+		dev := dbSvc.CreateDevice(user.OrganizationID, "proto")
+		fixtures[i].id = dev.ID
+		fixtures[i].setup(dev.DatabaseID)
+	}
+
+	for _, fixture := range fixtures {
+		rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, &stores.MinerFilter{
+			SearchQuery: fixture.query,
+		}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), total, "search %q should match one miner", fixture.query)
+		assert.Equal(t, []string{fixture.id}, identifiers(rows), "search %q should match its field", fixture.query)
+	}
+}
+
 // TestNumericRangeFilter_HashrateGreaterThan exercises the end-to-end numeric
 // filter pipeline against real Postgres/Timescale. It seeds three miners with
 // different hashrates and a fourth with stale telemetry, then proves the
@@ -196,6 +237,62 @@ func TestIPCIDRFilter_MatchesIPv4Range(t *testing.T) {
 	assert.NotContains(t, ids, devOutOfRange.ID)
 	assert.NotContains(t, ids, devOtherSubnet.ID)
 	assert.Equal(t, int64(1), total)
+}
+
+func TestIPRangeFilter_RangeOnlyFiltersRowsAndCounts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devInRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devOutOfRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+
+	setDeviceIP(t, db, devInRange.DatabaseID, "192.168.1.15")
+	setDeviceIP(t, db, devOutOfRange.DatabaseID, "192.168.1.50")
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devInRange.ID, now, 95e12)
+	insertMetric(t, db, devOutOfRange.ID, now, 95e12)
+	setDeviceStatus(t, db, devInRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+	setDeviceStatus(t, db, devOutOfRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+
+	// GetMinerStateCounts only counts devices with an actionable pairing status,
+	// so pair both; the range filter is then the only reason devOutOfRange is
+	// excluded.
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devInRange.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devOutOfRange.ID)
+
+	// Range-only filter (no ip_cidrs). Regression guard: the count/total paths
+	// previously routed to the dynamic builder only for ip_cidrs, so a
+	// range-only filter left totals and state counts computed fleet-wide while
+	// the listed rows were range-filtered.
+	filter := &stores.MinerFilter{
+		IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("192.168.1.10"), End: netip.MustParseAddr("192.168.1.20")},
+		},
+	}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{devInRange.ID}, identifiers(rows))
+	assert.Equal(t, int64(1), total, "total must be range-filtered, not fleet-wide")
+
+	counts, err := deviceStore.GetMinerStateCounts(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), counts.HashingCount)
+	assert.Equal(
+		t,
+		int64(1),
+		int64(counts.HashingCount+counts.BrokenCount+counts.OfflineCount+counts.SleepingCount),
+		"state counts must be range-filtered, not fleet-wide",
+	)
 }
 
 func TestIPCIDRFilter_MultipleCIDRsActAsOR(t *testing.T) {
@@ -426,6 +523,19 @@ func setDeviceIP(t *testing.T, db *sql.DB, deviceDatabaseID int64, ip string) {
 	require.NoError(t, err)
 }
 
+func updateDeviceSearchFields(t *testing.T, db *sql.DB, deviceDatabaseID int64, customName, serial, mac, worker string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		// mac_address is NOT NULL, so an empty argument keeps the existing value
+		// rather than clearing the column like the nullable fields do.
+		`UPDATE device
+         SET custom_name = NULLIF($1, ''), serial_number = NULLIF($2, ''),
+             mac_address = COALESCE(NULLIF($3, ''), mac_address), worker_name = NULLIF($4, '')
+         WHERE id = $5`,
+		customName, serial, mac, worker, deviceDatabaseID)
+	require.NoError(t, err)
+}
+
 func identifiers(rows []sqlc.ListMinerStateSnapshotsRow) []string {
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -489,4 +599,65 @@ func TestZoneFilter_ExcludesSoftDeletedRack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, rows, "soft-deleted rack must not surface in zone filter results")
 	assert.Equal(t, int64(0), total, "total count must agree with the empty page (P1 invariant)")
+}
+
+// TestSearchFilter_CountsAndModelGroupsMatchList proves the search filter routes
+// consistently across all three surfaces that pair a count with the miner list:
+// the list total, the dashboard state breakdown, and the bulk-action modal's
+// model groups. A search that reaches the rows but not one of the counts would
+// show the operator a count for the whole fleet beside the searched rows.
+func TestSearchFilter_CountsAndModelGroupsMatchList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devHashing := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devBroken := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devUnmatched := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devHashing.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devBroken.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devUnmatched.ID)
+
+	// Only the first two carry the marker the search will look for.
+	updateDeviceSearchFields(t, db, devHashing.DatabaseID, "", "", "", "marked-worker-a")
+	updateDeviceSearchFields(t, db, devBroken.DatabaseID, "", "", "", "marked-worker-b")
+	updateDeviceSearchFields(t, db, devUnmatched.DatabaseID, "", "", "", "other-worker")
+
+	setDeviceStatus(t, db, devHashing.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+	setDeviceStatus(t, db, devBroken.DatabaseID, sqlc.DeviceStatusEnumERROR)
+	setDeviceStatus(t, db, devUnmatched.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devHashing.ID, now, 95e12)
+	insertMetric(t, db, devBroken.ID, now, 95e12)
+	insertMetric(t, db, devUnmatched.ID, now, 95e12)
+
+	filter := &stores.MinerFilter{SearchQuery: "marked-worker"}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{devHashing.ID, devBroken.ID}, identifiers(rows))
+	assert.Equal(t, int64(2), total, "list total must exclude the unmatched miner")
+
+	counts, err := deviceStore.GetMinerStateCounts(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), counts.HashingCount)
+	assert.Equal(t, int32(1), counts.BrokenCount)
+	assert.Equal(t, total, int64(counts.HashingCount+counts.BrokenCount+counts.OfflineCount+counts.SleepingCount),
+		"state breakdown must sum to the list total")
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	var grouped int32
+	for _, g := range groups {
+		grouped += g.Count
+	}
+	assert.Equal(t, total, int64(grouped), "model group counts must sum to the list total")
 }

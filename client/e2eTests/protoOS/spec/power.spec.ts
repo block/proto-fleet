@@ -1,9 +1,68 @@
-import { test } from "../fixtures/pageFixtures";
+import { expect, test } from "../fixtures/pageFixtures";
+import {
+  assertSafeSimulatorTarget,
+  getAuthAccessToken,
+  waitForAuthenticatedApiOutage,
+  waitForAuthenticatedApiRecovery,
+} from "../helpers/apiAuthHelper";
+
+const REBOOT_OUTAGE_TIMEOUT_MS = 15_000;
+const REBOOT_RECOVERY_TIMEOUT_MS = 30_000;
 
 test.describe("Power management", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
     await commonSteps.authenticateAsAdmin();
+  });
+
+  test("Miner can be rebooted from the header power menu", async ({ headerComponent, page, request }) => {
+    await assertSafeSimulatorTarget({
+      actionDescription: "reboot",
+      request,
+    });
+
+    const accessToken = await getAuthAccessToken(page);
+    const rebootRequestPromise = page.waitForRequest(
+      (request) => request.method() === "POST" && request.url().includes("/api/v1/system/reboot"),
+    );
+    const rebootResponsePromise = page.waitForResponse(
+      (response) => response.request().method() === "POST" && response.url().includes("/api/v1/system/reboot"),
+    );
+
+    await test.step("Open the header power menu and choose reboot", async () => {
+      await headerComponent.clickPowerButton();
+      await headerComponent.clickPowerPopoverButton("Reboot");
+      await headerComponent.validateWarnRebootDialog();
+    });
+
+    await test.step("Confirm the reboot request starts", async () => {
+      await headerComponent.clickRebootMinerInDialog();
+
+      const rebootRequest = await rebootRequestPromise;
+      const rebootResponse = await rebootResponsePromise;
+
+      expect(rebootRequest.method()).toBe("POST");
+      expect(rebootResponse.status()).toBe(202);
+    });
+
+    await test.step("Wait for the miner to come back and validate the UI recovers", async () => {
+      await waitForAuthenticatedApiOutage({
+        accessToken,
+        path: "/api/v1/mining",
+        request,
+        timeoutMs: REBOOT_OUTAGE_TIMEOUT_MS,
+      });
+
+      await waitForAuthenticatedApiRecovery({
+        accessToken,
+        path: "/api/v1/mining",
+        request,
+        timeoutMs: REBOOT_RECOVERY_TIMEOUT_MS,
+      });
+
+      await page.goto("/");
+      await headerComponent.validateMinerStatus("Hashing");
+    });
   });
 
   test("Miner sleep status in different pages", async ({

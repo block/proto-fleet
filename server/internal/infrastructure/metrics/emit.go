@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 )
 
 // DeviceLabels is the canonical label set for per-device gauges.
@@ -22,11 +23,19 @@ type CommandLabels struct {
 	Result         string
 }
 
+// TelemetryPollLabels has deliberately no DeviceID: poll rows aggregate per
+// (organization, site, result), so a per-device label would be discarded.
 type TelemetryPollLabels struct {
 	OrganizationID string
 	SiteID         string
-	DeviceID       string
 	Result         string
+}
+
+// MQTTSourceLabels identifies one MQTT curtailment source; SourceName is
+// carried on the kind label.
+type MQTTSourceLabels struct {
+	OrganizationID string
+	SourceName     string
 }
 
 func (l DeviceLabels) toLabels() Labels {
@@ -39,31 +48,50 @@ func (l DeviceLabels) toLabels() Labels {
 	}
 }
 
+// Device gauges persist through the gauge throttle (see gaugeThrottle);
+// MQTT, system, and command emitters below stay unthrottled on purpose.
+
 func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, online bool) {
 	value := 0.0
 	if online {
 		value = 1.0
 	}
-	p.record(Sample{
+	p.recordStateGauge(Sample{
 		Metric: MetricDeviceOnline,
 		Labels: labels.toLabels(),
 		Value:  value,
 	})
 }
 
+// hashingChangeTolerance persists material ratio moves (onset, recovery, the
+// 1.0 clearing sentinel) immediately; ±few-% poll jitter heartbeats instead.
+const hashingChangeTolerance = 0.05
+
+func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
+	p.recordDeviceGauge(Sample{
+		Metric: MetricDeviceHashing,
+		Labels: labels.toLabels(),
+		Value:  ratio,
+	}, hashingChangeTolerance)
+}
+
 func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
 	base := labels.toLabels()
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceHashrateTerahash,
 		Labels: base,
 		Value:  observedTHs,
 	})
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceHashrateExpectedTerahash,
 		Labels: base,
 		Value:  expectedTHs,
 	})
 }
+
+// temperatureChangeTolerance persists regime changes (heat-up, cool-down)
+// immediately; steady-state ±1-3C poll jitter heartbeats instead.
+const temperatureChangeTolerance = 5.0
 
 // EmitDeviceTemperature records max+avg gauges for one sensor kind.
 func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels, sensorKind string, maxC, avgC float64) {
@@ -73,16 +101,16 @@ func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels,
 	}
 	base := labels.toLabels()
 	base.SensorKind = sensorKind
-	p.record(Sample{
+	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceTemperatureMaxCelsius,
 		Labels: base,
 		Value:  maxC,
-	})
-	p.record(Sample{
+	}, temperatureChangeTolerance)
+	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceTemperatureAvgCelsius,
 		Labels: base,
 		Value:  avgC,
-	})
+	}, temperatureChangeTolerance)
 }
 
 // EmitDevicePoolConnected records the fleet_device_pool_connected gauge.
@@ -91,7 +119,7 @@ func (p *Provider) EmitDevicePoolConnected(_ context.Context, labels DeviceLabel
 	if connected {
 		value = 1.0
 	}
-	p.record(Sample{
+	p.recordStateGauge(Sample{
 		Metric: MetricDevicePoolConnected,
 		Labels: labels.toLabels(),
 		Value:  value,
@@ -119,22 +147,125 @@ func (p *Provider) EmitCommand(_ context.Context, labels CommandLabels) {
 	})
 }
 
-// EmitTelemetryPoll records a single increment on fleet_telemetry_poll_total.
+// EmitTelemetryPoll records one increment on fleet_telemetry_poll_total,
+// persisted aggregated once per PollAggregationInterval; see pollAggregator.
 func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabels) {
+	if p == nil || !p.enabled {
+		return
+	}
 	if !IsKnownResult(labels.Result) {
 		slog.Error("metrics: unknown telemetry poll result, dropping increment",
 			"result", labels.Result)
 		return
 	}
+	p.pollAgg.add(Labels{
+		OrganizationID: labels.OrganizationID,
+		SiteID:         labels.SiteID,
+		Result:         labels.Result,
+	})
+}
+
+// EmitSystemCPUUsedPercent records the fleet_system_cpu_used_percent gauge.
+func (p *Provider) EmitSystemCPUUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemCPUUsedPercent, percent)
+}
+
+// EmitSystemMemoryUsedPercent records the fleet_system_memory_used_percent gauge.
+func (p *Provider) EmitSystemMemoryUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemMemoryUsedPercent, percent)
+}
+
+// EmitSystemDiskUsedPercent records the fleet_system_disk_used_percent gauge
+// for the collector's configured filesystem path.
+func (p *Provider) EmitSystemDiskUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemDiskUsedPercent, percent)
+}
+
+// EmitSystemHeartbeat records the fleet_system_heartbeat gauge; the Fleet
+// Heartbeat Stale rule alerts when these samples stop landing.
+func (p *Provider) EmitSystemHeartbeat(_ context.Context) {
 	p.record(Sample{
-		Metric: MetricTelemetryPollTotal,
+		Metric: MetricSystemHeartbeat,
+		Value:  1,
+	})
+}
+
+// EmitHAFailoverReady records the full fleet-ha failover-ready predicate.
+// It stays unthrottled so the alert rule can distinguish recovery from a
+// collector that stopped reporting.
+func (p *Provider) EmitHAFailoverReady(_ context.Context, ready bool) {
+	value := 0.0
+	if ready {
+		value = 1
+	}
+	p.record(Sample{Metric: MetricHAFailoverReady, Value: value})
+}
+
+// emitSystemPercent stays unthrottled: system gauges are host-scoped (one
+// series each) and the heartbeat's staleness IS the alert signal.
+func (p *Provider) emitSystemPercent(metric string, percent float64) {
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
+		slog.Error("metrics: non-finite or negative percent, dropping emit",
+			"metric", metric, "value", percent)
+		return
+	}
+	p.record(Sample{
+		Metric: metric,
+		Value:  min(percent, 100),
+	})
+}
+
+// EmitMQTTSourceConnected records the fleet_mqtt_source_connected gauge,
+// unthrottled: curtailment rules evaluate every 10s and cardinality is tiny.
+func (p *Provider) EmitMQTTSourceConnected(_ context.Context, labels MQTTSourceLabels, connected bool) {
+	value := 0.0
+	if connected {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricMQTTSourceConnected,
 		Labels: Labels{
 			OrganizationID: labels.OrganizationID,
-			SiteID:         labels.SiteID,
-			DeviceID:       labels.DeviceID,
-			Result:         labels.Result,
+			Kind:           labels.SourceName,
 		},
-		Value: 1,
+		Value: value,
+	})
+}
+
+// EmitMQTTCurtailmentActive records the fleet_mqtt_curtailment_active gauge.
+// Deliberately unthrottled, like EmitMQTTSourceConnected.
+func (p *Provider) EmitMQTTCurtailmentActive(_ context.Context, labels MQTTSourceLabels, active bool) {
+	value := 0.0
+	if active {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricMQTTCurtailmentActive,
+		Labels: Labels{
+			OrganizationID: labels.OrganizationID,
+			Kind:           labels.SourceName,
+		},
+		Value: value,
+	})
+}
+
+// EmitCurtailmentFanRestoreFailure records whether a restoring event has
+// reached its miner-restore gate while fan-ON commands are still failing.
+// It stays unthrottled so operators retain a time series of repeated failures
+// and the eventual recovery; the alert itself reads durable event state so it
+// cannot age out after terminalization.
+func (p *Provider) EmitCurtailmentFanRestoreFailure(_ context.Context, orgID int64, eventUUID string, failed bool) {
+	value := 0.0
+	if failed {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricCurtailmentFanRestoreFailed,
+		Labels: Labels{
+			OrganizationID: OrgIDToLabel(orgID),
+			Kind:           eventUUID,
+		},
+		Value: value,
 	})
 }
 

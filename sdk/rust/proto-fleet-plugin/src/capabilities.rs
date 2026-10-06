@@ -78,7 +78,6 @@ pub const CAP_GET_CAPABILITIES_FOR_MODEL: &str = "get_capabilities_for_model";
 
 // Authentication
 pub const CAP_BASIC_AUTH: &str = "basic_auth";
-pub const CAP_ASYMMETRIC_AUTH: &str = "asymmetric_auth";
 
 // Advanced Features
 pub const CAP_IMMERSION_COOLING: &str = "immersion_cooling";

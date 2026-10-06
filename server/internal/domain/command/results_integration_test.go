@@ -51,12 +51,16 @@ func newResultsTestService(conn *sql.DB) *command.Service {
 // by the results-RPC tests instead of seedFinishedBatch because several tests
 // need PENDING / PROCESSING.
 func seedBatchInState(t *testing.T, conn *sql.DB, batchUUID string, userID, orgID int64, deviceCount int32, status sqlc.BatchStatusEnum) {
+	seedBatchOfTypeInState(t, conn, batchUUID, "REBOOT", userID, orgID, deviceCount, status)
+}
+
+func seedBatchOfTypeInState(t *testing.T, conn *sql.DB, batchUUID, commandType string, userID, orgID int64, deviceCount int32, status sqlc.BatchStatusEnum) {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
-			Type:           "REBOOT",
+			Type:           commandType,
 			CreatedBy:      userID,
 			CreatedAt:      time.Now(),
 			Status:         status,
@@ -72,6 +76,51 @@ func seedBatchInState(t *testing.T, conn *sql.DB, batchUUID string, userID, orgI
 			`UPDATE command_batch_log SET finished_at = NOW() WHERE uuid = $1`, batchUUID)
 		require.NoError(t, err)
 	}
+}
+
+func TestGetCommandBatchLogBundle_NotFoundForCrossOrg(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn, dbService, orgAUser := setupRetentionTest(t)
+	orgBUser := dbService.CreateSuperAdminUser2()
+	batchUUID := "log-bundle-cross-org-1"
+	seedBatchOfTypeInState(t, conn, batchUUID, "DownloadLogs", orgAUser.DatabaseID, orgAUser.OrganizationID, 1, sqlc.BatchStatusEnumFINISHED)
+	svc := newResultsTestService(conn)
+	ctx := testutil.MockAuthContextForTesting(context.Background(), orgBUser.DatabaseID, orgBUser.OrganizationID)
+
+	// Act
+	_, err := svc.GetCommandBatchLogBundle(ctx, batchUUID)
+
+	// Assert
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestGetCommandBatchLogBundle_NotFoundForWrongCommandType(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn, _, user := setupRetentionTest(t)
+	batchUUID := "log-bundle-wrong-type-1"
+	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 1, sqlc.BatchStatusEnumFINISHED)
+	svc := newResultsTestService(conn)
+	ctx := testutil.MockAuthContextForTesting(context.Background(), user.DatabaseID, user.OrganizationID)
+
+	// Act
+	_, err := svc.GetCommandBatchLogBundle(ctx, batchUUID)
+
+	// Assert
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
 }
 
 func TestGetCommandBatchDeviceResults_HappyPath(t *testing.T) {
@@ -234,7 +283,7 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 
 	// Bulk-insert codl rows in chunks so the test doesn't hammer sqlc one-by-one.
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		for _, dev := range devs {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      batchUUID,
@@ -268,8 +317,8 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 // TestGetCommandBatchDeviceResults_DeviceSnapshot exercises the audit-capture
 // feature end-to-end: the first Upsert records the raw device-identity fields
 // (custom_name, manufacturer, model, IP, MAC) onto the codl row, and later
-// Upserts (retries, reap-after-success) update status/error_info but must
-// never overwrite those captured values — even if the underlying device is
+// Upserts for the same terminal result update error_info but must never
+// overwrite those captured values, even if the underlying device is
 // renamed or moves to a new IP between the two writes.
 func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 	if testing.Short() {
@@ -287,7 +336,7 @@ func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 
 	ctx := context.Background()
 	upsert := func(status sqlc.DeviceCommandStatusEnum, errInfo sql.NullString) {
-		require.NoError(t, db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		require.NoError(t, db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      batchUUID,
 				DeviceID:  dev.DatabaseID,
@@ -299,7 +348,7 @@ func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 	}
 
 	// 1. First write captures the identity.
-	upsert(sqlc.DeviceCommandStatusEnumSUCCESS, sql.NullString{})
+	upsert(sqlc.DeviceCommandStatusEnumFAILED, sql.NullString{String: "initial failure", Valid: true})
 
 	// 2. Rename the device and move it to a new IP. Represents a legitimate
 	// operator action that happens between the first Upsert and the reaper's
@@ -311,7 +360,7 @@ func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 		dev.DatabaseID)
 	require.NoError(t, err)
 
-	// 3. Reaper-style second Upsert: status/error_info flip, snapshot must not.
+	// 3. A retry of the same terminal result updates the error, not the snapshot.
 	upsert(sqlc.DeviceCommandStatusEnumFAILED, sql.NullString{String: "reaper timeout", Valid: true})
 
 	svc := newResultsTestService(conn)

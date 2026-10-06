@@ -15,6 +15,7 @@ export interface SystemInfoSlice extends SystemInfoSysteminfo {
   setSystemInfo: (systemInfo: SystemInfoSysteminfo | undefined) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
+  reset: () => void;
 }
 
 // =============================================================================
@@ -44,5 +45,19 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
   setPending: (pending) =>
     set((state) => {
       state.systemInfo.pending = pending;
+    }),
+
+  // setSystemInfo(undefined) is a no-op by design (it only merges truthy
+  // values), so a real clear must remove the flattened API fields. Delete every
+  // data field (everything that isn't an action) so a miner switch fully clears
+  // the previous device's system info.
+  reset: () =>
+    set((state) => {
+      const slice = state.systemInfo as unknown as Record<string, unknown>;
+      for (const key of Object.keys(slice)) {
+        if (typeof slice[key] !== "function") {
+          delete slice[key];
+        }
+      }
     }),
 });

@@ -40,7 +40,7 @@ func TestServiceExcludesAPIKeysForDeactivatedUsers(t *testing.T) {
 	assert.NotEqual(t, (*int64)(nil), validatedKey.UserID)
 	assert.Equal(t, testUser.DatabaseID, *validatedKey.UserID)
 
-	err = db2.WithTransactionNoResult(t.Context(), databaseService.DB, func(q *sqlc.Queries) error {
+	err = db2.WithTransactionNoResult(t.Context(), databaseService.DB, func(q sqlc.Querier) error {
 		return q.SoftDeleteUser(t.Context(), testUser.DatabaseID)
 	})
 	assert.NoError(t, err)

@@ -26,7 +26,7 @@ func (q *Queries) CreateUserOrganization(ctx context.Context, arg CreateUserOrga
 }
 
 const getOrganizationsForUser = `-- name: GetOrganizationsForUser :many
-SELECT o.id, o.org_id, o.name, o.miner_auth_private_key, o.created_at, o.updated_at, o.deleted_at
+SELECT o.id, o.org_id, o.name, o.created_at, o.updated_at, o.deleted_at
 FROM organization o
          JOIN user_organization uo ON o.id = uo.organization_id
 WHERE uo.user_id = $1
@@ -45,7 +45,6 @@ func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]
 			&i.ID,
 			&i.OrgID,
 			&i.Name,
-			&i.MinerAuthPrivateKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -109,6 +108,28 @@ type GetUserRoleNameParams struct {
 
 func (q *Queries) GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error) {
 	row := q.queryRow(ctx, q.getUserRoleNameStmt, getUserRoleName, arg.UserID, arg.OrganizationID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
+const getUserRoleNameForUpdate = `-- name: GetUserRoleNameForUpdate :one
+SELECT r.name
+FROM role r
+JOIN user_organization uo ON r.id = uo.role_id
+WHERE uo.user_id = $1
+  AND uo.organization_id = $2
+  AND uo.deleted_at IS NULL
+FOR UPDATE OF uo
+`
+
+type GetUserRoleNameForUpdateParams struct {
+	UserID         int64
+	OrganizationID int64
+}
+
+func (q *Queries) GetUserRoleNameForUpdate(ctx context.Context, arg GetUserRoleNameForUpdateParams) (string, error) {
+	row := q.queryRow(ctx, q.getUserRoleNameForUpdateStmt, getUserRoleNameForUpdate, arg.UserID, arg.OrganizationID)
 	var name string
 	err := row.Scan(&name)
 	return name, err

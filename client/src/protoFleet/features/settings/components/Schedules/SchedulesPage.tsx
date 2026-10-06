@@ -22,9 +22,10 @@ import {
 import type { ScheduleColumn } from "@/protoFleet/features/settings/components/Schedules/constants";
 import createScheduleColConfig from "@/protoFleet/features/settings/components/Schedules/scheduleColConfig";
 import ScheduleModal from "@/protoFleet/features/settings/components/Schedules/ScheduleModal";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { Edit, Pause, Play, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";
 import type { ListAction, SortDirection } from "@/shared/components/List/types";
@@ -204,16 +205,15 @@ const SchedulesPage = () => {
     />
   ) : null;
 
-  const emptyStateRow = filtersActive ? (
-    <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
-      <p className="text-heading-200 text-text-primary">No schedules match those filters</p>
-      <p className="text-300 text-text-primary-70">
-        Try clearing one or more filters to see the rest of your schedules.
-      </p>
-    </div>
+  const noDataElement = filtersActive ? (
+    <SettingsEmptyState
+      title="No schedules match those filters"
+      description="Try clearing one or more filters to see the rest of your schedules."
+    />
   ) : (
-    <div className="py-10 text-center text-text-primary-50">No schedules yet. {SCHEDULE_EMPTY_STATE_DESCRIPTION}</div>
+    <SettingsEmptyState title="No schedules yet" description={SCHEDULE_EMPTY_STATE_DESCRIPTION} />
   );
+  const shouldShowTimezone = schedules.length > 0;
 
   if (isLoading || !hasCompletedInitialLoad) {
     return (
@@ -226,10 +226,10 @@ const SchedulesPage = () => {
   return (
     <div className="flex flex-col">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <Header title="Schedules" titleSize="text-heading-300" description={SCHEDULE_PAGE_DESCRIPTION} />
+        <SettingsPageHeader title="Schedules" description={SCHEDULE_PAGE_DESCRIPTION} />
         <Button
           variant={variants.primary}
-          size={sizes.base}
+          size={sizes.compact}
           text="Add a schedule"
           onClick={handleOpenCreateModal}
           className="shrink-0 phone:w-full"
@@ -249,7 +249,8 @@ const SchedulesPage = () => {
         filters={scheduleFilters}
         filterItem={matchesScheduleFilters}
         onFilterChange={setActiveFilters}
-        emptyStateRow={emptyStateRow}
+        hasActiveFilters={filtersActive}
+        noDataElement={noDataElement}
         sortableColumns={SORTABLE_COLUMNS}
         currentSort={currentSort}
         onSort={handleSort}
@@ -261,7 +262,7 @@ const SchedulesPage = () => {
         applyColumnWidthsToCells
         tableClassName={scheduleTableClassName}
       />
-      <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div>
+      {shouldShowTimezone ? <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div> : null}
 
       {scheduleModal}
     </div>

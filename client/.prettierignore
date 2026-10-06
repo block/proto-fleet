@@ -14,3 +14,6 @@ pnpm-lock.yaml
 
 # Ignore CLAUDE.md documentation
 CLAUDE.md 
+
+# Generated API output
+src/protoOS/api/generatedApi.ts

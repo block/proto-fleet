@@ -8,8 +8,13 @@ sql:
         package: "sqlc"
         out: "generated/sqlc"
         emit_prepared_queries: true
+        emit_interface: true
         sql_package: "database/sql"
         overrides:
+          - column: "firmware_rollout.behavior_snapshot"
+            go_type:
+              import: "github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
+              type: "RolloutBehaviorSnapshot"
           # TimescaleDB continuous aggregate type overrides
           # The time_bucket() function and aggregates return types that sqlc cannot infer
           - column: "device_metrics_hourly.bucket"
@@ -56,6 +61,13 @@ sql:
           - column: "device_status_hourly.bucket"
             go_type: "time.Time"
           - column: "device_status_daily.bucket"
+            go_type: "time.Time"
+          # Uptime rollup type overrides
+          - column: "miner_state_snapshot_device_1m.bucket"
+            go_type: "time.Time"
+          - column: "miner_state_snapshot_device_hourly.bucket"
+            go_type: "time.Time"
+          - column: "miner_state_snapshot_device_daily.bucket"
             go_type: "time.Time"
           # Schedule TIME columns are read back as strings by the current DB driver.
           - column: "schedule.start_time"

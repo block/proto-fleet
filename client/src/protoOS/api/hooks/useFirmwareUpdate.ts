@@ -11,73 +11,78 @@ import {
 } from "@/protoOS/store";
 
 const useFirmwareUpdate = () => {
-  const { checkAccess, hasAccess } = useAccessToken(true);
-  const { api } = useMinerHosting();
+  const { api, isFleetHosted } = useMinerHosting();
+  const { checkAccess, hasAccess } = useAccessToken(!isFleetHosted);
   const authHeader = useAuthHeader();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
   const [pendingUpdate, setPendingUpdate] = useState(false);
 
+  const performUpdate = useCallback(async () => {
+    setPendingUpdate(true);
+    try {
+      const response = await api?.postUpdateSystem(authHeader);
+
+      // Check if the response has a JSON parsing error embedded in it
+      if (response?.error?.message?.includes("Unexpected end of JSON input")) {
+        return {
+          data: { message: "System update initiated successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        };
+      }
+
+      return response;
+    } catch (error: any) {
+      // Handle JSON parsing errors embedded in response object
+      if (error?.error?.message?.includes("Unexpected end of JSON input")) {
+        return {
+          data: { message: "System update initiated successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        };
+      }
+
+      // Handle JSON parsing errors from thrown exceptions
+      if (error?.message?.includes("Unexpected end of JSON input")) {
+        return {
+          data: { message: "System update initiated successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        };
+      }
+
+      // Re-throw other errors
+      throw error;
+    } finally {
+      setPendingUpdate(false);
+    }
+  }, [api, authHeader]);
+
   // called when you click install.
-  // adds a paused action and calls check access
-  // if user is logged out it will trigger the login modal
-  // if user is logged in the pausedAuthAction change will trigger
-  // the useEffect below
+  // Fleet-hosted: the server proxy authenticates to the miner, so run the
+  // update directly. Otherwise add a paused action and call check access — if
+  // logged out this triggers the login modal; if logged in the pausedAuthAction
+  // change triggers the useEffect below.
   const updateFirmware = useCallback(async () => {
+    if (isFleetHosted) {
+      await performUpdate();
+      return;
+    }
     setPausedAuthAction(AUTH_ACTIONS.update);
     checkAccess();
-  }, [checkAccess, setPausedAuthAction]);
+  }, [isFleetHosted, performUpdate, checkAccess, setPausedAuthAction]);
 
   useEffect(() => {
-    const handleUpdate = async () => {
-      if (hasAccess && pausedAuthAction === AUTH_ACTIONS.update) {
-        setPausedAuthAction(null);
-        setPendingUpdate(true);
-        try {
-          const response = await api?.postUpdateSystem(authHeader);
-
-          // Check if the response has a JSON parsing error embedded in it
-          if (response?.error?.message?.includes("Unexpected end of JSON input")) {
-            return {
-              data: { message: "System update initiated successfully" },
-              status: 200,
-              ok: true,
-              error: null,
-            };
-          }
-
-          return response;
-        } catch (error: any) {
-          // Handle JSON parsing errors embedded in response object
-          if (error?.error?.message?.includes("Unexpected end of JSON input")) {
-            return {
-              data: { message: "System update initiated successfully" },
-              status: 200,
-              ok: true,
-              error: null,
-            };
-          }
-
-          // Handle JSON parsing errors from thrown exceptions
-          if (error?.message?.includes("Unexpected end of JSON input")) {
-            return {
-              data: { message: "System update initiated successfully" },
-              status: 200,
-              ok: true,
-              error: null,
-            };
-          }
-
-          // Re-throw other errors
-          throw error;
-        } finally {
-          setPendingUpdate(false);
-        }
-      }
-    };
-
-    handleUpdate();
-  }, [api, authHeader, hasAccess, pausedAuthAction, setPausedAuthAction]);
+    if (hasAccess && pausedAuthAction === AUTH_ACTIONS.update) {
+      setPausedAuthAction(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resume the paused firmware update once auth resolves (performUpdate toggles pending state)
+      void performUpdate();
+    }
+  }, [hasAccess, pausedAuthAction, setPausedAuthAction, performUpdate]);
 
   const checkFirmwareUpdate = useCallback(async () => {
     try {

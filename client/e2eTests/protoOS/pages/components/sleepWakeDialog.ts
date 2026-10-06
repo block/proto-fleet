@@ -39,6 +39,12 @@ export class SleepWakeDialogsComponent extends BasePage {
 
   async clickWakeMinerInModal() {
     const modal = this.page.getByTestId("modal");
+    if (this.isMobile) {
+      await modal.getByTestId("overflow-menu-trigger").click();
+      await this.page.getByTestId("modal-overflow-sheet-content").getByRole("button", { name: "Wake miner" }).click();
+      return;
+    }
+
     await modal.getByRole("button", { name: "Wake miner" }).click();
   }
 }

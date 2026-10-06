@@ -15,7 +15,6 @@ var testConfig = token.Config{
 		SecretKey:        "test-secret-key-that-is-long-enough", // Ensure valid length for testing
 		ExpirationPeriod: time.Minute * 5,                       // Short expiration for testing
 	},
-	MinerTokenExpirationPeriod: time.Minute * 5,
 }
 
 var userID int64 = 12345
@@ -69,7 +68,6 @@ func TestVerifyJWT_ExpiredToken(t *testing.T) {
 			SecretKey:        testConfig.ClientToken.SecretKey,
 			ExpirationPeriod: -time.Minute, // Negative duration to force expiration
 		},
-		MinerTokenExpirationPeriod: testConfig.MinerTokenExpirationPeriod,
 	}
 	tokenService, err := token.NewService(expiredConfig)
 	assert.NoError(t, err, "NewService should not return an error")
@@ -105,7 +103,6 @@ func TestNewTokenService_InvalidSecret(t *testing.T) {
 			SecretKey:        shortKey,
 			ExpirationPeriod: time.Minute * 5,
 		},
-		MinerTokenExpirationPeriod: time.Minute * 5,
 	}
 
 	_, err := token.NewService(invalidConfig)
@@ -120,7 +117,6 @@ func TestNewTokenService_ValidSecret(t *testing.T) {
 			SecretKey:        "valid-secret-key-that-is-long-enough",
 			ExpirationPeriod: time.Minute * 5,
 		},
-		MinerTokenExpirationPeriod: time.Minute * 5,
 	}
 
 	tokenService, err := token.NewService(validConfig)

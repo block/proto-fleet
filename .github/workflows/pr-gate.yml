@@ -18,6 +18,7 @@ jobs:
     name: Detect changed areas
     runs-on: ubuntu-latest
     outputs:
+      deployment_config: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deployment_config == 'true' }}
       proto: ${{ github.event_name != 'pull_request' || steps.filter.outputs.proto == 'true' }}
       client: ${{ github.event_name != 'pull_request' || steps.filter.outputs.client == 'true' }}
       server: ${{ github.event_name != 'pull_request' || steps.filter.outputs.server == 'true' }}
@@ -31,16 +32,17 @@ jobs:
       rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
     steps:
       - name: Checkout
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Detect changed areas
         id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: .github/path-filters.yml
 
@@ -55,6 +57,13 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/dependency-review.yml
+    secrets: inherit
+
+  deployment-config-checks:
+    name: Deployment Config Checks
+    needs: changes
+    if: needs.changes.outputs.deployment_config == 'true'
+    uses: ./.github/workflows/deployment-config-checks.yml
     secrets: inherit
 
   proto-checks:
@@ -76,6 +85,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.server == 'true'
     uses: ./.github/workflows/protofleet-server-checks.yml
+    secrets: inherit
+
+  migration-hygiene:
+    name: Migration Hygiene
+    needs: changes
+    uses: ./.github/workflows/migration-hygiene.yml
     secrets: inherit
 
   antminer-plugin-checks:
@@ -148,11 +163,28 @@ jobs:
     uses: ./.github/workflows/powershell-lint.yml
     secrets: inherit
 
+  developer-workflow-tests:
+    name: Developer Workflow Tests
+    needs: changes
+    if: needs.changes.outputs.developer_workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Hermit
+        uses: ./.github/actions/hermit-setup
+      - name: Test developer workflows
+        run: just test-developer-workflows
+
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
     if: needs.changes.outputs.protofleet_e2e == 'true'
     uses: ./.github/workflows/protofleet-e2e-tests.yml
+    with:
+      run_scope: smoke
     secrets: inherit
 
   protoos-e2e-tests:
@@ -162,6 +194,19 @@ jobs:
     uses: ./.github/workflows/protoos-e2e-tests.yml
     secrets: inherit
 
+  review-policy-tests:
+    name: Review Policy Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run review policy and Codex sharding tests
+        run: |
+          python3 .github/scripts/evaluate_review_policy_test.py
+          python3 .github/scripts/codex_sharding_test.py
+
   gate:
     name: Gate
     runs-on: ubuntu-latest
@@ -170,9 +215,11 @@ jobs:
       - changes
       - generated-code
       - dependency-review
+      - deployment-config-checks
       - proto-checks
       - client-checks
       - server-checks
+      - migration-hygiene
       - antminer-plugin-checks
       - proto-plugin-checks
       - virtual-plugin-checks
@@ -183,8 +230,10 @@ jobs:
       - rust-sdk-checks
       - windows-checks
       - powershell-lint
+      - developer-workflow-tests
       - protofleet-e2e-tests
       - protoos-e2e-tests
+      - review-policy-tests
     steps:
       - name: Evaluate gate
         env:

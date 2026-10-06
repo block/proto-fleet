@@ -102,4 +102,6 @@ export interface StatusModalProps<TComponentAddress = any> {
   open?: boolean;
   /** Whether to show back navigation (only applies when component is defined) */
   showBackButton?: boolean;
+  /** Force the modal header into the same collapsed state normally reached after scrolling past the large title. */
+  forceScrolledHeader?: boolean;
 }

@@ -1,10 +1,11 @@
-import { type RefObject } from "react";
+import { Fragment, type RefObject } from "react";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
 
 import { type DropdownOption } from "./DropdownFilter";
 import { NESTED_POPOVER_WIDTH, type NestedPopoverPosition } from "./useFilterDropdownPosition";
 import Checkbox from "@/shared/components/Checkbox";
+import Divider from "@/shared/components/Divider";
 // Outer panel uses `pt-2 pb-1` (12px total); subtract from the inner scroll
 // cap when the outer is height-clipped so content doesn't bleed past chrome.
 const PANEL_PADDING_TOTAL = 12;
@@ -59,7 +60,7 @@ const NestedSubmenu = ({
   return createPortal(
     <div
       ref={panelRef}
-      className="popover-content fixed z-50 space-y-0 rounded-2xl bg-surface-elevated-base/85 px-2 pt-2 pb-1 shadow-200 backdrop-blur-[7px]"
+      className="popover-content fixed z-50 space-y-0 rounded-2xl bg-surface-elevated-base/85 px-0 pt-2 pb-1 shadow-200 backdrop-blur-[7px]"
       style={{
         top: `${position?.top ?? 0}px`,
         left: `${position?.left ?? 0}px`,
@@ -81,13 +82,15 @@ const NestedSubmenu = ({
           position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight - PANEL_PADDING_TOTAL}px` } : undefined
         }
       >
-        {options.map((option) => (
-          <CheckboxOptionRow
-            key={option.id}
-            option={option}
-            checked={selectedValues.includes(option.id)}
-            onToggle={onToggleItem}
-          />
+        {options.map((option, index) => (
+          <Fragment key={option.id}>
+            <div className="px-2">
+              <CheckboxOptionRow option={option} checked={selectedValues.includes(option.id)} onToggle={onToggleItem} />
+            </div>
+            {option.showGroupDivider && index < options.length - 1 ? (
+              <Divider className="my-1 px-0" dividerStyle="thick" />
+            ) : null}
+          </Fragment>
         ))}
       </div>
     </div>,

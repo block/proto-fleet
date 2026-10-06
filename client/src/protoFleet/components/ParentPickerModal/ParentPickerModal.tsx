@@ -5,7 +5,7 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import { Alert, ArrowLeftCompact, ArrowRight } from "@/shared/assets/icons";
+import { Alert, ArrowLeftCompact, ArrowRight, Plus } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
@@ -36,6 +36,13 @@ interface ParentPickerModalProps {
   description?: string;
   createNewLabel?: string;
   onCreateNew?: (name: string) => Promise<void>;
+  // Renders a "New …" button (e.g. "New rack") at the top of the picker
+  // instead of the inline name input. Clicking it hands off to the full
+  // creation flow (e.g. RackSettingsModal → ManageRackModal) with the
+  // current selection pre-seeded, rather than creating inline. Distinct
+  // from createNewLabel/onCreateNew, which the group flow still uses.
+  createNewLaunchLabel?: string;
+  onCreateNewLaunch?: () => void;
   onDismiss: () => void;
   onConfirm: (targetIds: bigint[]) => void | Promise<void>;
 }
@@ -58,6 +65,8 @@ const ParentPickerModal = ({
   description,
   createNewLabel,
   onCreateNew,
+  createNewLaunchLabel,
+  onCreateNewLaunch,
   onDismiss,
   onConfirm,
 }: ParentPickerModalProps) => {
@@ -318,6 +327,7 @@ const ParentPickerModal = ({
   }, []);
 
   const hasCreateNew = !!createNewLabel && !!onCreateNew;
+  const hasCreateNewLaunch = !!createNewLaunchLabel && !!onCreateNewLaunch;
   const trimmedNewName = newName.trim();
   const wantsCreateNew = hasCreateNew && createNewChecked && trimmedNewName.length > 0;
   const isUnchangedSingleSelection =
@@ -390,6 +400,18 @@ const ParentPickerModal = ({
         </div>
       ) : (
         <div>
+          {hasCreateNewLaunch ? (
+            <div className="mb-4 flex">
+              <Button
+                variant={variants.secondary}
+                size={buttonSizes.base}
+                prefixIcon={<Plus />}
+                text={createNewLaunchLabel}
+                onClick={onCreateNewLaunch}
+                testId="parent-picker-create-new"
+              />
+            </div>
+          ) : null}
           {hasCreateNew && hasAnyItems ? (
             <label className="mb-6 flex items-center gap-6">
               <Checkbox checked={createNewChecked} onChange={handleCreateNewToggle} />

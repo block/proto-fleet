@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -150,6 +150,7 @@ const Authentication = ({
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
   const [score, setScore] = useState(0);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const validate = useCallback(() => {
     let newErrors: Values = deepClone(initErrors);
@@ -268,6 +269,7 @@ const Authentication = ({
             initValue={values.password}
             error={errors.password}
             autoFocus={initUsername ? !isUpdateMode : false}
+            inputRef={passwordInputRef}
           />
           <div className="flex items-center justify-between gap-5">
             <div>
@@ -290,7 +292,10 @@ const Authentication = ({
       ) : null}
       {showWeakPasswordWarning && !isSubmitting ? (
         <WeakPasswordWarning
-          onReturn={() => setShowWeakPasswordWarning(false)}
+          onReturn={() => {
+            setShowWeakPasswordWarning(false);
+            passwordInputRef.current?.focus();
+          }}
           onContinue={() => handleContinue(true)}
         />
       ) : null}

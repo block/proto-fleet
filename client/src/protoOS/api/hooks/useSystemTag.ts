@@ -2,6 +2,21 @@ import { useCallback, useMemo } from "react";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store";
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeSystemTag = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isRecord(value) && typeof value.tag === "string") {
+    return value.tag;
+  }
+
+  return JSON.stringify(value);
+};
+
 const useSystemTag = () => {
   const { api } = useMinerHosting();
   const authRetry = useAuthRetry();
@@ -13,7 +28,7 @@ const useSystemTag = () => {
       api
         .getSystemTag()
         .then((res) => {
-          onSuccess?.(typeof res.data === "string" ? res.data : JSON.stringify(res.data));
+          onSuccess?.(normalizeSystemTag(res.data));
         })
         .catch((err) => {
           if (err?.status === 404) {

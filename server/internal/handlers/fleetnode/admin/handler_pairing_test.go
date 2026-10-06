@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -27,7 +27,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -47,7 +46,7 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	}
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -58,15 +57,13 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := enrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	registry := control.NewRegistry()
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
@@ -100,13 +97,11 @@ func (h *pairingHarness) createFleetNode(t *testing.T, name string) int64 {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	signing, _, err := ed25519.GenerateKey(rand.Reader)
+	code, pendingEnrollmentID, _, err := h.enrollment.CreateCodeWithEnrollmentID(context.Background(), 1, h.orgID, time.Hour)
 	require.NoError(t, err)
-	code, _, err := h.enrollment.CreateCode(context.Background(), 1, h.orgID, time.Hour)
+	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
-	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey, signing)
-	require.NoError(t, err)
-	_, _, err = h.enrollment.Confirm(context.Background(), node.ID, h.orgID)
+	_, _, err = h.enrollment.ConfirmExpected(context.Background(), node.ID, h.orgID, pendingEnrollmentID)
 	require.NoError(t, err)
 	return node.ID
 }
@@ -128,6 +123,44 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	).Scan(&devID)
 	require.NoError(t, err)
 	return devID
+}
+
+func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
+	stream, err := h.registry.RegisterAuthenticated(
+		fleetNodeID,
+		"legacy",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+
+	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermFleetnodeManage), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+
+	resp, err = h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	pairingSummary := resp.Msg.GetFleetNodes()[0]
+	assert.Zero(t, pairingSummary.GetFleetNodeId())
+	assert.Empty(t, pairingSummary.GetName())
+	assert.Empty(t, pairingSummary.GetIdentityFingerprint())
+	assert.Nil(t, pairingSummary.GetCreatedAt())
+	assert.Nil(t, pairingSummary.GetLastSeenAt())
+	assert.Nil(t, pairingSummary.PendingEnrollmentId)
+	assert.Equal(t, pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED, pairingSummary.GetEnrollmentStatus())
+	assert.True(t, pairingSummary.GetCommandProtocolUpgradeRequired())
+	assert.True(t, pairingSummary.GetControlStreamConnected())
+
+	stream.Unregister()
+	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.False(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {

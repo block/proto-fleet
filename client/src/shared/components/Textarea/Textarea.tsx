@@ -119,7 +119,12 @@ const Textarea = ({
           id={id}
           data-testid={testId}
           className={clsx(
-            "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
+            // pointer-coarse:text-400 = 16px on touch devices. iOS auto-zooms a focused field
+            // whose font is under 16px and never zooms back out, leaving later views
+            // zoomed/overflowing. It's a WebKit behavior affecting every iOS browser (Safari,
+            // Chrome, Brave, ...) at any width/orientation — so target the coarse pointer, not a
+            // width breakpoint (which would miss landscape phones and iPads); desktop keeps 14px.
+            "peer w-full rounded-lg text-300 text-text-primary outline-hidden pointer-coarse:text-400",
             "transition duration-200 ease-in-out",
             { "bg-surface-base": !disabled },
             { "bg-core-primary-5": disabled },

@@ -10,6 +10,7 @@ interface BuildingMetricsRowProps {
   // `undefined` while stats are still loading; the Metric primitive renders
   // skeletons. `null` on any cell is the no-data em dash.
   stats: GetBuildingStatsResponse | undefined;
+  variant?: "default" | "compact";
   testId?: string;
 }
 
@@ -21,7 +22,7 @@ const formatMinersOnline = (hashing: number, total: number): string => {
 // Four-metric header for /buildings/:id. Mirrors the rack-overview top
 // strip (hashrate / power / efficiency / online) but power adds a capacity
 // denominator from the building's power_kw config field.
-const BuildingMetricsRow = ({ powerCapacityKw, stats, testId }: BuildingMetricsRowProps) => {
+const BuildingMetricsRow = ({ powerCapacityKw, stats, variant = "default", testId }: BuildingMetricsRowProps) => {
   // Per-field reporting counts so a device that reported state but not
   // efficiency doesn't pull the building average toward a misleading
   // partial number — render the dash instead.
@@ -38,10 +39,10 @@ const BuildingMetricsRow = ({ powerCapacityKw, stats, testId }: BuildingMetricsR
 
   return (
     <div className="grid grid-cols-2 gap-6 tablet:grid-cols-4" data-testid={testId ?? "building-metrics-row"}>
-      <Metric label="Hashrate" value={hashrate} testId="building-metric-hashrate" />
-      <Metric label="Power" value={power} testId="building-metric-power" />
-      <Metric label="Efficiency" value={efficiency} testId="building-metric-efficiency" />
-      <Metric label="Miners online" value={onlineDisplay} testId="building-metric-online" />
+      <Metric label="Hashrate" value={hashrate} variant={variant} testId="building-metric-hashrate" />
+      <Metric label="Power" value={power} variant={variant} testId="building-metric-power" />
+      <Metric label="Efficiency" value={efficiency} variant={variant} testId="building-metric-efficiency" />
+      <Metric label="Miners online" value={onlineDisplay} variant={variant} testId="building-metric-online" />
     </div>
   );
 };

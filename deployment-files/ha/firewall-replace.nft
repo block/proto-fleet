@@ -1,0 +1,2 @@
+delete table inet proto_fleet_ha
+include "/etc/proto-fleet/ha/firewall.nft"

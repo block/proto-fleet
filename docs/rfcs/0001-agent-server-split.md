@@ -174,8 +174,8 @@ Per-node identity and per-command issuance are signed independently. A compromis
 
 ### Node identity (ingress)
 
-- Each node generates two ed25519 keypairs at first run: an *identity* keypair for gateway-stream proof-of-possession, and a *miner-signing* keypair for Proto miner JWTs. Each is used in exactly one signing context, so a malicious cloud cannot use one handshake as a signing oracle for the other.
-- Both public keys register with the cloud at enrollment via a challenge-response flow: the node prints its identity-pubkey fingerprint locally on first run, and the operator confirms the same fingerprint appears in the UI before the cloud issues an api_key, so a substituted-pubkey attack from a compromised cloud fails the comparison.
+- Each node generates one ed25519 identity keypair at first run for gateway-stream proof-of-possession.
+- The identity public key registers with the cloud at enrollment via a challenge-response flow: the node prints its identity-pubkey fingerprint locally on first run, and the operator confirms the same fingerprint appears in the UI before the cloud issues an api_key, so a substituted-pubkey attack from a compromised cloud fails the comparison.
 - Gateway streams require both a long-lived bearer api_key (authorization) and a short-lived session token minted from a unary handshake (proof-of-possession). A leaked api_key alone cannot impersonate the node from another host.
 - Device-scoped actions are gated by a `node_device` ownership map populated only by operator-confirmed pairing; discovery never auto-claims ownership.
 
@@ -196,7 +196,7 @@ Two classes with different threat models.
 ### Pool and miner credentials: per-org symmetric key
 
 - One AES-256-GCM data key per org, present on every node in the org and never on the cloud.
-- The per-org data key is stored in a separate `0600`-protected file from the node identity and miner-signing private keys, so a single key-file disclosure does not yield both identity material and decryptable org credentials.
+- The per-org data key is stored in a separate `0600`-protected file from the node identity private key, so a single key-file disclosure does not yield both identity material and decryptable org credentials.
 - Cloud stores ciphertext; nodes decrypt just-in-time.
 - UI credential edits go through one online node for encryption; the cloud holds plaintext only for the round-trip.
 
@@ -216,21 +216,21 @@ Two classes with different threat models.
 - The UI tracks revocation-pending until both rotations complete.
 - Operators needing immediate cutoff couple revocation with network isolation.
 
-### Proto miner JWTs: per-node ed25519 keys
+### Proto miner credentials: node-reported pairing
 
-- Each node signs JWTs for its own miners using its miner-signing keypair. The cloud holds no signing key.
-- Migration re-pairs every Proto miner with its assigned node's pubkey while still in combined-mode, then flips to cloud-mode.
+- Nodes pair miners by using operator-supplied credentials or plugin defaults, then report the credentials that actually worked so the cloud can persist them for future actions.
+- Migration re-pairs every Proto miner with its assigned node while still in combined-mode, then flips to cloud-mode.
 - Ownership transfer between nodes is a re-pair handed off while the outgoing node is still trusted.
-- No firmware change required: the existing pair endpoint already overwrites the single authorized pubkey.
+- No firmware change required: the existing pair endpoint already accepts credential-based pairing.
 
 *Trade-off*:
 
-- Closes the cloud-as-signing-oracle gap and shrinks the compromise blast radius.
-- Costs: migration is heavyweight, and rotating a node's keypair forces re-pair across every miner it owns.
+- Keeps the cloud/node protocol aligned with existing miner authentication and avoids a second node keypair.
+- Costs: the cloud persists encrypted miner credentials and operators must rotate any credentials cached on a compromised or decommissioned node.
 
 *Node reinstall*:
 
-- *Planned same-host reinstall*: backup/restore of the key files **and the persisted `ControlStream` `monotonic_seq` counter**, atomically so the restored node refuses any command with `seq` at or below the restored high-water mark. Miners still trust the same keypair; no re-pair needed.
+- *Planned same-host reinstall*: backup/restore of the node state files **and the persisted `ControlStream` `monotonic_seq` counter**, atomically so the restored node refuses any command with `seq` at or below the restored high-water mark. Restored credentials let the node continue managing already paired miners; no re-pair needed.
 - *Planned hardware swap*: `TransferNode` before decommission, while the outgoing node is still alive to hand miners off.
 - *Unplanned loss*: manual factory-reset-and-re-pair on each affected miner. HSM-backed escrow is a future RFC.
 
@@ -250,8 +250,8 @@ Cloud-mode capability ramps up:
 | Phase | Ships | Behavior change | Combined-mode parity |
 | ----- | ----- | --------------- | -------------------- |
 | 1 | Gateway proto (lands every message field referenced by later phases up-front: `ControlCommand` signing fields `actor` / `monotonic_seq` / `signature`, `ControlGoaway` drain variant on `ControlStreamResponse`, `standby` flag on `ControlHello` and active-lease handshake for warm-standby), node-related schema, stub handler, mode flag | None | N/A (no behavior change) |
-| 2 | Node binary; per-org credential encryption; per-node Proto JWT signing with re-pair migration; device-scoped authz; revocation primitives (org-data-key rotation, per-credential rotation, revocation-pending state, gateway-access cutoff); `--mode=server` skips local I/O; **local-degraded-mode UI on the node**; **`/metrics` on server and node**; **per-command signing on `ControlStream`**; **Tier-1 HA shape** | New deployment shape, opt-in. Single node end-to-end with working incident-response controls and local override during WAN outage | Yes — local UI is no-op in combined mode (existing UI fills the role); per-command signing is no-op in-process; `/metrics` works identically |
-| 3 | Multi-node UI; visibility and transfer flows; combined-mode signer reassignment and rotation tools; **curtailment handlers implemented** | Cloud-style multi-site visible; curtailment works (cloud-initiated and local) | Yes |
+| 2 | Node binary; per-org credential encryption; node-reported miner credentials during re-pair migration; device-scoped authz; revocation primitives (org-data-key rotation, per-credential rotation, revocation-pending state, gateway-access cutoff); `--mode=server` skips local I/O; **local-degraded-mode UI on the node**; **`/metrics` on server and node**; **per-command signing on `ControlStream`**; **Tier-1 HA shape** | New deployment shape, opt-in. Single node end-to-end with working incident-response controls and local override during WAN outage | Yes — local UI is no-op in combined mode (existing UI fills the role); per-command signing is no-op in-process; `/metrics` works identically |
+| 3 | Multi-node UI; visibility and transfer flows; combined-mode ownership transfer and credential-rotation tools; **curtailment handlers implemented** | Cloud-style multi-site visible; curtailment works (cloud-initiated and local) | Yes |
 | 4 | Cloud Dockerfile and node installers; **graceful drain (`ControlGoaway`)**; **signed node release artifacts**; **optional mTLS** | New install paths | Yes — combined mode pulls the same signed release; mTLS off by default |
 | 5 | Internal package reorganization (core/server/node split) | None for combined-mode users | Yes |
 | 6 | SQLite-backed caches and offline spool; UI-edit encryption proxy; **cloud-forwarded host telemetry**; **warm-standby node pairs (operator-confirmed pair declaration, cloud-issued active lease, automatic standby promotion on heartbeat lapse)** | Node self-sufficient. Credential edits unblocked. Pair-level failover available | Yes — combined mode emits the same telemetry locally; warm-standby is no-op for single-binary deployments |

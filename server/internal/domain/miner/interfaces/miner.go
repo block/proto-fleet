@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 
@@ -72,6 +73,17 @@ type Miner interface {
 // install status after uploading firmware to a device.
 type FirmwareUpdateStatusProvider interface {
 	GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error)
+}
+
+// MinerPasswordCredentialUpdater returns node-encrypted credentials after a miner password update.
+type MinerPasswordCredentialUpdater interface {
+	UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error)
+}
+
+// MinerCurtailmentConfigurator is implemented by miners that can replace a
+// rig-local curtailment fallback configuration.
+type MinerCurtailmentConfigurator interface {
+	ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error
 }
 
 // MinerConfiguredPool represents a pool currently configured on a miner device

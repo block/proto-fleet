@@ -10,16 +10,17 @@
 //   - Clean SDK interface implementation
 //   - Proper error handling and logging
 //   - Resource management and cleanup
-//   - Concurrent device management
 package driver
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
@@ -28,19 +29,26 @@ import (
 
 const (
 	driverName         = "proto"
-	apiVersion         = "v1"
+	apiVersion         = "v2"
 	maxValidPortNumber = math.MaxUint16
 )
 
 var canonicalDiscoveryPorts = []int{443}
 
+var errMissingDeviceIdentity = errors.New("device did not provide")
+
+// defaultCredentials are the factory defaults for Proto rigs, tried during
+// auto-authentication when the operator does not supply credentials.
+var defaultCredentials = []sdk.UsernamePassword{
+	{Username: "admin", Password: "proto"},
+}
+
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
+var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
-	devices      map[string]sdk.Device
-	mutex        sync.RWMutex
 	requiredPort int
 }
 
@@ -48,12 +56,9 @@ type Driver struct {
 //
 // This function demonstrates proper driver initialization:
 //   - Sets up authentication services
-//   - Initializes device tracking
 //   - Handles initialization errors gracefully
 func New(port int) (*Driver, error) {
-
 	return &Driver{
-		devices:      make(map[string]sdk.Device),
 		requiredPort: port,
 	}, nil
 }
@@ -105,6 +110,8 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		// Security capabilities
 		sdk.CapabilityUpdateMinerPassword: true, // We can update miner web UI password
 
+		sdk.CapabilityLogLevels: true, // Device logs include a per-line log-level field
+
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true, // We support real-time telemetry
 		sdk.CapabilityHistoricalData:    true, // We support historical data
@@ -127,7 +134,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityManualUpload: true, // We support manual firmware upload
 
 		// Authentication capabilities
-		sdk.CapabilityAsymmetricAuth: true, // We use asymmetric key authentication
+		sdk.CapabilityBasicAuth: true, // We authenticate with username/password credentials
 
 		// Advanced capabilities - not yet implemented
 		sdk.CapabilityPollingPlugin: false, // Plugin-side polling not supported
@@ -178,23 +185,26 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	portInt32, err := sdk.ParsePort(port)
 	if err != nil {
-		return sdk.DeviceInfo{}, err
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
 	}
 
 	portInt := int(portInt32)
 
 	// Note: In integration tests, we may use different ports due to Docker port mapping
 	if !d.isAllowedDiscoveryPort(portInt) {
-		return sdk.DeviceInfo{}, fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port)
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
+			fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port))
 	}
 
 	if strings.TrimSpace(ipAddress) == "" {
-		return sdk.DeviceInfo{}, fmt.Errorf("host address cannot be empty")
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("host address cannot be empty"))
 	}
 
 	schemes := []string{"https", "http"}
 
-	var lastValidationErr error
+	var conclusiveErr error
+	var schemeMismatchErr error
+	var incompleteErr error
 
 	for _, scheme := range schemes {
 		deviceInfo, err := d.discoverWithScheme(ctx, ipAddress, portInt32, scheme)
@@ -209,16 +219,52 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			return deviceInfo, nil
 		}
 
-		if strings.Contains(err.Error(), "device did not provide") {
-			lastValidationErr = err
+		if conclusiveDiscoveryMiss(err) {
+			conclusiveErr = err
+		} else if discoverySchemeMismatch(err) {
+			schemeMismatchErr = err
+		} else {
+			incompleteErr = err
 		}
 	}
-
-	if lastValidationErr != nil {
-		return sdk.DeviceInfo{}, lastValidationErr
+	// A response successfully negotiated over either scheme is authoritative.
+	// The expected failure of trying the other transport must not turn a 404,
+	// 405, or structurally non-Proto response into an incomplete subnet scan.
+	if conclusiveErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, conclusiveErr)
+	}
+	if incompleteErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceUnavailable,
+			fmt.Errorf("failed to discover proto miner at %s:%s: %w", ipAddress, port, incompleteErr))
 	}
 
-	return sdk.DeviceInfo{}, fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port)
+	if schemeMismatchErr != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound, schemeMismatchErr)
+	}
+
+	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
+		fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port))
+}
+
+func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
+	return sdk.SDKError{Code: code, Message: err.Error(), Err: err}
+}
+
+func conclusiveDiscoveryMiss(err error) bool {
+	if errors.Is(err, errMissingDeviceIdentity) || errors.Is(err, proto.ErrHTMLResponse) {
+		return true
+	}
+	var statusErr *proto.HTTPStatusError
+	return errors.As(err, &statusErr) &&
+		(statusErr.StatusCode == http.StatusNotFound || statusErr.StatusCode == http.StatusMethodNotAllowed)
+}
+
+func discoverySchemeMismatch(err error) bool {
+	if strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
+		return true
+	}
+	var tlsErr tls.RecordHeaderError
+	return errors.As(err, &tlsErr)
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {
@@ -254,10 +300,10 @@ func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto
 	}
 
 	if info.SerialNumber == "" {
-		return nil, fmt.Errorf("device did not provide serial number")
+		return nil, fmt.Errorf("%w serial number", errMissingDeviceIdentity)
 	}
 	if info.MacAddress == "" {
-		return nil, fmt.Errorf("device did not provide MAC address")
+		return nil, fmt.Errorf("%w MAC address", errMissingDeviceIdentity)
 	}
 
 	return info, nil
@@ -324,13 +370,26 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	deviceInfo.SerialNumber = info.SerialNumber
 	deviceInfo.MacAddress = info.MacAddress
 
-	publicKey, ok := access.Kind.(sdk.APIKey)
+	credentials, ok := access.Kind.(sdk.UsernamePassword)
 	if !ok {
-		return sdk.DeviceInfo{}, fmt.Errorf("expected APIKey in secret bundle for pairing, got %T", access.Kind)
+		return sdk.DeviceInfo{}, fmt.Errorf("expected UsernamePassword in secret bundle for pairing, got %T", access.Kind)
 	}
 
-	if err := client.Pair(ctx, publicKey); err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
+	if err := client.SetCredentials(credentials); err != nil {
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
+	}
+
+	if err := client.Authenticate(ctx); err != nil {
+		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+	}
+
+	// Record default-password state at pair time so the server can flag remediation
+	// without waiting for the first poll; leave unset on a probe failure.
+	if active, err := client.IsDefaultPasswordActive(ctx); err != nil {
+		slog.Debug("failed to read default-password status during pairing",
+			"serial", deviceInfo.SerialNumber, "error", err)
+	} else {
+		deviceInfo.DefaultPasswordActive = &active
 	}
 
 	return deviceInfo, nil
@@ -342,7 +401,6 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 // It demonstrates:
 //   - Device instance lifecycle management
 //   - Credential handling and storage
-//   - Concurrent device tracking
 func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 	slog.Debug("Plugin NewDevice called",
 		"device_id", deviceID,
@@ -350,23 +408,41 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		"host", deviceInfo.Host,
 		"port", deviceInfo.Port)
 
-	token, ok := secret.Kind.(sdk.BearerToken)
-	if !ok {
-		return sdk.NewDeviceResult{}, fmt.Errorf("expected BearerToken in secret bundle, got %T", secret.Kind)
-	}
-
-	dev, err := device.New(deviceID, deviceInfo, token)
+	dev, err := newDeviceFromSecret(ctx, deviceID, deviceInfo, secret)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
 
-	d.mutex.Lock()
-	d.devices[deviceID] = dev
-	d.mutex.Unlock()
-
-	slog.Info("Plugin device instance created successfully",
-		"device_id", deviceID,
-		"serial", deviceInfo.SerialNumber,
-		"total_devices", len(d.devices))
 	return sdk.NewDeviceResult{Device: dev}, nil
+}
+
+func newDeviceFromSecret(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
+	credentials, err := credentialsFromSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+	return device.New(ctx, deviceID, deviceInfo, credentials)
+}
+
+// GetDefaultCredentials implements sdk.DefaultCredentialsProvider, enabling the
+// server to auto-authenticate Proto rigs with factory defaults during pairing.
+func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
+	return defaultCredentials
+}
+
+// credentialsFromSecret extracts the credentials from a secret bundle. Missing
+// credentials and explicit empty passwords are rejected rather than upgraded to
+// factory defaults.
+func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
+	switch kind := secret.Kind.(type) {
+	case nil:
+		return sdk.UsernamePassword{}, fmt.Errorf("credentials are required in secret bundle")
+	case sdk.UsernamePassword:
+		if kind.Password == "" {
+			return sdk.UsernamePassword{}, fmt.Errorf("password is required in secret bundle")
+		}
+		return kind, nil
+	default:
+		return sdk.UsernamePassword{}, fmt.Errorf("expected UsernamePassword in secret bundle, got %T", secret.Kind)
+	}
 }

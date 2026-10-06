@@ -175,6 +175,11 @@ type DeviceMetrics struct {
 	Health       HealthStatus
 	HealthReason *string
 
+	// DefaultPasswordActive is non-nil only when the plugin determined the state:
+	// true means the rig still uses its factory password; nil means undetermined
+	// (e.g. probe failed) and consumers must not change remediation state.
+	DefaultPasswordActive *bool
+
 	// Device-level aggregated metrics
 	HashrateHS   *MetricValue
 	TempC        *MetricValue
@@ -262,13 +267,32 @@ type CurtailRequest struct {
 // UncurtailRequest describes a request to restore a previously curtailed device.
 type UncurtailRequest struct{}
 
-// APIKey represents API key authentication
-type APIKey struct {
-	Key string
+// CurtailmentConfig configures the rig-local curtailment fallback. Fleet sends
+// the complete desired configuration so rig state does not depend on a
+// sequence of incremental updates.
+type CurtailmentConfig struct {
+	Enabled               bool
+	FailPolicy            string
+	RestorePolicy         string
+	NATSURL               string
+	MCDDGRPCAddress       string
+	StatusPublishInterval string
+	Providers             []CurtailmentProviderConfig
 }
 
-func (a APIKey) String() string {
-	return "APIKey(*****)"
+// CurtailmentProviderConfig configures one Maestro MQTT source on a rig.
+type CurtailmentProviderConfig struct {
+	Name             string
+	Type             string
+	Enabled          bool
+	Brokers          []string
+	Port             int32
+	Username         string
+	Password         string
+	Topic            string
+	QOS              int32
+	StaleAfter       string
+	ReconnectBackoff string
 }
 
 // UsernamePassword represents username/password authentication
@@ -304,7 +328,7 @@ func (t TLSClientCert) String() string {
 // SecretBundle represents authentication credentials
 type SecretBundle struct {
 	Version string
-	Kind    interface{} // can be APIKey, UsernamePassword, BearerToken, or TLSClientCert
+	Kind    interface{} // can be UsernamePassword, BearerToken, or TLSClientCert
 	TTL     *time.Duration
 }
 
@@ -338,6 +362,9 @@ type DeviceInfo struct {
 	Manufacturer    string // e.g., "Bitmain" (maps to proto 'manufacturer')
 	MacAddress      string // e.g., "00:1A:2B:3C:4D:5E" (maps to proto 'mac_address')
 	FirmwareVersion string // e.g., "1.2.3" (maps to proto 'firmware_version')
+	// DefaultPasswordActive is set by PairDevice: non-nil true means the device is
+	// paired but still on its factory password; nil means undetermined.
+	DefaultPasswordActive *bool
 }
 
 // HealthStatus represents the health status of a device
@@ -390,6 +417,12 @@ type DeviceCurtailment interface {
 	Uncurtail(ctx context.Context, req UncurtailRequest) error
 }
 
+// DeviceCurtailmentConfigurator is optional. Devices advertising this
+// interface accept Fleet's complete desired rig-local fallback config.
+type DeviceCurtailmentConfigurator interface {
+	ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error
+}
+
 // DeviceConfiguration represents device configuration operations
 type DeviceConfiguration interface {
 	// CoreV1 - Configuration methods (required)
@@ -408,8 +441,10 @@ type DeviceConfiguration interface {
 // FirmwareFile represents a firmware file to be uploaded to a device.
 type FirmwareFile struct {
 	Reader   io.Reader
+	ID       string
 	Filename string
 	Size     int64
+	SHA256   string
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
 }
 
@@ -529,6 +564,7 @@ const (
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support
+	CapabilityLogLevels          = "log_levels"           // Device logs include a per-line log-level field
 	//#nosec G101 -- Capability constant name, not actual credentials
 	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support
 
@@ -561,6 +597,5 @@ const (
 	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
 
 	// Authentication capabilities
-	CapabilityBasicAuth      = "basic_auth"      // Basic (username/password) authentication
-	CapabilityAsymmetricAuth = "asymmetric_auth" // Asymmetric key authentication
+	CapabilityBasicAuth = "basic_auth" // Basic (username/password) authentication
 )

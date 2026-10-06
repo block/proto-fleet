@@ -19,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// NoteServiceName is the fully-qualified name of the NoteService service.
@@ -70,31 +70,26 @@ type NoteServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewNoteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) NoteServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	noteServiceMethods := v1.File_notes_v1_notes_proto.Services().ByName("NoteService").Methods()
 	return &noteServiceClient{
 		listNotes: connect.NewClient[v1.ListNotesRequest, v1.ListNotesResponse](
 			httpClient,
 			baseURL+NoteServiceListNotesProcedure,
-			connect.WithSchema(noteServiceMethods.ByName("ListNotes")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		createNote: connect.NewClient[v1.CreateNoteRequest, v1.CreateNoteResponse](
 			httpClient,
 			baseURL+NoteServiceCreateNoteProcedure,
-			connect.WithSchema(noteServiceMethods.ByName("CreateNote")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		updateNote: connect.NewClient[v1.UpdateNoteRequest, v1.UpdateNoteResponse](
 			httpClient,
 			baseURL+NoteServiceUpdateNoteProcedure,
-			connect.WithSchema(noteServiceMethods.ByName("UpdateNote")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		deleteNote: connect.NewClient[v1.DeleteNoteRequest, v1.DeleteNoteResponse](
 			httpClient,
 			baseURL+NoteServiceDeleteNoteProcedure,
-			connect.WithSchema(noteServiceMethods.ByName("DeleteNote")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -150,30 +145,25 @@ type NoteServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewNoteServiceHandler(svc NoteServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	noteServiceMethods := v1.File_notes_v1_notes_proto.Services().ByName("NoteService").Methods()
 	noteServiceListNotesHandler := connect.NewUnaryHandler(
 		NoteServiceListNotesProcedure,
 		svc.ListNotes,
-		connect.WithSchema(noteServiceMethods.ByName("ListNotes")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	noteServiceCreateNoteHandler := connect.NewUnaryHandler(
 		NoteServiceCreateNoteProcedure,
 		svc.CreateNote,
-		connect.WithSchema(noteServiceMethods.ByName("CreateNote")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	noteServiceUpdateNoteHandler := connect.NewUnaryHandler(
 		NoteServiceUpdateNoteProcedure,
 		svc.UpdateNote,
-		connect.WithSchema(noteServiceMethods.ByName("UpdateNote")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	noteServiceDeleteNoteHandler := connect.NewUnaryHandler(
 		NoteServiceDeleteNoteProcedure,
 		svc.DeleteNote,
-		connect.WithSchema(noteServiceMethods.ByName("DeleteNote")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/notes.v1.NoteService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

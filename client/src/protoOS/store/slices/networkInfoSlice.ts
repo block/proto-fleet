@@ -15,6 +15,7 @@ export interface NetworkInfoSlice extends NetworkInfoNetworkinfo {
   setNetworkInfo: (networkInfo: NetworkInfoNetworkinfo | undefined) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
+  reset: () => void;
 }
 
 // =============================================================================
@@ -41,5 +42,19 @@ export const createNetworkInfoSlice: StateCreator<MinerStore, [["zustand/immer",
   setPending: (pending) =>
     set((state) => {
       state.networkInfo.pending = pending;
+    }),
+
+  // setNetworkInfo(undefined) is a no-op by design (it only merges truthy
+  // values), so a real clear must remove the flattened API fields. Delete every
+  // data field (everything that isn't an action) so a miner switch fully clears
+  // the previous device's network info (IP/MAC/etc.).
+  reset: () =>
+    set((state) => {
+      const slice = state.networkInfo as unknown as Record<string, unknown>;
+      for (const key of Object.keys(slice)) {
+        if (typeof slice[key] !== "function") {
+          delete slice[key];
+        }
+      }
     }),
 });

@@ -24,7 +24,7 @@ func NewSQLSessionStore(conn *sql.DB) *SQLSessionStore {
 	}
 }
 
-func (s *SQLSessionStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLSessionStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

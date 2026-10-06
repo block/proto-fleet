@@ -8,12 +8,15 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
+import FleetHealth from "@/protoFleet/features/groupManagement/components/FleetHealth";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -27,7 +30,6 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.POWER,
   MeasurementType.TEMPERATURE,
   MeasurementType.EFFICIENCY,
-  MeasurementType.UPTIME,
 ];
 
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
@@ -36,6 +38,7 @@ const GroupOverviewPage = () => {
   const { groupLabel } = useParams<{ groupLabel: string }>();
   const label = groupLabel ?? "";
   const navigate = useNavigate();
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   // Group resolution state
   const [group, setGroup] = useState<DeviceSet | null>(null);
@@ -46,6 +49,8 @@ const GroupOverviewPage = () => {
   const [showEditModal, setShowEditModal] = useState(false);
 
   const { listGroups, listGroupMembers } = useDeviceSets();
+
+  const groupDetailHref = useCallback((nextLabel: string) => `/groups/${encodeURIComponent(nextLabel)}`, []);
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -74,7 +79,7 @@ const GroupOverviewPage = () => {
           setGroup(match);
           // If the label changed (e.g., after edit), navigate to the new URL
           if (match.label !== resolveLabel) {
-            navigate(`/groups/${encodeURIComponent(match.label)}`);
+            navigate(groupDetailHref(match.label));
             return;
           }
           listGroupMembers({
@@ -98,7 +103,7 @@ const GroupOverviewPage = () => {
         },
       });
     },
-    [listGroups, listGroupMembers, navigate],
+    [groupDetailHref, listGroups, listGroupMembers, navigate],
   );
 
   // Resolve group label → group object → device IDs
@@ -118,6 +123,7 @@ const GroupOverviewPage = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // Component errors scoped to group's devices
   // Pass undefined when no members yet (loading); pass empty array for truly empty groups
@@ -201,10 +207,13 @@ const GroupOverviewPage = () => {
             inline
             icon={<ChevronDown className="rotate-90" />}
             iconAriaLabel="Back to groups"
-            iconOnClick={() => navigate("/groups")}
+            iconOnClick={() => navigate(scopedPath("/groups", activeSite))}
           >
             <div className="ml-3 flex items-center gap-3">
-              <Button variant={variants.secondary} onClick={() => navigate(`/miners?group=${group?.id}`)}>
+              <Button
+                variant={variants.secondary}
+                onClick={() => navigate(scopedPath(`/fleet/miners?group=${group?.id}`, activeSite))}
+              >
                 View miners
               </Button>
               <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
@@ -224,8 +233,8 @@ const GroupOverviewPage = () => {
         </div>
 
         {/* Overview Section */}
-        <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
+        <section className="px-4 pt-10 laptop:px-8" data-testid="group-overview-section">
+          <div className="flex flex-col gap-1 overflow-visible p-2">
             <FleetHealth
               title="Miners"
               fleetSize={stateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
@@ -234,25 +243,28 @@ const GroupOverviewPage = () => {
               offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
               sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
               extraFilterParams={group ? `group=${group.id}` : undefined}
-              totalMinersLink={group ? `/miners?group=${group.id}` : undefined}
+              totalMinersLink={group ? scopedPath(`/fleet/miners?group=${group.id}`, activeSite) : undefined}
+              activeSite={activeSite}
             />
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
               fanErrors={fanErrors}
+              gapClassName="gap-1"
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
               extraFilterParams={group ? `group=${group.id}` : undefined}
+              activeSite={activeSite}
             />
           </div>
         </section>
 
         {/* Performance Section */}
-        <section className="pb-6">
+        <section className="pb-6" data-testid="group-performance-section">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-10 pb-1 laptop:px-10`}>
+            <div className="flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -306,8 +318,8 @@ const GroupOverviewPage = () => {
             </div>
           </div>
 
-          <div className="px-6 laptop:px-10">
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          <div className="px-4 laptop:px-8">
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
           <div ref={refs.vertical.end} />

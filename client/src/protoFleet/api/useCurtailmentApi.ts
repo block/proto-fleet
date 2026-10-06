@@ -1,12 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  type ActiveCurtailmentSnapshot,
   applyActiveCurtailmentEvent,
+  clearMutationBackedActiveCurtailmentEvent,
   dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
+  preserveActiveCurtailmentEvents,
+  selectActiveCurtailmentEvent,
   useActiveCurtailmentEvent,
+  useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
@@ -17,13 +23,17 @@ import {
   mapCurtailmentHistoryEvent,
 } from "@/protoFleet/api/curtailmentMappers";
 import {
+  AdminTerminateEventRequestSchema,
   CurtailmentEventSchema,
+  ForceReleaseCurtailmentOwnershipRequestSchema,
+  GetCurtailmentEventRequestSchema,
   ListCurtailmentEventsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentEventState as ProtoCurtailmentEventState,
   StopCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
+import type { SiteNameById } from "@/protoFleet/api/siteNames";
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   type CurtailmentEventState,
@@ -45,8 +55,13 @@ export interface RefreshCurtailmentOptions {
   signal?: AbortSignal;
 }
 
+export interface UseCurtailmentApiOptions {
+  siteNameById?: SiteNameById;
+}
+
 interface CurtailmentSnapshot {
   activeEvent: ActiveCurtailmentEvent | null;
+  activeEvents: CurtailmentHistoryEvent[];
   activeEventId: string | null;
   activeEventFormValues: CurtailmentSubmitValues | null;
   historyEvents: CurtailmentHistoryEvent[];
@@ -57,21 +72,53 @@ interface CurtailmentHistoryPage {
   nextPageToken: string;
 }
 
+interface ReadableRestoringEvents {
+  eventIds: Set<string>;
+  terminalEvents: ProtoCurtailmentEvent[];
+}
+
 interface CurtailmentHistoryPaginationState {
   currentPage: number;
   nextPageToken: string;
   pageTokens: (string | undefined)[];
 }
 
+export type AdminTerminateCurtailmentState = Extract<CurtailmentEventState, "cancelled" | "failed">;
+
+export interface AdminTerminateCurtailmentOptions {
+  reason: string;
+  targetState: AdminTerminateCurtailmentState;
+}
+
+export interface ForceReleaseCurtailmentOptions {
+  reason: string;
+}
+
+export interface ForceReleaseCurtailmentResult {
+  event: ProtoCurtailmentEvent;
+  releasedTargetCount: number;
+  ownershipReleased: boolean;
+  restoreAttempted: boolean;
+  automationDisabled: boolean;
+}
+
+export interface StopCurtailmentOptions {
+  force?: boolean;
+}
+
+export const adminTerminateReasonRequiredMessage = "Enter a reason before terminating the event.";
+
 export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   isLoading: boolean;
   isStarting: boolean;
   isUpdating: boolean;
   stoppingEventId: string | null;
+  adminTerminatingEventId: string | null;
   loadError: string | null;
   startError: string | null;
   updateError: string | null;
   stopError: string | null;
+  adminTerminateError: string | null;
   historyCurrentPage: number;
   historyHasNextPage: boolean;
   historyHasPreviousPage: boolean;
@@ -91,6 +138,10 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     stateFilters?: CurtailmentEventState[],
     options?: Pick<RefreshCurtailmentOptions, "signal">,
   ) => Promise<CurtailmentSnapshot>;
+  selectActiveCurtailment: (
+    eventUuid: string,
+    options?: Pick<RefreshCurtailmentOptions, "signal">,
+  ) => Promise<Omit<CurtailmentSnapshot, "activeEvents" | "historyEvents">>;
   startCurtailment: (values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
   dismissTerminalCurtailment: () => void;
   updateCurtailment: (
@@ -98,7 +149,15 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     values: CurtailmentSubmitValues,
     initialValues?: Partial<CurtailmentSubmitValues>,
   ) => Promise<ProtoCurtailmentEvent>;
-  stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
+  stopCurtailment: (eventUuid: string, options?: StopCurtailmentOptions) => Promise<ProtoCurtailmentEvent>;
+  adminTerminateCurtailment: (
+    eventUuid: string,
+    options: AdminTerminateCurtailmentOptions,
+  ) => Promise<ProtoCurtailmentEvent>;
+  forceReleaseCurtailment: (
+    eventUuid: string,
+    options: ForceReleaseCurtailmentOptions,
+  ) => Promise<ForceReleaseCurtailmentResult>;
 }
 
 const curtailmentHistoryPageSize = 50;
@@ -109,6 +168,7 @@ const initialHistoryPagination: CurtailmentHistoryPaginationState = {
 };
 const initialCurtailmentSnapshot: CurtailmentSnapshot = {
   activeEvent: null,
+  activeEvents: [],
   activeEventId: null,
   activeEventFormValues: null,
   historyEvents: [],
@@ -134,6 +194,15 @@ const activeReconciliationHistoryStateFilters: CurtailmentEventState[] = [
   "cancelled",
   "failed",
 ];
+const vanishedRestoringUnreadableErrorCodes = new Set<Code>([Code.NotFound, Code.PermissionDenied]);
+const adminTerminateStateMap: Record<AdminTerminateCurtailmentState, ProtoCurtailmentEventState> = {
+  cancelled: ProtoCurtailmentEventState.CANCELLED,
+  failed: ProtoCurtailmentEventState.FAILED,
+};
+
+function isVanishedRestoringUnreadableError(error: unknown): boolean {
+  return error instanceof ConnectError && vanishedRestoringUnreadableErrorCodes.has(error.code);
+}
 
 function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
   switch (stateFilter) {
@@ -167,7 +236,14 @@ function mapHistoryStateFilters(stateFilters: readonly CurtailmentEventState[]):
     .filter((state) => state !== ProtoCurtailmentEventState.UNSPECIFIED);
 }
 
-function getActiveSnapshotEvent(activeEvent: ProtoCurtailmentEvent | undefined): ActiveCurtailmentEvent | null {
+function mapAdminTerminateState(targetState: AdminTerminateCurtailmentState): ProtoCurtailmentEventState {
+  return adminTerminateStateMap[targetState];
+}
+
+function getActiveSnapshotEvent(
+  activeEvent: ProtoCurtailmentEvent | undefined,
+  siteNameById?: SiteNameById,
+): ActiveCurtailmentEvent | null {
   if (!activeEvent) {
     return null;
   }
@@ -177,18 +253,20 @@ function getActiveSnapshotEvent(activeEvent: ProtoCurtailmentEvent | undefined):
     return null;
   }
 
-  return mapActiveCurtailmentEvent(activeEvent);
+  return mapActiveCurtailmentEvent(activeEvent, { siteNameById });
 }
 
 function getActiveSnapshotFields(
   activeEvent: ProtoCurtailmentEvent | undefined,
-): Omit<CurtailmentSnapshot, "historyEvents"> {
-  const nextActiveEvent = getActiveSnapshotEvent(activeEvent);
+  siteNameById?: SiteNameById,
+): Omit<CurtailmentSnapshot, "activeEvents" | "historyEvents"> {
+  const nextActiveEvent = getActiveSnapshotEvent(activeEvent, siteNameById);
 
   return {
     activeEvent: nextActiveEvent,
     activeEventId: activeEvent && nextActiveEvent ? activeEvent.eventUuid : null,
-    activeEventFormValues: activeEvent && nextActiveEvent ? mapCurtailmentEventToFormValues(activeEvent) : null,
+    activeEventFormValues:
+      activeEvent && nextActiveEvent ? (mapCurtailmentEventToFormValues(activeEvent, { siteNameById }) ?? null) : null,
   };
 }
 
@@ -202,8 +280,9 @@ function markInjectedActiveHistoryEvent(event: CurtailmentHistoryEvent): Curtail
 function getActiveHistoryEvent(
   activeEvent: ProtoCurtailmentEvent,
   historyEvents: CurtailmentHistoryEvent[],
+  siteNameById?: SiteNameById,
 ): CurtailmentHistoryEvent {
-  const mappedActiveEvent = mapActiveCurtailmentHistoryEvent(activeEvent);
+  const mappedActiveEvent = mapActiveCurtailmentHistoryEvent(activeEvent, { siteNameById });
   const matchingHistoryEvent = historyEvents.find((event) => event.id === mappedActiveEvent.id);
 
   if (!matchingHistoryEvent) {
@@ -214,29 +293,187 @@ function getActiveHistoryEvent(
     return matchingHistoryEvent;
   }
 
+  if (!mappedActiveEvent.targetMetricsAvailable && matchingHistoryEvent.targetMetricsAvailable) {
+    return {
+      ...mappedActiveEvent,
+      selectedMiners: matchingHistoryEvent.selectedMiners,
+      estimatedReductionKw: matchingHistoryEvent.estimatedReductionKw,
+      targetKw: matchingHistoryEvent.targetKw,
+      targetMetricsAvailable: true,
+      estimatedReductionAvailable: matchingHistoryEvent.estimatedReductionAvailable,
+      sourceLabel: matchingHistoryEvent.sourceLabel,
+    };
+  }
+
+  // Summary-only active rows prove live counts but not a kW estimate; keep
+  // the live count and backfill the estimate from the server history row's
+  // audit snapshot when it has one.
+  if (
+    mappedActiveEvent.estimatedReductionAvailable === false &&
+    matchingHistoryEvent.targetMetricsAvailable &&
+    matchingHistoryEvent.estimatedReductionAvailable !== false
+  ) {
+    return {
+      ...mappedActiveEvent,
+      estimatedReductionKw: matchingHistoryEvent.estimatedReductionKw,
+      estimatedReductionAvailable: true,
+      sourceLabel: matchingHistoryEvent.sourceLabel,
+    };
+  }
+
   return {
     ...mappedActiveEvent,
     sourceLabel: matchingHistoryEvent.sourceLabel,
   };
 }
 
+function getActiveEventInputs(
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
+): ProtoCurtailmentEvent[] {
+  if (!selectedActiveEvent) {
+    return activeEvents;
+  }
+
+  const selectedEventIndex = activeEvents.findIndex((event) => event.eventUuid === selectedActiveEvent.eventUuid);
+  if (selectedEventIndex === -1) {
+    return [selectedActiveEvent, ...activeEvents];
+  }
+
+  return activeEvents.map((event, index) => (index === selectedEventIndex ? selectedActiveEvent : event));
+}
+
+function isRestoringCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return event.state === ProtoCurtailmentEventState.RESTORING;
+}
+
+function isTerminalProtoCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(event.state));
+}
+
+function mergeUniqueCurtailmentEvents(
+  preferredEvents: ProtoCurtailmentEvent[],
+  events: ProtoCurtailmentEvent[],
+): ProtoCurtailmentEvent[] {
+  if (preferredEvents.length === 0) {
+    return events;
+  }
+  const preferredEventIds = new Set(preferredEvents.map((event) => event.eventUuid));
+  return [...preferredEvents, ...events.filter((event) => !preferredEventIds.has(event.eventUuid))];
+}
+
+function hasTerminalHistoryEvent(event: ProtoCurtailmentEvent, historyEvents: ProtoCurtailmentEvent[]): boolean {
+  const matchingHistoryEvent = historyEvents.find((historyEvent) => historyEvent.eventUuid === event.eventUuid);
+  return Boolean(
+    matchingHistoryEvent &&
+    historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(matchingHistoryEvent.state)),
+  );
+}
+
+function getVanishedRestoringEvents(
+  previousActiveEvents: ProtoCurtailmentEvent[],
+  nextActiveEvents: ProtoCurtailmentEvent[],
+): ProtoCurtailmentEvent[] {
+  const nextActiveEventIds = new Set(nextActiveEvents.map((event) => event.eventUuid));
+  return previousActiveEvents.filter(
+    (event) => isRestoringCurtailmentEvent(event) && !nextActiveEventIds.has(event.eventUuid),
+  );
+}
+
+function getVanishedRestoringEventsToPreserve(
+  previousActiveEvents: ProtoCurtailmentEvent[],
+  nextActiveEvents: ProtoCurtailmentEvent[],
+  historyEvents: ProtoCurtailmentEvent[],
+): ProtoCurtailmentEvent[] {
+  return getVanishedRestoringEvents(previousActiveEvents, nextActiveEvents).filter(
+    (event) => !hasTerminalHistoryEvent(event, historyEvents),
+  );
+}
+
+function hasTerminalHistoryEventId(eventUuid: string, historyEvents: CurtailmentHistoryEvent[]): boolean {
+  const matchingHistoryEvent = historyEvents.find((event) => event.id === eventUuid);
+  return Boolean(matchingHistoryEvent && historyTerminalCurtailmentEventStates.has(matchingHistoryEvent.state));
+}
+
+function getActiveSnapshotForReconciliation(
+  currentSnapshot: ActiveCurtailmentSnapshot,
+  previousSnapshot: ActiveCurtailmentSnapshot,
+  historyEvents: CurtailmentHistoryEvent[],
+  readableVanishedRestoringEventIds = new Set<string>(),
+): ActiveCurtailmentSnapshot {
+  const currentEventUuids = new Set(currentSnapshot.events.map((event) => event.eventUuid));
+  if (currentSnapshot.event) {
+    currentEventUuids.add(currentSnapshot.event.eventUuid);
+  }
+  const vanishedRestoringEvents = previousSnapshot.events.filter(
+    (event) =>
+      event.state === ProtoCurtailmentEventState.RESTORING &&
+      !currentEventUuids.has(event.eventUuid) &&
+      readableVanishedRestoringEventIds.has(event.eventUuid) &&
+      !hasTerminalHistoryEventId(event.eventUuid, historyEvents),
+  );
+  const event =
+    previousSnapshot.event?.state === ProtoCurtailmentEventState.RESTORING &&
+    !currentEventUuids.has(previousSnapshot.event.eventUuid) &&
+    readableVanishedRestoringEventIds.has(previousSnapshot.event.eventUuid) &&
+    !hasTerminalHistoryEventId(previousSnapshot.event.eventUuid, historyEvents)
+      ? previousSnapshot.event
+      : currentSnapshot.event;
+
+  return {
+    event,
+    events:
+      vanishedRestoringEvents.length > 0
+        ? [...currentSnapshot.events, ...vanishedRestoringEvents]
+        : currentSnapshot.events,
+  };
+}
+
+function getActiveHistoryEvents(
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
+  historyEvents: CurtailmentHistoryEvent[],
+  stateFilters: readonly CurtailmentEventState[] = [],
+  siteNameById?: SiteNameById,
+): CurtailmentHistoryEvent[] {
+  return getActiveEventInputs(activeEvents, selectedActiveEvent)
+    .filter((event) => shouldIncludeActiveEventInHistory(event, stateFilters))
+    .map((event) => getActiveHistoryEvent(event, historyEvents, siteNameById));
+}
+
 function createSnapshot(
   activeEvent: ProtoCurtailmentEvent | undefined,
+  activeEvents: ProtoCurtailmentEvent[],
   historyEvents: ProtoCurtailmentEvent[],
+  stateFilters: readonly CurtailmentEventState[] = [],
   includeActiveInHistory = true,
+  siteNameById?: SiteNameById,
 ): CurtailmentSnapshot {
-  const nextHistoryEvents = historyEvents.map(mapCurtailmentHistoryEvent);
+  const nextHistoryEvents = historyEvents.map((event) => mapCurtailmentHistoryEvent(event, { siteNameById }));
+  const activeHistoryEvents = getActiveHistoryEvents(activeEvents, activeEvent, nextHistoryEvents, [], siteNameById);
 
-  if (includeActiveInHistory && activeEvent) {
-    const activeHistoryEvent = getActiveHistoryEvent(activeEvent, nextHistoryEvents);
+  if (includeActiveInHistory && activeHistoryEvents.length > 0) {
+    const filteredActiveHistoryEvents = getActiveHistoryEvents(
+      activeEvents,
+      activeEvent,
+      nextHistoryEvents,
+      stateFilters,
+      siteNameById,
+    );
+    const filteredActiveEventIds = new Set(filteredActiveHistoryEvents.map((event) => event.id));
     return {
-      ...getActiveSnapshotFields(activeEvent),
-      historyEvents: [activeHistoryEvent, ...nextHistoryEvents.filter((event) => event.id !== activeHistoryEvent.id)],
+      ...getActiveSnapshotFields(activeEvent, siteNameById),
+      activeEvents: activeHistoryEvents,
+      historyEvents: [
+        ...filteredActiveHistoryEvents,
+        ...nextHistoryEvents.filter((event) => !filteredActiveEventIds.has(event.id)),
+      ],
     };
   }
 
   return {
-    ...getActiveSnapshotFields(activeEvent),
+    ...getActiveSnapshotFields(activeEvent, siteNameById),
+    activeEvents: activeHistoryEvents,
     historyEvents: nextHistoryEvents,
   };
 }
@@ -272,6 +509,10 @@ function reconcileActiveEventWithHistory(
     endedAt: matchingHistoryEvent.endedAt ?? activeEvent.endedAt,
     updatedAt: matchingHistoryEvent.updatedAt ?? activeEvent.updatedAt,
     targetRollup: matchingHistoryEvent.targetRollup,
+    fanOffSentAt: matchingHistoryEvent.fanOffSentAt,
+    fanOnSentAt: matchingHistoryEvent.fanOnSentAt,
+    fanAirflowReopenedAt: matchingHistoryEvent.fanAirflowReopenedAt,
+    fanLastError: matchingHistoryEvent.fanLastError,
     targets,
   });
 }
@@ -284,7 +525,7 @@ function getRestoringEventForTerminalReconciliation(
     return activeEvent;
   }
 
-  return !activeEvent && fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
+  return fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
 }
 
 function reconcileTerminalRestoringEventWithHistory(
@@ -311,14 +552,14 @@ function reconcileActiveEventWithTerminalFallback(
   fallbackEvent: ProtoCurtailmentEvent | undefined,
   historyEvents: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
-  const reconciledActiveEvent = reconcileActiveEventWithHistory(activeEvent, historyEvents);
-  if (reconciledActiveEvent || activeEvent) {
-    return reconciledActiveEvent;
-  }
-
   const terminalFallbackEvent = reconcileTerminalRestoringEventWithHistory(fallbackEvent, historyEvents);
   if (terminalFallbackEvent) {
     return terminalFallbackEvent;
+  }
+
+  const reconciledActiveEvent = reconcileActiveEventWithHistory(activeEvent, historyEvents);
+  if (reconciledActiveEvent || activeEvent) {
+    return reconciledActiveEvent;
   }
 
   return fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
@@ -340,30 +581,43 @@ function removeInjectedActiveHistoryEvent(events: CurtailmentHistoryEvent[]): Cu
 
 function getHistoryEventsWithActiveEvent(
   events: CurtailmentHistoryEvent[],
-  activeEvent: ProtoCurtailmentEvent | undefined,
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
   stateFilters: readonly CurtailmentEventState[],
   currentPage: number,
+  siteNameById?: SiteNameById,
 ): CurtailmentHistoryEvent[] {
   if (currentPage !== 0) {
     return events;
   }
 
-  if (!activeEvent || !shouldIncludeActiveEventInHistory(activeEvent, stateFilters)) {
+  const activeHistoryEvents = getActiveHistoryEvents(
+    activeEvents,
+    selectedActiveEvent,
+    events,
+    stateFilters,
+    siteNameById,
+  );
+  if (activeHistoryEvents.length === 0) {
     return removeInjectedActiveHistoryEvent(events);
   }
 
-  const activeHistoryEvent = getActiveHistoryEvent(activeEvent, events);
-  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id && !event.injectedActive)];
+  const activeHistoryEventIds = new Set(activeHistoryEvents.map((event) => event.id));
+  return [
+    ...activeHistoryEvents,
+    ...events.filter((event) => !activeHistoryEventIds.has(event.id) && !event.injectedActive),
+  ];
 }
 
 function upsertHistoryEvent(
   events: CurtailmentHistoryEvent[],
   event: ProtoCurtailmentEvent,
+  siteNameById?: SiteNameById,
 ): CurtailmentHistoryEvent[] {
   const state = mapCurtailmentEventState(event.state);
   const mappedEvent = visibleActiveCurtailmentEventStates.has(state)
-    ? mapActiveCurtailmentHistoryEvent(event)
-    : mapCurtailmentHistoryEvent(event);
+    ? mapActiveCurtailmentHistoryEvent(event, { siteNameById })
+    : mapCurtailmentHistoryEvent(event, { siteNameById });
   return [mappedEvent, ...events.filter((currentEvent) => currentEvent.id !== mappedEvent.id)];
 }
 
@@ -384,18 +638,22 @@ function getSafeNextPageToken(
   return nextPageToken === currentPageToken || seenPageTokens.has(nextPageToken) ? "" : nextPageToken;
 }
 
-export function useCurtailmentApi(): UseCurtailmentApiResult {
+export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCurtailmentApiResult {
+  const { siteNameById } = options;
   const { handleAuthErrors } = useAuthErrors();
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
+  const activeCurtailmentEvents = useActiveCurtailmentEvents();
   const [snapshot, setSnapshot] = useState<CurtailmentSnapshot>(initialCurtailmentSnapshot);
   const [isLoading, setIsLoading] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [updatingEventId, setUpdatingEventId] = useState<string | null>(null);
   const [stoppingEventId, setStoppingEventId] = useState<string | null>(null);
+  const [adminTerminatingEventId, setAdminTerminatingEventId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
+  const [adminTerminateError, setAdminTerminateError] = useState<string | null>(null);
   const [historyPagination, setHistoryPagination] =
     useState<CurtailmentHistoryPaginationState>(initialHistoryPagination);
   const [historyStatusFilters, setHistoryStatusFiltersState] = useState<CurtailmentEventState[]>([]);
@@ -404,6 +662,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const historyStatusFiltersRef = useRef(historyStatusFilters);
   const latestRefreshRequestIdRef = useRef(0);
   const foregroundRefreshCountRef = useRef(0);
+  const activeReconciliationSnapshotRef = useRef<ActiveCurtailmentSnapshot>(getActiveCurtailmentSnapshot());
 
   const updateSnapshot = useCallback(
     (snapshotUpdater: CurtailmentSnapshot | ((current: CurtailmentSnapshot) => CurtailmentSnapshot)) => {
@@ -439,11 +698,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const applyEvent = useCallback(
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
-      const shouldShowActiveEvent = visibleActiveCurtailmentEventStates.has(state);
-      applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined, {
+      const activeSnapshot = applyActiveCurtailmentEvent(event, {
+        mergeActiveEvents: true,
         preserveAgainstStaleRefresh: true,
       });
-      const nextActiveEvent = shouldShowActiveEvent ? mapActiveCurtailmentEvent(event) : null;
+      activeReconciliationSnapshotRef.current = activeSnapshot;
+      const nextActiveSnapshotEvent = activeSnapshot.event;
+      const nextActiveEvent = getActiveSnapshotEvent(nextActiveSnapshotEvent, siteNameById);
       const activeStatusFilters = historyStatusFiltersRef.current;
       const shouldUpdateHistoryPage =
         historyPaginationRef.current.currentPage === 0 &&
@@ -451,14 +712,24 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       updateSnapshot((current) => ({
         activeEvent: nextActiveEvent,
-        activeEventId: nextActiveEvent ? event.eventUuid : null,
-        activeEventFormValues: nextActiveEvent ? mapCurtailmentEventToFormValues(event) : null,
+        activeEvents: getActiveHistoryEvents(
+          activeSnapshot.events,
+          activeSnapshot.event,
+          current.historyEvents,
+          activeStatusFilters,
+          siteNameById,
+        ),
+        activeEventId: nextActiveSnapshotEvent && nextActiveEvent ? nextActiveSnapshotEvent.eventUuid : null,
+        activeEventFormValues:
+          nextActiveSnapshotEvent && nextActiveEvent
+            ? (mapCurtailmentEventToFormValues(nextActiveSnapshotEvent, { siteNameById }) ?? null)
+            : null,
         historyEvents: shouldUpdateHistoryPage
-          ? upsertHistoryEvent(current.historyEvents, event)
+          ? upsertHistoryEvent(current.historyEvents, event, siteNameById)
           : current.historyEvents,
       }));
     },
-    [updateSnapshot],
+    [siteNameById, updateSnapshot],
   );
 
   const listCurtailmentEventsPage = useCallback(
@@ -520,6 +791,50 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     [listCurtailmentEventsPage],
   );
 
+  const findReadableRestoringEvents = useCallback(
+    async (events: ProtoCurtailmentEvent[], signal?: AbortSignal): Promise<ReadableRestoringEvents> => {
+      const readableEvents: ReadableRestoringEvents = {
+        eventIds: new Set<string>(),
+        terminalEvents: [],
+      };
+      if (events.length === 0) {
+        return readableEvents;
+      }
+
+      await Promise.all(
+        events.map(async (event) => {
+          try {
+            const response = await curtailmentClient.getCurtailmentEvent(
+              create(GetCurtailmentEventRequestSchema, {
+                eventUuid: event.eventUuid,
+                targetPageSize: 1,
+              }),
+              signal ? { signal } : undefined,
+            );
+            assertNotAborted(signal);
+            if (response.event?.state === ProtoCurtailmentEventState.RESTORING) {
+              readableEvents.eventIds.add(event.eventUuid);
+            } else if (response.event && isTerminalProtoCurtailmentEvent(response.event)) {
+              readableEvents.eventIds.add(event.eventUuid);
+              readableEvents.terminalEvents.push(response.event);
+            }
+          } catch (error) {
+            if (isAbortError(error, signal)) {
+              throw error;
+            }
+            if (isVanishedRestoringUnreadableError(error)) {
+              return;
+            }
+            throw error;
+          }
+        }),
+      );
+
+      return readableEvents;
+    },
+    [],
+  );
+
   const getHistoryEventsForActiveReconciliation = useCallback(
     async (
       activeEvent: ProtoCurtailmentEvent | undefined,
@@ -545,6 +860,39 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     [findCurtailmentEventInHistory],
   );
 
+  const getHistoryEventsForVanishedRestoringReconciliation = useCallback(
+    async (
+      previousActiveEvents: ProtoCurtailmentEvent[],
+      nextActiveEvents: ProtoCurtailmentEvent[],
+      historyEvents: ProtoCurtailmentEvent[],
+      signal?: AbortSignal,
+    ): Promise<ProtoCurtailmentEvent[]> => {
+      const vanishedRestoringEvents = getVanishedRestoringEvents(previousActiveEvents, nextActiveEvents).filter(
+        (event) => !hasTerminalHistoryEvent(event, historyEvents),
+      );
+      if (vanishedRestoringEvents.length === 0) {
+        return historyEvents;
+      }
+
+      const terminalEvents = (
+        await Promise.all(
+          vanishedRestoringEvents.map((event) =>
+            findCurtailmentEventInHistory(
+              event.eventUuid,
+              activeReconciliationHistoryStateFilters,
+              activeReconciliationHistoryPageLimit,
+              signal,
+            ),
+          ),
+        )
+      ).filter((event): event is ProtoCurtailmentEvent => Boolean(event));
+
+      const historyEventIds = new Set(historyEvents.map((event) => event.eventUuid));
+      return [...terminalEvents.filter((event) => !historyEventIds.has(event.eventUuid)), ...historyEvents];
+    },
+    [findCurtailmentEventInHistory],
+  );
+
   const runRefresh = useCallback(
     (signal?: AbortSignal, requestedHistoryPage = historyPaginationRef.current.currentPage, includeActive = true) => {
       const historyPage = getNormalizedHistoryPage(requestedHistoryPage);
@@ -561,54 +909,119 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       return (async () => {
         try {
-          const fallbackActiveEvent = getActiveCurtailmentSnapshot().event;
+          const currentActiveDataSnapshot = getActiveCurtailmentSnapshot();
+          const previousReconciliationSnapshot = activeReconciliationSnapshotRef.current;
+          const readableFallbackRestoringEvents = await findReadableRestoringEvents(
+            getVanishedRestoringEvents(
+              getActiveEventInputs(previousReconciliationSnapshot.events, previousReconciliationSnapshot.event),
+              currentActiveDataSnapshot.events,
+            ),
+            signal,
+          );
+          const fallbackActiveSnapshot = getActiveSnapshotForReconciliation(
+            currentActiveDataSnapshot,
+            previousReconciliationSnapshot,
+            snapshotRef.current.historyEvents,
+            readableFallbackRestoringEvents.eventIds,
+          );
+          const fallbackActiveEvent = fallbackActiveSnapshot.event;
+          const fallbackActiveEvents = fallbackActiveSnapshot.events;
           const [activeRefresh, historyPageResponse] = await Promise.all([
             includeActive ? fetchActiveCurtailmentData({ signal }) : undefined,
             listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilters, signal),
           ]);
           assertNotAborted(signal);
-          const currentActiveEvent = getActiveCurtailmentSnapshot().event ?? fallbackActiveEvent;
-          const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
+          const currentActiveSnapshot = getActiveSnapshotForReconciliation(
+            getActiveCurtailmentSnapshot(),
+            activeReconciliationSnapshotRef.current,
+            snapshotRef.current.historyEvents,
+            readableFallbackRestoringEvents.eventIds,
+          );
+          const currentActiveEvent = currentActiveSnapshot.event ?? fallbackActiveEvent;
+          const previewActiveSnapshot = activeRefresh ?? currentActiveSnapshot;
+          const previewActiveEvents = previewActiveSnapshot.events;
           const reconciliationBaseEvent = getRestoringEventForTerminalReconciliation(
             previewActiveSnapshot.event,
             currentActiveEvent,
           );
-          const reconciliationEvents = await getHistoryEventsForActiveReconciliation(
-            reconciliationBaseEvent,
-            historyPageResponse.events,
+          const fallbackNonSelectedActiveEvents = reconciliationBaseEvent
+            ? fallbackActiveEvents.filter((event) => event.eventUuid !== reconciliationBaseEvent.eventUuid)
+            : fallbackActiveEvents;
+          const reconciliationEvents = mergeUniqueCurtailmentEvents(
+            readableFallbackRestoringEvents.terminalEvents,
+            await getHistoryEventsForActiveReconciliation(reconciliationBaseEvent, historyPageResponse.events, signal),
+          );
+          let activeReconciliationEvents = await getHistoryEventsForVanishedRestoringReconciliation(
+            fallbackNonSelectedActiveEvents,
+            previewActiveSnapshot.events,
+            reconciliationEvents,
             signal,
           );
           assertNotAborted(signal);
           const previewActiveEvent = reconcileActiveEventWithTerminalFallback(
             previewActiveSnapshot.event,
             currentActiveEvent,
-            reconciliationEvents,
+            activeReconciliationEvents,
           );
           const previewSnapshot = createSnapshot(
             previewActiveEvent,
+            previewActiveEvents,
             historyPageResponse.events,
-            historyPage === 0 && shouldIncludeActiveEventInHistory(previewActiveEvent, stateFilters),
+            stateFilters,
+            historyPage === 0,
+            siteNameById,
           );
           if (requestId !== latestRefreshRequestIdRef.current) {
             return previewSnapshot;
           }
 
+          activeReconciliationEvents
+            .filter((event) => historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(event.state)))
+            .forEach((event) => clearMutationBackedActiveCurtailmentEvent(event.eventUuid));
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
+          const preservedRestoringCandidates = getVanishedRestoringEventsToPreserve(
+            fallbackNonSelectedActiveEvents,
+            activeSnapshot.events,
+            activeReconciliationEvents,
+          );
+          const readablePreservedRestoringEvents = await findReadableRestoringEvents(
+            preservedRestoringCandidates,
+            signal,
+          );
+          assertNotAborted(signal);
+          if (requestId !== latestRefreshRequestIdRef.current) {
+            return previewSnapshot;
+          }
+          activeReconciliationEvents = mergeUniqueCurtailmentEvents(
+            readablePreservedRestoringEvents.terminalEvents,
+            activeReconciliationEvents,
+          );
+          const preservedRestoringEvents = preservedRestoringCandidates.filter((event) =>
+            readablePreservedRestoringEvents.eventIds.has(event.eventUuid),
+          );
+          const activeEvents =
+            preservedRestoringEvents.length > 0
+              ? preserveActiveCurtailmentEvents(preservedRestoringEvents).events
+              : activeSnapshot.events;
           const activeEvent = reconcileActiveEventWithTerminalFallback(
             activeSnapshot.event,
             currentActiveEvent,
-            reconciliationEvents,
+            activeReconciliationEvents,
           );
           if (activeEvent !== activeSnapshot.event) {
-            applyActiveCurtailmentEvent(activeEvent);
+            applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
           }
+          activeReconciliationSnapshotRef.current = { event: activeEvent, events: activeEvents };
           const nextSnapshot =
-            activeEvent === previewActiveEvent
+            activeEvent === previewActiveEvent && preservedRestoringEvents.length === 0
               ? previewSnapshot
               : createSnapshot(
                   activeEvent,
+                  activeEvents,
                   historyPageResponse.events,
-                  historyPage === 0 && shouldIncludeActiveEventInHistory(activeEvent, stateFilters),
+                  stateFilters,
+                  historyPage === 0,
+                  siteNameById,
                 );
 
           const nextPageTokens = currentPagination.pageTokens.slice(0, historyPage + 1);
@@ -632,6 +1045,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
           const resolvedError = handleFailure(error, "Failed to load curtailment data.");
           if (requestId === latestRefreshRequestIdRef.current) {
+            if (isAuthOrPermissionError(error)) {
+              activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
+            }
             setLoadError(resolvedError.message);
           }
           throw resolvedError;
@@ -639,9 +1055,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       })();
     },
     [
+      findReadableRestoringEvents,
+      getHistoryEventsForVanishedRestoringReconciliation,
       getHistoryEventsForActiveReconciliation,
       handleFailure,
       listCurtailmentEventsPage,
+      siteNameById,
       updateHistoryPagination,
       updateSnapshot,
     ],
@@ -700,6 +1119,50 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     }
   }, [refreshCurtailment]);
 
+  const selectActiveCurtailment = useCallback(
+    async (eventUuid: string, { signal }: Pick<RefreshCurtailmentOptions, "signal"> = {}) => {
+      try {
+        const activeSnapshot = await selectActiveCurtailmentEvent(eventUuid, { signal });
+        activeReconciliationSnapshotRef.current = activeSnapshot;
+        const activeSnapshotFields = getActiveSnapshotFields(activeSnapshot.event, siteNameById);
+        const activeStatusFilters = historyStatusFiltersRef.current;
+        updateSnapshot((current) => ({
+          ...current,
+          ...activeSnapshotFields,
+          activeEvents: getActiveHistoryEvents(
+            activeSnapshot.events,
+            activeSnapshot.event,
+            current.historyEvents,
+            activeStatusFilters,
+            siteNameById,
+          ),
+          historyEvents: getHistoryEventsWithActiveEvent(
+            current.historyEvents,
+            activeSnapshot.events,
+            activeSnapshot.event,
+            activeStatusFilters,
+            historyPaginationRef.current.currentPage,
+            siteNameById,
+          ),
+        }));
+        setLoadError(null);
+        return activeSnapshotFields;
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+
+        const resolvedError = handleFailure(error, "Failed to load curtailment detail.");
+        if (isAuthOrPermissionError(error)) {
+          activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
+        }
+        setLoadError(resolvedError.message);
+        throw resolvedError;
+      }
+    },
+    [handleFailure, siteNameById, updateSnapshot],
+  );
+
   const startCurtailment = useCallback(
     async (values: CurtailmentSubmitValues) => {
       setIsStarting(true);
@@ -753,13 +1216,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   );
 
   const stopCurtailment = useCallback(
-    async (eventUuid: string) => {
+    async (eventUuid: string, { force = false }: StopCurtailmentOptions = {}) => {
       setStoppingEventId(eventUuid);
       setStopError(null);
 
       try {
         const response = await curtailmentClient.stopCurtailment(
-          create(StopCurtailmentRequestSchema, { eventUuid, force: false }),
+          create(StopCurtailmentRequestSchema, { eventUuid, force }),
         );
         if (!response.event) {
           throw new Error("Stopped curtailment response was missing an event.");
@@ -779,36 +1242,141 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     [applyEvent, handleFailure, refreshAfterMutation],
   );
 
+  const adminTerminateCurtailment = useCallback(
+    async (eventUuid: string, { reason, targetState }: AdminTerminateCurtailmentOptions) => {
+      const trimmedReason = reason.trim();
+      if (!trimmedReason) {
+        const validationError = new Error(adminTerminateReasonRequiredMessage);
+        setAdminTerminateError(validationError.message);
+        throw validationError;
+      }
+
+      setAdminTerminatingEventId(eventUuid);
+      setAdminTerminateError(null);
+
+      try {
+        const response = await curtailmentClient.adminTerminateEvent(
+          create(AdminTerminateEventRequestSchema, {
+            eventUuid,
+            reason: trimmedReason,
+            targetState: mapAdminTerminateState(targetState),
+          }),
+        );
+        if (!response.event) {
+          throw new Error("Admin terminate response was missing an event.");
+        }
+
+        applyEvent(response.event);
+        await refreshAfterMutation();
+        return response.event;
+      } catch (error) {
+        const resolvedError = handleFailure(error, "Failed to terminate curtailment event.");
+        setAdminTerminateError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        setAdminTerminatingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
+      }
+    },
+    [applyEvent, handleFailure, refreshAfterMutation],
+  );
+
+  const forceReleaseCurtailment = useCallback(
+    async (eventUuid: string, { reason }: ForceReleaseCurtailmentOptions) => {
+      const trimmedReason = reason.trim();
+      if (!trimmedReason) {
+        const validationError = new Error(adminTerminateReasonRequiredMessage);
+        setAdminTerminateError(validationError.message);
+        throw validationError;
+      }
+
+      setAdminTerminatingEventId(eventUuid);
+      setAdminTerminateError(null);
+
+      try {
+        const response = await curtailmentClient.forceReleaseCurtailmentOwnership(
+          create(ForceReleaseCurtailmentOwnershipRequestSchema, {
+            eventUuid,
+            reason: trimmedReason,
+          }),
+        );
+        if (!response.event) {
+          throw new Error("Force release response was missing an event.");
+        }
+
+        applyEvent(response.event);
+        try {
+          await refreshAfterMutation();
+        } catch (refreshError) {
+          handleFailure(refreshError, "Failed to refresh curtailment state after force release.");
+        }
+        return {
+          event: response.event,
+          releasedTargetCount: response.releasedTargetCount,
+          ownershipReleased: response.ownershipReleased,
+          restoreAttempted: response.restoreAttempted,
+          automationDisabled: response.automationDisabled,
+        };
+      } catch (error) {
+        const resolvedError = handleFailure(error, "Failed to force release curtailment ownership.");
+        setAdminTerminateError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        setAdminTerminatingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
+      }
+    },
+    [applyEvent, handleFailure, refreshAfterMutation],
+  );
+
   const dismissTerminalCurtailment = useCallback(() => {
-    dismissActiveCurtailmentEvent(activeCurtailmentEvent?.eventUuid);
+    activeReconciliationSnapshotRef.current = dismissActiveCurtailmentEvent(activeCurtailmentEvent?.eventUuid);
   }, [activeCurtailmentEvent]);
 
-  const activeSnapshotFields = useMemo(() => getActiveSnapshotFields(activeCurtailmentEvent), [activeCurtailmentEvent]);
+  const activeSnapshotFields = useMemo(
+    () => getActiveSnapshotFields(activeCurtailmentEvent, siteNameById),
+    [activeCurtailmentEvent, siteNameById],
+  );
+  const activeHistoryEvents = useMemo(
+    () =>
+      getActiveHistoryEvents(activeCurtailmentEvents, activeCurtailmentEvent, snapshot.historyEvents, [], siteNameById),
+    [activeCurtailmentEvent, activeCurtailmentEvents, siteNameById, snapshot.historyEvents],
+  );
   const historyStatusFilter = historyStatusFilters[0];
   const historyEvents = useMemo(
     () =>
       getHistoryEventsWithActiveEvent(
         snapshot.historyEvents,
+        activeCurtailmentEvents,
         activeCurtailmentEvent,
         historyStatusFilters,
         historyPagination.currentPage,
+        siteNameById,
       ),
-    [activeCurtailmentEvent, historyPagination.currentPage, historyStatusFilters, snapshot.historyEvents],
+    [
+      activeCurtailmentEvent,
+      activeCurtailmentEvents,
+      historyPagination.currentPage,
+      historyStatusFilters,
+      siteNameById,
+      snapshot.historyEvents,
+    ],
   );
 
   return useMemo(
     () => ({
       ...snapshot,
       ...activeSnapshotFields,
+      activeEvents: activeHistoryEvents,
       historyEvents,
       isLoading,
       isStarting,
       isUpdating: updatingEventId !== null,
       stoppingEventId,
+      adminTerminatingEventId,
       loadError,
       startError,
       updateError,
       stopError,
+      adminTerminateError,
       historyCurrentPage: historyPagination.currentPage,
       historyHasNextPage: historyPagination.nextPageToken !== "",
       historyHasPreviousPage: historyPagination.currentPage > 0,
@@ -819,13 +1387,21 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       goToHistoryPage,
       setHistoryStatusFilter,
       setHistoryStatusFilters,
+      selectActiveCurtailment,
       startCurtailment,
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,
+      adminTerminateCurtailment,
+      forceReleaseCurtailment,
     }),
     [
       activeSnapshotFields,
+      activeHistoryEvents,
+      adminTerminateCurtailment,
+      adminTerminateError,
+      adminTerminatingEventId,
+      forceReleaseCurtailment,
       goToHistoryPage,
       historyEvents,
       historyPagination.currentPage,
@@ -839,6 +1415,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       refreshCurtailment,
       setHistoryStatusFilter,
       setHistoryStatusFilters,
+      selectActiveCurtailment,
       snapshot,
       startCurtailment,
       dismissTerminalCurtailment,

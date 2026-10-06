@@ -2,10 +2,16 @@ package sqlstores_test
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
+
+	"connectrpc.com/connect"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sqlstoresinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -129,7 +135,7 @@ func TestCollectionStore_AddAndListMembers(t *testing.T) {
 	assert.Equal(t, int32(3), fetched.DeviceCount)
 
 	// Verify members list
-	members, _, err := store.ListCollectionMembers(ctx, orgID, collection.Id, 100, "")
+	members, _, err := store.ListCollectionMembers(ctx, orgID, collection.Id, 100, "", nil)
 	require.NoError(t, err)
 	assert.Len(t, members, 3)
 }
@@ -336,7 +342,7 @@ func TestCollectionStore_GetDeviceCollections(t *testing.T) {
 	assert.Len(t, racks, 1)
 }
 
-func TestCollectionStore_GetGroupLabelsForDevices(t *testing.T) {
+func TestCollectionStore_GetGroupRefsForDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -355,21 +361,24 @@ func TestCollectionStore_GetGroupLabelsForDevices(t *testing.T) {
 	_, err = store.AddDevicesToCollection(ctx, orgID, groupB.Id, deviceIDs[:1])
 	require.NoError(t, err)
 
-	// Also add device[0] to a rack - should NOT appear in group labels
+	// Also add device[0] to a rack - should NOT appear in group refs
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack 1", "")
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs[:1])
 	require.NoError(t, err)
 
 	// Act
-	labels, err := store.GetGroupLabelsForDevices(ctx, orgID, deviceIDs)
+	refs, err := store.GetGroupRefsForDevices(ctx, orgID, deviceIDs)
 
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, labels[deviceIDs[0]], 2)
-	assert.Len(t, labels[deviceIDs[1]], 1)
-	assert.ElementsMatch(t, []string{"Alpha", "Beta"}, labels[deviceIDs[0]])
-	assert.Equal(t, []string{"Alpha"}, labels[deviceIDs[1]])
+	assert.Len(t, refs[deviceIDs[0]], 2)
+	assert.Len(t, refs[deviceIDs[1]], 1)
+	labels0 := []string{refs[deviceIDs[0]][0].Label, refs[deviceIDs[0]][1].Label}
+	assert.ElementsMatch(t, []string{"Alpha", "Beta"}, labels0)
+	assert.Equal(t, "Alpha", refs[deviceIDs[1]][0].Label)
+	assert.NotZero(t, refs[deviceIDs[0]][0].ID)
+	assert.NotZero(t, refs[deviceIDs[0]][1].ID)
 }
 
 func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
@@ -398,8 +407,10 @@ func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 	details, err := store.GetRackDetailsForDevices(ctx, orgID, deviceIDs)
 	require.NoError(t, err)
 	require.Len(t, details, 2)
+	assert.Equal(t, rack.Id, details[deviceIDs[0]].ID)
 	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
 	assert.Equal(t, "01", details[deviceIDs[0]].Position)
+	assert.Equal(t, rack.Id, details[deviceIDs[1]].ID)
 	assert.Equal(t, "Floor 1", details[deviceIDs[1]].Label)
 	assert.Equal(t, "100", details[deviceIDs[1]].Position)
 }
@@ -430,6 +441,19 @@ func TestCollectionStore_GetRackDetailsForDevices_LeavesPositionBlankForUnspecif
 	require.Len(t, details, 1)
 	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
 	assert.Empty(t, details[deviceIDs[0]].Position)
+}
+
+func TestCollectionStore_DeviceRefQueriesScopeJoinsByOrg(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+
+	queryPath := filepath.Join(filepath.Dir(filename), "../../../../sqlc/queries/device_set.sql")
+	queryBytes, err := os.ReadFile(queryPath)
+	require.NoError(t, err)
+	query := string(queryBytes)
+
+	assert.Contains(t, query, "JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id")
+	assert.Contains(t, query, "LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id")
 }
 
 func TestCollectionStore_UpdateCollection(t *testing.T) {
@@ -569,7 +593,7 @@ func TestCollectionStore_ListCollectionMembers_IncludesSlotPositions(t *testing.
 	require.NoError(t, err)
 
 	// Act
-	members, _, err := store.ListCollectionMembers(ctx, orgID, rack.Id, 100, "")
+	members, _, err := store.ListCollectionMembers(ctx, orgID, rack.Id, 100, "", nil)
 	require.NoError(t, err)
 	require.Len(t, members, 2)
 
@@ -747,7 +771,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act - page 1 (size 2)
-	page1, token1, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, "")
+	page1, token1, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, "", nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -755,7 +779,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token1)
 
 	// Act - page 2
-	page2, token2, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token1)
+	page2, token2, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token1, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -763,7 +787,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token2)
 
 	// Act - page 3 (last page)
-	page3, token3, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token2)
+	page3, token3, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token2, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -779,4 +803,39 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 		}
 	}
 	assert.Len(t, seen, 5)
+}
+
+// TestCollectionStore_SetRackSlotPosition_occupiedCellIsInvalidArgument pins
+// the uk_rack_slot_position mapping. The standalone slot RPCs take no rack
+// row lock, so a pre-check cannot close the window on its own: whoever loses
+// the race must get a caller-fixable error rather than a 500.
+func TestCollectionStore_SetRackSlotPosition_occupiedCellIsInvalidArgument(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
+	store := newCollectionStore(db)
+	ctx := t.Context()
+
+	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
+	require.NoError(t, err)
+	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
+	require.NoError(t, err)
+
+	require.NoError(t, store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID))
+
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 0, 0, orgID)
+	require.Error(t, err)
+	// Read the code off the FleetError: connect.CodeOf reports Unknown for it,
+	// since FleetError isn't a connect error — it carries the code it maps to.
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "already occupied")
+
+	// The occupant re-asserting its own cell still upserts: the ON CONFLICT
+	// target is (device_set_id, device_id), so this never reaches the
+	// position constraint.
+	require.NoError(t, store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID))
 }

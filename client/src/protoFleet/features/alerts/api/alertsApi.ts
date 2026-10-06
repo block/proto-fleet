@@ -1,0 +1,572 @@
+import { create } from "@bufbuild/protobuf";
+import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
+
+import {
+  alertChannelClient,
+  alertHistoryClient,
+  alertMaintenanceWindowClient,
+  alertRuleClient,
+} from "@/protoFleet/api/clients";
+import {
+  type ActiveAlertGroup as ProtoActiveAlertGroup,
+  type Channel as ProtoChannel,
+  ChannelKind as ProtoChannelKind,
+  HashrateMode as ProtoHashrateMode,
+  HashrateUnit as ProtoHashrateUnit,
+  type AlertHistoryEntry as ProtoHistoryEntry,
+  type MaintenanceWindow as ProtoMaintenanceWindow,
+  RoutingMode as ProtoRoutingMode,
+  type Rule as ProtoRule,
+  type RuleConfig as ProtoRuleConfig,
+  RuleConfigSchema as ProtoRuleConfigSchema,
+  RuleOrigin as ProtoRuleOrigin,
+  type RuleRouting as ProtoRuleRouting,
+  RuleTemplate as ProtoRuleTemplate,
+  ValidationState as ProtoValidationState,
+} from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import type {
+  ActiveAlertGroup,
+  AlertHistoryEntry,
+  AlertHistoryStatus,
+  Channel,
+  ChannelKind,
+  HashrateMode,
+  HashrateUnit,
+  MaintenanceWindow,
+  RoutingMode,
+  Rule,
+  RuleConfig,
+  RuleRouting,
+  RuleTemplate,
+  SlackConfig,
+  ValidationState,
+  WebhookConfig,
+} from "@/protoFleet/features/alerts/types";
+
+const isoFromTs = (ts?: Timestamp): string => (ts ? timestampDate(ts).toISOString() : "");
+const isoOrNull = (ts?: Timestamp): string | null => (ts ? timestampDate(ts).toISOString() : null);
+const tsFromIso = (iso: string): Timestamp => timestampFromDate(new Date(iso));
+
+function required<T>(value: T | undefined, name: string): T {
+  if (value == null) {
+    throw new Error(`alerts: response missing ${name}`);
+  }
+  return value;
+}
+
+const channelKindToProto = (k: ChannelKind): ProtoChannelKind => {
+  switch (k) {
+    case "webhook":
+      return ProtoChannelKind.WEBHOOK;
+    case "slack":
+      return ProtoChannelKind.SLACK;
+  }
+};
+
+const channelKindFromProto = (k: ProtoChannelKind): ChannelKind => {
+  switch (k) {
+    case ProtoChannelKind.SLACK:
+      return "slack";
+    default:
+      return "webhook";
+  }
+};
+
+const validationStateFromProto = (s: ProtoValidationState): ValidationState => {
+  switch (s) {
+    case ProtoValidationState.OK:
+      return "ok";
+    case ProtoValidationState.FAILED:
+      return "failed";
+    default:
+      return "pending";
+  }
+};
+
+const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
+  switch (t) {
+    case ProtoRuleTemplate.OFFLINE:
+      return "offline";
+    case ProtoRuleTemplate.HASHRATE:
+      return "hashrate";
+    case ProtoRuleTemplate.TEMPERATURE:
+      return "temperature";
+    case ProtoRuleTemplate.POOL:
+      return "pool";
+    case ProtoRuleTemplate.COMMAND_FAILURE:
+      return "command_failure";
+    case ProtoRuleTemplate.TELEMETRY_POLL:
+      return "telemetry-poll";
+    case ProtoRuleTemplate.MQTT_CURTAILMENT:
+      return "mqtt-curtailment";
+    case ProtoRuleTemplate.MQTT_DISCONNECTED:
+      return "mqtt-disconnected";
+    default:
+      return "";
+  }
+};
+
+const channelFromProto = (c: ProtoChannel): Channel => ({
+  id: c.id,
+  organization_id: String(c.organizationId),
+  name: c.name,
+  kind: channelKindFromProto(c.kind),
+  webhook: c.webhook ? { url: c.webhook.url, bearer_header: null } : null,
+  slack: c.slack ? {} : null,
+  created_at: isoFromTs(c.createdAt),
+  updated_at: isoFromTs(c.updatedAt),
+  validated_at: isoOrNull(c.validatedAt),
+  validation_state: validationStateFromProto(c.validationState),
+  validation_error: c.validationError,
+  has_secret: c.hasSecret,
+});
+
+const hashrateModeFromProto = (m: ProtoHashrateMode): HashrateMode =>
+  m === ProtoHashrateMode.ABSOLUTE ? "absolute" : "pct_expected";
+
+const hashrateUnitFromProto = (u: ProtoHashrateUnit): HashrateUnit | undefined => {
+  switch (u) {
+    case ProtoHashrateUnit.TERAHASH:
+      return "TH";
+    case ProtoHashrateUnit.PETAHASH:
+      return "PH";
+    default:
+      return undefined;
+  }
+};
+
+const ruleConfigFromProto = (c: ProtoRuleConfig): RuleConfig => {
+  const out: RuleConfig = { name: c.name, duration_seconds: c.durationSeconds };
+  switch (c.templateConfig.case) {
+    case "offline":
+      out.offline = {};
+      break;
+    case "hashrate":
+      out.hashrate = {
+        mode: hashrateModeFromProto(c.templateConfig.value.mode),
+        value: c.templateConfig.value.value,
+        unit: hashrateUnitFromProto(c.templateConfig.value.unit),
+      };
+      break;
+    case "temperature":
+      out.temperature = { max_celsius: c.templateConfig.value.maxCelsius };
+      break;
+  }
+  const sc = c.scope;
+  if (
+    sc &&
+    (sc.siteIds.length > 0 ||
+      sc.deviceIds.length > 0 ||
+      sc.buildingIds.length > 0 ||
+      sc.rackIds.length > 0 ||
+      sc.groupIds.length > 0 ||
+      sc.allSites ||
+      sc.deviceIdsRedacted)
+  ) {
+    const toStrings = (ids: bigint[]) => ids.map((id) => id.toString());
+    out.scope = {
+      site_ids: toStrings(sc.siteIds),
+      device_ids: sc.deviceIds,
+      building_ids: toStrings(sc.buildingIds),
+      rack_ids: toStrings(sc.rackIds),
+      group_ids: toStrings(sc.groupIds),
+      all_sites: sc.allSites,
+      device_ids_redacted: sc.deviceIdsRedacted,
+    };
+  }
+  return out;
+};
+
+const hashrateModeToProto = (m: HashrateMode): ProtoHashrateMode =>
+  m === "absolute" ? ProtoHashrateMode.ABSOLUTE : ProtoHashrateMode.PCT_EXPECTED;
+
+const hashrateUnitToProto = (u: HashrateUnit | undefined): ProtoHashrateUnit => {
+  switch (u) {
+    case "TH":
+      return ProtoHashrateUnit.TERAHASH;
+    case "PH":
+      return ProtoHashrateUnit.PETAHASH;
+    default:
+      return ProtoHashrateUnit.UNSPECIFIED;
+  }
+};
+
+const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
+  const sc = c.scope;
+  // Org-wide is an explicit marker, never an absent message: the server rejects
+  // scope-less updates of scoped rules so a stale pre-scope client cannot silently widen them.
+  const scope =
+    sc &&
+    (sc.site_ids.length > 0 ||
+      sc.device_ids.length > 0 ||
+      sc.building_ids.length > 0 ||
+      sc.rack_ids.length > 0 ||
+      sc.group_ids.length > 0 ||
+      sc.all_sites)
+      ? {
+          siteIds: sc.site_ids.map(BigInt),
+          deviceIds: sc.device_ids,
+          buildingIds: sc.building_ids.map(BigInt),
+          rackIds: sc.rack_ids.map(BigInt),
+          groupIds: sc.group_ids.map(BigInt),
+          allSites: sc.all_sites,
+        }
+      : { orgWide: true };
+  const base = { name: c.name, durationSeconds: c.duration_seconds, scope };
+  if (c.hashrate) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: {
+        case: "hashrate",
+        value: {
+          mode: hashrateModeToProto(c.hashrate.mode),
+          value: c.hashrate.value,
+          unit: hashrateUnitToProto(c.hashrate.unit),
+        },
+      },
+    });
+  }
+  if (c.temperature) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: { case: "temperature", value: { maxCelsius: c.temperature.max_celsius } },
+    });
+  }
+  return create(ProtoRuleConfigSchema, { ...base, templateConfig: { case: "offline", value: {} } });
+};
+
+// Absent routing means the server couldn't read it, not default; null lets the caller keep the last-known value.
+const routingFromProto = (r?: ProtoRuleRouting): RuleRouting | null => {
+  switch (r?.mode) {
+    case ProtoRoutingMode.CUSTOM:
+      return { mode: "custom", channel_ids: r.channelIds };
+    case ProtoRoutingMode.NONE:
+      return { mode: "none", channel_ids: [] };
+    case ProtoRoutingMode.DEFAULT:
+      return { mode: "default", channel_ids: [] };
+    default:
+      return null;
+  }
+};
+
+const routingModeToProto = (m: RoutingMode): ProtoRoutingMode => {
+  switch (m) {
+    case "custom":
+      return ProtoRoutingMode.CUSTOM;
+    case "none":
+      return ProtoRoutingMode.NONE;
+    case "default":
+      return ProtoRoutingMode.DEFAULT;
+  }
+};
+
+// channel_ids only carry meaning for custom; clear them for other modes in one place.
+const routingToProto = (r: RuleRouting) => ({
+  mode: routingModeToProto(r.mode),
+  channelIds: r.mode === "custom" ? r.channel_ids : [],
+});
+
+const ruleFromProto = (r: ProtoRule): Rule => ({
+  id: r.id,
+  organization_id: String(r.organizationId),
+  name: r.name,
+  template: ruleTemplateFromProto(r.template),
+  group: r.group,
+  severity: r.severity,
+  summary: r.summary,
+  description: r.description,
+  duration_seconds: r.durationSeconds,
+  enabled: r.enabled,
+  origin: r.origin === ProtoRuleOrigin.USER ? "user" : "provisioned",
+  config: r.config ? ruleConfigFromProto(r.config) : null,
+  config_out_of_sync: r.configOutOfSync,
+  config_unknown: r.configUnknown,
+  routing: routingFromProto(r.routing),
+});
+
+const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
+  id: s.id,
+  organization_id: String(s.organizationId),
+  rule_ids: s.scope?.ruleIds ?? [],
+  channel_ids: s.scope?.channelIds ?? [],
+  starts_at: isoFromTs(s.startsAt),
+  ends_at: isoOrNull(s.endsAt),
+  comment: s.comment,
+  created_by: s.createdBy,
+  created_at: isoFromTs(s.createdAt),
+});
+
+// History rows persist the rule title they fired under; map retired titles to
+// the current ones so old rows read consistently with the renamed rules.
+const RENAMED_ALERTS: Record<string, string> = {
+  "Miners Curtailed by Curtailment Source": "Curtailment Active",
+  "Curtailment Source Disconnected": "Curtailment Source Unreachable",
+};
+
+const historyFromProto = (n: ProtoHistoryEntry): AlertHistoryEntry => ({
+  id: n.id,
+  received_at: isoFromTs(n.receivedAt),
+  alert_name: RENAMED_ALERTS[n.alertName] ?? n.alertName,
+  status: n.status as AlertHistoryStatus,
+  severity: n.severity,
+  rule_group: n.ruleGroup,
+  fingerprint: n.fingerprint,
+  device_id: n.deviceId,
+  device_name: n.deviceName,
+  device_mac: n.deviceMac,
+  template: n.template,
+  summary: n.summary,
+  starts_at: isoOrNull(n.startsAt),
+  ends_at: isoOrNull(n.endsAt),
+});
+
+const webhookToProto = (w?: WebhookConfig | null) =>
+  w
+    ? { url: w.url, bearerHeader: w.bearer_header ?? "", clearBearerHeader: w.clear_bearer_header ?? false }
+    : undefined;
+
+const slackToProto = (s?: SlackConfig | null) => (s ? { webhookUrl: s.webhook_url ?? "" } : undefined);
+
+const channelDestinationFields = (input: ChannelMutationInput) => ({
+  kind: channelKindToProto(input.kind),
+  webhook: webhookToProto(input.webhook),
+  slack: slackToProto(input.slack),
+});
+
+export async function listChannels(): Promise<Channel[]> {
+  const res = await alertChannelClient.listChannels({});
+  return res.channels.map(channelFromProto);
+}
+
+export interface ChannelMutationInput {
+  id?: string;
+  name: string;
+  kind: ChannelKind;
+  webhook?: WebhookConfig | null;
+  slack?: SlackConfig | null;
+}
+
+export async function createChannel(input: ChannelMutationInput): Promise<Channel> {
+  const res = await alertChannelClient.createChannel({
+    name: input.name,
+    ...channelDestinationFields(input),
+  });
+  return channelFromProto(required(res.channel, "channel"));
+}
+
+export async function updateChannel(input: ChannelMutationInput & { id: string }): Promise<Channel> {
+  const res = await alertChannelClient.updateChannel({
+    id: input.id,
+    name: input.name,
+    ...channelDestinationFields(input),
+  });
+  return channelFromProto(required(res.channel, "channel"));
+}
+
+export async function deleteChannel(id: string): Promise<void> {
+  await alertChannelClient.deleteChannel({ id });
+}
+
+export interface TestChannelResult {
+  ok: boolean;
+  error: string;
+  response_code: number;
+}
+
+export async function testChannel(input: ChannelMutationInput): Promise<TestChannelResult> {
+  const res = await alertChannelClient.testChannel({
+    id: input.id ?? "",
+    ...channelDestinationFields(input),
+  });
+  return { ok: res.ok, error: res.error, response_code: res.responseCode };
+}
+
+export async function listRules(): Promise<Rule[]> {
+  const res = await alertRuleClient.listRules({});
+  return res.rules.map(ruleFromProto);
+}
+
+export async function pauseRule(id: string): Promise<Rule> {
+  const res = await alertRuleClient.pauseRule({ id });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function resumeRule(id: string): Promise<Rule> {
+  const res = await alertRuleClient.resumeRule({ id });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+// A pre-scope server silently drops the unknown scope field and saves the rule org-wide;
+// the response echoes what was parsed, so a scoped save coming back scope-less proves it.
+const scopeDropped = (rule: Rule, sent: RuleConfig): boolean => {
+  const sc = sent.scope;
+  const sentScoped =
+    sc &&
+    (sc.site_ids.length > 0 ||
+      sc.device_ids.length > 0 ||
+      sc.building_ids.length > 0 ||
+      sc.rack_ids.length > 0 ||
+      sc.group_ids.length > 0 ||
+      sc.all_sites);
+  return Boolean(sentScoped) && !rule.config?.scope;
+};
+
+export async function createRule(config: RuleConfig, routing?: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.createRule({
+    config: ruleConfigToProto(config),
+    routing: routing ? routingToProto(routing) : undefined,
+  });
+  const rule = ruleFromProto(required(res.rule, "rule"));
+  if (scopeDropped(rule, config)) {
+    // Compensate rather than leave a rule alerting on every miner while the
+    // caller sees only an error.
+    let cleanup = "The unscoped rule was deleted; upgrade the server, then create it again.";
+    try {
+      await alertRuleClient.deleteRule({ id: rule.id });
+    } catch {
+      cleanup = "Deleting it failed, so it is live and covering all miners — remove it manually.";
+    }
+    throw new Error(
+      `The server ignored this rule's scope (it may be running an older version), so the rule was created covering all miners. ${cleanup}`,
+    );
+  }
+  return rule;
+}
+
+export async function updateRule(id: string, config: RuleConfig): Promise<Rule> {
+  const res = await alertRuleClient.updateRule({ id, config: ruleConfigToProto(config) });
+  const rule = ruleFromProto(required(res.rule, "rule"));
+  if (scopeDropped(rule, config)) {
+    // The unscoped update is already committed; pause the rule (a pre-scope RPC,
+    // so it works on the old server too) so it can't flood every miner meanwhile.
+    let outcome =
+      "It was paused to prevent alerts for unintended miners; upgrade the server, then re-save the scope and resume it.";
+    try {
+      await alertRuleClient.pauseRule({ id });
+    } catch {
+      outcome = "Pausing it also failed, so it is live and covering all miners — pause or delete it manually.";
+    }
+    throw new Error(
+      `The server ignored this rule's scope (it may be running an older version), so the rule now covers all miners. ${outcome}`,
+    );
+  }
+  return rule;
+}
+
+export async function deleteRule(id: string): Promise<void> {
+  await alertRuleClient.deleteRule({ id });
+}
+
+export async function setRuleRouting(id: string, routing: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.setRuleRouting({
+    ruleId: id,
+    routing: routingToProto(routing),
+  });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function listMaintenanceWindows(): Promise<MaintenanceWindow[]> {
+  const res = await alertMaintenanceWindowClient.listMaintenanceWindows({});
+  return res.maintenanceWindows.map(maintenanceWindowFromProto);
+}
+
+export interface MaintenanceWindowMutationInput {
+  id?: string;
+  // Empty means every rule / every channel.
+  rule_ids: string[];
+  channel_ids: string[];
+  starts_at: string;
+  ends_at: string | null;
+  comment: string;
+}
+
+export async function createMaintenanceWindow(input: MaintenanceWindowMutationInput): Promise<MaintenanceWindow> {
+  const res = await alertMaintenanceWindowClient.createMaintenanceWindow({
+    scope: {
+      ruleIds: input.rule_ids,
+      channelIds: input.channel_ids,
+      allRules: input.rule_ids.length === 0,
+      allChannels: input.channel_ids.length === 0,
+    },
+    startsAt: tsFromIso(input.starts_at),
+    endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
+    comment: input.comment,
+  });
+  return maintenanceWindowFromProto(required(res.maintenanceWindow, "maintenanceWindow"));
+}
+
+export async function updateMaintenanceWindow(
+  input: MaintenanceWindowMutationInput & { id: string },
+): Promise<MaintenanceWindow> {
+  const res = await alertMaintenanceWindowClient.updateMaintenanceWindow({
+    id: input.id,
+    scope: {
+      ruleIds: input.rule_ids,
+      channelIds: input.channel_ids,
+      allRules: input.rule_ids.length === 0,
+      allChannels: input.channel_ids.length === 0,
+    },
+    startsAt: tsFromIso(input.starts_at),
+    endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
+    comment: input.comment,
+  });
+  return maintenanceWindowFromProto(required(res.maintenanceWindow, "maintenanceWindow"));
+}
+
+export async function deleteMaintenanceWindow(id: string): Promise<void> {
+  await alertMaintenanceWindowClient.deleteMaintenanceWindow({ id });
+}
+
+export interface HistoryPage {
+  alerts: AlertHistoryEntry[];
+  // Pass as the next request's before_id; empty on the last page, so it is also the has-more signal.
+  next_cursor: string;
+}
+
+export async function listHistory(input: {
+  before_id?: string;
+  page_size?: number;
+  active_only?: boolean;
+  // Active-only drill-in: this alert's firing instances, one per affected miner.
+  alert_name?: string;
+  // The alert's rule group, matched exactly; "" is the group of rules carrying no rule label.
+  rule_group?: string;
+}): Promise<HistoryPage> {
+  // A deadline bounds how long a stalled request can hold the merged activity feed's ordering barrier.
+  const res = await alertHistoryClient.listAlerts(
+    {
+      beforeId: input.before_id ?? "",
+      pageSize: input.page_size ?? 0,
+      activeOnly: input.active_only ?? false,
+      alertName: input.alert_name ?? "",
+      ruleGroup: input.rule_group ?? "",
+    },
+    { timeoutMs: 15_000 },
+  );
+  return { alerts: res.alerts.map(historyFromProto), next_cursor: res.nextCursor };
+}
+
+export interface ActiveAlertGroupsPage {
+  groups: ActiveAlertGroup[];
+  has_more: boolean;
+}
+
+const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
+  alert_name: RENAMED_ALERTS[g.alertName] ?? g.alertName,
+  stored_alert_name: g.alertName,
+  rule_group: g.ruleGroup,
+  // JSON-encoded so no pair of groups can concatenate to the same key.
+  key: JSON.stringify([g.ruleGroup, g.alertName]),
+  device_count: Number(g.deviceCount),
+  alert_count: Number(g.alertCount),
+  first_started_at: isoFromTs(g.firstStartedAt),
+  summary: g.summary,
+});
+
+// The poll behind the header pill is an alarm, and a request that never settles stalls it with no error to show:
+// the pill would then read as a quiet fleet. Deadline it at the interval, past which a reply is superseded anyway.
+export async function listActiveAlertGroups(): Promise<ActiveAlertGroupsPage> {
+  const res = await alertHistoryClient.listActiveAlertGroups({}, { timeoutMs: POLL_INTERVAL_MS });
+  return { groups: res.groups.map(activeGroupFromProto), has_more: res.hasMore };
+}

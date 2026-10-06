@@ -1,0 +1,2 @@
+-- Forward-only migration.
+-- This intentionally does not recreate legacy miner authentication key columns.

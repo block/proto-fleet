@@ -2,7 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MinerStatus from "./MinerStatus";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   deviceActions,
   performanceActions,
@@ -35,8 +39,6 @@ function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStat
     manufacturer: "",
     temperatureStatus: 0,
     firmwareVersion: "",
-    groupLabels: [],
-    rackLabel: "",
     driverName: "",
     workerName: "",
     ...overrides,
@@ -57,6 +59,18 @@ function createBatch(overrides: Partial<BatchOperation> = {}): BatchOperation {
 describe("MinerStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("shows unavailable when the miner is offline because its Fleet Node cannot be reached", () => {
+    const miner = createMockMiner({
+      deviceStatus: DeviceStatus.OFFLINE,
+      offlineReason: DeviceOfflineReason.FLEET_NODE_UNAVAILABLE,
+    });
+
+    render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument();
   });
 
   describe("Loading state display", () => {
@@ -100,6 +114,18 @@ describe("MinerStatus", () => {
       );
 
       expect(screen.getByText("Sleeping")).toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    });
+
+    it("should show refreshing state with spinner during explicit row refresh", () => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
+
+      const { container } = render(
+        <MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded isRefreshing />,
+      );
+
+      expect(screen.getByText("Refreshing")).toBeInTheDocument();
+      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
       expect(container.querySelector(".animate-spin")).toBeInTheDocument();
     });
 
@@ -203,6 +229,47 @@ describe("MinerStatus", () => {
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
 
+      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    });
+
+    it("should use the sleeping indicator for sleeping miners", async () => {
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
+
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.INACTIVE });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(screen.getByText("Sleeping")).toBeInTheDocument();
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "sleeping");
+    });
+
+    it("should use the inactive indicator for offline miners", async () => {
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useMinerStatus).mockReturnValue("Offline");
+
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.OFFLINE });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(screen.getByText("Offline")).toBeInTheDocument();
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
+    });
+
+    it("lets default-password remediation override sleeping status", async () => {
+      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useNeedsAttention).mockReturnValue(true);
+      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
+
+      const miner = createMockMiner({
+        pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+        deviceStatus: DeviceStatus.INACTIVE,
+      });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(useMinerStatus).toHaveBeenLastCalledWith(false, false, true);
       expect(screen.getByText("Needs attention")).toBeInTheDocument();
     });
   });

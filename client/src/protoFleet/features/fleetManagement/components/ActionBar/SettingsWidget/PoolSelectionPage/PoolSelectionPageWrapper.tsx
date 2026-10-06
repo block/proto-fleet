@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import PoolSelectionPage from "./PoolSelectionPage";
+import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PoolConfig, useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import type { MinerSelection } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import {
@@ -13,6 +14,8 @@ interface PoolSelectionPageWrapperProps {
   selectionMode: SelectionMode;
   poolNeededCount?: number; // For "all" mode with filter
   filterCriteria?: DeviceFilterCriteria; // For "all" mode with filter
+  /** Rich filter for filtered "all" mode — targets the filtered set across pages. */
+  minerListFilter?: MinerListFilter;
   selectedMiners?: MinerSelection[]; // For "subset" mode
   userUsername?: string;
   userPassword?: string;
@@ -28,6 +31,7 @@ const PoolSelectionPageWrapper = ({
   selectionMode,
   poolNeededCount,
   filterCriteria,
+  minerListFilter,
   selectedMiners,
   userUsername,
   userPassword,
@@ -45,8 +49,10 @@ const PoolSelectionPageWrapper = ({
 
   const deviceSelector = useMemo(
     () =>
-      selectionMode === "none" ? undefined : createDeviceSelector(selectionMode, deviceIdentifiers, filterCriteria),
-    [selectionMode, deviceIdentifiers, filterCriteria],
+      selectionMode === "none"
+        ? undefined
+        : createDeviceSelector(selectionMode, deviceIdentifiers, filterCriteria, minerListFilter),
+    [selectionMode, deviceIdentifiers, filterCriteria, minerListFilter],
   );
 
   const handleAssignPools = async (poolConfig: PoolConfig) => {

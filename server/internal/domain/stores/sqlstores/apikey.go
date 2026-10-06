@@ -25,7 +25,7 @@ func NewSQLApiKeyStore(conn *sql.DB) *SQLApiKeyStore {
 	}
 }
 
-func (s *SQLApiKeyStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLApiKeyStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

@@ -11,7 +11,9 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import BuildingSelectionModal from "@/protoFleet/features/settings/components/Schedules/BuildingSelectionModal";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -35,10 +37,12 @@ import {
   timeOptions,
   validateSchedule,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+import SiteSelectionModal from "@/protoFleet/features/settings/components/Schedules/SiteSelectionModal";
 import {
   formatDateValue,
   parseDate as parseScheduleDate,
 } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
+import { useHasPermission } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -278,10 +282,31 @@ const ScheduleModal = ({
   onResumeSchedule,
 }: ScheduleModalProps) => {
   const isEditMode = Boolean(schedule);
+  // "Apply to" targets are gated on the read permission each picker's list RPC
+  // needs (sites/buildings: site:read, racks/groups: rack:read, miners:
+  // miner:read); without it the button is a permission-denied dead end, so hide.
+  const canReadSites = useHasPermission("site:read");
+  const canReadRacks = useHasPermission("rack:read");
+  const canReadMiners = useHasPermission("miner:read");
   const { listRacks, listGroups } = useDeviceSets();
+  // Soft default from the topbar SitePicker (store-driven; settings routes are
+  // unscoped, so this reads the stored selection). A single selected site
+  // pre-filters the target selection modals; "all sites" passes the empty
+  // filter and shows everything. Selections already on the schedule are not
+  // pruned by site — a schedule may legitimately span sites — and the schedule
+  // list itself stays org-wide (see issue #524).
+  const { activeSite } = useActiveSite({});
+  const scope = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  // The Site/Building/Rack/Group/Miner pickers all filter their options to the active
+  // site (via `scope`) — including the Site picker, which narrows to the one
+  // selected site so it behaves like the others rather than being hidden or
+  // forcing a whole-site selection.
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
+    // ListMinerStateSnapshots is miner:read-gated; skip it (and the hidden
+    // Miners target) for roles without it instead of firing permission-denied.
+    enabled: canReadMiners,
   });
   const [values, setValues] = useState<ScheduleFormValues>(() => createDefaultScheduleFormValues());
   const [availableRackIds, setAvailableRackIds] = useState<Set<string>>(new Set());
@@ -293,6 +318,8 @@ const ScheduleModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showSiteSelectionModal, setShowSiteSelectionModal] = useState(false);
+  const [showBuildingSelectionModal, setShowBuildingSelectionModal] = useState(false);
   const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
   const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
@@ -317,6 +344,8 @@ const ScheduleModal = ({
     setErrors({});
     setTouchedFields({});
     setShowAllErrors(false);
+    setShowSiteSelectionModal(false);
+    setShowBuildingSelectionModal(false);
     setShowRackSelectionModal(false);
     setShowGroupSelectionModal(false);
     setShowMinerSelectionModal(false);
@@ -327,6 +356,11 @@ const ScheduleModal = ({
 
   useEffect(() => {
     if (!open) {
+      return;
+    }
+    // ListDeviceSets (racks + groups) is rack:read-gated; skip without it (the
+    // rack/group targets are hidden for those roles anyway).
+    if (!canReadRacks) {
       return;
     }
 
@@ -355,7 +389,7 @@ const ScheduleModal = ({
         });
       },
     });
-  }, [listGroups, listRacks, open]);
+  }, [canReadRacks, listGroups, listRacks, open]);
 
   useEffect(() => {
     valuesRef.current = values;
@@ -832,21 +866,41 @@ const ScheduleModal = ({
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
               <div className="grid">
-                <TargetSelectButton
-                  label="Racks"
-                  value={getTargetButtonLabel(validRackTargetCount, "rack")}
-                  onClick={() => setShowRackSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Groups"
-                  value={getTargetButtonLabel(validGroupTargetCount, "group")}
-                  onClick={() => setShowGroupSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Miners"
-                  value={getTargetButtonLabel(validMinerTargetCount, "miner")}
-                  onClick={() => setShowMinerSelectionModal(true)}
-                />
+                {canReadSites ? (
+                  <TargetSelectButton
+                    label="Sites"
+                    value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
+                    onClick={() => setShowSiteSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadSites ? (
+                  <TargetSelectButton
+                    label="Buildings"
+                    value={getTargetButtonLabel(values.buildingTargetIds.length, "building")}
+                    onClick={() => setShowBuildingSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadRacks ? (
+                  <TargetSelectButton
+                    label="Racks"
+                    value={getTargetButtonLabel(validRackTargetCount, "rack")}
+                    onClick={() => setShowRackSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadRacks ? (
+                  <TargetSelectButton
+                    label="Groups"
+                    value={getTargetButtonLabel(validGroupTargetCount, "group")}
+                    onClick={() => setShowGroupSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadMiners ? (
+                  <TargetSelectButton
+                    label="Miners"
+                    value={getTargetButtonLabel(validMinerTargetCount, "miner")}
+                    onClick={() => setShowMinerSelectionModal(true)}
+                  />
+                ) : null}
               </div>
             </div>
           </section>
@@ -854,10 +908,37 @@ const ScheduleModal = ({
         secondaryPane={<SchedulePreview values={values} isEditMode={isEditMode} />}
       />
 
+      {showSiteSelectionModal ? (
+        <SiteSelectionModal
+          open={showSiteSelectionModal}
+          selectedSiteIds={values.siteTargetIds}
+          scope={scope}
+          onDismiss={() => setShowSiteSelectionModal(false)}
+          onSave={({ siteIds: siteTargetIds }) => {
+            setNextValues((current) => ({ ...current, siteTargetIds }));
+            setShowSiteSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {showBuildingSelectionModal ? (
+        <BuildingSelectionModal
+          open={showBuildingSelectionModal}
+          selectedBuildingIds={values.buildingTargetIds}
+          scope={scope}
+          onDismiss={() => setShowBuildingSelectionModal(false)}
+          onSave={(buildingTargetIds) => {
+            setNextValues((current) => ({ ...current, buildingTargetIds }));
+            setShowBuildingSelectionModal(false);
+          }}
+        />
+      ) : null}
+
       {showRackSelectionModal ? (
         <RackSelectionModal
           open={showRackSelectionModal}
           selectedRackIds={values.rackTargetIds}
+          scope={scope}
           onDismiss={() => setShowRackSelectionModal(false)}
           onSave={(rackTargetIds) => {
             setNextValues((current) => ({ ...current, rackTargetIds }));
@@ -870,6 +951,7 @@ const ScheduleModal = ({
         <GroupSelectionModal
           open={showGroupSelectionModal}
           selectedGroupIds={values.groupTargetIds}
+          scope={scope}
           onDismiss={() => setShowGroupSelectionModal(false)}
           onSave={(groupTargetIds) => {
             setNextValues((current) => ({ ...current, groupTargetIds }));
@@ -882,9 +964,13 @@ const ScheduleModal = ({
         <MinerSelectionModal
           open={showMinerSelectionModal}
           selectedMinerIds={values.minerTargetIds}
+          scope={scope}
+          // The rack/group facets call ListDeviceSets (rack:read); hide them so
+          // a miner:read-only manager can pick miners without permission-denied.
+          filterConfig={canReadRacks ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setShowMinerSelectionModal(false)}
-          onSave={(minerTargetIds) => {
-            setNextValues((current) => ({ ...current, minerTargetIds }));
+          onSave={(selection) => {
+            setNextValues((current) => ({ ...current, minerTargetIds: selection.selectedMinerIds }));
             setShowMinerSelectionModal(false);
           }}
         />

@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../../config/test.config";
 import { BasePage } from "../base";
 
 export class HeaderComponent extends BasePage {
@@ -7,8 +8,28 @@ export class HeaderComponent extends BasePage {
   }
 
   async clickPowerPopoverButton(buttonText: string) {
-    const popover = this.page.getByTestId("power-popover");
-    await popover.getByRole("button", { name: buttonText }).click();
+    await expect(async () => {
+      const popover = this.page.getByTestId("power-popover");
+      if (!(await popover.isVisible().catch(() => false))) {
+        await this.clickPowerButton();
+        await expect(popover).toBeVisible({ timeout: DEFAULT_INTERVAL });
+      }
+
+      const button = popover.getByRole("button", { name: buttonText });
+      await expect(button).toBeVisible({ timeout: DEFAULT_INTERVAL });
+      await button.click({ timeout: DEFAULT_INTERVAL });
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
+  async validateWarnRebootDialog() {
+    const dialog = this.page.getByTestId("warn-reboot-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Reboot miner?");
+  }
+
+  async clickRebootMinerInDialog() {
+    const dialog = this.page.getByTestId("warn-reboot-dialog");
+    await dialog.getByRole("button", { name: "Reboot miner" }).click();
   }
 
   async clickMinerStatusButton(status: string = "Sleeping") {

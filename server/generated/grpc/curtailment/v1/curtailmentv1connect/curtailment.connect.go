@@ -46,9 +46,6 @@ const (
 	// CurtailmentServiceStopCurtailmentProcedure is the fully-qualified name of the
 	// CurtailmentService's StopCurtailment RPC.
 	CurtailmentServiceStopCurtailmentProcedure = "/curtailment.v1.CurtailmentService/StopCurtailment"
-	// CurtailmentServiceGetActiveCurtailmentProcedure is the fully-qualified name of the
-	// CurtailmentService's GetActiveCurtailment RPC.
-	CurtailmentServiceGetActiveCurtailmentProcedure = "/curtailment.v1.CurtailmentService/GetActiveCurtailment"
 	// CurtailmentServiceListActiveCurtailmentsProcedure is the fully-qualified name of the
 	// CurtailmentService's ListActiveCurtailments RPC.
 	CurtailmentServiceListActiveCurtailmentsProcedure = "/curtailment.v1.CurtailmentService/ListActiveCurtailments"
@@ -61,6 +58,9 @@ const (
 	// CurtailmentServiceAdminTerminateEventProcedure is the fully-qualified name of the
 	// CurtailmentService's AdminTerminateEvent RPC.
 	CurtailmentServiceAdminTerminateEventProcedure = "/curtailment.v1.CurtailmentService/AdminTerminateEvent"
+	// CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure is the fully-qualified name of the
+	// CurtailmentService's ForceReleaseCurtailmentOwnership RPC.
+	CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure = "/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership"
 	// CurtailmentServiceIngestCurtailmentSignalProcedure is the fully-qualified name of the
 	// CurtailmentService's IngestCurtailmentSignal RPC.
 	CurtailmentServiceIngestCurtailmentSignalProcedure = "/curtailment.v1.CurtailmentService/IngestCurtailmentSignal"
@@ -85,6 +85,39 @@ const (
 	// CurtailmentServiceDeleteMqttCurtailmentSourceProcedure is the fully-qualified name of the
 	// CurtailmentService's DeleteMqttCurtailmentSource RPC.
 	CurtailmentServiceDeleteMqttCurtailmentSourceProcedure = "/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource"
+	// CurtailmentServiceListCurtailmentResponseProfilesProcedure is the fully-qualified name of the
+	// CurtailmentService's ListCurtailmentResponseProfiles RPC.
+	CurtailmentServiceListCurtailmentResponseProfilesProcedure = "/curtailment.v1.CurtailmentService/ListCurtailmentResponseProfiles"
+	// CurtailmentServiceGetCurtailmentResponseProfileProcedure is the fully-qualified name of the
+	// CurtailmentService's GetCurtailmentResponseProfile RPC.
+	CurtailmentServiceGetCurtailmentResponseProfileProcedure = "/curtailment.v1.CurtailmentService/GetCurtailmentResponseProfile"
+	// CurtailmentServiceCreateCurtailmentResponseProfileProcedure is the fully-qualified name of the
+	// CurtailmentService's CreateCurtailmentResponseProfile RPC.
+	CurtailmentServiceCreateCurtailmentResponseProfileProcedure = "/curtailment.v1.CurtailmentService/CreateCurtailmentResponseProfile"
+	// CurtailmentServiceUpdateCurtailmentResponseProfileProcedure is the fully-qualified name of the
+	// CurtailmentService's UpdateCurtailmentResponseProfile RPC.
+	CurtailmentServiceUpdateCurtailmentResponseProfileProcedure = "/curtailment.v1.CurtailmentService/UpdateCurtailmentResponseProfile"
+	// CurtailmentServiceDeleteCurtailmentResponseProfileProcedure is the fully-qualified name of the
+	// CurtailmentService's DeleteCurtailmentResponseProfile RPC.
+	CurtailmentServiceDeleteCurtailmentResponseProfileProcedure = "/curtailment.v1.CurtailmentService/DeleteCurtailmentResponseProfile"
+	// CurtailmentServiceListCurtailmentAutomationRulesProcedure is the fully-qualified name of the
+	// CurtailmentService's ListCurtailmentAutomationRules RPC.
+	CurtailmentServiceListCurtailmentAutomationRulesProcedure = "/curtailment.v1.CurtailmentService/ListCurtailmentAutomationRules"
+	// CurtailmentServiceGetCurtailmentAutomationRuleProcedure is the fully-qualified name of the
+	// CurtailmentService's GetCurtailmentAutomationRule RPC.
+	CurtailmentServiceGetCurtailmentAutomationRuleProcedure = "/curtailment.v1.CurtailmentService/GetCurtailmentAutomationRule"
+	// CurtailmentServiceCreateCurtailmentAutomationRuleProcedure is the fully-qualified name of the
+	// CurtailmentService's CreateCurtailmentAutomationRule RPC.
+	CurtailmentServiceCreateCurtailmentAutomationRuleProcedure = "/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule"
+	// CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure is the fully-qualified name of the
+	// CurtailmentService's UpdateCurtailmentAutomationRule RPC.
+	CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure = "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule"
+	// CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure is the fully-qualified name of the
+	// CurtailmentService's SetCurtailmentAutomationRuleEnabled RPC.
+	CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure = "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled"
+	// CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure is the fully-qualified name of the
+	// CurtailmentService's DeleteCurtailmentAutomationRule RPC.
+	CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure = "/curtailment.v1.CurtailmentService/DeleteCurtailmentAutomationRule"
 )
 
 // CurtailmentServiceClient is a client for the curtailment.v1.CurtailmentService service.
@@ -101,8 +134,6 @@ type CurtailmentServiceClient interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -126,6 +157,11 @@ type CurtailmentServiceClient interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// Admin recovery RPC: immediately release curtailment ownership without
+	// issuing restore commands. This is distinct from StopCurtailment
+	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
+	// recovery). Session-only, Admin role; reason required.
+	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
 	// IngestCurtailmentSignal starts a curtailment event from an
 	// external dispatch signal. signal_payload is provider-opaque;
 	// per-provider adapters decode it. Idempotent on
@@ -142,6 +178,22 @@ type CurtailmentServiceClient interface {
 	TestMqttCurtailmentSourceConnection(context.Context, *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error)
 	SetMqttCurtailmentSourceEnabled(context.Context, *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error)
 	DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error)
+	// Curtailment response profiles. Profiles define response behavior only;
+	// automation binds triggers/sources to profiles in a separate surface.
+	ListCurtailmentResponseProfiles(context.Context, *connect.Request[v1.ListCurtailmentResponseProfilesRequest]) (*connect.Response[v1.ListCurtailmentResponseProfilesResponse], error)
+	GetCurtailmentResponseProfile(context.Context, *connect.Request[v1.GetCurtailmentResponseProfileRequest]) (*connect.Response[v1.GetCurtailmentResponseProfileResponse], error)
+	CreateCurtailmentResponseProfile(context.Context, *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error)
+	UpdateCurtailmentResponseProfile(context.Context, *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error)
+	DeleteCurtailmentResponseProfile(context.Context, *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error)
+	// Curtailment automation rules. Automation binds an MQTT source trigger to
+	// a response profile; MQTT target=0 starts curtailment and target=100
+	// restores/no-ops.
+	ListCurtailmentAutomationRules(context.Context, *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error)
+	GetCurtailmentAutomationRule(context.Context, *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error)
+	CreateCurtailmentAutomationRule(context.Context, *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error)
+	UpdateCurtailmentAutomationRule(context.Context, *connect.Request[v1.UpdateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.UpdateCurtailmentAutomationRuleResponse], error)
+	SetCurtailmentAutomationRuleEnabled(context.Context, *connect.Request[v1.SetCurtailmentAutomationRuleEnabledRequest]) (*connect.Response[v1.SetCurtailmentAutomationRuleEnabledResponse], error)
+	DeleteCurtailmentAutomationRule(context.Context, *connect.Request[v1.DeleteCurtailmentAutomationRuleRequest]) (*connect.Response[v1.DeleteCurtailmentAutomationRuleResponse], error)
 }
 
 // NewCurtailmentServiceClient constructs a client for the curtailment.v1.CurtailmentService
@@ -174,11 +226,6 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceStopCurtailmentProcedure,
 			opts...,
 		),
-		getActiveCurtailment: connect.NewClient[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse](
-			httpClient,
-			baseURL+CurtailmentServiceGetActiveCurtailmentProcedure,
-			opts...,
-		),
 		listActiveCurtailments: connect.NewClient[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse](
 			httpClient,
 			baseURL+CurtailmentServiceListActiveCurtailmentsProcedure,
@@ -197,6 +244,11 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 		adminTerminateEvent: connect.NewClient[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse](
 			httpClient,
 			baseURL+CurtailmentServiceAdminTerminateEventProcedure,
+			opts...,
+		),
+		forceReleaseCurtailmentOwnership: connect.NewClient[v1.ForceReleaseCurtailmentOwnershipRequest, v1.ForceReleaseCurtailmentOwnershipResponse](
+			httpClient,
+			baseURL+CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
 			opts...,
 		),
 		ingestCurtailmentSignal: connect.NewClient[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse](
@@ -239,6 +291,61 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceDeleteMqttCurtailmentSourceProcedure,
 			opts...,
 		),
+		listCurtailmentResponseProfiles: connect.NewClient[v1.ListCurtailmentResponseProfilesRequest, v1.ListCurtailmentResponseProfilesResponse](
+			httpClient,
+			baseURL+CurtailmentServiceListCurtailmentResponseProfilesProcedure,
+			opts...,
+		),
+		getCurtailmentResponseProfile: connect.NewClient[v1.GetCurtailmentResponseProfileRequest, v1.GetCurtailmentResponseProfileResponse](
+			httpClient,
+			baseURL+CurtailmentServiceGetCurtailmentResponseProfileProcedure,
+			opts...,
+		),
+		createCurtailmentResponseProfile: connect.NewClient[v1.CreateCurtailmentResponseProfileRequest, v1.CreateCurtailmentResponseProfileResponse](
+			httpClient,
+			baseURL+CurtailmentServiceCreateCurtailmentResponseProfileProcedure,
+			opts...,
+		),
+		updateCurtailmentResponseProfile: connect.NewClient[v1.UpdateCurtailmentResponseProfileRequest, v1.UpdateCurtailmentResponseProfileResponse](
+			httpClient,
+			baseURL+CurtailmentServiceUpdateCurtailmentResponseProfileProcedure,
+			opts...,
+		),
+		deleteCurtailmentResponseProfile: connect.NewClient[v1.DeleteCurtailmentResponseProfileRequest, v1.DeleteCurtailmentResponseProfileResponse](
+			httpClient,
+			baseURL+CurtailmentServiceDeleteCurtailmentResponseProfileProcedure,
+			opts...,
+		),
+		listCurtailmentAutomationRules: connect.NewClient[v1.ListCurtailmentAutomationRulesRequest, v1.ListCurtailmentAutomationRulesResponse](
+			httpClient,
+			baseURL+CurtailmentServiceListCurtailmentAutomationRulesProcedure,
+			opts...,
+		),
+		getCurtailmentAutomationRule: connect.NewClient[v1.GetCurtailmentAutomationRuleRequest, v1.GetCurtailmentAutomationRuleResponse](
+			httpClient,
+			baseURL+CurtailmentServiceGetCurtailmentAutomationRuleProcedure,
+			opts...,
+		),
+		createCurtailmentAutomationRule: connect.NewClient[v1.CreateCurtailmentAutomationRuleRequest, v1.CreateCurtailmentAutomationRuleResponse](
+			httpClient,
+			baseURL+CurtailmentServiceCreateCurtailmentAutomationRuleProcedure,
+			opts...,
+		),
+		updateCurtailmentAutomationRule: connect.NewClient[v1.UpdateCurtailmentAutomationRuleRequest, v1.UpdateCurtailmentAutomationRuleResponse](
+			httpClient,
+			baseURL+CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure,
+			opts...,
+		),
+		setCurtailmentAutomationRuleEnabled: connect.NewClient[v1.SetCurtailmentAutomationRuleEnabledRequest, v1.SetCurtailmentAutomationRuleEnabledResponse](
+			httpClient,
+			baseURL+CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure,
+			opts...,
+		),
+		deleteCurtailmentAutomationRule: connect.NewClient[v1.DeleteCurtailmentAutomationRuleRequest, v1.DeleteCurtailmentAutomationRuleResponse](
+			httpClient,
+			baseURL+CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -248,11 +355,11 @@ type curtailmentServiceClient struct {
 	startCurtailment                    *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
 	updateCurtailmentEvent              *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
 	stopCurtailment                     *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
-	getActiveCurtailment                *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
 	listActiveCurtailments              *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
 	listCurtailmentEvents               *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
 	getCurtailmentEvent                 *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
 	adminTerminateEvent                 *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
+	forceReleaseCurtailmentOwnership    *connect.Client[v1.ForceReleaseCurtailmentOwnershipRequest, v1.ForceReleaseCurtailmentOwnershipResponse]
 	ingestCurtailmentSignal             *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
 	listMqttCurtailmentSources          *connect.Client[v1.ListMqttCurtailmentSourcesRequest, v1.ListMqttCurtailmentSourcesResponse]
 	getMqttCurtailmentSource            *connect.Client[v1.GetMqttCurtailmentSourceRequest, v1.GetMqttCurtailmentSourceResponse]
@@ -261,6 +368,17 @@ type curtailmentServiceClient struct {
 	testMqttCurtailmentSourceConnection *connect.Client[v1.TestMqttCurtailmentSourceConnectionRequest, v1.TestMqttCurtailmentSourceConnectionResponse]
 	setMqttCurtailmentSourceEnabled     *connect.Client[v1.SetMqttCurtailmentSourceEnabledRequest, v1.SetMqttCurtailmentSourceEnabledResponse]
 	deleteMqttCurtailmentSource         *connect.Client[v1.DeleteMqttCurtailmentSourceRequest, v1.DeleteMqttCurtailmentSourceResponse]
+	listCurtailmentResponseProfiles     *connect.Client[v1.ListCurtailmentResponseProfilesRequest, v1.ListCurtailmentResponseProfilesResponse]
+	getCurtailmentResponseProfile       *connect.Client[v1.GetCurtailmentResponseProfileRequest, v1.GetCurtailmentResponseProfileResponse]
+	createCurtailmentResponseProfile    *connect.Client[v1.CreateCurtailmentResponseProfileRequest, v1.CreateCurtailmentResponseProfileResponse]
+	updateCurtailmentResponseProfile    *connect.Client[v1.UpdateCurtailmentResponseProfileRequest, v1.UpdateCurtailmentResponseProfileResponse]
+	deleteCurtailmentResponseProfile    *connect.Client[v1.DeleteCurtailmentResponseProfileRequest, v1.DeleteCurtailmentResponseProfileResponse]
+	listCurtailmentAutomationRules      *connect.Client[v1.ListCurtailmentAutomationRulesRequest, v1.ListCurtailmentAutomationRulesResponse]
+	getCurtailmentAutomationRule        *connect.Client[v1.GetCurtailmentAutomationRuleRequest, v1.GetCurtailmentAutomationRuleResponse]
+	createCurtailmentAutomationRule     *connect.Client[v1.CreateCurtailmentAutomationRuleRequest, v1.CreateCurtailmentAutomationRuleResponse]
+	updateCurtailmentAutomationRule     *connect.Client[v1.UpdateCurtailmentAutomationRuleRequest, v1.UpdateCurtailmentAutomationRuleResponse]
+	setCurtailmentAutomationRuleEnabled *connect.Client[v1.SetCurtailmentAutomationRuleEnabledRequest, v1.SetCurtailmentAutomationRuleEnabledResponse]
+	deleteCurtailmentAutomationRule     *connect.Client[v1.DeleteCurtailmentAutomationRuleRequest, v1.DeleteCurtailmentAutomationRuleResponse]
 }
 
 // PreviewCurtailmentPlan calls curtailment.v1.CurtailmentService.PreviewCurtailmentPlan.
@@ -283,11 +401,6 @@ func (c *curtailmentServiceClient) StopCurtailment(ctx context.Context, req *con
 	return c.stopCurtailment.CallUnary(ctx, req)
 }
 
-// GetActiveCurtailment calls curtailment.v1.CurtailmentService.GetActiveCurtailment.
-func (c *curtailmentServiceClient) GetActiveCurtailment(ctx context.Context, req *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return c.getActiveCurtailment.CallUnary(ctx, req)
-}
-
 // ListActiveCurtailments calls curtailment.v1.CurtailmentService.ListActiveCurtailments.
 func (c *curtailmentServiceClient) ListActiveCurtailments(ctx context.Context, req *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
 	return c.listActiveCurtailments.CallUnary(ctx, req)
@@ -306,6 +419,12 @@ func (c *curtailmentServiceClient) GetCurtailmentEvent(ctx context.Context, req 
 // AdminTerminateEvent calls curtailment.v1.CurtailmentService.AdminTerminateEvent.
 func (c *curtailmentServiceClient) AdminTerminateEvent(ctx context.Context, req *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return c.adminTerminateEvent.CallUnary(ctx, req)
+}
+
+// ForceReleaseCurtailmentOwnership calls
+// curtailment.v1.CurtailmentService.ForceReleaseCurtailmentOwnership.
+func (c *curtailmentServiceClient) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error) {
+	return c.forceReleaseCurtailmentOwnership.CallUnary(ctx, req)
 }
 
 // IngestCurtailmentSignal calls curtailment.v1.CurtailmentService.IngestCurtailmentSignal.
@@ -350,6 +469,72 @@ func (c *curtailmentServiceClient) DeleteMqttCurtailmentSource(ctx context.Conte
 	return c.deleteMqttCurtailmentSource.CallUnary(ctx, req)
 }
 
+// ListCurtailmentResponseProfiles calls
+// curtailment.v1.CurtailmentService.ListCurtailmentResponseProfiles.
+func (c *curtailmentServiceClient) ListCurtailmentResponseProfiles(ctx context.Context, req *connect.Request[v1.ListCurtailmentResponseProfilesRequest]) (*connect.Response[v1.ListCurtailmentResponseProfilesResponse], error) {
+	return c.listCurtailmentResponseProfiles.CallUnary(ctx, req)
+}
+
+// GetCurtailmentResponseProfile calls
+// curtailment.v1.CurtailmentService.GetCurtailmentResponseProfile.
+func (c *curtailmentServiceClient) GetCurtailmentResponseProfile(ctx context.Context, req *connect.Request[v1.GetCurtailmentResponseProfileRequest]) (*connect.Response[v1.GetCurtailmentResponseProfileResponse], error) {
+	return c.getCurtailmentResponseProfile.CallUnary(ctx, req)
+}
+
+// CreateCurtailmentResponseProfile calls
+// curtailment.v1.CurtailmentService.CreateCurtailmentResponseProfile.
+func (c *curtailmentServiceClient) CreateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error) {
+	return c.createCurtailmentResponseProfile.CallUnary(ctx, req)
+}
+
+// UpdateCurtailmentResponseProfile calls
+// curtailment.v1.CurtailmentService.UpdateCurtailmentResponseProfile.
+func (c *curtailmentServiceClient) UpdateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error) {
+	return c.updateCurtailmentResponseProfile.CallUnary(ctx, req)
+}
+
+// DeleteCurtailmentResponseProfile calls
+// curtailment.v1.CurtailmentService.DeleteCurtailmentResponseProfile.
+func (c *curtailmentServiceClient) DeleteCurtailmentResponseProfile(ctx context.Context, req *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error) {
+	return c.deleteCurtailmentResponseProfile.CallUnary(ctx, req)
+}
+
+// ListCurtailmentAutomationRules calls
+// curtailment.v1.CurtailmentService.ListCurtailmentAutomationRules.
+func (c *curtailmentServiceClient) ListCurtailmentAutomationRules(ctx context.Context, req *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error) {
+	return c.listCurtailmentAutomationRules.CallUnary(ctx, req)
+}
+
+// GetCurtailmentAutomationRule calls
+// curtailment.v1.CurtailmentService.GetCurtailmentAutomationRule.
+func (c *curtailmentServiceClient) GetCurtailmentAutomationRule(ctx context.Context, req *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error) {
+	return c.getCurtailmentAutomationRule.CallUnary(ctx, req)
+}
+
+// CreateCurtailmentAutomationRule calls
+// curtailment.v1.CurtailmentService.CreateCurtailmentAutomationRule.
+func (c *curtailmentServiceClient) CreateCurtailmentAutomationRule(ctx context.Context, req *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error) {
+	return c.createCurtailmentAutomationRule.CallUnary(ctx, req)
+}
+
+// UpdateCurtailmentAutomationRule calls
+// curtailment.v1.CurtailmentService.UpdateCurtailmentAutomationRule.
+func (c *curtailmentServiceClient) UpdateCurtailmentAutomationRule(ctx context.Context, req *connect.Request[v1.UpdateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.UpdateCurtailmentAutomationRuleResponse], error) {
+	return c.updateCurtailmentAutomationRule.CallUnary(ctx, req)
+}
+
+// SetCurtailmentAutomationRuleEnabled calls
+// curtailment.v1.CurtailmentService.SetCurtailmentAutomationRuleEnabled.
+func (c *curtailmentServiceClient) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *connect.Request[v1.SetCurtailmentAutomationRuleEnabledRequest]) (*connect.Response[v1.SetCurtailmentAutomationRuleEnabledResponse], error) {
+	return c.setCurtailmentAutomationRuleEnabled.CallUnary(ctx, req)
+}
+
+// DeleteCurtailmentAutomationRule calls
+// curtailment.v1.CurtailmentService.DeleteCurtailmentAutomationRule.
+func (c *curtailmentServiceClient) DeleteCurtailmentAutomationRule(ctx context.Context, req *connect.Request[v1.DeleteCurtailmentAutomationRuleRequest]) (*connect.Response[v1.DeleteCurtailmentAutomationRuleResponse], error) {
+	return c.deleteCurtailmentAutomationRule.CallUnary(ctx, req)
+}
+
 // CurtailmentServiceHandler is an implementation of the curtailment.v1.CurtailmentService service.
 type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
@@ -364,8 +549,6 @@ type CurtailmentServiceHandler interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -389,6 +572,11 @@ type CurtailmentServiceHandler interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// Admin recovery RPC: immediately release curtailment ownership without
+	// issuing restore commands. This is distinct from StopCurtailment
+	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
+	// recovery). Session-only, Admin role; reason required.
+	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
 	// IngestCurtailmentSignal starts a curtailment event from an
 	// external dispatch signal. signal_payload is provider-opaque;
 	// per-provider adapters decode it. Idempotent on
@@ -405,6 +593,22 @@ type CurtailmentServiceHandler interface {
 	TestMqttCurtailmentSourceConnection(context.Context, *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error)
 	SetMqttCurtailmentSourceEnabled(context.Context, *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error)
 	DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error)
+	// Curtailment response profiles. Profiles define response behavior only;
+	// automation binds triggers/sources to profiles in a separate surface.
+	ListCurtailmentResponseProfiles(context.Context, *connect.Request[v1.ListCurtailmentResponseProfilesRequest]) (*connect.Response[v1.ListCurtailmentResponseProfilesResponse], error)
+	GetCurtailmentResponseProfile(context.Context, *connect.Request[v1.GetCurtailmentResponseProfileRequest]) (*connect.Response[v1.GetCurtailmentResponseProfileResponse], error)
+	CreateCurtailmentResponseProfile(context.Context, *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error)
+	UpdateCurtailmentResponseProfile(context.Context, *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error)
+	DeleteCurtailmentResponseProfile(context.Context, *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error)
+	// Curtailment automation rules. Automation binds an MQTT source trigger to
+	// a response profile; MQTT target=0 starts curtailment and target=100
+	// restores/no-ops.
+	ListCurtailmentAutomationRules(context.Context, *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error)
+	GetCurtailmentAutomationRule(context.Context, *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error)
+	CreateCurtailmentAutomationRule(context.Context, *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error)
+	UpdateCurtailmentAutomationRule(context.Context, *connect.Request[v1.UpdateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.UpdateCurtailmentAutomationRuleResponse], error)
+	SetCurtailmentAutomationRuleEnabled(context.Context, *connect.Request[v1.SetCurtailmentAutomationRuleEnabledRequest]) (*connect.Response[v1.SetCurtailmentAutomationRuleEnabledResponse], error)
+	DeleteCurtailmentAutomationRule(context.Context, *connect.Request[v1.DeleteCurtailmentAutomationRuleRequest]) (*connect.Response[v1.DeleteCurtailmentAutomationRuleResponse], error)
 }
 
 // NewCurtailmentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -433,11 +637,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.StopCurtailment,
 		opts...,
 	)
-	curtailmentServiceGetActiveCurtailmentHandler := connect.NewUnaryHandler(
-		CurtailmentServiceGetActiveCurtailmentProcedure,
-		svc.GetActiveCurtailment,
-		opts...,
-	)
 	curtailmentServiceListActiveCurtailmentsHandler := connect.NewUnaryHandler(
 		CurtailmentServiceListActiveCurtailmentsProcedure,
 		svc.ListActiveCurtailments,
@@ -456,6 +655,11 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 	curtailmentServiceAdminTerminateEventHandler := connect.NewUnaryHandler(
 		CurtailmentServiceAdminTerminateEventProcedure,
 		svc.AdminTerminateEvent,
+		opts...,
+	)
+	curtailmentServiceForceReleaseCurtailmentOwnershipHandler := connect.NewUnaryHandler(
+		CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
+		svc.ForceReleaseCurtailmentOwnership,
 		opts...,
 	)
 	curtailmentServiceIngestCurtailmentSignalHandler := connect.NewUnaryHandler(
@@ -498,6 +702,61 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.DeleteMqttCurtailmentSource,
 		opts...,
 	)
+	curtailmentServiceListCurtailmentResponseProfilesHandler := connect.NewUnaryHandler(
+		CurtailmentServiceListCurtailmentResponseProfilesProcedure,
+		svc.ListCurtailmentResponseProfiles,
+		opts...,
+	)
+	curtailmentServiceGetCurtailmentResponseProfileHandler := connect.NewUnaryHandler(
+		CurtailmentServiceGetCurtailmentResponseProfileProcedure,
+		svc.GetCurtailmentResponseProfile,
+		opts...,
+	)
+	curtailmentServiceCreateCurtailmentResponseProfileHandler := connect.NewUnaryHandler(
+		CurtailmentServiceCreateCurtailmentResponseProfileProcedure,
+		svc.CreateCurtailmentResponseProfile,
+		opts...,
+	)
+	curtailmentServiceUpdateCurtailmentResponseProfileHandler := connect.NewUnaryHandler(
+		CurtailmentServiceUpdateCurtailmentResponseProfileProcedure,
+		svc.UpdateCurtailmentResponseProfile,
+		opts...,
+	)
+	curtailmentServiceDeleteCurtailmentResponseProfileHandler := connect.NewUnaryHandler(
+		CurtailmentServiceDeleteCurtailmentResponseProfileProcedure,
+		svc.DeleteCurtailmentResponseProfile,
+		opts...,
+	)
+	curtailmentServiceListCurtailmentAutomationRulesHandler := connect.NewUnaryHandler(
+		CurtailmentServiceListCurtailmentAutomationRulesProcedure,
+		svc.ListCurtailmentAutomationRules,
+		opts...,
+	)
+	curtailmentServiceGetCurtailmentAutomationRuleHandler := connect.NewUnaryHandler(
+		CurtailmentServiceGetCurtailmentAutomationRuleProcedure,
+		svc.GetCurtailmentAutomationRule,
+		opts...,
+	)
+	curtailmentServiceCreateCurtailmentAutomationRuleHandler := connect.NewUnaryHandler(
+		CurtailmentServiceCreateCurtailmentAutomationRuleProcedure,
+		svc.CreateCurtailmentAutomationRule,
+		opts...,
+	)
+	curtailmentServiceUpdateCurtailmentAutomationRuleHandler := connect.NewUnaryHandler(
+		CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure,
+		svc.UpdateCurtailmentAutomationRule,
+		opts...,
+	)
+	curtailmentServiceSetCurtailmentAutomationRuleEnabledHandler := connect.NewUnaryHandler(
+		CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure,
+		svc.SetCurtailmentAutomationRuleEnabled,
+		opts...,
+	)
+	curtailmentServiceDeleteCurtailmentAutomationRuleHandler := connect.NewUnaryHandler(
+		CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure,
+		svc.DeleteCurtailmentAutomationRule,
+		opts...,
+	)
 	return "/curtailment.v1.CurtailmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CurtailmentServicePreviewCurtailmentPlanProcedure:
@@ -508,8 +767,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceUpdateCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceStopCurtailmentProcedure:
 			curtailmentServiceStopCurtailmentHandler.ServeHTTP(w, r)
-		case CurtailmentServiceGetActiveCurtailmentProcedure:
-			curtailmentServiceGetActiveCurtailmentHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListActiveCurtailmentsProcedure:
 			curtailmentServiceListActiveCurtailmentsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListCurtailmentEventsProcedure:
@@ -518,6 +775,8 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceGetCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceAdminTerminateEventProcedure:
 			curtailmentServiceAdminTerminateEventHandler.ServeHTTP(w, r)
+		case CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure:
+			curtailmentServiceForceReleaseCurtailmentOwnershipHandler.ServeHTTP(w, r)
 		case CurtailmentServiceIngestCurtailmentSignalProcedure:
 			curtailmentServiceIngestCurtailmentSignalHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListMqttCurtailmentSourcesProcedure:
@@ -534,6 +793,28 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceSetMqttCurtailmentSourceEnabledHandler.ServeHTTP(w, r)
 		case CurtailmentServiceDeleteMqttCurtailmentSourceProcedure:
 			curtailmentServiceDeleteMqttCurtailmentSourceHandler.ServeHTTP(w, r)
+		case CurtailmentServiceListCurtailmentResponseProfilesProcedure:
+			curtailmentServiceListCurtailmentResponseProfilesHandler.ServeHTTP(w, r)
+		case CurtailmentServiceGetCurtailmentResponseProfileProcedure:
+			curtailmentServiceGetCurtailmentResponseProfileHandler.ServeHTTP(w, r)
+		case CurtailmentServiceCreateCurtailmentResponseProfileProcedure:
+			curtailmentServiceCreateCurtailmentResponseProfileHandler.ServeHTTP(w, r)
+		case CurtailmentServiceUpdateCurtailmentResponseProfileProcedure:
+			curtailmentServiceUpdateCurtailmentResponseProfileHandler.ServeHTTP(w, r)
+		case CurtailmentServiceDeleteCurtailmentResponseProfileProcedure:
+			curtailmentServiceDeleteCurtailmentResponseProfileHandler.ServeHTTP(w, r)
+		case CurtailmentServiceListCurtailmentAutomationRulesProcedure:
+			curtailmentServiceListCurtailmentAutomationRulesHandler.ServeHTTP(w, r)
+		case CurtailmentServiceGetCurtailmentAutomationRuleProcedure:
+			curtailmentServiceGetCurtailmentAutomationRuleHandler.ServeHTTP(w, r)
+		case CurtailmentServiceCreateCurtailmentAutomationRuleProcedure:
+			curtailmentServiceCreateCurtailmentAutomationRuleHandler.ServeHTTP(w, r)
+		case CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure:
+			curtailmentServiceUpdateCurtailmentAutomationRuleHandler.ServeHTTP(w, r)
+		case CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure:
+			curtailmentServiceSetCurtailmentAutomationRuleEnabledHandler.ServeHTTP(w, r)
+		case CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure:
+			curtailmentServiceDeleteCurtailmentAutomationRuleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -559,10 +840,6 @@ func (UnimplementedCurtailmentServiceHandler) StopCurtailment(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.StopCurtailment is not implemented"))
 }
 
-func (UnimplementedCurtailmentServiceHandler) GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetActiveCurtailment is not implemented"))
-}
-
 func (UnimplementedCurtailmentServiceHandler) ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListActiveCurtailments is not implemented"))
 }
@@ -577,6 +854,10 @@ func (UnimplementedCurtailmentServiceHandler) GetCurtailmentEvent(context.Contex
 
 func (UnimplementedCurtailmentServiceHandler) AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.AdminTerminateEvent is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ForceReleaseCurtailmentOwnership is not implemented"))
 }
 
 func (UnimplementedCurtailmentServiceHandler) IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error) {
@@ -609,4 +890,48 @@ func (UnimplementedCurtailmentServiceHandler) SetMqttCurtailmentSourceEnabled(co
 
 func (UnimplementedCurtailmentServiceHandler) DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.DeleteMqttCurtailmentSource is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ListCurtailmentResponseProfiles(context.Context, *connect.Request[v1.ListCurtailmentResponseProfilesRequest]) (*connect.Response[v1.ListCurtailmentResponseProfilesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListCurtailmentResponseProfiles is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) GetCurtailmentResponseProfile(context.Context, *connect.Request[v1.GetCurtailmentResponseProfileRequest]) (*connect.Response[v1.GetCurtailmentResponseProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetCurtailmentResponseProfile is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) CreateCurtailmentResponseProfile(context.Context, *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.CreateCurtailmentResponseProfile is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) UpdateCurtailmentResponseProfile(context.Context, *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.UpdateCurtailmentResponseProfile is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) DeleteCurtailmentResponseProfile(context.Context, *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.DeleteCurtailmentResponseProfile is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ListCurtailmentAutomationRules(context.Context, *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListCurtailmentAutomationRules is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) GetCurtailmentAutomationRule(context.Context, *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetCurtailmentAutomationRule is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) CreateCurtailmentAutomationRule(context.Context, *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.CreateCurtailmentAutomationRule is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) UpdateCurtailmentAutomationRule(context.Context, *connect.Request[v1.UpdateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.UpdateCurtailmentAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.UpdateCurtailmentAutomationRule is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) SetCurtailmentAutomationRuleEnabled(context.Context, *connect.Request[v1.SetCurtailmentAutomationRuleEnabledRequest]) (*connect.Response[v1.SetCurtailmentAutomationRuleEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.SetCurtailmentAutomationRuleEnabled is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) DeleteCurtailmentAutomationRule(context.Context, *connect.Request[v1.DeleteCurtailmentAutomationRuleRequest]) (*connect.Response[v1.DeleteCurtailmentAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.DeleteCurtailmentAutomationRule is not implemented"))
 }

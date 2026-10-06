@@ -19,6 +19,7 @@ import {
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  DeviceOfflineReason,
   DeviceStatus,
   type MinerStateSnapshot,
   PairingStatus,
@@ -75,10 +76,8 @@ const baseMeasurements = {
     } as Measurement,
   ],
   workerName: "worker-base",
-  groupLabels: [] as string[],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
 };
 
 // ============================================================================
@@ -97,6 +96,7 @@ export const hashingMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ONLINE,
   temperatureStatus: TemperatureStatus.OK,
@@ -117,18 +117,17 @@ export const offlineMiner: MinerStateSnapshot = {
   manufacturer: "Bitmain",
   workerName: "worker-offline",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   hashrate: [],
   efficiency: [],
   powerUsage: [],
   temperature: [],
   deviceStatus: DeviceStatus.OFFLINE,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -144,6 +143,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   manufacturer: "Bitmain",
   workerName: "worker-sleeping",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   hashrate: [
     {
       timestamp: { seconds: BigInt(1641283200), nanos: 0 },
@@ -154,13 +154,11 @@ export const sleepingMiner: MinerStateSnapshot = {
   powerUsage: [],
   temperature: baseMeasurements.temperature,
   deviceStatus: DeviceStatus.INACTIVE,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 // ============================================================================
@@ -180,18 +178,17 @@ export const authRequiredMiner: MinerStateSnapshot = {
   manufacturer: "Bitmain",
   workerName: "worker-auth",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   hashrate: [],
   efficiency: [],
   powerUsage: [],
   temperature: [],
   deviceStatus: DeviceStatus.ERROR,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {
@@ -206,6 +203,7 @@ export const poolRequiredMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
   temperatureStatus: TemperatureStatus.OK,
@@ -225,6 +223,7 @@ export const controlBoardFailureMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
@@ -244,6 +243,7 @@ export const hashboardFailureMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
@@ -263,6 +263,7 @@ export const psuFailureMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
@@ -282,6 +283,7 @@ export const fanFailureMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
@@ -305,6 +307,7 @@ export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
@@ -324,6 +327,7 @@ export const multipleComponentFailuresMiner: MinerStateSnapshot = {
   model: "S19 Pro",
   manufacturer: "Bitmain",
   driverName: "antminer",
+  embeddedWebViewAvailable: false,
   ...baseMeasurements,
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,

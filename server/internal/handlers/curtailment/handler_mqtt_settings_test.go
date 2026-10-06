@@ -46,7 +46,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
 			SourceName:            "maestro",
-			Topic:                 "maestro/curtailment",
+			Topic:                 "maestro/target",
 			BrokerPrimaryHost:     "10.0.0.1",
 			BrokerSecondaryHost:   "10.0.0.2",
 			MqttUsername:          "operator",
@@ -177,7 +177,7 @@ func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *test
 	resp, err := h.TestMqttCurtailmentSourceConnection(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.TestMqttCurtailmentSourceConnectionRequest{
-			Topic:               "maestro/curtailment",
+			Topic:               "maestro/target",
 			BrokerPrimaryHost:   "10.0.0.1",
 			BrokerSecondaryHost: "10.0.0.2",
 			MqttUsername:        "operator",
@@ -214,6 +214,39 @@ func TestHandler_TestMqttCurtailmentSourceConnectionRequiresAdmin(t *testing.T) 
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestToMqttStatusProtoReportsPendingEdgeAsLatestSignal(t *testing.T) {
+	t.Parallel()
+
+	settledAt := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)
+	settledReceivedAt := settledAt.Add(1 * time.Second)
+	pendingAt := settledAt.Add(2 * time.Minute)
+	pendingReceivedAt := pendingAt.Add(2 * time.Second)
+
+	status := toMqttStatusProto(mqttingest.SourceView{
+		HasState: true,
+		State: mqttingest.SourceState{
+			LastTarget:         mqttingest.TargetOn,
+			LastTargetAt:       settledAt,
+			LastReceivedAt:     settledReceivedAt,
+			LastReceivedBroker: "primary",
+			PendingEdge: &mqttingest.PendingEdge{
+				Direction:      mqttingest.EdgeOnToOff,
+				Target:         mqttingest.TargetOff,
+				TargetAt:       pendingAt,
+				ReceivedAt:     pendingReceivedAt,
+				ReceivedBroker: "secondary",
+			},
+		},
+	})
+
+	assert.Equal(t, "OFF", status.GetLastTarget())
+	require.NotNil(t, status.GetLastTargetAt())
+	assert.Equal(t, pendingAt, status.GetLastTargetAt().AsTime())
+	require.NotNil(t, status.GetLastReceivedAt())
+	assert.Equal(t, pendingReceivedAt, status.GetLastReceivedAt().AsTime())
+	assert.Equal(t, "secondary", status.GetLastReceivedBroker())
 }
 
 type handlerMqttSettingsStore struct {
@@ -253,6 +286,30 @@ func (*handlerMqttSettingsStore) SetSourceConfigEnabled(context.Context, int64, 
 func (s *handlerMqttSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID, sourceID int64) error {
 	s.deletedOrgID = orgID
 	s.deletedSourceID = sourceID
+	return nil
+}
+
+func (*handlerMqttSettingsStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
+func (*handlerMqttSettingsStore) RequestRigConfigReconciliationForDevices(context.Context, int64, int64, []string) error {
+	return nil
+}
+
+func (*handlerMqttSettingsStore) ListRigConfigReconciliationTargets(context.Context, int64, int64, int64) ([]string, error) {
+	return nil, nil
+}
+
+func (*handlerMqttSettingsStore) ClaimRigConfigReconciliation(context.Context) (mqttingest.RigConfigReconciliation, error) {
+	return mqttingest.RigConfigReconciliation{}, mqttingest.ErrRigConfigReconciliationNotFound
+}
+
+func (*handlerMqttSettingsStore) CompleteRigConfigReconciliation(context.Context, int64, int64) error {
+	return nil
+}
+
+func (*handlerMqttSettingsStore) RetryRigConfigReconciliation(context.Context, int64, int64, string) error {
 	return nil
 }
 

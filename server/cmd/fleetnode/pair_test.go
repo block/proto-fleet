@@ -1,10 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"sync"
@@ -20,7 +18,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -29,7 +26,7 @@ import (
 // expects in ControlCommand.payload.
 func pairCmd(t *testing.T, req *pairingpb.FleetNodePairRequest) []byte {
 	t.Helper()
-	return mustMarshal(t, &pairingpb.AgentCommand{Command: &pairingpb.AgentCommand_Pair{Pair: req}})
+	return mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_Pair{Pair: req}})
 }
 
 type stubPairer struct {
@@ -47,43 +44,6 @@ func (s *stubPairer) Pair(_ context.Context, target *pairingpb.FleetNodePairTarg
 	}
 }
 
-func TestMinerSigningPublicKeySPKIBase64_MatchesTokenService(t *testing.T) {
-	// Arrange: a fresh ed25519 key, hex-encoded like bootstrap.State stores it.
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	ts, err := token.NewService(token.Config{
-		ClientToken:                token.AuthTokenConfig{SecretKey: "0123456789abcdef0123456789abcdef", ExpirationPeriod: time.Minute},
-		MinerTokenExpirationPeriod: time.Minute,
-	})
-	require.NoError(t, err)
-	want, err := ts.ExtractPublicKeyFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	// Act
-	got, err := minerSigningPublicKeySPKIBase64(hex.EncodeToString(priv))
-
-	// Assert: the node-derived key must equal the server's byte for byte, or a
-	// miner paired here would reject the JWTs the node signs at runtime.
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-}
-
-func TestMinerSigningPublicKeySPKIBase64_RejectsBadKey(t *testing.T) {
-	cases := []struct{ name, hexKey string }{
-		{name: "not hex", hexKey: "zzzz"},
-		{name: "wrong length", hexKey: "abcd"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			_, err := minerSigningPublicKeySPKIBase64(tc.hexKey)
-
-			// Assert
-			require.Error(t, err)
-		})
-	}
-}
-
 func TestSecretBundleFor(t *testing.T) {
 	pw := "secret"
 	cases := []struct {
@@ -94,12 +54,6 @@ func TestSecretBundleFor(t *testing.T) {
 		wantKind any
 	}{
 		{
-			name:     "asymmetric uses node key",
-			caps:     sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
-			wantOK:   true,
-			wantKind: sdk.APIKey{Key: "node-pub"},
-		},
-		{
 			name:     "basic auth uses supplied creds",
 			caps:     sdk.Capabilities{},
 			creds:    &pairingpb.Credentials{Username: "root", Password: &pw},
@@ -107,7 +61,7 @@ func TestSecretBundleFor(t *testing.T) {
 			wantKind: sdk.UsernamePassword{Username: "root", Password: "secret"},
 		},
 		{
-			name:   "no creds and not asymmetric falls through",
+			name:   "no creds falls through",
 			caps:   sdk.Capabilities{},
 			wantOK: false,
 		},
@@ -121,7 +75,7 @@ func TestSecretBundleFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			bundle, ok := secretBundleFor(tc.caps, "node-pub", tc.creds)
+			bundle, ok := secretBundleFor(tc.caps, tc.creds)
 
 			// Assert
 			assert.Equal(t, tc.wantOK, ok)
@@ -392,6 +346,7 @@ func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert
 	acks := fake.acksCopy()
@@ -437,11 +392,12 @@ func (d *fakePairDriver) GetDefaultCredentials(context.Context, string, string) 
 }
 
 func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *pluginPairer {
+	return newTestPairerWithCredentials(t, caps, driver, nil)
+}
+
+func newTestPairerWithCredentials(t *testing.T, caps sdk.Capabilities, driver sdk.Driver, credentials credentialSealer) *pluginPairer {
 	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), hex.EncodeToString(priv))
-	require.NoError(t, err)
+	p := newPluginPairer(plugins.NewManager(&plugins.Config{}), credentials)
 	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
 		Name:       "fake",
 		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
@@ -449,6 +405,12 @@ func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *plug
 		Caps:       caps,
 	}))
 	return p
+}
+
+type failingCredentialSealer struct{}
+
+func (failingCredentialSealer) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
+	return nil, errors.New("seal failed")
 }
 
 func fakePairTarget() *pairingpb.FleetNodePairTarget {
@@ -484,7 +446,27 @@ func TestPluginPairer_BasicAuthRejectsUnreportableCredentials(t *testing.T) {
 	}
 }
 
-func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
+func TestPluginPairer_BasicAuthReportsEncryptedCredentials(t *testing.T) {
+	// Arrange
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
+	pw := "hunter2"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: production fleet-node pairing reports only node-owned ciphertext.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	require.NotEmpty(t, res.GetEncryptedCredentials().GetUsername())
+	require.NotEmpty(t, res.GetEncryptedCredentials().GetPassword())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, bundle.Kind)
+}
+
+func TestPluginPairer_BasicAuthRequiresCredentialSealer(t *testing.T) {
 	// Arrange
 	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
 	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
@@ -493,46 +475,51 @@ func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
 
-	// Assert: the node reports the credentials it authenticated with so the cloud persists them.
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "root", res.GetUsedCredentials().GetUsername())
-	assert.Equal(t, "hunter2", res.GetUsedCredentials().GetPassword())
+	// Assert: refuse before pairing so credentials cannot authenticate the miner
+	// without also producing node-owned ciphertext for future commands.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "credential sealer is not configured")
+	assert.Empty(t, drv.gotBundles)
 }
 
-func TestPluginPairer_AsymmetricReportsNoCredentials(t *testing.T) {
-	// Arrange: an asymmetric-auth driver pairs with the node's signing key.
+func TestPluginPairer_CredentialSealErrorSkipsPairAttempt(t *testing.T) {
+	// Arrange
 	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityAsymmetricAuth: true}, drv)
-	pw := "ignored"
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, failingCredentialSealer{})
+	pw := "hunter2"
 
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
 
-	// Assert: paired with the node key, no credentials reported back.
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	assert.Nil(t, res.GetUsedCredentials())
-	require.Len(t, drv.gotBundles, 1)
-	_, isAPIKey := drv.gotBundles[0].Kind.(sdk.APIKey)
-	assert.True(t, isAPIKey)
+	// Assert: refuse before pairing so a local reporting failure cannot follow
+	// a successful miner-side pair.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "encrypt credentials")
+	assert.Empty(t, drv.gotBundles)
 }
 
-func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
+func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T) {
 	// Arrange: no operator creds; the driver provides a working default.
+	active := true
 	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{SerialNumber: "SN1"},
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{2}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
 
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), nil)
 
-	// Assert: the default that worked is reported so the cloud stores it.
+	// Assert: the default that worked is sealed so the cloud can store it without
+	// seeing plaintext.
 	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
+	require.NotNil(t, res.DefaultPasswordActive)
+	assert.True(t, res.GetDefaultPasswordActive())
 }
 
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
@@ -544,15 +531,18 @@ func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
 			{Username: "admin", Password: "admin"},
 		},
 	}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{3}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
 
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), nil)
 
 	// Assert: the oversized default is skipped without a pair attempt; the usable one pairs.
 	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
 	require.Len(t, drv.gotBundles, 1)
 	up, ok := drv.gotBundles[0].Kind.(sdk.UsernamePassword)
 	require.True(t, ok)

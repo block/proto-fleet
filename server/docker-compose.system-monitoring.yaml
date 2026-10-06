@@ -1,0 +1,23 @@
+# Dev system-monitoring overlay used by `just dev-system-monitoring`.
+#
+# Layers on top of docker-compose.alerts.yaml (which it requires: the metrics
+# writer, Grafana, and webhook delivery are all alerts-gated) and adds the
+# in-process host stats collector, the proto-fleet-system alert rules, and
+# the slow-query dashboard.
+services:
+  fleet-api:
+    environment:
+      FLEET_SYSTEM_MONITORING_ENABLED: "true"
+      FLEET_SYSTEM_MONITORING_INTERVAL: "${FLEET_SYSTEM_MONITORING_INTERVAL:-30s}"
+      # No host mount in dev: the collector stats the container rootfs at the
+      # default disk path (/). On Docker Desktop the numbers describe the
+      # Linux VM, not the host — synthetic, but the full pipeline runs.
+
+  grafana:
+    volumes:
+      # Shadow the tombstone and the empty dashboards placeholder inside the
+      # read-only provisioning mount from docker-compose.alerts.yaml with the
+      # real files (a more specific bind mount wins over the directory mount).
+      - ./monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml:/etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml:ro
+      - ./monitoring/grafana/system-monitoring/dashboards.yaml:/etc/grafana/provisioning/dashboards/system-monitoring.yaml:ro
+      - ./monitoring/grafana/system-monitoring/dashboards:/etc/grafana/dashboards/system-monitoring:ro

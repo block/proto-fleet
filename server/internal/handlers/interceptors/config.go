@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
@@ -9,9 +10,13 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 )
 
 // RedactedRequestProcedures lists procedures whose requests contain secrets
@@ -36,6 +41,14 @@ var RedactedRequestProcedures = []string{
 	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
 	// in the request body.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
+	// ImportSiteMapCsv carries fleet topology plus miner identifiers, IPs, and
+	// MAC addresses in the request body.
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure,
+	alertsv1connect.ChannelServiceCreateChannelProcedure,
+	alertsv1connect.ChannelServiceUpdateChannelProcedure,
+	alertsv1connect.ChannelServiceTestChannelProcedure,
+	// Site control-subnet commissioning carries OT topology.
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -49,6 +62,14 @@ var RedactedResponseProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
+	// Update status exposes the instance patch level and a copy-paste host
+	// command. Upgrade operations can additionally expose raw host errors,
+	// recovery commands, and log paths. Keep that operational metadata out of
+	// debug response logs.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -104,12 +125,56 @@ var SessionOnlyProcedures = []string{
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+	curtailmentv1connect.CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
 	// MQTT source credential RPCs carry or exercise broker passwords and should
 	// only be reachable from interactive admin sessions, not API keys.
 	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+	// Infrastructure devices are the OT control surface: writes change
+	// which physical fans curtailment can drive, and manage-level reads
+	// expose driver_config (the OT network map). Session-only across all
+	// five procedures — uniform surface, same rationale as the authz
+	// entries above; no API-key automation consumes this service (the
+	// in-process reconciler bypasses the transport interceptors).
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	// Per-site OT control-subnet commissioning is an interactive admin
+	// operation. The read is equally sensitive and has no API-key consumer.
+	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure,
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
+	alertsv1connect.ChannelServiceListChannelsProcedure,
+	alertsv1connect.ChannelServiceCreateChannelProcedure,
+	alertsv1connect.ChannelServiceUpdateChannelProcedure,
+	alertsv1connect.ChannelServiceDeleteChannelProcedure,
+	alertsv1connect.ChannelServiceTestChannelProcedure,
+	alertsv1connect.RuleServiceListRulesProcedure,
+	alertsv1connect.RuleServicePauseRuleProcedure,
+	alertsv1connect.RuleServiceResumeRuleProcedure,
+	alertsv1connect.RuleServiceCreateRuleProcedure,
+	alertsv1connect.RuleServiceUpdateRuleProcedure,
+	alertsv1connect.RuleServiceDeleteRuleProcedure,
+	alertsv1connect.RuleServiceSetRuleRoutingProcedure,
+	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure,
+	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure,
+	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
+	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
+	alertsv1connect.HistoryServiceListAlertsProcedure,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure,
+	// The updates surface is session-only across every procedure —
+	// uniform surface, same rationale as the authz entries above. Update
+	// status and the install command describe the instance's patch level,
+	// SetReleaseChannel changes which builds every operator is offered,
+	// and no API-key automation consumes this service.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
@@ -135,6 +200,8 @@ var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceDownloadCommandArtifactProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure,
 }
@@ -144,6 +211,9 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	// Fleet topology (device IPs, site/rack placement) must not land in
+	// debug logs on every bridge poll.
+	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:             true,
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
 	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
@@ -152,10 +222,28 @@ var SensitiveBodyProcedures = map[string]bool{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure:   true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceDownloadCommandArtifactProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure:     true,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:         true,
 	// PairDiscoveredDevicesOnFleetNode: credentials in the request, plugin/node error
 	// strings in responses that can echo secrets.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: true,
+	// Site-map CSV import/export bodies carry fleet topology plus miner
+	// identifiers, serials, IPs, and MAC addresses.
+	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: true,
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: true,
+	// Infrastructure device bodies carry driver_config — the OT control
+	// network map (endpoint IPs, unit IDs, register addresses) — in
+	// create/update requests and all read/write responses. Keep it out
+	// of debug logs, same rationale as the fleet-topology entries above;
+	// future driver types may also carry credentials in the blob.
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure:  true,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure:    true,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: true,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure: true,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: true,
+	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure:               true,
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure:               true,
 }

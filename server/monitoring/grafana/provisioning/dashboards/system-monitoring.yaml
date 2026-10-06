@@ -1,0 +1,8 @@
+# Placeholder provider for the system-monitoring dashboard. It exists so the
+# system-monitoring overlays have a mountpoint to bind the real provider over
+# (a file cannot be bind-mounted into the read-only provisioning mount unless
+# it already exists there). With system monitoring off this provisions
+# nothing.
+apiVersion: 1
+
+providers: []

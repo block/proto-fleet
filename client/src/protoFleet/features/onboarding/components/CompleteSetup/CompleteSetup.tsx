@@ -36,7 +36,7 @@ const TaskCard = ({
   isLoading = false,
 }: TaskCardProps) => {
   return (
-    <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-base p-6">
+    <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-overlay p-6">
       <div className="flex flex-col gap-4">
         <div className="flex size-8 items-center justify-center rounded-lg bg-surface-5">{icon}</div>
         <div className="flex flex-col">
@@ -130,6 +130,7 @@ const ConfigurePoolCard = ({
 type CompleteSetupProps = {
   className?: string;
   lastPairingCompletedAt?: number;
+  minersChangedAt?: number;
   onRefetchMiners?: () => void;
   onPairingCompleted?: () => void;
 };
@@ -137,6 +138,7 @@ type CompleteSetupProps = {
 const CompleteSetup = ({
   className = "",
   lastPairingCompletedAt: externalPairingTimestamp = 0,
+  minersChangedAt = 0,
   onRefetchMiners,
   onPairingCompleted: externalOnPairingCompleted,
 }: CompleteSetupProps) => {
@@ -161,6 +163,22 @@ const CompleteSetup = ({
 
   // Fetch count of miners needing pool configuration
   const { poolNeededCount, isLoading: isLoadingPoolNeeded, refetch: refetchPoolNeededCount } = usePoolNeededCount();
+
+  const lastHandledMinersChangedAtRef = useRef(0);
+  useEffect(() => {
+    if (
+      completSetupDismissed ||
+      isLoadingPoolNeeded ||
+      minersChangedAt <= 0 ||
+      minersChangedAt === lastHandledMinersChangedAtRef.current
+    ) {
+      return;
+    }
+
+    lastHandledMinersChangedAtRef.current = minersChangedAt;
+    refetchAuthNeededMiners();
+    refetchPoolNeededCount();
+  }, [completSetupDismissed, isLoadingPoolNeeded, minersChangedAt, refetchAuthNeededMiners, refetchPoolNeededCount]);
 
   // Get streaming command batch updates
   const { streamCommandBatchUpdates } = useMinerCommand();
@@ -401,8 +419,8 @@ const CompleteSetup = ({
   return (
     <>
       {shouldShow ? (
-        <div className={className}>
-          <div className="@container rounded-3xl bg-core-primary-5 p-6">
+        <div className={className} data-testid="complete-setup">
+          <div className="@container rounded-xl bg-surface-elevated-base p-6 shadow-100">
             <div className="mb-6 flex items-center justify-between gap-x-10">
               <div className="text-heading-300">Complete setup</div>
               <Button

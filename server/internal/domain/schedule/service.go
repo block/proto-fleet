@@ -554,8 +554,20 @@ func validateTargets(targets []*pb.ScheduleTarget) error {
 
 		switch t.TargetType {
 		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
-			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
-			if _, err := strconv.ParseInt(trimmedID, 10, 64); err != nil {
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
+			// rack/group/site/building ids are positive BIGSERIAL row ids.
+			// Require the canonical decimal form: reject non-positive values
+			// ("0"/negatives resolve zero devices → a no-op schedule) and signed
+			// or zero-padded forms ("+7", "007"). ParseInt accepts those and
+			// expansion would dispatch to the underlying id, but the overlap
+			// SQL only casts ids matching ^[0-9]+$, so a non-canonical id would
+			// run yet escape the power-target conflict filter. FormatInt round-
+			// trips only the canonical form, keeping validation, expansion, and
+			// overlap resolution in agreement.
+			parsedID, err := strconv.ParseInt(trimmedID, 10, 64)
+			if err != nil || parsedID <= 0 || strconv.FormatInt(parsedID, 10) != trimmedID {
 				return fleeterror.NewInvalidArgumentErrorf(
 					"invalid target_id for %s: %q is not a valid identifier",
 					scheduleTargetTypeToString(t.TargetType), trimmedID,
@@ -582,7 +594,9 @@ func isValidScheduleTargetType(targetType pb.ScheduleTargetType) bool {
 		return false
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
 		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
-		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
 		return true
 	default:
 		return false
@@ -651,6 +665,10 @@ func scheduleTargetTypeToString(t pb.ScheduleTargetType) string {
 		return "group"
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
 		return "miner"
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE:
+		return "site"
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
+		return "building"
 	default:
 		return "unknown"
 	}

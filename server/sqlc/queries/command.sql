@@ -22,24 +22,33 @@ INSERT INTO command_batch_log (
   $8
 );
 
--- name: MarkCommandBatchProcessing :exec
-UPDATE command_batch_log
+-- name: MarkCommandBatchProcessing :execrows
+UPDATE command_batch_log AS batch
 SET status = 'PROCESSING',
     started_at = NOW()
-WHERE uuid = $1;
+WHERE batch.uuid = $1
+  AND batch.status = 'PENDING'
+  AND EXISTS (
+    SELECT 1
+    FROM queue_message AS message
+    WHERE message.command_batch_log_uuid = batch.uuid
+      AND message.status = 'PROCESSING'
+  );
 
--- name: MarkCommandBatchFinished :exec
+-- name: MarkCommandBatchFinished :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
    finished_at = NOW()
-WHERE uuid = $1;
+WHERE uuid = $1
+  AND status IN ('PENDING', 'PROCESSING');
 
--- name: MarkCommandBatchFinishedWithStartedAt :exec
+-- name: MarkCommandBatchFinishedWithStartedAt :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
     started_at = NOW(),
     finished_at = NOW()
-WHERE uuid = $1;
+WHERE uuid = $1
+  AND status = 'PENDING';
 
 -- name: UpsertCommandOnDeviceLog :exec
 -- PostgreSQL version using CTE for the subquery.
@@ -56,7 +65,7 @@ WHERE uuid = $1;
 -- display name via fleetmanagement.ComposeDeviceName so this query
 -- stays free of any rendering rules.
 WITH batch AS (
-    SELECT id FROM command_batch_log WHERE uuid = $4
+    SELECT id, uuid, type, organization_id FROM command_batch_log WHERE uuid = sqlc.arg('uuid')
 ),
 dev AS (
     SELECT
@@ -69,8 +78,8 @@ dev AS (
         d.mac_address   AS mac_address
     FROM device d
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    WHERE d.id = $1
-)
+    WHERE d.id = sqlc.arg('device_id')
+), recorded AS (
 INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
@@ -87,14 +96,14 @@ INSERT INTO command_on_device_log (
 )
 -- batch × dev is a deliberate cross-join: both CTEs must return exactly one
 -- row for the INSERT to write. fk_command_on_device_log_device guarantees
--- device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+-- the device argument exists, and device.discovered_device_id is NOT NULL, so dev
 -- always matches in practice.
 SELECT
   batch.id,
-  $1,
-  $2,
-  $3,
-  $5,
+  sqlc.arg('device_id'),
+  sqlc.arg('status'),
+  sqlc.arg('updated_at'),
+  sqlc.narg('error_info'),
   dev.org_id,
   dev.site_id,
   dev.custom_name,
@@ -106,7 +115,31 @@ FROM batch, dev
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
     updated_at = EXCLUDED.updated_at,
-    error_info = EXCLUDED.error_info;
+    error_info = EXCLUDED.error_info
+RETURNING command_batch_log_id, device_id, org_id, status
+)
+-- A terminal firmware attempt can replace the installed bytes even on failure
+-- (for example installation succeeds but reboot fails). Unknown/manual payloads
+-- must invalidate earlier managed identity too. Keep a timestamped empty row:
+-- its CAS witness prevents a concurrent stale observation from restoring old
+-- provenance after completion, including when no provenance existed before.
+-- The retained batch UUID identifies the latest serialized completion without
+-- relying on clocks from different workers to order command results.
+INSERT INTO device_firmware_deployment (
+    device_id, firmware_checksum, firmware_version, rollout_id, deployed_at, last_command_batch_uuid
+)
+SELECT recorded.device_id, '', '', NULL, clock_timestamp(), batch.uuid
+FROM recorded
+JOIN batch ON batch.id = recorded.command_batch_log_id
+WHERE batch.type = 'FirmwareUpdate'
+  AND recorded.status IN ('SUCCESS', 'FAILED')
+  AND (batch.organization_id IS NULL OR batch.organization_id = recorded.org_id)
+ON CONFLICT (device_id) DO UPDATE SET
+    firmware_checksum = '',
+    firmware_version = '',
+    rollout_id = NULL,
+    last_command_batch_uuid = EXCLUDED.last_command_batch_uuid,
+    deployed_at = GREATEST(clock_timestamp(), device_firmware_deployment.deployed_at + INTERVAL '1 microsecond');
 
 -- name: GetBatchStatusAndDeviceCounts :one
 SELECT
@@ -135,6 +168,12 @@ SELECT
     cbl.type
 FROM command_batch_log cbl
 WHERE cbl.uuid = $1;
+
+-- name: LockCommandBatch :one
+SELECT status
+FROM command_batch_log
+WHERE uuid = $1
+FOR UPDATE;
 
 -- name: GetBatchHeaderForOrg :one
 -- Returns the batch header only if its recorded organization_id matches the

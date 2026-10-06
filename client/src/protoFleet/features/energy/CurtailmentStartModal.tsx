@@ -1,59 +1,116 @@
-import { type ReactElement, type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 
+import { type CurtailmentTerminalScopeType, parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
-import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import {
+  BuildingSelectionModal,
+  GroupSelectionModal,
+  MinerSelectionModal,
+  type MinerSelectionValue,
+  RackSelectionModal,
+} from "@/protoFleet/components/TargetSelectionModal";
+import {
+  formatCurtailmentAppliesToSummary,
+  formatCurtailmentFacilityFanCount,
+  formatCurtailmentKw as formatKw,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
+  customResponseProfileId,
+  supportsAllPairedTargeting,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import FacilityFanSelectionModal, {
+  type FacilityFanDeviceOption,
+  type FacilityFanSelectionValue,
+} from "@/protoFleet/features/energy/FacilityFanSelectionModal";
+import {
   createCurtailmentPlanPreview,
   getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
-import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
+import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
+import { positions } from "@/shared/constants";
 
 export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = "wholeOrg" | "site" | "deviceSet" | "explicitMiners";
-export type ResponseProfileId = "customPlan";
+export type CurtailmentScopeType = CurtailmentTerminalScopeType | "deviceSet";
+export type CurtailmentSiteSelection = "none" | "allSites" | "site";
+export type CurtailmentMinerSelectionMode = "subset" | "all";
+export type ResponseProfileId = string;
 export type CurtailmentMode = "fixedKwReduction" | "fullFleet";
 export type MinerSelectionStrategy = "leastEfficientFirst";
 export type CurtailmentStartModalMode = "create" | "edit";
+export type CurtailmentStartModalVariant = "curtailment" | "responseProfile";
+export type ResponseProfileModalMode = "create" | "edit";
 
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
   scopeId?: string;
+  siteSelection?: CurtailmentSiteSelection;
   siteId?: string;
+  siteIds?: string[];
+  siteNamesById?: Record<string, string>;
+  buildingTargetIds?: string[];
+  rackTargetIds?: string[];
+  groupTargetIds?: string[];
   deviceSetIds: string[];
   deviceIdentifiers: string[];
+  minerSelectionMode?: CurtailmentMinerSelectionMode;
   responseProfileId: ResponseProfileId;
+  responseProfileRevision?: string;
   curtailmentMode: CurtailmentMode;
   minerSelectionStrategy: MinerSelectionStrategy;
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
+  postEventCooldownSec?: string;
   minDurationSec: string;
   maxDurationSec: string;
+  curtailBatchSize: string;
+  curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
+  facilityFanDeviceIds?: string[];
+  fanOffDelaySec?: string;
+  fanRestoreDelaySec?: string;
   reason: string;
   includeMaintenance: boolean;
+  forceIncludeAllPairedMiners: boolean;
 }
 
 export type CurtailmentSubmitValues = CurtailmentFormValues;
 
+export interface CurtailmentResponseProfileOption {
+  id: ResponseProfileId;
+  label: string;
+  revision?: string;
+  values: Partial<Omit<CurtailmentFormValues, "responseProfileId" | "responseProfileRevision">>;
+}
+
+export interface CurtailmentSiteOption {
+  id: string;
+  name: string;
+}
+
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
+  facilityFanDeviceCount?: number;
+  unavailableMinerCount?: number;
   targetKw: number;
   estimatedReductionKw: number;
   curtailEstimate: string;
@@ -62,6 +119,13 @@ export interface CurtailmentPlanPreview {
 }
 
 export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
+
+type PendingCurtailmentConfirmation = {
+  action: "run" | "test";
+  values: CurtailmentSubmitValues;
+};
+
+type ForceInclusionFields = Pick<CurtailmentFormValues, "forceIncludeAllPairedMiners">;
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -72,12 +136,32 @@ interface CurtailmentStartModalProps {
    * parent owns confirmation and the stop-curtailment RPC.
    */
   onStopCurtailment?: () => void;
+  onTestCurtailment?: (values: CurtailmentSubmitValues) => void;
+  onDeleteResponseProfile?: () => void;
   mode?: CurtailmentStartModalMode;
+  variant?: CurtailmentStartModalVariant;
+  responseProfileMode?: ResponseProfileModalMode;
   initialValues?: Partial<CurtailmentFormValues>;
+  responseProfiles?: CurtailmentResponseProfileOption[];
+  siteOptions?: CurtailmentSiteOption[];
+  infrastructureDevices?: FacilityFanDeviceOption[];
+  isLoadingInfrastructureDevices?: boolean;
+  infrastructureDevicesError?: string | null;
+  onRetryInfrastructureDevices?: () => void;
+  facilityFanSelectionDisabledReason?: string;
+  defaultSiteScope?: CurtailmentSiteOption;
+  siteScopeEnabled?: boolean;
+  buildingScopeEnabled?: boolean;
+  rackAndGroupScopeEnabled?: boolean;
+  isSiteScopeLoading?: boolean;
+  siteScopeDisabledReason?: string;
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  actionError?: string | null;
   isSubmitting?: boolean;
+  isTestingCurtailment?: boolean;
+  isDeleting?: boolean;
 }
 
 interface SectionProps {
@@ -94,6 +178,7 @@ interface ReductionProgressBarProps {
 interface PreviewPaneProps {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  previewUnavailable?: string;
   isPreviewLoading?: boolean;
 }
 
@@ -109,43 +194,569 @@ interface ApplyToTarget {
   value: string;
 }
 
-type ParsedNumberField = { parsed?: number; error?: string };
-type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreIntervalSec";
+interface CurtailmentTargetPath {
+  siteSelection: CurtailmentSiteSelection;
+  siteIds: string[];
+  siteNamesById: Record<string, string>;
+  buildingIds: string[];
+  rackIds: string[];
+  groupIds: string[];
+}
 
+type ParsedNumberField = { parsed?: number; error?: string };
+type EditableCurtailmentField = "reason" | "restoreIntervalSec";
+type SiteScopeRow = {
+  id: string;
+  label: string;
+  isSelected: boolean;
+  disabled?: boolean;
+  "data-testid": string;
+};
+
+interface SiteScopeOptionProps {
+  disabled?: boolean;
+  isSelected: boolean;
+  label: string;
+  onChange: () => void;
+  testId: string;
+}
+
+const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
+const fieldHelp = {
+  curtailmentMode: "How power reduction is measured: fixed kW target or full shutdown.",
+  fixedTargetReduction: "The amount to reduce based on the selected mode.",
+  curtailBatchSize: "Number of miners to shut down in each wave.",
+  curtailBatchInterval: "Seconds to wait between each curtailment wave.",
+  restoreBatchSize:
+    "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+  restoreBatchInterval: "Seconds to wait between each restore wave. 0 or blank means no wait.",
+} as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
+  siteSelection: "none",
   siteId: "",
+  siteIds: [],
+  siteNamesById: {},
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceSetIds: [],
   deviceIdentifiers: [],
-  responseProfileId: "customPlan",
-  curtailmentMode: "fixedKwReduction",
+  minerSelectionMode: "subset",
+  responseProfileId: customResponseProfileId,
+  // Whole-fleet shutdown is the primary operator flow; fixed-kW sizing is
+  // the opt-in refinement (matches the response-profile form default).
+  curtailmentMode: "fullFleet",
   minerSelectionStrategy: "leastEfficientFirst",
   targetKw: "",
   toleranceKw: "",
   priority: "normal",
   minDurationSec: "",
   maxDurationSec: "",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  facilityFanDeviceIds: [],
+  fanOffDelaySec: "",
+  fanRestoreDelaySec: "",
   reason: "",
-  includeMaintenance: true,
+  // Maintenance-flagged miners are excluded by default: force_include_maintenance
+  // is admin-gated server-side, so sending it from every start would lock
+  // non-admin operators with curtailment:manage out of Start entirely. Admins
+  // opt the maintenance population in via "Target all paired miners".
+  includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
-const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
+const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
+// Full shutdown leads: whole-fleet curtailment is the primary operator flow
+// (matches the response-profile default and DeviceSettingsModal ordering).
 const curtailmentModeOptions = [
-  { value: "fixedKwReduction", label: "Fixed kW reduction" },
   { value: "fullFleet", label: "Full shutdown" },
+  { value: "fixedKwReduction", label: "Fixed kW reduction" },
 ];
+const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
+
+function uniqueNonEmptyStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function parseCurtailmentTargetIds(values: readonly string[]): bigint[] {
+  return values.flatMap((value) => {
+    const parsed = parseCurtailmentTargetId(value);
+    return parsed === undefined ? [] : [parsed];
+  });
+}
+
+const getValidSiteScopeId = (siteId?: string): string | undefined => {
+  const normalizedSiteId = siteId?.trim();
+  if (!normalizedSiteId) {
+    return undefined;
+  }
+
+  const parsedSiteId = parseCurtailmentTargetId(normalizedSiteId);
+  return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
+};
+
+function getValidSiteScopeIds(siteIds?: readonly string[], fallbackSiteId?: string): string[] {
+  const normalizedSiteIds = siteIds?.flatMap((siteId) => {
+    const validSiteId = getValidSiteScopeId(siteId);
+    return validSiteId ? [validSiteId] : [];
+  });
+
+  if (normalizedSiteIds !== undefined && normalizedSiteIds.length > 0) {
+    return uniqueNonEmptyStrings(normalizedSiteIds);
+  }
+
+  const validFallbackSiteId = getValidSiteScopeId(fallbackSiteId);
+  return validFallbackSiteId ? [validFallbackSiteId] : [];
+}
+
+function getSelectedSiteIds(values: Pick<CurtailmentFormValues, "siteSelection" | "siteId" | "siteIds">): string[] {
+  return values.siteSelection === "site" ? getValidSiteScopeIds(values.siteIds, values.siteId) : [];
+}
+
+function getSiteScopeIds(values: Pick<CurtailmentFormValues, "siteSelection" | "siteId" | "siteIds">): string[] {
+  return values.siteSelection === "site" || values.siteSelection === "allSites"
+    ? getValidSiteScopeIds(values.siteIds, values.siteId)
+    : [];
+}
+
+function getSiteNameForId(values: Partial<CurtailmentFormValues>, siteId: string): string {
+  return (
+    values.siteNamesById?.[siteId]?.trim() ||
+    (values.siteId === siteId ? values.scopeId?.trim() : undefined) ||
+    `Site ${siteId}`
+  );
+}
+
+function createSiteNamesById(sites: readonly CurtailmentSiteOption[]): Record<string, string> {
+  return Object.fromEntries(sites.map((site) => [site.id, site.name]));
+}
+
+function getSiteScopeLabel(sites: readonly CurtailmentSiteOption[]): string {
+  if (sites.length === 1) {
+    return sites[0].name || `Site ${sites[0].id}`;
+  }
+
+  return `${sites.length} sites`;
+}
+
+function hasAllMinersSelected(values: Pick<CurtailmentFormValues, "minerSelectionMode">): boolean {
+  return values.minerSelectionMode === "all";
+}
+
+function getExplicitMinerCount(
+  values: Pick<CurtailmentFormValues, "deviceIdentifiers" | "minerSelectionMode">,
+): number {
+  return hasAllMinersSelected(values) ? 0 : values.deviceIdentifiers.length;
+}
+
+function hasSelectedCurtailmentTarget(
+  values: Pick<
+    CurtailmentFormValues,
+    | "buildingTargetIds"
+    | "deviceIdentifiers"
+    | "deviceSetIds"
+    | "groupTargetIds"
+    | "minerSelectionMode"
+    | "rackTargetIds"
+    | "siteId"
+    | "siteIds"
+    | "siteSelection"
+  >,
+): boolean {
+  return (
+    hasAllMinersSelected(values) ||
+    getSiteScopeIds(values).length > 0 ||
+    (values.buildingTargetIds?.length ?? 0) > 0 ||
+    (values.rackTargetIds?.length ?? 0) > 0 ||
+    (values.groupTargetIds?.length ?? 0) > 0 ||
+    getExplicitMinerCount(values) > 0 ||
+    values.deviceSetIds.length > 0
+  );
+}
+
+function getCurtailmentTargetPath(values: CurtailmentFormValues): CurtailmentTargetPath {
+  return {
+    siteSelection: values.siteSelection ?? "none",
+    siteIds: getSiteScopeIds(values),
+    siteNamesById: values.siteNamesById ?? {},
+    buildingIds: values.scopeType === "building" ? (values.buildingTargetIds ?? []) : [],
+    rackIds: values.scopeType === "rack" ? (values.rackTargetIds ?? []) : [],
+    groupIds: values.scopeType === "group" ? (values.groupTargetIds ?? []) : [],
+  };
+}
+
+function getInitialCurtailmentTargetPath(
+  values: CurtailmentFormValues,
+  initialValues?: Partial<CurtailmentFormValues>,
+): CurtailmentTargetPath {
+  const path = getCurtailmentTargetPath(values);
+  const initialSiteIds = getValidSiteScopeIds(initialValues?.siteIds, initialValues?.siteId);
+  if (initialSiteIds.length === 0) {
+    return path;
+  }
+  return {
+    ...path,
+    siteSelection: initialValues?.siteSelection ?? "site",
+    siteIds: initialSiteIds,
+    siteNamesById: initialValues?.siteNamesById ?? path.siteNamesById,
+  };
+}
+
+function withTerminalScope(
+  values: CurtailmentFormValues,
+  scope:
+    | { type: "building"; ids: string[] }
+    | { type: "rack"; ids: string[] }
+    | { type: "group"; ids: string[] }
+    | { type: "explicitMiners"; ids: string[] },
+): CurtailmentFormValues {
+  return {
+    ...values,
+    scopeType: scope.type,
+    scopeId: undefined,
+    siteSelection: "none",
+    siteId: "",
+    siteIds: [],
+    siteNamesById: {},
+    buildingTargetIds: scope.type === "building" ? scope.ids : [],
+    rackTargetIds: scope.type === "rack" ? scope.ids : [],
+    groupTargetIds: scope.type === "group" ? scope.ids : [],
+    deviceSetIds: [],
+    deviceIdentifiers: scope.type === "explicitMiners" ? scope.ids : [],
+    minerSelectionMode: "subset",
+  };
+}
+
+function withTargetPathScope(values: CurtailmentFormValues, path: CurtailmentTargetPath): CurtailmentFormValues {
+  if (path.groupIds.length > 0) {
+    return withTerminalScope(values, { type: "group", ids: path.groupIds });
+  }
+  if (path.rackIds.length > 0) {
+    return withTerminalScope(values, { type: "rack", ids: path.rackIds });
+  }
+  if (path.buildingIds.length > 0) {
+    return withTerminalScope(values, { type: "building", ids: path.buildingIds });
+  }
+  if (path.siteIds.length > 0) {
+    const sites = path.siteIds.map((siteId) => ({
+      id: siteId,
+      name: path.siteNamesById[siteId] ?? `Site ${siteId}`,
+    }));
+    return path.siteSelection === "allSites" ? withAllSitesScope(values, sites) : withSiteScopes(values, sites);
+  }
+  return withWholeFleetScope(values);
+}
+
+function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  return {
+    ...values,
+    scopeType: "wholeOrg",
+    scopeId: "whole-org",
+    siteSelection: "none",
+    siteId: "",
+    siteIds: [],
+    siteNamesById: {},
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+  };
+}
+
+function withAllMinerScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  return {
+    ...withWholeFleetScope(values),
+    siteSelection: "allSites",
+    minerSelectionMode: "all",
+  };
+}
+
+function withAllSitesScope(
+  values: CurtailmentFormValues,
+  sites: readonly CurtailmentSiteOption[] = getSiteScopeIds(values).map((siteId) => ({
+    id: siteId,
+    name: getSiteNameForId(values, siteId),
+  })),
+): CurtailmentFormValues {
+  const selectedSites = uniqueNonEmptyStrings(sites.map((site) => site.id)).map((siteId) => {
+    const site = sites.find((candidate) => candidate.id === siteId);
+    return {
+      id: siteId,
+      name: site?.name?.trim() || `Site ${siteId}`,
+    };
+  });
+  const firstSite = selectedSites[0];
+  return {
+    ...values,
+    scopeType: selectedSites.length > 0 ? "site" : "wholeOrg",
+    scopeId: selectedSites.length > 0 ? "All sites" : "whole-org",
+    siteSelection: "allSites",
+    siteId: firstSite?.id ?? "",
+    siteIds: selectedSites.map((site) => site.id),
+    siteNamesById: createSiteNamesById(selectedSites),
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+  };
+}
+
+function withNoSiteScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  const hasSelectedMiners = getExplicitMinerCount(values) > 0;
+
+  return {
+    ...values,
+    scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
+    scopeId: hasSelectedMiners ? undefined : "whole-org",
+    siteSelection: "none",
+    siteId: "",
+    siteIds: [],
+    siteNamesById: {},
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceSetIds: [],
+  };
+}
+
+function withSiteScopes(values: CurtailmentFormValues, sites: readonly CurtailmentSiteOption[]): CurtailmentFormValues {
+  const selectedSites = uniqueNonEmptyStrings(sites.map((site) => site.id)).map((siteId) => {
+    const site = sites.find((candidate) => candidate.id === siteId);
+    return {
+      id: siteId,
+      name: site?.name?.trim() || `Site ${siteId}`,
+    };
+  });
+  if (selectedSites.length === 0) {
+    return withNoSiteScope(values);
+  }
+
+  const firstSite = selectedSites[0];
+
+  return {
+    ...values,
+    scopeType: "site",
+    scopeId: getSiteScopeLabel(selectedSites),
+    siteSelection: "site",
+    siteId: firstSite.id,
+    siteIds: selectedSites.map((site) => site.id),
+    siteNamesById: createSiteNamesById(selectedSites),
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+  };
+}
+
+function withResponseProfileScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  const siteIds = getSelectedSiteIds(values);
+
+  if (values.scopeType === "building" && (values.buildingTargetIds?.length ?? 0) > 0) {
+    return withTerminalScope(values, { type: "building", ids: values.buildingTargetIds ?? [] });
+  }
+
+  if (values.scopeType === "rack" && (values.rackTargetIds?.length ?? 0) > 0) {
+    return withTerminalScope(values, { type: "rack", ids: values.rackTargetIds ?? [] });
+  }
+
+  if (values.scopeType === "group" && (values.groupTargetIds?.length ?? 0) > 0) {
+    return withTerminalScope(values, { type: "group", ids: values.groupTargetIds ?? [] });
+  }
+
+  if (values.scopeType === "explicitMiners" && getExplicitMinerCount(values) > 0) {
+    return withTerminalScope(values, { type: "explicitMiners", ids: values.deviceIdentifiers });
+  }
+
+  if (hasAllMinersSelected(values)) {
+    return withAllMinerScope(values);
+  }
+
+  if (values.siteSelection === "allSites") {
+    return withAllSitesScope(values);
+  }
+
+  if (values.siteSelection === "site" && siteIds.length > 0) {
+    return withSiteScopes(
+      values,
+      siteIds.map((siteId) => ({
+        id: siteId,
+        name: getSiteNameForId(values, siteId),
+      })),
+    );
+  }
+
+  return withWholeFleetScope(values);
+}
+
+function withDefaultSiteScope(
+  values: CurtailmentFormValues,
+  defaultSiteScope?: CurtailmentSiteOption,
+): CurtailmentFormValues {
+  return defaultSiteScope && !hasSelectedCurtailmentTarget(values)
+    ? withSiteScopes(values, [defaultSiteScope])
+    : values;
+}
+
+function hasResponseProfileScopeValues(responseProfileValues: CurtailmentResponseProfileOption["values"]): boolean {
+  return (
+    "scopeType" in responseProfileValues ||
+    "scopeId" in responseProfileValues ||
+    "siteSelection" in responseProfileValues ||
+    "siteId" in responseProfileValues ||
+    "siteIds" in responseProfileValues ||
+    "siteNamesById" in responseProfileValues ||
+    "buildingTargetIds" in responseProfileValues ||
+    "rackTargetIds" in responseProfileValues ||
+    "groupTargetIds" in responseProfileValues ||
+    "deviceSetIds" in responseProfileValues ||
+    "deviceIdentifiers" in responseProfileValues ||
+    "minerSelectionMode" in responseProfileValues
+  );
+}
+
+function removeResponseProfileScopeValues(
+  values: CurtailmentResponseProfileOption["values"],
+): CurtailmentResponseProfileOption["values"] {
+  const behaviorValues = { ...values };
+
+  delete behaviorValues.scopeType;
+  delete behaviorValues.scopeId;
+  delete behaviorValues.siteSelection;
+  delete behaviorValues.siteId;
+  delete behaviorValues.siteIds;
+  delete behaviorValues.siteNamesById;
+  delete behaviorValues.buildingTargetIds;
+  delete behaviorValues.rackTargetIds;
+  delete behaviorValues.groupTargetIds;
+  delete behaviorValues.deviceSetIds;
+  delete behaviorValues.deviceIdentifiers;
+  delete behaviorValues.minerSelectionMode;
+
+  return behaviorValues;
+}
+
+function withSelectedResponseProfileValues(
+  values: CurtailmentFormValues,
+  responseProfileValues: CurtailmentResponseProfileOption["values"],
+): CurtailmentFormValues {
+  const hasScopeValues = hasResponseProfileScopeValues(responseProfileValues);
+  const behaviorValues = hasScopeValues
+    ? removeResponseProfileScopeValues(responseProfileValues)
+    : responseProfileValues;
+  const nextValues = {
+    ...values,
+    ...behaviorValues,
+  };
+
+  if (!hasScopeValues) {
+    return nextValues;
+  }
+
+  const siteIds = getValidSiteScopeIds(responseProfileValues.siteIds, responseProfileValues.siteId);
+  const deviceIdentifiers = responseProfileValues.deviceIdentifiers ?? [];
+  const buildingIds = responseProfileValues.buildingTargetIds ?? [];
+  const rackIds = responseProfileValues.rackTargetIds ?? [];
+  const groupIds = responseProfileValues.groupTargetIds ?? [];
+  const minerSelectionMode = responseProfileValues.minerSelectionMode ?? "subset";
+  const siteSelection = responseProfileValues.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
+  const scopeType =
+    responseProfileValues.scopeType ??
+    (siteSelection === "allSites"
+      ? "wholeOrg"
+      : siteIds.length > 0
+        ? "site"
+        : responseProfileValues.deviceSetIds?.length
+          ? "deviceSet"
+          : deviceIdentifiers.length
+            ? "explicitMiners"
+            : "wholeOrg");
+
+  if (minerSelectionMode === "all") {
+    return withAllMinerScope({ ...nextValues, deviceIdentifiers: [], minerSelectionMode });
+  }
+
+  if (siteSelection === "allSites") {
+    return withAllSitesScope({ ...nextValues, deviceIdentifiers, minerSelectionMode });
+  }
+
+  if (scopeType === "site" || siteSelection === "site") {
+    if (siteIds.length > 0) {
+      return withSiteScopes(
+        { ...nextValues, deviceIdentifiers, minerSelectionMode },
+        siteIds.map((siteId) => ({
+          id: siteId,
+          name: getSiteNameForId(responseProfileValues, siteId),
+        })),
+      );
+    }
+
+    return withWholeFleetScope(nextValues);
+  }
+
+  if (scopeType === "deviceSet") {
+    return withWholeFleetScope(nextValues);
+  }
+
+  if (scopeType === "building" && buildingIds.length > 0) {
+    return withTerminalScope(nextValues, { type: "building", ids: buildingIds });
+  }
+
+  if (scopeType === "rack" && rackIds.length > 0) {
+    return withTerminalScope(nextValues, { type: "rack", ids: rackIds });
+  }
+
+  if (scopeType === "group" && groupIds.length > 0) {
+    return withTerminalScope(nextValues, { type: "group", ids: groupIds });
+  }
+
+  if (scopeType === "explicitMiners") {
+    return withTerminalScope({ ...nextValues, minerSelectionMode }, { type: "explicitMiners", ids: deviceIdentifiers });
+  }
+
+  return withWholeFleetScope(nextValues);
+}
 
 function isCurtailmentMode(value: string): value is CurtailmentMode {
   return value === "fixedKwReduction" || value === "fullFleet";
 }
 
-function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
-  return {
+function getForceInclusionConfirmationKey(values: CurtailmentFormValues): string {
+  // Maintenance inclusion is no longer surfaced in the UI, so the only user-driven
+  // force-inclusion is targeting all paired miners. Mirror the request builders'
+  // predicate: a stale flag that the builders will strip (wrong mode or a
+  // non-closed-loop scope) must not prompt a force-inclusion confirmation for a
+  // request that won't force-include anything.
+  return values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values) ? "all-paired" : "";
+}
+
+function getInitialValues(
+  initialValues?: Partial<CurtailmentFormValues>,
+  variant: CurtailmentStartModalVariant = "curtailment",
+  defaultSiteScope?: CurtailmentSiteOption,
+): CurtailmentFormValues {
+  const values = {
     ...defaultValues,
     ...initialValues,
   };
+  if (initialValues?.siteSelection === undefined && getValidSiteScopeIds(values.siteIds, values.siteId).length > 0) {
+    values.siteSelection = "site";
+  }
+
+  const valuesWithDefaultSiteScope = withDefaultSiteScope(values, defaultSiteScope);
+
+  return variant === "responseProfile"
+    ? withResponseProfileScope(valuesWithDefaultSiteScope)
+    : valuesWithDefaultSiteScope;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -187,13 +798,6 @@ function hasEditableCurtailmentChanges(values: CurtailmentFormValues, initialVal
       return values.reason.trim() !== initialValues.reason.trim();
     }
 
-    if (field === "maxDurationSec") {
-      return (
-        parseComparableUint32Field(values.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec) !==
-        parseComparableUint32Field(initialValues.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec)
-      );
-    }
-
     return (
       parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) !==
       parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec)
@@ -205,44 +809,61 @@ function validateCurtailmentFormValues(
   values: CurtailmentFormValues,
   mode: CurtailmentStartModalMode = "create",
   initialValues: CurtailmentFormValues = defaultValues,
+  variant: CurtailmentStartModalVariant = "curtailment",
 ): CurtailmentFormErrors {
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
-  const maxDuration = parseOptionalUint32Field(values.maxDurationSec, {
-    label: "max duration",
-    max: curtailmentNumericFieldLimits.maxDurationSec,
-  });
-  const minDuration = parseOptionalUint32Field(isEditMode ? initialValues.minDurationSec : values.minDurationSec, {
-    label: "min duration",
-    max: curtailmentNumericFieldLimits.minDurationSec,
-  });
+  const isResponseProfileVariant = variant === "responseProfile";
+  const shouldValidateFullFormFields = !isEditMode || isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
   });
+  const curtailBatchSize = parseOptionalUint32Field(values.curtailBatchSize, {
+    label: "batch size",
+    max: curtailmentNumericFieldLimits.curtailBatchSize,
+  });
+  const curtailBatchInterval = parseOptionalUint32Field(values.curtailBatchIntervalSec, {
+    label: "batch interval",
+    max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+  });
+  const fanOffDelay = parseOptionalUint32Field(values.fanOffDelaySec ?? "", {
+    label: "fan-off delay",
+    max: curtailmentNumericFieldLimits.fanDelaySec,
+  });
+  const fanRestoreDelay = parseOptionalUint32Field(values.fanRestoreDelaySec ?? "", {
+    label: "fan restore delay",
+    max: curtailmentNumericFieldLimits.fanDelaySec,
+  });
 
   if (values.reason.trim() === "") {
-    localErrors.reason = "Enter a reason.";
-  }
-  if (maxDuration.error) {
-    localErrors.maxDurationSec = maxDuration.error;
-  }
-  if (isEditMode && maxDuration.error === undefined && maxDuration.parsed === 0) {
-    localErrors.maxDurationSec = "Enter max duration greater than 0.";
-  }
-  if (
-    isEditMode &&
-    maxDuration.error === undefined &&
-    values.maxDurationSec.trim() === "" &&
-    initialValues.maxDurationSec.trim() !== ""
-  ) {
-    localErrors.maxDurationSec = "Max duration cannot be cleared.";
+    localErrors.reason = variant === "responseProfile" ? "Enter a profile name." : "Enter a reason.";
   }
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
   }
-  if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
-    localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
+  if (shouldValidateFullFormFields && curtailBatchSize.error) {
+    localErrors.curtailBatchSize = curtailBatchSize.error;
+  }
+  if (shouldValidateFullFormFields && curtailBatchSize.error === undefined && curtailBatchSize.parsed === 0) {
+    localErrors.curtailBatchSize = "Enter batch size greater than 0.";
+  }
+  if (shouldValidateFullFormFields && curtailBatchInterval.error) {
+    localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
+  }
+  if (shouldValidateFullFormFields && fanOffDelay.error) {
+    localErrors.fanOffDelaySec = fanOffDelay.error;
+  }
+  if (shouldValidateFullFormFields && fanRestoreDelay.error) {
+    localErrors.fanRestoreDelaySec = fanRestoreDelay.error;
+  }
+  if (
+    shouldValidateFullFormFields &&
+    curtailBatchInterval.error === undefined &&
+    curtailBatchSize.parsed === undefined &&
+    curtailBatchInterval.parsed !== undefined
+  ) {
+    localErrors.curtailBatchIntervalSec = "Enter batch size before adding a batch interval.";
   }
   if (
     isEditMode &&
@@ -252,16 +873,6 @@ function validateCurtailmentFormValues(
   ) {
     localErrors.restoreIntervalSec = "Restore interval cannot be cleared.";
   }
-  if (
-    minDuration.error === undefined &&
-    maxDuration.error === undefined &&
-    minDuration.parsed !== undefined &&
-    maxDuration.parsed !== undefined &&
-    minDuration.parsed > maxDuration.parsed
-  ) {
-    localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
-  }
-
   if (isEditMode) {
     return localErrors;
   }
@@ -288,10 +899,6 @@ function validateCurtailmentFormValues(
   if (restoreBatchSize.error) {
     localErrors.restoreBatchSize = restoreBatchSize.error;
   }
-  if (minDuration.error) {
-    localErrors.minDurationSec = minDuration.error;
-  }
-
   return localErrors;
 }
 
@@ -304,6 +911,84 @@ function Section({ title, subtext, children }: SectionProps): ReactElement {
       </div>
       {children}
     </section>
+  );
+}
+
+function SiteScopeOption({
+  disabled = false,
+  isSelected,
+  label,
+  onChange,
+  testId,
+}: SiteScopeOptionProps): ReactElement {
+  return (
+    <label
+      className={`flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 ${
+        disabled
+          ? "cursor-not-allowed text-text-primary-50"
+          : "text-text-primary hover:bg-surface-base-hover focus-visible:bg-surface-base-hover"
+      }`}
+      data-testid={testId}
+    >
+      <Checkbox checked={isSelected} disabled={disabled} onChange={onChange} />
+      <span className="min-w-0 truncate">{label}</span>
+    </label>
+  );
+}
+
+interface FieldInfoToggleProps {
+  ariaLabel: string;
+  body: string;
+  testId: string;
+  popoverTestId: string;
+}
+
+function FieldInfoToggleContent({ ariaLabel, body, testId, popoverTestId }: FieldInfoToggleProps): ReactElement {
+  const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef, setPopoverRenderMode } = usePopover();
+
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
+
+  return (
+    <div ref={triggerRef} className="relative">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        data-testid={testId}
+        className="flex h-6 w-6 items-center justify-center rounded-full text-text-primary-50 transition-colors hover:text-text-primary-70 focus-visible:ring-2 focus-visible:ring-core-primary-20 focus-visible:outline-hidden"
+        onClick={(event) => {
+          event.stopPropagation();
+          setIsOpen((current) => !current);
+        }}
+      >
+        <Question className="h-4 w-4" />
+      </button>
+      {isOpen ? (
+        <Popover
+          position={positions["bottom right"]}
+          size={popoverSizes.normal}
+          offset={8}
+          className="!space-y-0 !rounded-2xl !bg-surface-elevated-base !p-6 !shadow-300 !backdrop-blur-none"
+          closePopover={() => setIsOpen(false)}
+          closeIgnoreSelectors={[`[data-testid='${testId}']`]}
+          testId={popoverTestId}
+        >
+          <p className="text-300 leading-6 text-text-primary-70">{body}</p>
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+function FieldInfoToggle(props: FieldInfoToggleProps): ReactElement {
+  return (
+    <PopoverProvider>
+      <FieldInfoToggleContent {...props} />
+    </PopoverProvider>
   );
 }
 
@@ -322,7 +1007,12 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
   );
 }
 
-function PreviewPane({ preview, previewError, isPreviewLoading = false }: PreviewPaneProps): ReactElement {
+function PreviewPane({
+  preview,
+  previewError,
+  previewUnavailable,
+  isPreviewLoading = false,
+}: PreviewPaneProps): ReactElement {
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -330,6 +1020,14 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
           <Alert className="mt-0.5 shrink-0 text-text-primary-50" width="w-4" />
           <div>{previewError}</div>
         </div>
+      </div>
+    );
+  }
+
+  if (previewUnavailable) {
+    return (
+      <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
+        {previewUnavailable}
       </div>
     );
   }
@@ -368,12 +1066,15 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
         </div>
 
         <div className="grid gap-2">
-          <div className="text-heading-100 text-text-primary">
-            Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
-          </div>
+          <div className="text-heading-100 text-text-primary">{formatCurtailmentPreviewSummary(preview)}</div>
           <div className="text-heading-100 text-text-primary-50">
-            {preview.curtailEstimate} duration, {preview.restoreEstimate} to restore
+            {preview.curtailEstimate} to curtail, {preview.restoreEstimate} to restore
           </div>
+          {preview.unavailableMinerCount !== undefined && preview.unavailableMinerCount > 0 ? (
+            <div className="text-300 text-text-primary-50">
+              {formatCountLabel(preview.unavailableMinerCount, "miner")} currently unavailable
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -381,60 +1082,178 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
 }
 
 function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
-  if (values.scopeType !== "explicitMiners") {
-    return [];
-  }
-
-  return values.deviceIdentifiers;
+  return hasAllMinersSelected(values) ? [] : values.deviceIdentifiers;
 }
 
 function formatCountLabel(count: number, singular: string): string {
   return getTargetButtonLabel(count, singular);
 }
 
-function getApplyToTarget(
-  values: CurtailmentFormValues,
-  isEditMode: boolean,
-  selectedMinerCount?: number,
-): ApplyToTarget {
-  if (!isEditMode) {
-    return {
-      label: "Miners",
-      value: getTargetButtonLabel(getSelectedMinerIds(values).length, "miner"),
-    };
+function getFacilityFanDeviceCount(values: Pick<CurtailmentFormValues, "facilityFanDeviceIds">): number {
+  return values.facilityFanDeviceIds?.length ?? 0;
+}
+
+function formatCurtailmentPreviewSummary(preview: CurtailmentPlanPreview): string {
+  const appliesToSummary = formatCurtailmentAppliesToSummary(
+    preview.selectedMinerCount,
+    preview.facilityFanDeviceCount,
+  ).toLowerCase();
+
+  return `Curtail ${appliesToSummary} ${preview.scopeLabel} immediately`;
+}
+
+function formatScopeLabelForSentence(scopeLabel: string): string {
+  return scopeLabel === "All sites" ? "all sites" : scopeLabel;
+}
+
+function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
+  if (hasAllMinersSelected(values)) {
+    return "the whole fleet";
   }
 
-  if (values.scopeType === "site") {
-    return {
-      label: "Site",
-      value: values.siteId ? `Site ${values.siteId}` : "Site",
-    };
-  }
-
-  if (selectedMinerCount !== undefined) {
-    return {
-      label: "Miners",
-      value: formatCountLabel(selectedMinerCount, "miner"),
-    };
+  if (values.scopeType === "explicitMiners" && getExplicitMinerCount(values) > 0) {
+    return formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase();
   }
 
   if (values.scopeType === "deviceSet") {
+    return `miners in ${formatCountLabel(values.deviceSetIds.length, "device set").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "building" && (values.buildingTargetIds?.length ?? 0) > 0) {
+    return `miners in ${formatCountLabel(values.buildingTargetIds?.length ?? 0, "building").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "rack" && (values.rackTargetIds?.length ?? 0) > 0) {
+    return `miners in ${formatCountLabel(values.rackTargetIds?.length ?? 0, "rack").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "group" && (values.groupTargetIds?.length ?? 0) > 0) {
+    return `miners in ${formatCountLabel(values.groupTargetIds?.length ?? 0, "group").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "site") {
+    const selectedSiteIds = getSiteScopeIds(values);
+    if (selectedSiteIds.length > 0) {
+      const selectedSiteLabel =
+        values.siteSelection === "allSites"
+          ? "all sites"
+          : selectedSiteIds.length === 1
+            ? values.scopeId
+            : formatCountLabel(selectedSiteIds.length, "site").toLowerCase();
+
+      return `miners in ${selectedSiteLabel ? formatScopeLabelForSentence(selectedSiteLabel) : "the selected sites"}`;
+    }
+  }
+
+  if (values.curtailmentMode === "fullFleet") {
+    return "the whole fleet";
+  }
+
+  if (selectedMinerCount !== undefined && selectedMinerCount > 0) {
+    return formatCountLabel(selectedMinerCount, "miner").toLowerCase();
+  }
+
+  return "miners across the fleet";
+}
+
+function formatCurtailmentConfirmationTargetWithInfrastructure(
+  values: CurtailmentFormValues,
+  selectedMinerCount?: number,
+): string {
+  const target = formatCurtailmentConfirmationTarget(values, selectedMinerCount);
+  const facilityFanDeviceCount = getFacilityFanDeviceCount(values);
+
+  if (facilityFanDeviceCount <= 0) {
+    return target;
+  }
+
+  return `${target} and ${formatCurtailmentFacilityFanCount(facilityFanDeviceCount)}`;
+}
+
+function getCurtailmentConfirmationCopy(
+  pendingConfirmation: PendingCurtailmentConfirmation | null,
+  selectedMinerCount?: number,
+) {
+  if (!pendingConfirmation) {
+    return null;
+  }
+
+  const target = formatCurtailmentConfirmationTargetWithInfrastructure(pendingConfirmation.values, selectedMinerCount);
+  const body =
+    pendingConfirmation.action === "test"
+      ? `This will save the profile, then trigger curtailment for ${target}. Schedules stay suppressed until miners are restored.`
+      : `This will curtail ${target} immediately. Schedules stay suppressed until miners are restored.`;
+
+  return {
+    title: "Run curtailment?",
+    body,
+    confirmText: "Run curtailment",
+  };
+}
+
+// The maintenance-inclusion toggle is hidden from the UI (see the "Miners" section in the form),
+// so "Target all paired miners" is the only user-driven force-inclusion and the confirmation copy
+// always describes the all-paired case.
+function getForceInclusionConfirmationCopy() {
+  return {
+    title: "Force include all paired miners?",
+    body: "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication, and includes miners flagged for maintenance.",
+    confirmText: "Force include",
+  };
+}
+
+function getMinerApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
+  return {
+    label: "Miners",
+    value: hasAllMinersSelected(values)
+      ? "All miners"
+      : values.deviceIdentifiers.length > 0
+        ? formatCountLabel(values.deviceIdentifiers.length, "miner")
+        : getTargetButtonLabel(0, "miner"),
+  };
+}
+
+function getInfrastructureApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
+  const selectedDeviceCount = values.facilityFanDeviceIds?.length ?? 0;
+
+  return {
+    label: "Infrastructure",
+    value: selectedDeviceCount > 0 ? formatCountLabel(selectedDeviceCount, "device") : "Select",
+  };
+}
+
+function getSiteApplyToTarget(
+  values: Pick<CurtailmentFormValues, "scopeId" | "siteId" | "siteIds" | "siteSelection">,
+): ApplyToTarget {
+  const selectedSiteIds = getSelectedSiteIds(values);
+  if (selectedSiteIds.length > 0) {
     return {
-      label: "Device sets",
-      value: formatCountLabel(values.deviceSetIds.length, "device set"),
+      label: "Sites",
+      value:
+        selectedSiteIds.length === 1
+          ? (values.scopeId ?? `Site ${selectedSiteIds[0]}`)
+          : formatCountLabel(selectedSiteIds.length, "site"),
     };
   }
 
-  if (values.scopeType === "wholeOrg") {
+  if (values.siteSelection === "allSites") {
     return {
-      label: "Miners",
-      value: "Whole fleet",
+      label: "Sites",
+      value: "All sites",
     };
   }
 
   return {
-    label: "Miners",
-    value: formatCountLabel(values.deviceIdentifiers.length, "miner"),
+    label: "Sites",
+    value: "Select",
+  };
+}
+
+function getTopologyApplyToTarget(label: "Buildings" | "Racks" | "Groups", ids: readonly string[]): ApplyToTarget {
+  const singular = label.slice(0, -1).toLowerCase();
+  return {
+    label,
+    value: ids.length > 0 ? formatCountLabel(ids.length, singular) : "Select",
   };
 }
 
@@ -455,34 +1274,124 @@ function getPreviewState({
   return controlledPreview ?? apiPreview;
 }
 
+function responseProfilePreviewState(previewState: PreviewPaneProps): PreviewPaneProps {
+  if (!previewState.previewError) {
+    return previewState;
+  }
+
+  return {
+    preview: undefined,
+    previewUnavailable: "Current fleet state is unavailable for preview.",
+    isPreviewLoading: previewState.isPreviewLoading,
+  };
+}
+
 function CurtailmentStartModalContent({
   open,
   onDismiss,
   onSubmit,
   onStopCurtailment,
+  onTestCurtailment,
+  onDeleteResponseProfile,
   mode = "create",
+  variant = "curtailment",
+  responseProfileMode = "create",
   initialValues,
+  responseProfiles = [],
+  siteOptions = [],
+  infrastructureDevices = [],
+  isLoadingInfrastructureDevices = false,
+  infrastructureDevicesError = null,
+  onRetryInfrastructureDevices,
+  facilityFanSelectionDisabledReason,
+  defaultSiteScope,
+  siteScopeEnabled = true,
+  buildingScopeEnabled = true,
+  rackAndGroupScopeEnabled = true,
+  isSiteScopeLoading = false,
+  siteScopeDisabledReason,
   errors,
   preview,
   previewError,
+  actionError,
   isSubmitting = false,
+  isTestingCurtailment = false,
+  isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const [initialFormValues] = useState<CurtailmentFormValues>(() =>
+    getInitialValues(initialValues, variant, defaultSiteScope),
+  );
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
-  const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
-  const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
-  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
+  const [targetPath, setTargetPath] = useState<CurtailmentTargetPath>(() =>
+    getInitialCurtailmentTargetPath(initialFormValues, initialValues),
+  );
+  const [showForceInclusionConfirmation, setShowForceInclusionConfirmation] = useState(false);
+  const [pendingForceInclusionValues, setPendingForceInclusionValues] = useState<Partial<ForceInclusionFields> | null>(
+    null,
+  );
+  const [confirmedForceInclusionKey, setConfirmedForceInclusionKey] = useState("");
+  const [submitAfterForceInclusionConfirmation, setSubmitAfterForceInclusionConfirmation] = useState<
+    PendingCurtailmentConfirmation["action"] | null
+  >(null);
+  const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
+    useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
+  const [showBuildingSelectionModal, setShowBuildingSelectionModal] = useState(false);
+  const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
+  const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
+  const [showSiteScopeModal, setShowSiteScopeModal] = useState(false);
+  const [showFacilityFanSelectionModal, setShowFacilityFanSelectionModal] = useState(false);
+  const [draftSelectedSiteIds, setDraftSelectedSiteIds] = useState<string[]>([]);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
+  const isEditMode = mode === "edit";
+  const isResponseProfileVariant = variant === "responseProfile";
+  const isResponseProfileEditMode = isResponseProfileVariant && responseProfileMode === "edit";
+  const isLiveCurtailmentEditMode = isEditMode && !isResponseProfileVariant;
+  const shouldResetResponseProfileOnEdit = !isResponseProfileVariant && !isEditMode;
+  const resetResponseProfileSelection = (nextValues: CurtailmentFormValues): CurtailmentFormValues => {
+    if (!shouldResetResponseProfileOnEdit || nextValues.responseProfileId === customResponseProfileId) {
+      return nextValues;
+    }
+
+    return {
+      ...nextValues,
+      responseProfileId: customResponseProfileId,
+      responseProfileRevision: undefined,
+    };
+  };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
-    setValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => {
+      const nextValues = { ...current, [key]: value };
+
+      return key === "reason" ? nextValues : resetResponseProfileSelection(nextValues);
+    });
   };
-  const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
-  const isEditMode = mode === "edit";
+  const updateCurtailmentMode = (curtailmentMode: CurtailmentMode) => {
+    setEditedFields((current) => (current.has("curtailmentMode") ? current : new Set(current).add("curtailmentMode")));
+    setValues((current) => {
+      const nextValues = {
+        ...current,
+        curtailmentMode,
+        forceIncludeAllPairedMiners: curtailmentMode === "fullFleet" ? current.forceIncludeAllPairedMiners : false,
+      };
+
+      return resetResponseProfileSelection(nextValues);
+    });
+  };
+  const updateValues = (
+    updater: (current: CurtailmentFormValues) => CurtailmentFormValues,
+    options: { resetResponseProfileSelection?: boolean } = {},
+  ) =>
+    setValues((current) => {
+      const nextValues = updater(current);
+      return options.resetResponseProfileSelection ? resetResponseProfileSelection(nextValues) : nextValues;
+    });
+  const validationMode: CurtailmentStartModalMode = isLiveCurtailmentEditMode ? "edit" : "create";
+  const isBusy = isSubmitting || isTestingCurtailment || isDeleting;
   const localErrors = useMemo(
-    () => validateCurtailmentFormValues(values, mode, initialFormValues),
-    [initialFormValues, mode, values],
+    () => validateCurtailmentFormValues(values, validationMode, initialFormValues, variant),
+    [initialFormValues, validationMode, values, variant],
   );
   const visibleLocalErrors = useMemo(() => {
     const visibleErrors: CurtailmentFormErrors = {};
@@ -496,10 +1405,31 @@ function CurtailmentStartModalContent({
     return visibleErrors;
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
-  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+  const canSelectSiteScope = siteScopeEnabled && !siteScopeDisabledReason;
+  const selectedSiteIds = useMemo(() => getSelectedSiteIds(values), [values]);
+  const effectiveValues = useMemo(() => {
+    if (values.siteSelection === "site" && selectedSiteIds.length > 0) {
+      const siteOptionsById = new Map(siteOptions.map((siteOption) => [siteOption.id, siteOption]));
+      return withSiteScopes(
+        values,
+        selectedSiteIds.map((siteId) => {
+          const selectedSiteOption = siteOptionsById.get(siteId);
+          return {
+            id: siteId,
+            name: selectedSiteOption?.name ?? getSiteNameForId(values, siteId),
+          };
+        }),
+      );
+    }
+
+    return values;
+  }, [selectedSiteIds, siteOptions, values]);
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(effectiveValues);
   const controlledPreviewValue = preview
-    ? createCurtailmentPlanPreview(values, {
+    ? createCurtailmentPlanPreview(effectiveValues, {
         selectedMinerCount: preview.selectedMinerCount,
+        facilityFanDeviceCount: preview.facilityFanDeviceCount,
+        unavailableMinerCount: preview.unavailableMinerCount,
         targetKw: preview.targetKw,
         estimatedReductionKw: preview.estimatedReductionKw,
       })
@@ -510,34 +1440,90 @@ function CurtailmentStartModalContent({
       : undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
-    values,
-    disabled: isEditMode || controlledPreview !== undefined,
+    values: effectiveValues,
+    disabled: isLiveCurtailmentEditMode || controlledPreview !== undefined,
   });
   const previewState = getPreviewState({
     apiPreview,
     controlledPreview,
-    isEditMode,
+    isEditMode: isLiveCurtailmentEditMode,
     unsupportedDeviceSetPreviewError,
   });
 
-  const hasBlockingValidationError =
-    previewState.previewError !== undefined ||
-    previewState.isPreviewLoading ||
-    Object.keys(localErrors).length > 0 ||
-    Object.keys(errors ?? {}).length > 0;
-  const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
-  const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
-  const selectedMinerIds = getSelectedMinerIds(values);
-  const applyToTarget = getApplyToTarget(values, isEditMode, previewState.preview?.selectedMinerCount);
+  const hasLocalFormError = Object.keys(localErrors).length > 0;
+  const hasExternalFormError = Object.keys(errors ?? {}).length > 0;
+  const hasBlockingRunPreviewState =
+    previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
+  const hasBlockingSubmitPreviewState = !isResponseProfileVariant && hasBlockingRunPreviewState;
+  const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
+  const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
+  const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
+  const isPrimarySubmitDisabled = isSubmitDisabled;
+  const isRunCurtailmentDisabled = isBusy || hasBlockingRunPreviewState || hasExternalFormError;
+  const selectedMinerIds = getSelectedMinerIds(effectiveValues);
+  const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
+  const targetPathSiteValues = {
+    scopeId:
+      targetPath.siteSelection === "allSites"
+        ? "All sites"
+        : targetPath.siteIds.length === 1
+          ? (siteOptions.find((site) => site.id === targetPath.siteIds[0])?.name ??
+            targetPath.siteNamesById[targetPath.siteIds[0]])
+          : undefined,
+    siteId: targetPath.siteIds[0],
+    siteIds: targetPath.siteIds,
+    siteSelection: targetPath.siteSelection,
+  };
+  const siteApplyToTarget = getSiteApplyToTarget(targetPathSiteValues);
+  const buildingApplyToTarget = getTopologyApplyToTarget("Buildings", targetPath.buildingIds);
+  const rackApplyToTarget = getTopologyApplyToTarget("Racks", targetPath.rackIds);
+  const groupApplyToTarget = getTopologyApplyToTarget("Groups", targetPath.groupIds);
+  const targetPathScope = useMemo(
+    () => ({
+      siteIds: parseCurtailmentTargetIds(targetPath.siteIds),
+      includeUnassigned: false,
+    }),
+    [targetPath.siteIds],
+  );
+  const targetPathBuildingIds = useMemo(
+    () => parseCurtailmentTargetIds(targetPath.buildingIds),
+    [targetPath.buildingIds],
+  );
+  const minerInitialFilter = useMemo(
+    () =>
+      create(MinerListFilterSchema, {
+        buildingIds: targetPathBuildingIds,
+        rackIds: parseCurtailmentTargetIds(targetPath.rackIds),
+        groupIds: parseCurtailmentTargetIds(targetPath.groupIds),
+      }),
+    [targetPath.groupIds, targetPath.rackIds, targetPathBuildingIds],
+  );
+  const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
+  const isFacilityFanSelectionDisabled = facilityFanSelectionDisabledReason !== undefined;
+  const isInfrastructureApplyToDisabled = isLiveCurtailmentEditMode || isFacilityFanSelectionDisabled;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
-  const curtailmentBehaviorSubtext = isEditMode
+  const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
     : "Fleet will automatically curtail the least efficient miners first.";
   const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
+  const curtailBatchSizeTestId = isResponseProfileVariant
+    ? "response-profile-curtail-batch-size"
+    : "curtailment-curtail-batch-size";
+  const curtailBatchIntervalTestId = isResponseProfileVariant
+    ? "response-profile-curtail-batch-interval"
+    : "curtailment-curtail-batch-interval";
   const shouldShowPreviewPane =
-    !isEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
-  const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
-  const useSinglePaneLayout = isEditMode && previewPane === null;
+    !isLiveCurtailmentEditMode ||
+    displayedPreviewState.preview !== undefined ||
+    displayedPreviewState.previewError !== undefined ||
+    displayedPreviewState.previewUnavailable !== undefined;
+  const previewPane = shouldShowPreviewPane ? <PreviewPane {...displayedPreviewState} /> : null;
+  const curtailmentConfirmationCopy = getCurtailmentConfirmationCopy(
+    pendingCurtailmentConfirmation,
+    previewState.preview?.selectedMinerCount,
+  );
+  const forceInclusionConfirmationCopy = getForceInclusionConfirmationCopy();
+  const useSinglePaneLayout = isLiveCurtailmentEditMode && previewPane === null;
   const paneContainerClassName = useSinglePaneLayout
     ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
     : undefined;
@@ -545,67 +1531,413 @@ function CurtailmentStartModalContent({
   const secondaryPaneClassName = useSinglePaneLayout
     ? "!hidden"
     : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
+  const nameFieldId = isResponseProfileVariant ? "response-profile-name" : "curtailment-reason";
+  const nameFieldLabel = isResponseProfileVariant ? "Profile name" : "Reason";
+  const modalTitle = isResponseProfileVariant
+    ? isResponseProfileEditMode
+      ? "Edit response profile"
+      : "Create response profile"
+    : isEditMode
+      ? "Manage curtailment"
+      : "New curtailment";
+  const closeAriaLabel = isResponseProfileVariant
+    ? isResponseProfileEditMode
+      ? "Close response profile editor"
+      : "Close response profile creator"
+    : isEditMode
+      ? "Close curtailment editor"
+      : "Close curtailment planner";
+  const primaryButtonText = isResponseProfileVariant ? "Save profile" : isEditMode ? "Save" : "Run curtailment";
+  const shouldShowResponseProfileSelector = !isResponseProfileVariant && !isEditMode;
+  const scopeSiteOptions = useMemo(() => {
+    if (!canSelectSiteScope) {
+      return [];
+    }
 
-  const handleMinerSelection = (deviceIdentifiers: string[]) => {
-    const hasSelectedMiners = deviceIdentifiers.length > 0;
-
-    updateValues((current) => ({
-      ...current,
-      scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
-      scopeId: hasSelectedMiners ? undefined : "whole-org",
-      deviceSetIds: [],
-      deviceIdentifiers,
+    return siteOptions;
+  }, [canSelectSiteScope, siteOptions]);
+  const siteScopeOptionById = useMemo(
+    () => new Map(scopeSiteOptions.map((siteOption) => [siteOption.id, siteOption])),
+    [scopeSiteOptions],
+  );
+  const selectableSiteIds = useMemo(() => scopeSiteOptions.map((siteOption) => siteOption.id), [scopeSiteOptions]);
+  const draftSelectedSiteIdSet = useMemo(() => new Set(draftSelectedSiteIds), [draftSelectedSiteIds]);
+  const siteScopeRows = useMemo(() => {
+    const siteRows: SiteScopeRow[] = scopeSiteOptions.map((siteOption) => ({
+      id: getSiteScopeRowId(siteOption.id),
+      label: siteOption.name,
+      isSelected: draftSelectedSiteIdSet.has(siteOption.id),
+      disabled: !canSelectSiteScope,
+      "data-testid": `response-profile-scope-site-${siteOption.id}`,
     }));
+
+    for (const currentSiteId of targetPath.siteIds) {
+      if (siteScopeOptionById.has(currentSiteId)) {
+        continue;
+      }
+      siteRows.push({
+        id: getSiteScopeRowId(currentSiteId),
+        label: targetPath.siteNamesById[currentSiteId] ?? getSiteNameForId(values, currentSiteId),
+        isSelected: draftSelectedSiteIdSet.has(currentSiteId),
+        disabled: true,
+        "data-testid": `response-profile-scope-site-${currentSiteId}`,
+      });
+    }
+
+    if (siteRows.length === 0 && (isSiteScopeLoading || siteScopeDisabledReason)) {
+      siteRows.push({
+        id: "site-unavailable",
+        label: isSiteScopeLoading ? "Loading sites..." : (siteScopeDisabledReason ?? "Site scope unavailable"),
+        isSelected: false,
+        disabled: true,
+        "data-testid": "response-profile-scope-site-unavailable",
+      });
+    }
+
+    return siteRows;
+  }, [
+    canSelectSiteScope,
+    draftSelectedSiteIdSet,
+    isSiteScopeLoading,
+    scopeSiteOptions,
+    siteScopeOptionById,
+    siteScopeDisabledReason,
+    targetPath.siteIds,
+    targetPath.siteNamesById,
+    values,
+  ]);
+  const responseProfileSelectOptions = useMemo(
+    () => [
+      { value: customResponseProfileId, label: "Custom plan" },
+      ...responseProfiles.map((profile) => ({ value: profile.id, label: profile.label })),
+    ],
+    [responseProfiles],
+  );
+  const selectedResponseProfileValue = responseProfileSelectOptions.some(
+    (option) => option.value === values.responseProfileId,
+  )
+    ? values.responseProfileId
+    : customResponseProfileId;
+
+  const handleResponseProfileChange = (responseProfileId: string) => {
+    if (responseProfileId === customResponseProfileId) {
+      setValues((current) => ({
+        ...current,
+        responseProfileId: customResponseProfileId,
+        responseProfileRevision: undefined,
+      }));
+      return;
+    }
+
+    const responseProfile = responseProfiles.find((profile) => profile.id === responseProfileId);
+    if (!responseProfile) {
+      return;
+    }
+
+    const selectedValues = {
+      ...withSelectedResponseProfileValues(values, responseProfile.values),
+      responseProfileId: responseProfile.id,
+      responseProfileRevision: responseProfile.revision,
+    };
+    setEditedFields(new Set());
+    setConfirmedForceInclusionKey("");
+    if (hasResponseProfileScopeValues(responseProfile.values)) {
+      setTargetPath(getCurtailmentTargetPath(selectedValues));
+    }
+    setValues(selectedValues);
   };
 
-  const closeMaintenanceConfirmation = () => {
-    setSubmitAfterMaintenanceConfirmation(false);
-    setShowMaintenanceConfirmation(false);
+  const openSiteScopeModal = () => {
+    const nextDraftSiteIds = targetPath.siteSelection === "allSites" ? selectableSiteIds : targetPath.siteIds;
+    setDraftSelectedSiteIds(nextDraftSiteIds);
+    setShowSiteScopeModal(true);
+  };
+
+  const handleSiteScopeToggle = (scopeRowId: string) => {
+    if (!scopeRowId.startsWith("site:")) {
+      return;
+    }
+
+    const siteId = scopeRowId.slice("site:".length);
+    setDraftSelectedSiteIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(siteId)) {
+        next.delete(siteId);
+      } else {
+        next.add(siteId);
+      }
+
+      return [...next];
+    });
+  };
+
+  const handleSaveSiteScope = () => {
+    const selectedSiteIdsForSave = getValidSiteScopeIds(draftSelectedSiteIds);
+    const allSelectableSitesSelected =
+      selectableSiteIds.length > 0 &&
+      selectedSiteIdsForSave.length === selectableSiteIds.length &&
+      selectedSiteIdsForSave.every((siteId) => siteScopeOptionById.has(siteId));
+
+    const siteNamesById = Object.fromEntries(
+      selectedSiteIdsForSave.map((siteId) => [
+        siteId,
+        siteScopeOptionById.get(siteId)?.name ?? targetPath.siteNamesById[siteId] ?? `Site ${siteId}`,
+      ]),
+    );
+    const nextPath: CurtailmentTargetPath = {
+      siteSelection: selectedSiteIdsForSave.length === 0 ? "none" : allSelectableSitesSelected ? "allSites" : "site",
+      siteIds: selectedSiteIdsForSave,
+      siteNamesById,
+      buildingIds: selectedSiteIdsForSave.length === 0 ? targetPath.buildingIds : [],
+      rackIds: selectedSiteIdsForSave.length === 0 ? targetPath.rackIds : [],
+      groupIds: selectedSiteIdsForSave.length === 0 ? targetPath.groupIds : [],
+    };
+    setTargetPath(nextPath);
+    updateValues(
+      (current) =>
+        selectedSiteIdsForSave.length === 0 && current.scopeType === "explicitMiners"
+          ? current
+          : withTargetPathScope(current, nextPath),
+      { resetResponseProfileSelection: true },
+    );
+    setShowSiteScopeModal(false);
+  };
+
+  const applyTargetPath = (nextPath: CurtailmentTargetPath) => {
+    setTargetPath(nextPath);
+    updateValues((current) => withTargetPathScope(current, nextPath), { resetResponseProfileSelection: true });
+  };
+
+  const handleBuildingSelection = (buildingIds: string[]) => {
+    if (buildingIds.length === 0 && values.scopeType !== "building") {
+      return;
+    }
+    applyTargetPath({ ...targetPath, buildingIds, rackIds: [], groupIds: [] });
+  };
+
+  const handleRackSelection = (rackIds: string[]) => {
+    if (rackIds.length === 0 && values.scopeType !== "rack") {
+      return;
+    }
+    applyTargetPath({ ...targetPath, rackIds, groupIds: [] });
+  };
+
+  const handleGroupSelection = (groupIds: string[]) => {
+    if (groupIds.length === 0 && values.scopeType !== "group") {
+      return;
+    }
+    applyTargetPath({ ...targetPath, buildingIds: [], rackIds: [], groupIds });
+  };
+
+  const handleMinerSelection = (selection: MinerSelectionValue) => {
+    if (selection.allSelected) {
+      setTargetPath({
+        siteSelection: siteOptions.length > 0 ? "allSites" : "none",
+        siteIds: [],
+        siteNamesById: {},
+        buildingIds: [],
+        rackIds: [],
+        groupIds: [],
+      });
+      updateValues(withAllMinerScope, { resetResponseProfileSelection: true });
+      return;
+    }
+
+    const deviceIdentifiers = selection.selectedMinerIds;
+    const hasSelectedMiners = deviceIdentifiers.length > 0;
+
+    updateValues(
+      (current) =>
+        hasSelectedMiners
+          ? withTerminalScope(current, { type: "explicitMiners", ids: deviceIdentifiers })
+          : withTargetPathScope(current, targetPath),
+      { resetResponseProfileSelection: true },
+    );
+  };
+
+  const handleFacilityFanSelection = (selection: FacilityFanSelectionValue) => {
+    setEditedFields(
+      (current) =>
+        new Set<keyof CurtailmentFormValues>([
+          ...current,
+          "facilityFanDeviceIds",
+          "fanOffDelaySec",
+          "fanRestoreDelaySec",
+        ]),
+    );
+    updateValues(
+      (current) => ({
+        ...current,
+        facilityFanDeviceIds: selection.selectedDeviceIds,
+        fanOffDelaySec: selection.fanOffDelaySec,
+        fanRestoreDelaySec: selection.fanRestoreDelaySec,
+      }),
+      { resetResponseProfileSelection: true },
+    );
+    setShowFacilityFanSelectionModal(false);
+  };
+
+  const closeForceInclusionConfirmation = () => {
+    setSubmitAfterForceInclusionConfirmation(null);
+    setPendingForceInclusionValues(null);
+    setShowForceInclusionConfirmation(false);
+  };
+
+  const closeCurtailmentConfirmation = () => {
+    setPendingCurtailmentConfirmation(null);
+  };
+
+  const requestCurtailmentConfirmation = (
+    action: PendingCurtailmentConfirmation["action"],
+    confirmationValues: CurtailmentSubmitValues,
+  ) => {
+    setPendingCurtailmentConfirmation({ action, values: confirmationValues });
+  };
+
+  const showLocalFormErrors = () => {
+    setEditedFields(
+      (current) => new Set([...current, ...(Object.keys(localErrors) as (keyof CurtailmentFormValues)[])]),
+    );
+  };
+
+  const requestForceInclusionConfirmation = (
+    pendingValues: Partial<ForceInclusionFields>,
+    submitAfterConfirmation: PendingCurtailmentConfirmation["action"] | null = null,
+  ) => {
+    setPendingForceInclusionValues(pendingValues);
+    setSubmitAfterForceInclusionConfirmation(submitAfterConfirmation);
+    setShowForceInclusionConfirmation(true);
+  };
+
+  const requiresForceInclusionConfirmation = (candidateValues: CurtailmentFormValues): boolean => {
+    const forceInclusionKey = getForceInclusionConfirmationKey(candidateValues);
+    return forceInclusionKey !== "" && forceInclusionKey !== confirmedForceInclusionKey;
+  };
+
+  const confirmCurtailmentAction = () => {
+    if (!pendingCurtailmentConfirmation) {
+      return;
+    }
+
+    const { action, values: confirmedValues } = pendingCurtailmentConfirmation;
+    setPendingCurtailmentConfirmation(null);
+
+    if (action === "test") {
+      onTestCurtailment?.(confirmedValues);
+      return;
+    }
+
+    onSubmit(confirmedValues);
   };
 
   const handleSubmit = () => {
-    if (isSubmitDisabled) {
+    if (isBusy) {
       return;
     }
 
-    if (!isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
-      setSubmitAfterMaintenanceConfirmation(true);
-      setShowMaintenanceConfirmation(true);
+    if (hasLocalFormError) {
+      showLocalFormErrors();
       return;
     }
 
-    onSubmit(values);
+    if (isPrimarySubmitDisabled) {
+      return;
+    }
+
+    if (!isResponseProfileVariant && !isEditMode && requiresForceInclusionConfirmation(effectiveValues)) {
+      requestForceInclusionConfirmation({}, "run");
+      return;
+    }
+
+    if (!isResponseProfileVariant && !isEditMode) {
+      requestCurtailmentConfirmation("run", effectiveValues);
+      return;
+    }
+
+    onSubmit(effectiveValues);
+  };
+
+  const requestResponseProfileCurtailment = () => {
+    if (isBusy) {
+      return;
+    }
+
+    if (hasLocalFormError) {
+      showLocalFormErrors();
+      return;
+    }
+
+    if (isRunCurtailmentDisabled) {
+      return;
+    }
+
+    if (requiresForceInclusionConfirmation(effectiveValues)) {
+      requestForceInclusionConfirmation({}, "test");
+      return;
+    }
+
+    requestCurtailmentConfirmation("test", effectiveValues);
   };
 
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [];
 
-  if (isEditMode && onStopCurtailment) {
+  if (isLiveCurtailmentEditMode && onStopCurtailment) {
     buttons.push({
       text: "Stop curtailment",
       variant: variants.secondaryDanger,
       onClick: onStopCurtailment,
-      disabled: isSubmitting,
+      disabled: isBusy,
+    });
+  }
+
+  if (isResponseProfileEditMode && onDeleteResponseProfile) {
+    buttons.push({
+      text: "Delete",
+      variant: variants.secondaryDanger,
+      onClick: onDeleteResponseProfile,
+      disabled: isBusy,
+      loading: isDeleting,
+    });
+  }
+
+  if (isResponseProfileVariant && onTestCurtailment) {
+    buttons.push({
+      text: "Run curtailment",
+      variant: variants.secondary,
+      onClick: requestResponseProfileCurtailment,
+      disabled: isRunCurtailmentDisabled,
+      loading: isTestingCurtailment,
     });
   }
 
   buttons.push({
-    text: isEditMode ? "Save" : "Start curtailment",
+    text: primaryButtonText,
     variant: variants.primary,
     onClick: handleSubmit,
-    disabled: isSubmitDisabled,
+    disabled: isPrimarySubmitDisabled,
     loading: isSubmitting,
   });
 
-  const confirmMaintenanceInclusion = () => {
-    const nextValues = { ...values, includeMaintenance: true };
+  const confirmForceInclusion = () => {
+    const confirmedValues = {
+      ...effectiveValues,
+      ...pendingForceInclusionValues,
+    };
+    const nextValues =
+      pendingForceInclusionValues && Object.keys(pendingForceInclusionValues).length > 0
+        ? resetResponseProfileSelection(confirmedValues)
+        : confirmedValues;
 
-    setMaintenanceInclusionConfirmed(true);
+    setConfirmedForceInclusionKey(getForceInclusionConfirmationKey(nextValues));
     setValues(nextValues);
-    setShowMaintenanceConfirmation(false);
+    setPendingForceInclusionValues(null);
+    setShowForceInclusionConfirmation(false);
 
-    if (submitAfterMaintenanceConfirmation) {
-      setSubmitAfterMaintenanceConfirmation(false);
-      onSubmit(nextValues);
+    if (submitAfterForceInclusionConfirmation) {
+      const pendingAction = submitAfterForceInclusionConfirmation;
+      setSubmitAfterForceInclusionConfirmation(null);
+      requestCurtailmentConfirmation(pendingAction, nextValues);
     }
   };
 
@@ -613,22 +1945,59 @@ function CurtailmentStartModalContent({
     <>
       <FullScreenTwoPaneModal
         open={open}
-        title={isEditMode ? "Manage curtailment" : "Plan a curtailment"}
-        closeAriaLabel={isEditMode ? "Close curtailment editor" : "Close curtailment planner"}
+        title={modalTitle}
+        closeAriaLabel={closeAriaLabel}
         onDismiss={onDismiss}
-        isBusy={isSubmitting}
+        isBusy={isBusy}
         buttons={buttons}
         abovePanes={previewPane ? <div className="px-6 pb-6 laptop:hidden">{previewPane}</div> : null}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-            <Input
-              id="curtailment-reason"
-              label="Reason"
-              initValue={values.reason}
-              type="text"
-              error={effectiveErrors.reason}
-              onChange={(value) => updateValue("reason", value)}
-            />
+            {actionError ? (
+              <div
+                className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical"
+                data-testid="curtailment-action-error"
+              >
+                {actionError}
+              </div>
+            ) : null}
+            {isResponseProfileVariant ? (
+              <Section title="Profile" subtext={responseProfileDescription}>
+                <Input
+                  id={nameFieldId}
+                  label={nameFieldLabel}
+                  initValue={values.reason}
+                  type="text"
+                  error={effectiveErrors.reason}
+                  onChange={(value) => updateValue("reason", value)}
+                />
+              </Section>
+            ) : (
+              <div className="grid gap-3">
+                {shouldShowResponseProfileSelector ? (
+                  <Section title="Response profile">
+                    <Select
+                      id="curtailment-response-profile"
+                      label="Profile"
+                      value={selectedResponseProfileValue}
+                      options={responseProfileSelectOptions}
+                      forceBelow
+                      showSelectedIndicator={false}
+                      testId="curtailment-response-profile-select"
+                      onChange={handleResponseProfileChange}
+                    />
+                  </Section>
+                ) : null}
+                <Input
+                  id={nameFieldId}
+                  label={nameFieldLabel}
+                  initValue={values.reason}
+                  type="text"
+                  error={effectiveErrors.reason}
+                  onChange={(value) => updateValue("reason", value)}
+                />
+              </div>
+            )}
 
             <Section title="Curtail behavior" subtext={curtailmentBehaviorSubtext}>
               <div className="grid gap-3">
@@ -638,12 +2007,20 @@ function CurtailmentStartModalContent({
                     label="Curtailment mode"
                     value={values.curtailmentMode}
                     options={curtailmentModeOptions}
-                    disabled={isEditMode}
+                    disabled={isLiveCurtailmentEditMode}
                     forceBelow
                     showSelectedIndicator={false}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtailment mode"
+                        body={fieldHelp.curtailmentMode}
+                        testId="curtailment-mode-info-button"
+                        popoverTestId="curtailment-mode-info-popover"
+                      />
+                    }
                     onChange={(value) => {
                       if (isCurtailmentMode(value)) {
-                        updateValue("curtailmentMode", value);
+                        updateCurtailmentMode(value);
                       }
                     }}
                   />
@@ -652,30 +2029,57 @@ function CurtailmentStartModalContent({
                       id="curtailment-target-kw"
                       label="Fixed target reduction (kW)"
                       initValue={values.targetKw}
-                      disabled={isEditMode}
+                      disabled={isLiveCurtailmentEditMode}
                       inputMode="decimal"
                       error={effectiveErrors.targetKw}
+                      suffixAction={
+                        <FieldInfoToggle
+                          ariaLabel="About fixed target reduction"
+                          body={fieldHelp.fixedTargetReduction}
+                          testId="fixed-target-reduction-info-button"
+                          popoverTestId="fixed-target-reduction-info-popover"
+                        />
+                      }
                       onChange={(value) => updateValue("targetKw", value)}
                     />
                   ) : null}
                 </div>
                 <div className="grid gap-3 tablet:grid-cols-2">
                   <Input
-                    id="curtailment-min-duration"
-                    label="Min duration (sec)"
-                    initValue={values.minDurationSec}
-                    disabled={isEditMode}
+                    id="curtailment-batch-size"
+                    label="Batch size (miners)"
+                    initValue={values.curtailBatchSize}
+                    disabled={isLiveCurtailmentEditMode}
                     inputMode="numeric"
-                    error={effectiveErrors.minDurationSec}
-                    onChange={(value) => updateValue("minDurationSec", value)}
+                    error={effectiveErrors.curtailBatchSize}
+                    testId={curtailBatchSizeTestId}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtail batch size"
+                        body={fieldHelp.curtailBatchSize}
+                        testId="curtail-batch-size-info-button"
+                        popoverTestId="curtail-batch-size-info-popover"
+                      />
+                    }
+                    onChange={(value) => updateValue("curtailBatchSize", value)}
                   />
                   <Input
-                    id="curtailment-max-duration"
-                    label="Max duration (sec)"
-                    initValue={values.maxDurationSec}
+                    id="curtailment-batch-interval"
+                    label="Batch interval (sec)"
+                    initValue={values.curtailBatchIntervalSec}
+                    disabled={isLiveCurtailmentEditMode}
                     inputMode="numeric"
-                    error={effectiveErrors.maxDurationSec}
-                    onChange={(value) => updateValue("maxDurationSec", value)}
+                    error={effectiveErrors.curtailBatchIntervalSec}
+                    testId={curtailBatchIntervalTestId}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtail batch interval"
+                        body={fieldHelp.curtailBatchInterval}
+                        testId="curtail-batch-interval-info-button"
+                        popoverTestId="curtail-batch-interval-info-popover"
+                      />
+                    }
+                    onChange={(value) => updateValue("curtailBatchIntervalSec", value)}
                   />
                 </div>
               </div>
@@ -687,9 +2091,20 @@ function CurtailmentStartModalContent({
                   id="curtailment-restore-batch-size"
                   label="Batch size (miners)"
                   initValue={values.restoreBatchSize}
-                  disabled={isEditMode}
+                  disabled={isLiveCurtailmentEditMode}
                   inputMode="numeric"
                   error={effectiveErrors.restoreBatchSize}
+                  testId={
+                    isResponseProfileVariant ? "response-profile-restore-batch-size" : "curtailment-restore-batch-size"
+                  }
+                  suffixAction={
+                    <FieldInfoToggle
+                      ariaLabel="About restore batch size"
+                      body={fieldHelp.restoreBatchSize}
+                      testId="restore-batch-size-info-button"
+                      popoverTestId="restore-batch-size-info-popover"
+                    />
+                  }
                   onChange={(value) => updateValue("restoreBatchSize", value)}
                 />
                 <Input
@@ -698,43 +2113,115 @@ function CurtailmentStartModalContent({
                   initValue={values.restoreIntervalSec}
                   inputMode="numeric"
                   error={effectiveErrors.restoreIntervalSec}
+                  testId={
+                    isResponseProfileVariant
+                      ? "response-profile-restore-batch-interval"
+                      : "curtailment-restore-batch-interval"
+                  }
+                  suffixAction={
+                    <FieldInfoToggle
+                      ariaLabel="About restore batch interval"
+                      body={fieldHelp.restoreBatchInterval}
+                      testId="restore-batch-interval-info-button"
+                      popoverTestId="restore-batch-interval-info-popover"
+                    />
+                  }
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
               </div>
             </Section>
 
-            <Section title="Apply to">
+            <Section
+              title="Apply to"
+              subtext={
+                facilityFanSelectionDisabledReason ??
+                "Choose a site-to-miner path and any infrastructure included in this curtailment."
+              }
+            >
               <div className="grid">
                 <TargetSelectButton
-                  label={applyToTarget.label}
-                  value={applyToTarget.value}
-                  disabled={isEditMode}
+                  label={siteApplyToTarget.label}
+                  value={siteApplyToTarget.value}
+                  disabled={isLiveCurtailmentEditMode}
+                  onClick={openSiteScopeModal}
+                />
+                {buildingScopeEnabled || targetPath.buildingIds.length > 0 ? (
+                  <TargetSelectButton
+                    label={buildingApplyToTarget.label}
+                    value={buildingApplyToTarget.value}
+                    disabled={isLiveCurtailmentEditMode || !buildingScopeEnabled}
+                    onClick={() => setShowBuildingSelectionModal(true)}
+                  />
+                ) : null}
+                {rackAndGroupScopeEnabled || targetPath.rackIds.length > 0 ? (
+                  <TargetSelectButton
+                    label={rackApplyToTarget.label}
+                    value={rackApplyToTarget.value}
+                    disabled={isLiveCurtailmentEditMode || !rackAndGroupScopeEnabled}
+                    onClick={() => setShowRackSelectionModal(true)}
+                  />
+                ) : null}
+                {rackAndGroupScopeEnabled || targetPath.groupIds.length > 0 ? (
+                  <TargetSelectButton
+                    label={groupApplyToTarget.label}
+                    value={groupApplyToTarget.value}
+                    disabled={isLiveCurtailmentEditMode || !rackAndGroupScopeEnabled}
+                    onClick={() => setShowGroupSelectionModal(true)}
+                  />
+                ) : null}
+                <TargetSelectButton
+                  label={minerApplyToTarget.label}
+                  value={minerApplyToTarget.value}
+                  disabled={isLiveCurtailmentEditMode}
                   onClick={() => setShowMinerSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label={infrastructureApplyToTarget.label}
+                  value={infrastructureApplyToTarget.value}
+                  disabled={isInfrastructureApplyToDisabled}
+                  onClick={() => setShowFacilityFanSelectionModal(true)}
                 />
               </div>
             </Section>
 
-            <label
-              className={`flex items-start gap-3 text-left ${isEditMode ? "cursor-not-allowed" : "cursor-pointer"}`}
-            >
-              <Checkbox
-                checked={values.includeMaintenance}
-                disabled={isEditMode}
-                onChange={(event) => {
-                  if (event.currentTarget.checked) {
-                    setSubmitAfterMaintenanceConfirmation(false);
-                    setShowMaintenanceConfirmation(true);
-                    return;
-                  }
+            {/*
+              The "Include miners in maintenance" checkbox is intentionally hidden from the UI.
+              includeMaintenance defaults to false so non-admin operators with curtailment:manage
+              can still start curtailments (force_include_maintenance is admin-gated server-side).
+              "Target all paired miners" is the only operator-controllable inclusion option, and
+              enabling it also opts in maintenance-flagged miners via the request builders.
+              Re-add the checkbox here if maintenance ever needs to become independently togglable.
 
-                  setMaintenanceInclusionConfirmed(false);
-                  updateValue("includeMaintenance", false);
-                }}
-              />
-              <span>
-                <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-              </span>
-            </label>
+              The checkbox is also available when saving logical topology scopes. Topology Run/Test
+              stays disabled until the backend lifecycle lands; explicit miner snapshots remain
+              ineligible for the all-paired policy.
+            */}
+            {isFullFleetMode && supportsAllPairedTargeting(values) ? (
+              <Section title="Miners">
+                <label
+                  className={`flex items-start gap-3 text-left ${
+                    isLiveCurtailmentEditMode ? "cursor-not-allowed" : "cursor-pointer"
+                  }`}
+                >
+                  <Checkbox
+                    checked={values.forceIncludeAllPairedMiners}
+                    disabled={isLiveCurtailmentEditMode}
+                    onChange={(event) => {
+                      if (!isResponseProfileVariant && event.currentTarget.checked) {
+                        requestForceInclusionConfirmation({ forceIncludeAllPairedMiners: true });
+                        return;
+                      }
+
+                      setConfirmedForceInclusionKey("");
+                      updateValue("forceIncludeAllPairedMiners", event.currentTarget.checked);
+                    }}
+                  />
+                  <span>
+                    <span className="block text-300 text-text-primary">Target all paired miners</span>
+                  </span>
+                </label>
+              </Section>
+            ) : null}
           </section>
         }
         secondaryPane={previewPane}
@@ -743,10 +2230,10 @@ function CurtailmentStartModalContent({
         secondaryPaneClassName={secondaryPaneClassName}
       />
       <Dialog
-        open={showMaintenanceConfirmation}
-        title="Force include maintenance miners?"
-        testId="curtailment-maintenance-confirmation"
-        onDismiss={closeMaintenanceConfirmation}
+        open={showForceInclusionConfirmation}
+        title={forceInclusionConfirmationCopy.title}
+        testId="curtailment-force-inclusion-confirmation"
+        onDismiss={closeForceInclusionConfirmation}
         icon={
           <DialogIcon intent="warning">
             <Alert />
@@ -755,31 +2242,160 @@ function CurtailmentStartModalContent({
         buttons={[
           {
             text: "Cancel",
-            onClick: closeMaintenanceConfirmation,
+            onClick: closeForceInclusionConfirmation,
             variant: variants.secondary,
           },
           {
-            text: "Force include",
-            onClick: confirmMaintenanceInclusion,
+            text: forceInclusionConfirmationCopy.confirmText,
+            onClick: confirmForceInclusion,
             variant: variants.danger,
           },
         ]}
       >
-        <div className="text-300 text-text-primary-70">
-          This will run Curtail on miners that are currently flagged for maintenance work.
-        </div>
+        <div className="text-300 text-text-primary-70">{forceInclusionConfirmationCopy.body}</div>
+      </Dialog>
+
+      <Dialog
+        open={pendingCurtailmentConfirmation !== null}
+        title={curtailmentConfirmationCopy?.title ?? "Run curtailment?"}
+        testId="curtailment-run-confirmation"
+        onDismiss={closeCurtailmentConfirmation}
+        icon={
+          <DialogIcon intent="warning">
+            <LightningAlt />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: closeCurtailmentConfirmation,
+            variant: variants.secondary,
+            disabled: isBusy,
+          },
+          {
+            text: curtailmentConfirmationCopy?.confirmText ?? "Run curtailment",
+            onClick: confirmCurtailmentAction,
+            variant: variants.primary,
+            disabled: isBusy,
+            loading: pendingCurtailmentConfirmation?.action === "test" ? isTestingCurtailment : isSubmitting,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">{curtailmentConfirmationCopy?.body}</div>
       </Dialog>
 
       {showMinerSelectionModal ? (
         <MinerSelectionModal
           open={showMinerSelectionModal}
+          allMinersSelected={hasAllMinersSelected(effectiveValues)}
           selectedMinerIds={selectedMinerIds}
+          scope={targetPathScope}
+          initialFilter={minerInitialFilter}
+          filterConfig={rackAndGroupScopeEnabled ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setShowMinerSelectionModal(false)}
-          onSave={(minerIds) => {
-            handleMinerSelection(minerIds);
+          onSave={(selection) => {
+            handleMinerSelection(selection);
             setShowMinerSelectionModal(false);
           }}
         />
+      ) : null}
+
+      {buildingScopeEnabled && showBuildingSelectionModal ? (
+        <BuildingSelectionModal
+          open={showBuildingSelectionModal}
+          selectedBuildingIds={targetPath.buildingIds}
+          scope={targetPathScope}
+          preserveMissingSelections
+          onDismiss={() => setShowBuildingSelectionModal(false)}
+          onSave={(buildingIds) => {
+            handleBuildingSelection(buildingIds);
+            setShowBuildingSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {rackAndGroupScopeEnabled && showRackSelectionModal ? (
+        <RackSelectionModal
+          open={showRackSelectionModal}
+          selectedRackIds={targetPath.rackIds}
+          scope={targetPathScope}
+          buildingIds={targetPathBuildingIds}
+          preserveMissingSelections
+          onDismiss={() => setShowRackSelectionModal(false)}
+          onSave={(rackIds) => {
+            handleRackSelection(rackIds);
+            setShowRackSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {rackAndGroupScopeEnabled && showGroupSelectionModal ? (
+        <GroupSelectionModal
+          open={showGroupSelectionModal}
+          selectedGroupIds={targetPath.groupIds}
+          scope={targetPathScope}
+          preserveMissingSelections
+          onDismiss={() => setShowGroupSelectionModal(false)}
+          onSave={(groupIds) => {
+            handleGroupSelection(groupIds);
+            setShowGroupSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {!isInfrastructureApplyToDisabled && showFacilityFanSelectionModal ? (
+        <FacilityFanSelectionModal
+          devices={infrastructureDevices}
+          initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}
+          initialFanOffDelaySec={values.fanOffDelaySec ?? ""}
+          initialFanRestoreDelaySec={values.fanRestoreDelaySec ?? ""}
+          isLoading={isLoadingInfrastructureDevices}
+          loadError={infrastructureDevicesError}
+          onRetry={onRetryInfrastructureDevices}
+          onDismiss={() => setShowFacilityFanSelectionModal(false)}
+          onApply={handleFacilityFanSelection}
+        />
+      ) : null}
+
+      {showSiteScopeModal ? (
+        <Modal
+          open={showSiteScopeModal}
+          title="Select sites"
+          divider={false}
+          buttons={[
+            {
+              text: "Done",
+              variant: variants.primary,
+              onClick: handleSaveSiteScope,
+              dismissModalOnClick: false,
+            },
+          ]}
+          onDismiss={() => setShowSiteScopeModal(false)}
+        >
+          <div className="flex flex-col">
+            {siteScopeRows.map((siteScopeRow) => (
+              <SiteScopeOption
+                key={siteScopeRow.id}
+                disabled={siteScopeRow.disabled}
+                isSelected={siteScopeRow.isSelected}
+                label={siteScopeRow.label}
+                testId={siteScopeRow["data-testid"]}
+                onChange={() => handleSiteScopeToggle(siteScopeRow.id)}
+              />
+            ))}
+            {siteScopeRows.some((siteScopeRow) => !siteScopeRow.disabled) ? (
+              <ModalSelectAllFooter
+                label={
+                  selectableSiteIds.length > 0 && draftSelectedSiteIds.length === selectableSiteIds.length
+                    ? `All ${selectableSiteIds.length} ${selectableSiteIds.length === 1 ? "site" : "sites"} selected`
+                    : `${draftSelectedSiteIds.length} ${draftSelectedSiteIds.length === 1 ? "site" : "sites"} selected`
+                }
+                onSelectAll={() => setDraftSelectedSiteIds(selectableSiteIds)}
+                onSelectNone={() => setDraftSelectedSiteIds([])}
+              />
+            ) : null}
+          </div>
+        </Modal>
       ) : null}
     </>
   );

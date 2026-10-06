@@ -9,11 +9,15 @@ import (
 )
 
 // TelemetryMiddleware creates a span for every HTTP request and records the response status code.
-type TelemetryMiddleware struct{}
+type TelemetryMiddleware struct {
+	// TrustIncomingTraces parents request spans to client trace context (traceparent) instead of
+	// starting a new trace with a link; required for Datadog RUM↔APM session correlation.
+	TrustIncomingTraces bool
+}
 
 func (t TelemetryMiddleware) Wrap(next http.Handler) http.Handler {
 	return otelhttp.NewHandler(next, "http.request",
-		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
+		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return !t.TrustIncomingTraces }),
 		otelhttp.WithTracerProvider(otel.GetTracerProvider()),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return httpSpanName(r)

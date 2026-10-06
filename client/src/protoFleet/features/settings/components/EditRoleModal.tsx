@@ -168,7 +168,7 @@ const EditRoleModal = ({ open, userId, username, currentRoleName, onDismiss, onS
         <span className="text-200 text-text-primary-50">
           {isLoadingRoles
             ? "Loading roles…"
-            : "The role sets what this member can see and do. Manage roles in Settings → Roles."}
+            : "The role sets what this member can see and do. Manage roles in Team → Roles."}
         </span>
       </div>
     </Modal>

@@ -171,7 +171,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
           className="grow"
           size={sizes.base}
           disabled={pending || (!!error && selectedPowerTargetMode === powerTargetModes.custom)}
-          prefixIcon={pending ? <ProgressCircular indeterminate size={12} /> : undefined}
+          prefixIcon={pending ? <ProgressCircular color="inverse" indeterminate size={12} /> : undefined}
           testId="power-target-apply-button"
           onClick={handleUpdate}
         />

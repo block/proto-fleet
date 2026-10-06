@@ -25,7 +25,7 @@ const TaskCard = ({
   isLoading = false,
 }: TaskCardProps) => {
   return (
-    <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-base p-6">
+    <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-overlay p-6">
       <div className="flex flex-col gap-4">
         <div className="flex size-8 items-center justify-center rounded-lg bg-surface-5">{icon}</div>
         <div className="flex flex-col">

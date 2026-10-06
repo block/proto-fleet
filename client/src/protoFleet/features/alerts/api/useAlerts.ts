@@ -1,0 +1,246 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+
+import * as api from "@/protoFleet/features/alerts/api/alertsApi";
+import type {
+  MaintenanceWindow,
+  MaintenanceWindowWithActive,
+  Rule,
+  RuleConfig,
+  RuleRouting,
+} from "@/protoFleet/features/alerts/types";
+
+// `now` is injectable so callers can recompute against a ticking clock at render time instead of trusting the load-time snapshot.
+export const isMaintenanceWindowActive = (s: MaintenanceWindow, now: number = Date.now()): boolean => {
+  const start = new Date(s.starts_at).getTime();
+  const end = s.ends_at ? new Date(s.ends_at).getTime() : Infinity;
+  return now >= start && now < end;
+};
+
+// Empty channel targets mean the window mutes delivery on every channel; a channel-scoped window
+// leaves its rules paging on unlisted channels. Mirrors the server's authoritative delivery-side
+// predicate (server/internal/domain/alerts/deliver.go) — keep the two in sync.
+const windowMutesEveryChannel = (w: MaintenanceWindow): boolean => w.channel_ids.length === 0;
+
+const windowCoversRule = (w: MaintenanceWindow, ruleId: string): boolean =>
+  w.rule_ids.length === 0 || w.rule_ids.includes(ruleId);
+
+// A rule is fully muted when the given (already-active) windows jointly cover every channel its
+// alerts can deliver to — an every-channel window, or for a custom-routed rule the union of
+// channel-scoped windows spanning its routed channels. Default-routed rules deliver to every org
+// channel (a list this view doesn't load), so only an every-channel window marks them muted; a
+// window set that merely enumerates each current channel conservatively still reads as Active.
+export const isRuleFullyMuted = (rule: Rule, activeWindows: MaintenanceWindow[]): boolean => {
+  const covering = activeWindows.filter((w) => windowCoversRule(w, rule.id));
+  if (covering.some(windowMutesEveryChannel)) return true;
+  if (rule.routing?.mode !== "custom" || rule.routing.channel_ids.length === 0) return false;
+  const mutedChannelIds = new Set(covering.flatMap((w) => w.channel_ids));
+  return rule.routing.channel_ids.every((id) => mutedChannelIds.has(id));
+};
+
+const withActive = (s: MaintenanceWindow, now?: number): MaintenanceWindowWithActive => ({
+  ...s,
+  active: isMaintenanceWindowActive(s, now),
+});
+
+const upsertById = <T extends { id: string }>(list: T[], next: T): T[] => {
+  const idx = list.findIndex((item) => item.id === next.id);
+  if (idx < 0) return [next, ...list];
+  const copy = list.slice();
+  copy[idx] = next;
+  return copy;
+};
+
+export interface UseAlertsResult {
+  rules: Rule[];
+  maintenanceWindows: MaintenanceWindowWithActive[];
+  loading: boolean;
+  refresh: () => Promise<void>;
+  pauseRule: (id: string) => Promise<void>;
+  resumeRule: (id: string) => Promise<void>;
+  createRule: (config: RuleConfig, routing?: RuleRouting) => Promise<Rule>;
+  updateRule: (id: string, config: RuleConfig) => Promise<Rule>;
+  removeRule: (id: string) => Promise<void>;
+  setRuleRouting: (id: string, routing: RuleRouting) => Promise<Rule>;
+  createMaintenanceWindow: (input: api.MaintenanceWindowMutationInput) => Promise<MaintenanceWindow>;
+  updateMaintenanceWindow: (input: api.MaintenanceWindowMutationInput & { id: string }) => Promise<MaintenanceWindow>;
+  removeMaintenanceWindow: (id: string) => Promise<void>;
+}
+
+// Feature-scoped data hook: holds rules/maintenance windows in local state rather than a shared store, which is reserved for UI persistence.
+export function useAlerts(): UseAlertsResult {
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [maintenanceWindows, setMaintenanceWindows] = useState<MaintenanceWindowWithActive[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Ordering guards: deleted ids are tombstoned so a slow mutation response
+  // can't re-add the row, and any mutation bumps the epoch so a refresh
+  // snapshot that raced it is discarded instead of overwriting newer state.
+  const deletedIdsRef = useRef<Set<string>>(new Set());
+  const mutationEpochRef = useRef(0);
+
+  const noteMutation = useCallback(() => {
+    mutationEpochRef.current += 1;
+  }, []);
+
+  const isDeletedWindow = useCallback((w: MaintenanceWindow): boolean => deletedIdsRef.current.has(w.id), []);
+
+  const upsertRule = useCallback((updated: Rule) => {
+    if (deletedIdsRef.current.has(updated.id)) return;
+    setRules((current) => {
+      const previous = current.find((r) => r.id === updated.id);
+      // Null routing means the server couldn't read it; keep the last-known value so a route-read outage can't repaint a routed rule as default.
+      let next = updated.routing ? updated : { ...updated, routing: previous?.routing ?? null };
+      // Same for a flagged config read failure: keep the last-known config so a
+      // config-store hiccup can't repaint a scoped rule as org-wide/uneditable.
+      if (updated.config_unknown) {
+        next = {
+          ...next,
+          config: previous?.config ?? null,
+          config_out_of_sync: previous?.config_out_of_sync,
+        };
+      }
+      return upsertById(current, next);
+    });
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const epoch = mutationEpochRef.current;
+      const [nextRules, nextWindows] = await Promise.all([api.listRules(), api.listMaintenanceWindows()]);
+      // A mutation landed mid-flight; its state is newer than this snapshot.
+      if (epoch !== mutationEpochRef.current) return;
+      setRules(nextRules.filter((r) => !deletedIdsRef.current.has(r.id)));
+      setMaintenanceWindows(nextWindows.filter((w) => !isDeletedWindow(w)).map((w) => withActive(w)));
+    } finally {
+      setLoading(false);
+    }
+  }, [isDeletedWindow]);
+
+  const pauseRule = useCallback(
+    async (id: string) => {
+      const updated = await api.pauseRule(id);
+      noteMutation();
+      upsertRule(updated);
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const resumeRule = useCallback(
+    async (id: string) => {
+      const updated = await api.resumeRule(id);
+      noteMutation();
+      upsertRule(updated);
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const createRule = useCallback(
+    async (config: RuleConfig, routing?: RuleRouting) => {
+      const created = await api.createRule(config, routing);
+      noteMutation();
+      upsertRule(created);
+      return created;
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const updateRule = useCallback(
+    async (id: string, config: RuleConfig) => {
+      const updated = await api.updateRule(id, config);
+      noteMutation();
+      upsertRule(updated);
+      return updated;
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const setRuleRouting = useCallback(
+    async (id: string, routing: RuleRouting) => {
+      const updated = await api.setRuleRouting(id, routing);
+      noteMutation();
+      upsertRule(updated);
+      return updated;
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const removeRule = useCallback(
+    async (id: string) => {
+      await api.deleteRule(id);
+      noteMutation();
+      deletedIdsRef.current.add(id);
+      setRules((current) => current.filter((r) => r.id !== id));
+      // Maintenance windows keep their rows: the deleted rule's id dangles in
+      // rule_ids and simply mutes nothing.
+    },
+    [noteMutation],
+  );
+
+  const createMaintenanceWindow = useCallback(
+    async (input: api.MaintenanceWindowMutationInput) => {
+      const created = await api.createMaintenanceWindow(input);
+      noteMutation();
+      if (!isDeletedWindow(created)) {
+        setMaintenanceWindows((current) => upsertById(current, withActive(created)));
+      }
+      return created;
+    },
+    [noteMutation, isDeletedWindow],
+  );
+
+  const updateMaintenanceWindow = useCallback(
+    async (input: api.MaintenanceWindowMutationInput & { id: string }) => {
+      const updated = await api.updateMaintenanceWindow(input);
+      noteMutation();
+      if (!isDeletedWindow(updated)) {
+        setMaintenanceWindows((current) => upsertById(current, withActive(updated)));
+      }
+      return updated;
+    },
+    [noteMutation, isDeletedWindow],
+  );
+
+  const removeMaintenanceWindow = useCallback(
+    async (id: string) => {
+      await api.deleteMaintenanceWindow(id);
+      noteMutation();
+      deletedIdsRef.current.add(id);
+      setMaintenanceWindows((current) => current.filter((s) => s.id !== id));
+    },
+    [noteMutation],
+  );
+
+  return useMemo(
+    () => ({
+      rules,
+      maintenanceWindows,
+      loading,
+      refresh,
+      pauseRule,
+      resumeRule,
+      createRule,
+      updateRule,
+      removeRule,
+      setRuleRouting,
+      createMaintenanceWindow,
+      updateMaintenanceWindow,
+      removeMaintenanceWindow,
+    }),
+    [
+      rules,
+      maintenanceWindows,
+      loading,
+      refresh,
+      pauseRule,
+      resumeRule,
+      createRule,
+      updateRule,
+      removeRule,
+      setRuleRouting,
+      createMaintenanceWindow,
+      updateMaintenanceWindow,
+      removeMaintenanceWindow,
+    ],
+  );
+}

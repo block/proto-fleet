@@ -405,7 +405,7 @@ class SensorMetrics(_message.Message):
     def __init__(self, component_info: _Optional[_Union[ComponentInfo, _Mapping]] = ..., type: _Optional[str] = ..., unit: _Optional[str] = ..., value: _Optional[_Union[MetricValue, _Mapping]] = ...) -> None: ...
 
 class DeviceMetrics(_message.Message):
-    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version")
+    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "default_password_active")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     HEALTH_FIELD_NUMBER: _ClassVar[int]
@@ -421,6 +421,7 @@ class DeviceMetrics(_message.Message):
     FAN_METRICS_FIELD_NUMBER: _ClassVar[int]
     SENSOR_METRICS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     timestamp: _timestamp_pb2.Timestamp
     health: HealthStatus
@@ -436,7 +437,8 @@ class DeviceMetrics(_message.Message):
     fan_metrics: _containers.RepeatedCompositeFieldContainer[FanMetrics]
     sensor_metrics: _containers.RepeatedCompositeFieldContainer[SensorMetrics]
     firmware_version: str
-    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    default_password_active: bool
+    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
     __slots__ = ("device_id",)
@@ -474,12 +476,6 @@ class SubscribeRequest(_message.Message):
     interval_seconds: int
     def __init__(self, device_ids: _Optional[_Iterable[str]] = ..., batch_size: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
 
-class APIKey(_message.Message):
-    __slots__ = ("key",)
-    KEY_FIELD_NUMBER: _ClassVar[int]
-    key: str
-    def __init__(self, key: _Optional[str] = ...) -> None: ...
-
 class UsernamePassword(_message.Message):
     __slots__ = ("username", "password")
     USERNAME_FIELD_NUMBER: _ClassVar[int]
@@ -505,20 +501,18 @@ class TlsClientCert(_message.Message):
     def __init__(self, client_cert_pem: _Optional[bytes] = ..., key_pem: _Optional[bytes] = ..., ca_cert_pem: _Optional[bytes] = ...) -> None: ...
 
 class SecretBundle(_message.Message):
-    __slots__ = ("version", "api_key", "user_pass", "bearer_token", "tls_client_cert", "ttl")
+    __slots__ = ("version", "user_pass", "bearer_token", "tls_client_cert", "ttl")
     VERSION_FIELD_NUMBER: _ClassVar[int]
-    API_KEY_FIELD_NUMBER: _ClassVar[int]
     USER_PASS_FIELD_NUMBER: _ClassVar[int]
     BEARER_TOKEN_FIELD_NUMBER: _ClassVar[int]
     TLS_CLIENT_CERT_FIELD_NUMBER: _ClassVar[int]
     TTL_FIELD_NUMBER: _ClassVar[int]
     version: str
-    api_key: APIKey
     user_pass: UsernamePassword
     bearer_token: BearerToken
     tls_client_cert: TlsClientCert
     ttl: _duration_pb2.Duration
-    def __init__(self, version: _Optional[str] = ..., api_key: _Optional[_Union[APIKey, _Mapping]] = ..., user_pass: _Optional[_Union[UsernamePassword, _Mapping]] = ..., bearer_token: _Optional[_Union[BearerToken, _Mapping]] = ..., tls_client_cert: _Optional[_Union[TlsClientCert, _Mapping]] = ..., ttl: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    def __init__(self, version: _Optional[str] = ..., user_pass: _Optional[_Union[UsernamePassword, _Mapping]] = ..., bearer_token: _Optional[_Union[BearerToken, _Mapping]] = ..., tls_client_cert: _Optional[_Union[TlsClientCert, _Mapping]] = ..., ttl: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class SetCoolingModeRequest(_message.Message):
     __slots__ = ("ref", "mode")
@@ -547,6 +541,58 @@ class UncurtailRequest(_message.Message):
     REF_FIELD_NUMBER: _ClassVar[int]
     ref: DeviceRef
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
+
+class CurtailmentProviderConfig(_message.Message):
+    __slots__ = ("name", "type", "enabled", "brokers", "port", "username", "password", "topic", "qos", "stale_after", "reconnect_backoff")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    BROKERS_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    TOPIC_FIELD_NUMBER: _ClassVar[int]
+    QOS_FIELD_NUMBER: _ClassVar[int]
+    STALE_AFTER_FIELD_NUMBER: _ClassVar[int]
+    RECONNECT_BACKOFF_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    type: str
+    enabled: bool
+    brokers: _containers.RepeatedScalarFieldContainer[str]
+    port: int
+    username: str
+    password: str
+    topic: str
+    qos: int
+    stale_after: str
+    reconnect_backoff: str
+    def __init__(self, name: _Optional[str] = ..., type: _Optional[str] = ..., enabled: bool = ..., brokers: _Optional[_Iterable[str]] = ..., port: _Optional[int] = ..., username: _Optional[str] = ..., password: _Optional[str] = ..., topic: _Optional[str] = ..., qos: _Optional[int] = ..., stale_after: _Optional[str] = ..., reconnect_backoff: _Optional[str] = ...) -> None: ...
+
+class CurtailmentConfig(_message.Message):
+    __slots__ = ("enabled", "fail_policy", "restore_policy", "nats_url", "mcdd_grpc_address", "status_publish_interval", "providers")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    FAIL_POLICY_FIELD_NUMBER: _ClassVar[int]
+    RESTORE_POLICY_FIELD_NUMBER: _ClassVar[int]
+    NATS_URL_FIELD_NUMBER: _ClassVar[int]
+    MCDD_GRPC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    STATUS_PUBLISH_INTERVAL_FIELD_NUMBER: _ClassVar[int]
+    PROVIDERS_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    fail_policy: str
+    restore_policy: str
+    nats_url: str
+    mcdd_grpc_address: str
+    status_publish_interval: str
+    providers: _containers.RepeatedCompositeFieldContainer[CurtailmentProviderConfig]
+    def __init__(self, enabled: bool = ..., fail_policy: _Optional[str] = ..., restore_policy: _Optional[str] = ..., nats_url: _Optional[str] = ..., mcdd_grpc_address: _Optional[str] = ..., status_publish_interval: _Optional[str] = ..., providers: _Optional[_Iterable[_Union[CurtailmentProviderConfig, _Mapping]]] = ...) -> None: ...
+
+class ApplyCurtailmentConfigRequest(_message.Message):
+    __slots__ = ("ref", "config")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    config: CurtailmentConfig
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., config: _Optional[_Union[CurtailmentConfig, _Mapping]] = ...) -> None: ...
 
 class SetPowerTargetRequest(_message.Message):
     __slots__ = ("ref", "performance_mode")
@@ -615,7 +661,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -624,6 +670,7 @@ class DeviceInfo(_message.Message):
     MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
     MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -632,7 +679,8 @@ class DeviceInfo(_message.Message):
     manufacturer: str
     mac_address: str
     firmware_version: str
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    default_password_active: bool
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")
@@ -745,14 +793,18 @@ class UpdateMinerPasswordRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., current_password: _Optional[str] = ..., new_password: _Optional[str] = ...) -> None: ...
 
 class FirmwareFileInfo(_message.Message):
-    __slots__ = ("file_path", "original_filename", "file_size")
+    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_FILENAME_FIELD_NUMBER: _ClassVar[int]
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     original_filename: str
     file_size: int
-    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ...) -> None: ...
+    id: str
+    sha256: str
+    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class UpdateFirmwareRequest(_message.Message):
     __slots__ = ("ref", "firmware")

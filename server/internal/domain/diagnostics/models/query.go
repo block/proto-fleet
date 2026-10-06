@@ -30,6 +30,11 @@ type QueryFilter struct {
 	TimeTo            *time.Time      // Filter errors with last_seen_at <= TimeTo
 	IncludeClosed     bool            // If true, include closed/expired errors
 	Logic             FilterLogic     // How to combine filter criteria (AND/OR)
+	// SiteIDs / IncludeUnassigned scope the query to a site's current
+	// devices. Resolved to device identifiers in the service layer (the
+	// errors query has no site_id join); empty resolution ⇒ empty result.
+	SiteIDs           []int64
+	IncludeUnassigned bool
 }
 
 // ============================================================================

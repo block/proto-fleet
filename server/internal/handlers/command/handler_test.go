@@ -14,9 +14,11 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	handler "github.com/block/proto-fleet/server/internal/handlers/command"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 	db2 "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -26,6 +28,43 @@ import (
 // and don't need plugin support.
 func TestCommandHandler(t *testing.T) {
 	t.Skip("Disabled pending plugin-based test infrastructure")
+}
+
+func TestHandler_FirmwareUpdateRequiresFirmwareUpdateAndRebootPermissions(t *testing.T) {
+	t.Parallel()
+	h := handler.NewHandler(nil)
+
+	cases := []struct {
+		name         string
+		permissions  []string
+		wantRequired string
+	}{
+		{
+			name:         "denies without firmware update permission",
+			permissions:  []string{authz.PermMinerReboot},
+			wantRequired: authz.PermMinerFirmwareUpdate,
+		},
+		{
+			name:         "denies without reboot permission",
+			permissions:  []string{authz.PermMinerFirmwareUpdate},
+			wantRequired: authz.PermMinerReboot,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.permissions...)
+
+			_, err := h.FirmwareUpdate(ctx, connect.NewRequest(&pb.FirmwareUpdateRequest{}))
+
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+			assert.JSONEq(t, `{"required":"`+tc.wantRequired+`","scope":{}}`, fleetErr.DebugMessage)
+		})
+	}
 }
 
 // TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath builds the
@@ -46,7 +85,7 @@ func TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath(t *testing.
 
 	batchUUID := "handler-happy-1"
 	ctx := context.Background()
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		_, e := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
 			Type:           "REBOOT",
@@ -62,7 +101,7 @@ func TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath(t *testing.
 	_, err = dbService.DB.ExecContext(ctx,
 		`UPDATE command_batch_log SET finished_at = NOW() WHERE uuid = $1`, batchUUID)
 	require.NoError(t, err)
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      batchUUID,
 			DeviceID:  dev.DatabaseID,
@@ -144,7 +183,7 @@ func TestHandler_GetCommandBatchDeviceResults_PropagatesNotFound(t *testing.T) {
 
 	batchUUID := "handler-cross-org-1"
 	ctx := context.Background()
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		_, e := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
 			Type:           "REBOOT",

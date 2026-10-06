@@ -73,6 +73,78 @@ describe("Input", () => {
     expect(passwordInput).not.toHaveClass("pr-20");
     expect(screen.queryByRole("button", { name: "Show password" })).not.toBeInTheDocument();
   });
+
+  test("reserves space for tooltip, trailing icon, and suffix action together", () => {
+    render(
+      <Input
+        id="secret"
+        label="Secret"
+        type="password"
+        tooltip={{ body: "Use the saved password placeholder." }}
+        suffixAction={
+          <button type="button" aria-label="Suffix action">
+            ?
+          </button>
+        }
+      />,
+    );
+
+    const inputElement = screen.getByLabelText("Secret");
+    const suffixAction = screen.getByRole("button", { name: "Suffix action" });
+    const suffixActionWrapper = suffixAction.parentElement as HTMLElement;
+
+    expect(inputElement).toHaveClass("pr-28");
+    expect(inputElement).not.toHaveClass("pr-20");
+    expect(suffixActionWrapper).toHaveClass("right-20");
+  });
+
+  test("does not apply focus highlight classes to readonly inputs", () => {
+    render(<Input id="readonly-field" label="Readonly field" initValue="0" readOnly />);
+
+    const inputElement = screen.getByLabelText("Readonly field");
+
+    expect(inputElement).toHaveAttribute("readonly");
+    expect(inputElement).toHaveClass("cursor-default");
+    expect(inputElement).not.toHaveClass("focus:border-border-20");
+    expect(inputElement).not.toHaveClass("focus:ring-4");
+    expect(inputElement).not.toHaveClass("focus:ring-core-primary-5");
+  });
+});
+
+describe("Input sanitize", () => {
+  test("rejects a character instead of displaying it", () => {
+    const onChange = vi.fn();
+    render(
+      <Input
+        id="count"
+        label="Count"
+        testId="count-input"
+        sanitize={(value) => value.replace(/\D/g, "")}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByTestId("count-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "5" } });
+    expect(input.value).toBe("5");
+    expect(onChange).toHaveBeenLastCalledWith("5", "count");
+
+    // The case a caller cannot fix from outside: sanitizing "5a" returns the
+    // "5" already on screen, so a caller sanitizing in onChange would have no
+    // prop change to re-sync the display from. The rejected character must not
+    // survive, and onChange must never be told something the field is not
+    // showing.
+    fireEvent.change(input, { target: { value: "5a" } });
+    expect(input.value).toBe("5");
+    expect(onChange).toHaveBeenLastCalledWith("5", "count");
+  });
+
+  test("leaves the value untouched when no sanitize is given", () => {
+    render(<Input id="free" label="Free" testId="free-input" />);
+    const input = screen.getByTestId("free-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "5a" } });
+    expect(input.value).toBe("5a");
+  });
 });
 
 describe("Input ARIA attributes", () => {

@@ -47,8 +47,8 @@ function isProtoRig(manufacturer: string): boolean {
   return manufacturer === "Proto";
 }
 
-function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
-  return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
+function supportsAutoAuth(manufacturer: string, supportedMethods: AuthenticationMethod[]): boolean {
+  return isProtoRig(manufacturer) && supportedMethods.includes(AuthenticationMethod.BASIC);
 }
 
 const SKELETON_INDICES = [0, 1, 2];
@@ -111,11 +111,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
           supportedAuthenticationMethods: supportedMethods,
           miners: [miner],
         };
-      } else if (
-        // if miner is already in our state dont add it again
-        // so that we dont have duplicates
-        !_minersByModel[minerKey.toString()].miners.find((m) => m.ipAddress === miner.ipAddress)
-      ) {
+      } else {
         _minersByModel[minerKey.toString()].miners.push(miner);
       }
     });
@@ -163,8 +159,10 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                     <div className="h-6 text-emphasis-300">
                       {model.manufacturer} {model.model}
                     </div>
-                    {supportsAutoAuth(model.supportedAuthenticationMethods) ? (
-                      <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
+                    {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
+                      <div className="text-200 text-text-primary-70">
+                        Will try the default username/password when added
+                      </div>
                     ) : (
                       <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
                     )}

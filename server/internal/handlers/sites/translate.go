@@ -3,6 +3,7 @@ package sites
 import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
@@ -21,6 +22,12 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 		PostalCode:      req.GetPostalCode(),
 		Country:         req.GetCountry(),
 		Notes:           req.GetNotes(),
+
+		// Optional seed (empty = plain create).
+		BuildingIDs:                         req.GetBuildingIds(),
+		RackIDs:                             req.GetRackIds(),
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 
@@ -41,28 +48,42 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 	}
 }
 
-func toReassignParams(req *pb.ReassignDevicesToSiteRequest, orgID int64) models.ReassignDevicesToSiteParams {
+func toAssignDevicesParams(req *pb.AssignDevicesToSiteRequest, orgID int64) models.AssignDevicesToSiteParams {
 	var targetSiteID *int64
 	if req.TargetSiteId != nil {
 		v := req.GetTargetSiteId()
 		targetSiteID = &v
 	}
-	return models.ReassignDevicesToSiteParams{
-		OrgID:             orgID,
-		TargetSiteID:      targetSiteID,
-		DeviceIdentifiers: req.GetDeviceIdentifiers(),
+	return models.AssignDevicesToSiteParams{
+		OrgID:                               orgID,
+		TargetSiteID:                        targetSiteID,
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 
-func toAssignBuildingParams(req *pb.AssignBuildingToSiteRequest, orgID int64) models.AssignBuildingToSiteParams {
+func toAssignBuildingsParams(req *pb.AssignBuildingsToSiteRequest, orgID int64) models.AssignBuildingsToSiteParams {
 	var targetSiteID *int64
 	if req.TargetSiteId != nil {
 		v := req.GetTargetSiteId()
 		targetSiteID = &v
 	}
-	return models.AssignBuildingToSiteParams{
+	return models.AssignBuildingsToSiteParams{
 		OrgID:        orgID,
-		BuildingID:   req.GetBuildingId(),
+		BuildingIDs:  req.GetBuildingIds(),
+		TargetSiteID: targetSiteID,
+	}
+}
+
+func toAssignRacksToSiteParams(req *pb.AssignRacksToSiteRequest, orgID int64) models.AssignRacksToSiteParams {
+	var targetSiteID *int64
+	if req.TargetSiteId != nil {
+		v := req.GetTargetSiteId()
+		targetSiteID = &v
+	}
+	return models.AssignRacksToSiteParams{
+		OrgID:        orgID,
+		RackIDs:      req.GetRackIds(),
 		TargetSiteID: targetSiteID,
 	}
 }
@@ -85,6 +106,7 @@ func toProtoSite(site *models.Site) *pb.Site {
 	return &pb.Site{
 		Id:              site.ID,
 		Name:            site.Name,
+		Slug:            site.Slug,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
 		Timezone:        resolveTimezone(site),
@@ -99,18 +121,60 @@ func toProtoSite(site *models.Site) *pb.Site {
 	}
 }
 
+func toMaintenanceSiteOptionsResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
+	out := make([]*pb.SiteWithCounts, 0, len(rows))
+	for i := range rows {
+		out = append(out, &pb.SiteWithCounts{Site: &pb.Site{
+			Id:   rows[i].Site.ID,
+			Name: rows[i].Site.Name,
+		}})
+	}
+	return &pb.ListSitesResponse{Sites: out}
+}
+
 func toListSitesResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
 	out := make([]*pb.SiteWithCounts, 0, len(rows))
 	for i := range rows {
 		row := rows[i]
 		out = append(out, &pb.SiteWithCounts{
-			Site:          toProtoSite(&row.Site),
-			DeviceCount:   row.DeviceCount,
-			BuildingCount: row.BuildingCount,
-			RackCount:     row.RackCount,
+			Site:                      toProtoSite(&row.Site),
+			DeviceCount:               row.DeviceCount,
+			BuildingCount:             row.BuildingCount,
+			RackCount:                 row.RackCount,
+			InfrastructureDeviceCount: row.InfrastructureDeviceCount,
+			ListStats:                 toProtoFleetListStats(row.ListStats),
 		})
 	}
 	return &pb.ListSitesResponse{Sites: out}
+}
+
+func toProtoFleetListStats(stats *models.FleetListStats) *commonpb.FleetListStats {
+	if stats == nil {
+		return nil
+	}
+	return &commonpb.FleetListStats{
+		BuildingCount:             stats.BuildingCount,
+		RackCount:                 stats.RackCount,
+		DeviceCount:               stats.DeviceCount,
+		ReportingCount:            stats.ReportingCount,
+		HashrateReportingCount:    stats.HashrateReportingCount,
+		EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+		PowerReportingCount:       stats.PowerReportingCount,
+		TemperatureReportingCount: stats.TemperatureReportingCount,
+		TotalHashrateThs:          stats.TotalHashrateThs,
+		AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+		TotalPowerKw:              stats.TotalPowerKw,
+		MinTemperatureC:           stats.MinTemperatureC,
+		MaxTemperatureC:           stats.MaxTemperatureC,
+		HashingCount:              stats.HashingCount,
+		BrokenCount:               stats.BrokenCount,
+		OfflineCount:              stats.OfflineCount,
+		SleepingCount:             stats.SleepingCount,
+		ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+		FanIssueCount:             stats.FanIssueCount,
+		HashBoardIssueCount:       stats.HashBoardIssueCount,
+		PsuIssueCount:             stats.PsuIssueCount,
+	}
 }
 
 func toProtoConflicts(conflicts []models.PerDeviceConflict) []*pb.PerDeviceConflict {

@@ -13,6 +13,7 @@ const _dirname = __dirname;
 const src = resolve(_dirname, "src");
 
 const MODES = ["protoFleet", "protoOS"];
+const DOCKER_PREVIEW_ALLOWED_HOSTS = ["host.docker.internal"];
 
 const createModeConfig = (mode) => {
   return {
@@ -22,7 +23,7 @@ const createModeConfig = (mode) => {
       emptyOutDir: true,
       outDir: resolve(_dirname, `dist/${mode}`),
       rollupOptions: {
-        input: `src/${mode}/index.html`,
+        input: resolve(src, mode, "index.html"),
         output: {
           manualChunks: (id: string) => {
             if (!id.includes("node_modules")) return;
@@ -109,16 +110,48 @@ export default defineConfig(({ mode, command }) => {
   }
 
   const env = loadEnv(mode, process.cwd(), "");
+
+  // Opt-in HTTPS for the local dev server. Defaults to HTTP so CI, E2E, and
+  // other devs are unaffected. Generate locally-trusted certs once with:
+  //   npm run setup:https
+  // then run: VITE_HTTPS=true npm run dev:protoFleet  (or npm run dev for protoOS)
+  //
+  // Only honored for `vite serve` — `server.https` is irrelevant to `vite build`,
+  // and reading certs there would fail builds for no reason.
+  const useHttps = command === "serve" && (env.VITE_HTTPS === "true" || process.env.VITE_HTTPS === "true");
+  const readCert = (file: string) => {
+    const certPath = resolve(_dirname, "certs", file);
+    try {
+      return fs.readFileSync(certPath);
+    } catch {
+      throw new Error(
+        `VITE_HTTPS=true but ${certPath} is missing. Generate locally-trusted certs with:\n  npm run setup:https`,
+      );
+    }
+  };
+  const httpsConfig = useHttps
+    ? {
+        key: readCert("localhost-key.pem"),
+        cert: readCert("localhost.pem"),
+      }
+    : undefined;
+
   let proxies;
   if (mode === "protoFleet") {
     const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
+    const apiProxyConfig = {
+      target: proxyUrl,
+      rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
+      changeOrigin: true,
+      secure: false,
+    };
     proxies = {
-      "/api-proxy": {
-        target: proxyUrl,
-        rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
-        changeOrigin: true,
-        secure: false,
+      "/api-proxy/pairing.v1.PairingService/Pair": {
+        ...apiProxyConfig,
+        timeout: 4_500_000,
+        proxyTimeout: 4_500_000,
       },
+      "/api-proxy": apiProxyConfig,
     };
   } else {
     // For ProtoOS: Use PROXY_URL from .env file
@@ -165,9 +198,11 @@ export default defineConfig(({ mode, command }) => {
     server: {
       proxy: proxies,
       historyApiFallback: true,
+      https: httpsConfig,
     },
     preview: {
       proxy: proxies,
+      allowedHosts: DOCKER_PREVIEW_ALLOWED_HOSTS,
     },
   };
 });

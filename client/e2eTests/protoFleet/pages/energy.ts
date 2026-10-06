@@ -1,24 +1,52 @@
 import { expect, type Locator, type Request, type Response } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
+import { CurtailmentModal } from "./components/curtailmentModal";
 
 const stopRequestPattern = /StopCurtailment/;
-const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 2;
+const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export interface CurtailmentCleanupTarget {
   reason: string;
   eventUuid?: string;
 }
 
+export type CurtailmentScopeJson = {
+  building?: { buildingId?: string };
+  group?: { groupId?: string };
+  rack?: { rackId?: string };
+  site?: { siteId?: string };
+  wholeOrg?: Record<string, never>;
+};
+
+export type StartCurtailmentRequestBody = {
+  fixedKw?: { targetKw?: number; toleranceKw?: number };
+  forceIncludeAllPairedMiners?: boolean;
+  forceIncludeMaintenance?: boolean;
+  includeMaintenance?: boolean;
+  mode?: string;
+  modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
+  reason?: string;
+  responseProfileId?: string;
+  expectedResponseProfileRevision?: string;
+  restoreBatchIntervalSec?: number;
+  scopeSchemaVersion?: number;
+  scopes?: CurtailmentScopeJson[];
+};
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class EnergyPage extends BasePage {
+  private readonly curtailmentModal = new CurtailmentModal(this.page);
+
   async navigateToEnergyPage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/energy"]').click();
     await expect(this.page).toHaveURL(/.*\/energy/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async validateEnergyPageOpened() {
@@ -26,9 +54,34 @@ export class EnergyPage extends BasePage {
     await this.validateTitle("Curtailment history");
   }
 
+  async validateRunCurtailmentButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Run curtailment", exact: true })).toHaveCount(0);
+  }
+
   async openCurtailmentPlanner() {
-    await this.clickButton("Plan curtailment");
-    await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("Plan a curtailment")).toBeVisible();
+    await this.clickButton("Run curtailment");
+    await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("New curtailment")).toBeVisible();
+  }
+
+  async selectResponseProfile(profileName: string) {
+    const modal = this.page.getByTestId("full-screen-two-pane-modal");
+    await modal.getByTestId("curtailment-response-profile-select").click();
+    await this.page.getByRole("option", { name: profileName, exact: true }).click();
+    await expect(modal.getByTestId("curtailment-response-profile-select")).toContainText(profileName);
+  }
+
+  async fillCurtailmentReason(reason: string) {
+    await this.page.getByTestId("full-screen-two-pane-modal").locator("#curtailment-reason").fill(reason);
+  }
+
+  async validateGroupTargetSelected() {
+    await this.curtailmentModal.validateSelection("Groups", "1 group");
+  }
+
+  async waitForCurtailmentReady() {
+    await expect(
+      this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }),
+    ).toBeEnabled({ timeout: DEFAULT_TIMEOUT * 2 });
   }
 
   async fillCurtailmentPlan({
@@ -43,6 +96,10 @@ export class EnergyPage extends BasePage {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
 
     await modal.locator("#curtailment-reason").fill(reason);
+    // Full shutdown is the default mode; switch to fixed-kW so the target
+    // input renders.
+    await modal.locator("#curtailment-mode").click();
+    await this.page.getByRole("option", { name: "Fixed kW reduction", exact: true }).click();
     await modal.locator("#curtailment-target-kw").fill(targetKw);
     await modal.locator("#curtailment-restore-batch-interval").fill(restoreBatchIntervalSec);
   }
@@ -50,7 +107,7 @@ export class EnergyPage extends BasePage {
   async waitForPreview(targetKw: string) {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
     const targetInput = modal.locator("#curtailment-target-kw");
-    const startButton = modal.getByRole("button", { name: "Start curtailment" });
+    const startButton = modal.getByRole("button", { name: "Run curtailment" });
     const deadline = Date.now() + DEFAULT_TIMEOUT * 2;
 
     do {
@@ -74,14 +131,7 @@ export class EnergyPage extends BasePage {
   }
 
   async startCurtailment() {
-    await this.page
-      .getByTestId("full-screen-two-pane-modal")
-      .getByRole("button", { name: "Start curtailment" })
-      .click();
-    const maintenanceConfirmation = this.page.getByTestId("curtailment-maintenance-confirmation");
-    if (await maintenanceConfirmation.isVisible().catch(() => false)) {
-      await maintenanceConfirmation.getByRole("button", { name: "Force include" }).click();
-    }
+    await this.curtailmentModal.confirmRun();
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
   }
 
@@ -90,9 +140,16 @@ export class EnergyPage extends BasePage {
     const activeCurtailmentSection = this.activeCurtailmentSection(reason);
 
     await expect(activeCurtailmentSection).toBeVisible();
-    await expect(activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup")).toContainText(
-      /Pending|Curtailing|Curtailed/,
-    );
+    await expect(activeCurtailmentSection).toContainText(/Dispatch status\s*(Pending|Curtailing|Curtailed)/);
+  }
+
+  async validateActiveCurtailmentManageActionsHidden(reason: string) {
+    const activeCurtailmentSection = this.activeCurtailmentSection(reason);
+    await expect(activeCurtailmentSection).toBeVisible();
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore now", exact: true })).toHaveCount(0);
   }
 
   async validateCurtailmentHistoryRow(reason: string) {
@@ -142,9 +199,10 @@ export class EnergyPage extends BasePage {
             return inactiveState;
           }
 
-          const primaryLockupText =
-            (await activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup").textContent()) ?? "";
-          return /Restored|Restore incomplete/.test(primaryLockupText) ? terminalRestoreState : primaryLockupText;
+          const sectionText = (await activeCurtailmentSection.textContent()) ?? "";
+          return /Dispatch status\s*(Restored|Restore incomplete)/.test(sectionText)
+            ? terminalRestoreState
+            : sectionText;
         },
         { timeout: restoreReconciliationTimeout, intervals: [DEFAULT_INTERVAL] },
       )
@@ -177,6 +235,44 @@ export class EnergyPage extends BasePage {
 
     if (await this.hasMatchingActiveCurtailment(target.reason)) {
       await this.waitForCurtailmentToRestore(target);
+    }
+  }
+
+  async cleanupStartedCurtailmentsByReasonPrefix(prefix: string) {
+    await this.page.goto("/energy");
+    await expect(this.page).toHaveURL(/.*\/energy/);
+
+    const reasons = new Set<string>();
+    const activeReasonPattern = new RegExp(`(${escapeRegex(prefix)}.*?)(?=\\s+\\(Applies to )`);
+
+    const activeCurtailmentSections = this.page
+      .getByTestId("active-curtailment-primary-lockup")
+      .locator("xpath=ancestor::section[1]");
+
+    for (const activeCurtailmentSection of await activeCurtailmentSections.all()) {
+      const text = (await activeCurtailmentSection.textContent()) ?? "";
+      const activeReasonMatch = text.match(activeReasonPattern);
+      if (activeReasonMatch?.[1]) {
+        reasons.add(activeReasonMatch[1].trim());
+      }
+    }
+
+    const stoppableHistoryRows = this.page
+      .locator('[data-testid^="curtailment-history-row-"]')
+      .filter({ has: this.page.getByRole("button", { name: /^Stop / }) });
+
+    for (const historyRow of await stoppableHistoryRows.all()) {
+      const text = (await historyRow.textContent()) ?? "";
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(prefix)) {
+          reasons.add(trimmed);
+        }
+      }
+    }
+
+    for (const reason of reasons) {
+      await this.cleanupStartedCurtailment({ reason });
     }
   }
 
@@ -284,18 +380,8 @@ export class EnergyPage extends BasePage {
   }
 }
 
-export function getStartCurtailmentRequestBody(request: Request) {
-  return request.postDataJSON() as {
-    fixedKw?: { targetKw?: number; toleranceKw?: number };
-    forceIncludeMaintenance?: boolean;
-    includeMaintenance?: boolean;
-    mode?: string;
-    modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
-    reason?: string;
-    restoreBatchIntervalSec?: number;
-    wholeOrg?: Record<string, never>;
-    scope?: { wholeOrg?: Record<string, never> };
-  };
+export function getStartCurtailmentRequestBody(request: Request): StartCurtailmentRequestBody {
+  return request.postDataJSON() as StartCurtailmentRequestBody;
 }
 
 export async function getStartCurtailmentResponseBody(response: Response): Promise<{

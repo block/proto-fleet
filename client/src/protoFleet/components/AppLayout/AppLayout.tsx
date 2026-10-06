@@ -1,56 +1,160 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
+import NavigationRailToggle from "../NavigationMenu/NavigationRailToggle";
+import { useNavigationRail } from "../NavigationMenu/useNavigationRail";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
+import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
+import {
+  getPhoneHeaderWidgetOffsetClass,
+  getPhoneHeaderWidgetRowCount,
+  getVisibleHeaderWidgetCount,
+  PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS,
+  shouldInlineFirstPhoneHeaderWidget,
+  shouldStackPhoneHeaderWidgets,
+} from "@/protoFleet/components/PageHeader/headerWidgetLayout";
+import { useActiveAlertsPillData } from "@/protoFleet/components/PageHeader/useActiveAlertsPillData";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
+import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator";
+import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { NotepadPanel } from "@/protoFleet/features/notes";
+import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { useHasPermission } from "@/protoFleet/store";
+import { Menu } from "@/shared/assets/icons";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type Props = {
   children: ReactNode;
+  hideShellHeader?: boolean;
 };
 
-const AppLayoutContent = ({ children }: Props) => {
+const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const rail = useNavigationRail();
   const { bgClass } = usePageBackground();
   const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
+  // Release discovery is an enhancement of the normal Fleet header. Focused
+  // detail routes deliberately skip the poll along with the hidden header.
+  const updatePill = useUpdateIndicator({ enabled: !hideShellHeader });
+  const fleetNodeUpgradePill = useFleetNodeUpgradeIndicator({ enabled: !hideShellHeader });
+  // Same deal for the active-alert poll: no header, no pill to feed.
+  const activeAlertsPillData = useActiveAlertsPillData({ enabled: !hideShellHeader });
+  const rolloutPillData = useRolloutPillData({ enabled: !hideShellHeader });
   const hasDismissedSetup = Boolean(dismissedSetup);
-  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const canReadCurtailment = useHasPermission("curtailment:read");
+  const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleUpdatePill = updatePill !== null;
+  const hasVisibleFleetNodeUpgradePill = fleetNodeUpgradePill !== null;
+  const headerWidgetCount = getVisibleHeaderWidgetCount({
+    hasDismissedSetup,
+    hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
+    hasVisibleFleetNodeUpgradePill,
+    hasVisibleUpdatePill,
+    hasVisibleCurtailmentPill,
+    hasVisibleRolloutPill: rolloutPillData.hasVisiblePill,
+    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
+  });
+  const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
+  const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
+  const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
-  const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
+  // Do not reopen a stale drawer after crossing into the persistent navigation rail.
+  if (!isPhone && isMenuOpen) setIsMenuOpen(false);
+
+  const showDetailMenuTrigger = hideShellHeader && (isPhone || rail.isCollapsible);
+  const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
+
+  // Publish the scroll container's vertical-scrollbar width as
+  // `--content-scroll-gutter`. Some desktop page-scroll sticky chrome (see
+  // PAGE_SCROLL_CHROME_WIDTH) sizes itself with `100vw`, which counts that
+  // gutter while the client area does not — subtracting it keeps the chrome
+  // pinned all the way to the end of a horizontal scroll. Resolves to 0 for
+  // overlay scrollbars. Re-measured when the scroll area resizes (the gutter
+  // appears/disappears as content overflows or the viewport changes).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => el.style.setProperty("--content-scroll-gutter", `${el.offsetWidth - el.clientWidth}px`);
+    update();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : undefined;
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
 
   return (
-    <div className={clsx("absolute top-0 right-0 bottom-0 left-0", bgClass)}>
-      <div className="fixed top-0 z-50 h-fit w-0 laptop:w-16 desktop:w-50">
-        <NavigationMenu items={primaryNavItems} isVisible={isMenuOpen} closeMenu={() => setIsMenuOpen(false)} />
-      </div>
-
-      <div
-        className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
-      >
-        <PageHeader
-          activeCurtailmentEvent={activeCurtailmentEvent}
-          isMenuOpen={isMenuOpen}
-          openMenu={() => setIsMenuOpen(true)}
-          schedulePillData={schedulePillData}
+    <div className={clsx("absolute top-0 right-0 bottom-0 left-0 overflow-hidden", bgClass)}>
+      <div className="fixed top-0 z-50 h-fit w-0 tablet:w-16 desktop:w-50">
+        <NavigationMenu
+          rail={rail}
+          items={primaryNavItems}
+          isVisible={isMenuOpen}
+          closeMenu={() => setIsMenuOpen(false)}
         />
       </div>
 
+      {showDetailMenuTrigger ? (
+        <div
+          className={clsx(
+            "fixed top-0 left-0 z-40 flex h-12 items-center px-4 laptop:h-15",
+            rail.isExpanded ? "tablet:left-50" : "tablet:left-16",
+          )}
+        >
+          <NavigationRailToggle rail={rail} />
+          {isPhone ? (
+            <Menu
+              ariaExpanded={isMenuOpen}
+              ariaLabel="Open navigation menu"
+              className="text-text-primary"
+              onClick={() => setIsMenuOpen(true)}
+              testId="navigation-menu-button"
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {hideShellHeader ? null : (
+        <div
+          data-testid="app-header"
+          className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 ${rail.isExpanded ? "tablet:left-50" : "tablet:left-16"} laptop:bottom-[calc(100vh-theme(spacing.1)*15)] desktop:left-50 ${bgClass}`}
+        >
+          <PageHeader
+            activeAlertsPillData={activeAlertsPillData}
+            activeCurtailmentEvent={activeCurtailmentEvent}
+            fleetNodeUpgradePill={fleetNodeUpgradePill}
+            isMenuOpen={isMenuOpen}
+            openMenu={() => setIsMenuOpen(true)}
+            navigationToggle={<NavigationRailToggle rail={rail} />}
+            rolloutPillData={rolloutPillData}
+            schedulePillData={schedulePillData}
+            updatePill={updatePill}
+          />
+        </div>
+      )}
+
       <div
+        ref={scrollRef}
+        data-testid="app-content"
         className={clsx(
-          "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 overflow-auto laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
+          hideShellHeader
+            ? "fixed top-0 right-0 bottom-0 left-0 z-20 tablet:left-16 desktop:left-50"
+            : "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 tablet:left-16 laptop:top-[calc(theme(spacing.1)*15)] desktop:left-50",
+          "overflow-y-auto phone:overflow-x-hidden phone:overscroll-x-none tablet-only:overflow-x-hidden tablet-only:overscroll-x-none",
           bgClass,
-          showPhoneWidgets ? "phone:top-[calc(theme(spacing.1)*12+57px)]" : "phone:top-[calc(theme(spacing.1)*12)]",
+          showDetailMenuTrigger && "pt-12 laptop:pt-15",
+          !hideShellHeader &&
+            (showPhoneWidgets
+              ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)
+              : PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS),
         )}
       >
         {children}
@@ -63,7 +167,9 @@ const AppLayoutContent = ({ children }: Props) => {
 
 const AppLayout = (props: Props) => (
   <ScheduleApiProvider>
-    <AppLayoutContent {...props} />
+    <SitesProvider>
+      <AppLayoutContent {...props} />
+    </SitesProvider>
   </ScheduleApiProvider>
 );
 

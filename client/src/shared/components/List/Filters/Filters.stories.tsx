@@ -41,11 +41,11 @@ const buttonFilters: FilterItem[] = [
 const statusOptions = [
   { id: "hashing", label: "Hashing" },
   { id: "offline", label: "Offline" },
-  { id: "sleeping", label: "Sleeping" },
+  { id: "sleeping", label: "Sleeping", showGroupDivider: true },
 ];
 
 const typeOptions = [
-  { id: "proto-rig", label: "Proto Rig" },
+  { id: "proto-rig", label: "Proto Rig", showGroupDivider: true },
   { id: "bitmain", label: "Bitmain" },
   { id: "whatsminer", label: "Whatsminer" },
 ];
@@ -122,8 +122,8 @@ export const ServerSideFiltering = () => {
       />
       <div className="text-300">
         <p>
-          <strong>Server-side filtering:</strong> Dropdown filters use batch mode. Changes are staged internally and
-          only applied when Apply button is clicked.
+          <strong>Server-side filtering:</strong> Simple dropdown filters still apply live. Filters that require modal
+          entry, such as numeric ranges or textarea lists, keep an explicit Apply action inside their modal.
         </p>
       </div>
     </div>
@@ -286,7 +286,8 @@ export const WithNestedFilterDropdown = () => {
         <p>
           <strong>Nested dropdown filter:</strong> a meta-dropdown that exposes every category as a hover-triggered
           submenu. Same <code>value</code> keys as standalone triggers, so selecting in either surface stays in sync and
-          active-pills dedup. Hover the &ldquo;Filters&rdquo; button, then hover any row to open its submenu.
+          active-pills dedup. Grouped options render thick dividers. Hover the &ldquo;Filters&rdquo; button, then hover
+          any row to open its submenu.
         </p>
       </div>
     </div>
@@ -366,10 +367,10 @@ export default {
           "A comprehensive filtering system for list components that supports both button and dropdown filters.\n\n" +
           "**Features:**\n" +
           "- **Button Filters:** Quick single-click filters with status indicators and counts\n" +
-          "- **Dropdown Filters:** Multi-select filters with checkboxes and optional Apply/Reset buttons\n" +
+          "- **Dropdown Filters:** Multi-select filters with checkboxes, live selection, and Clear actions once active\n" +
           "- **Two Filtering Modes:**\n" +
-          "  - **Client-side** (`isServerSide={false}`): Dropdown filters fire callbacks immediately without buttons\n" +
-          "  - **Server-side** (`isServerSide={true}`): Dropdown filters show Apply/Reset buttons to reduce API calls\n" +
+          "  - **Simple selection filters:** Dropdown filters fire callbacks immediately without buttons\n" +
+          "  - **Modal-entry filters:** Numeric range and textarea-list filters keep an explicit Apply action\n" +
           "- **Dynamic Button Labels:** Shows filter state (single label, count, or title)\n" +
           "- **Header Controls:** Optional controls that appear on the right side\n" +
           "- **Flexible Configuration:** Mix and match button and dropdown filters\n\n" +
@@ -377,9 +378,8 @@ export default {
           "- `ButtonFilterItem`: Single-click filters with optional status circle and count\n" +
           "- `DropdownFilterItem`: Multi-select dropdowns with checkbox interface\n\n" +
           "**Implementation Note:**\n" +
-          "The `isServerSide` prop determines whether dropdown filters use the `withButtons` option. " +
-          "When true, Apply/Reset buttons are shown to batch filter changes into a single API call. " +
-          "For client-side filtering, changes apply immediately without buttons.",
+          "Use simple dropdown filters for live selection, and modal-entry filters when the user needs to enter values " +
+          "before applying.",
       },
     },
   },

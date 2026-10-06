@@ -1,0 +1,311 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+
+import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
+import type { InfraBuildingOption, InfraDeviceItem, InfraRackOption } from "@/protoFleet/features/infrastructure/types";
+
+vi.mock("@/shared/components/Select", () => ({
+  default: ({
+    id,
+    label,
+    options,
+    value,
+    onChange,
+    disabled,
+  }: {
+    id: string;
+    label: string;
+    options: { value: string; label: string }[];
+    value: string;
+    onChange: (value: string) => void;
+    disabled?: boolean;
+  }) => (
+    <label htmlFor={id}>
+      {label}
+      <select id={id} aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        <option value="" disabled hidden>
+          {label}
+        </option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  ),
+}));
+
+const driverConfig = JSON.stringify({
+  endpoint: "10.12.1.21",
+  port: 502,
+  unit_id: 17,
+  register_address: 2001,
+  write_mode: "coil",
+});
+
+const device: InfraDeviceItem = {
+  id: "101",
+  siteId: "8",
+  siteName: "Austin",
+  buildingName: "Building 1",
+  rackName: "Rack A1",
+  name: "Roof exhaust",
+  deviceKind: "fan_group",
+  fanCount: 12,
+  enabled: true,
+  driverType: "modbus_tcp",
+  driverConfig,
+};
+
+const buildingOptions: InfraBuildingOption[] = [
+  { siteName: "Austin", buildingName: "Building 1" },
+  { siteName: "Austin", buildingName: "Building 10" },
+  { siteName: "Denver", buildingName: "Denver Plant" },
+];
+
+const rackOptions: InfraRackOption[] = [
+  { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A1" },
+  { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A2" },
+  { siteName: "Austin", buildingName: "Building 10", rackName: "Rack B1" },
+  { siteName: "Denver", buildingName: "Denver Plant", rackName: "Rack D1" },
+];
+
+const renderModal = ({
+  onSave = vi.fn().mockResolvedValue(undefined),
+  onDelete = vi.fn().mockResolvedValue(undefined),
+  onDismiss = vi.fn(),
+  targetDevice = device,
+  canManage = true,
+} = {}) => {
+  render(
+    <InfraDeviceDetailModal
+      device={targetDevice}
+      siteOptions={["Austin", "Denver"]}
+      buildingOptions={buildingOptions}
+      rackOptions={rackOptions}
+      canManage={canManage}
+      onSave={onSave}
+      onDelete={onDelete}
+      onDismiss={onDismiss}
+    />,
+  );
+
+  return { onSave, onDelete, onDismiss };
+};
+
+const getSelectOptionLabels = (label: string) =>
+  Array.from(screen.getByRole("combobox", { name: label }).querySelectorAll("option")).map(
+    (option) => option.textContent,
+  );
+
+describe("InfraDeviceDetailModal", () => {
+  test("filters building choices to the selected site", async () => {
+    renderModal();
+
+    expect(getSelectOptionLabels("Building")).toContain("Building 1");
+    expect(getSelectOptionLabels("Building")).toContain("Building 10");
+    expect(getSelectOptionLabels("Building")).not.toContain("Denver Plant");
+  });
+
+  test("filters rack choices to the selected site and building", () => {
+    renderModal();
+
+    expect(getSelectOptionLabels("Rack")).toContain("Rack A1");
+    expect(getSelectOptionLabels("Rack")).toContain("Rack A2");
+    expect(getSelectOptionLabels("Rack")).not.toContain("Rack B1");
+    expect(getSelectOptionLabels("Rack")).not.toContain("Rack D1");
+  });
+
+  test("resets the selected building when the site changes", async () => {
+    const user = userEvent.setup();
+    const { onSave, onDismiss } = renderModal();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Site" }), "Denver");
+
+    expect(getSelectOptionLabels("Building")).toContain("Denver Plant");
+    expect(getSelectOptionLabels("Building")).not.toContain("Building 1");
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Building" }).value).toBe("Denver Plant");
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Rack" }).value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteName: "Denver",
+        buildingName: "Denver Plant",
+        rackName: "",
+      }),
+    );
+    await waitFor(() => expect(onDismiss).toHaveBeenCalled());
+  });
+
+  test("edits Modbus connection fields through the driver form module", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    expect(screen.getByLabelText("Connection type")).toHaveValue("Modbus TCP");
+    expect(screen.getByLabelText("Endpoint")).toHaveValue("10.12.1.21");
+
+    await user.clear(screen.getByLabelText("Endpoint"));
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.9.9");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const patch = onSave.mock.calls[0][0];
+    expect(patch.id).toBe("101");
+    expect(patch.enabled).toBeUndefined();
+    expect(patch.name).toBeUndefined();
+    expect(JSON.parse(patch.driverConfig)).toEqual({
+      endpoint: "10.12.9.9",
+      port: 502,
+      unit_id: 17,
+      register_address: 2001,
+      write_mode: "coil",
+    });
+  });
+
+  test("leaves an unknown driver's config out of the patch so the stored value is preserved", async () => {
+    const user = userEvent.setup();
+    const unknownDriverDevice: InfraDeviceItem = {
+      ...device,
+      driverType: "mqtt_bridge",
+      driverConfig: '{"topic":"fans/roof"}',
+    };
+    const { onSave } = renderModal({ targetDevice: unknownDriverDevice });
+
+    expect(screen.getByLabelText("Connection type")).toHaveValue("mqtt_bridge");
+    expect(screen.queryByLabelText("Endpoint")).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
+  });
+
+  test("allows editing a device that has no rack assignment", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal({ targetDevice: { ...device, rackName: "" } });
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith({ id: "101", name: "Roof exhaust renamed" });
+  });
+
+  test("keeps the modal open and shows the RPC failure inline on save", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockRejectedValue(new Error("driver_config field port must be a valid int"));
+    const { onDismiss } = renderModal({ onSave });
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByTestId("infra-device-action-error")).toHaveTextContent(
+      "driver_config field port must be a valid int",
+    );
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  test("degrades to a connection summary row when the config is redacted", () => {
+    const redactedDevice: InfraDeviceItem = { ...device, driverConfig: "" };
+    renderModal({ targetDevice: redactedDevice, canManage: false });
+
+    expect(screen.queryByLabelText("Endpoint")).not.toBeInTheDocument();
+    expect(screen.getByText("Connection")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("deletes through the callback and dismisses on success", async () => {
+    const user = userEvent.setup();
+    const { onDelete, onDismiss } = renderModal();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(onDelete).toHaveBeenCalledWith("101");
+    await waitFor(() => expect(onDismiss).toHaveBeenCalled());
+  });
+
+  test("a name-only save patches just the name so other fields keep their stored values", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
+  });
+
+  test("flipping the switch then saving includes the new enabled value", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await user.click(screen.getByRole("checkbox", { name: "Enabled" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", enabled: false });
+  });
+
+  test("disables Save until the operator actually changes something", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    // Untouched modal: a save here would be a no-op full-row write that
+    // still bumps updated_at and logs an Updated activity event.
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+
+    // Reverting the edit disables Save again — same for driver fields.
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Endpoint"));
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.9.9");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.clear(screen.getByLabelText("Endpoint"));
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  test("blocks dismissal while a save is in flight", async () => {
+    const user = userEvent.setup();
+    let rejectSave: (reason: Error) => void = () => {};
+    const onSave = vi.fn().mockReturnValue(
+      new Promise<void>((_resolve, reject) => {
+        rejectSave = reject;
+      }),
+    );
+    const { onDismiss } = renderModal({ onSave });
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    await user.keyboard("{Escape}");
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    rejectSave(new Error("boom"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+});

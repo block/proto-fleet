@@ -26,7 +26,7 @@ func setupTransactorTest(t *testing.T) (*sqlstores.SQLTransactor, *sqlstores.SQL
 	transactor := sqlstores.NewSQLTransactor(db)
 	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
 
-	_, err = db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org-1', 'Test Organization 1', 'dummy-key-for-testing') ON CONFLICT DO NOTHING`)
+	_, err = db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org-1', 'Test Organization 1') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err, "Failed to create test organization")
 
 	return transactor, poolStore

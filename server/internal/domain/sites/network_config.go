@@ -13,9 +13,7 @@ import (
 // MaxBroadestPrefixBitsV4 is the upper bound on IPv4 subnet sizes
 // admitted by network_config validation. Any CIDR with mask < /20 is
 // rejected to prevent inadvertent scans across tens of thousands of
-// hosts. Per the plan the exact /20 cap is calibrated against real
-// Block-ops sites before a final lock; treat this constant as the
-// single point of truth for now.
+// hosts. This constant is the single source of truth for the cap.
 const MaxBroadestPrefixBitsV4 = 20
 
 // MaxNetworkConfigEntries caps the number of parsed prefixes per site

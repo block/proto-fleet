@@ -126,7 +126,7 @@ const ServerLogsPage = () => {
           testId="server-logs-export-error"
         />
       ) : null}
-      <Logs logsData={logsData} fetchMaxLogs={fetchMaxLogs} downloadFilename="server-logs" />
+      <Logs logsData={logsData} fetchMaxLogs={fetchMaxLogs} downloadFilename="server-logs" scrollMode="container" />
     </>
   );
 };

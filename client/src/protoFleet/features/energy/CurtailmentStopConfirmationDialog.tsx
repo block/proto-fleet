@@ -53,12 +53,13 @@ function CurtailmentStopConfirmationDialog({
   onConfirm,
 }: CurtailmentStopConfirmationDialogProps): ReactElement {
   const copy = getStopDialogCopy(action);
+  const dismissDialog = isSubmitting ? undefined : onCancel;
 
   return (
     <Dialog
       open={open}
       title={copy.title}
-      onDismiss={onCancel}
+      onDismiss={dismissDialog}
       icon={<DialogIcon intent={copy.iconIntent}>{copy.icon}</DialogIcon>}
       buttons={[
         {

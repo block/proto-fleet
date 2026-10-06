@@ -71,7 +71,6 @@ __all__ = [
     "CAP_GET_CAPABILITIES_FOR_MODEL",
     # Authentication
     "CAP_BASIC_AUTH",
-    "CAP_ASYMMETRIC_AUTH",
     # Advanced Features
     "CAP_IMMERSION_COOLING",
     "CAP_PERFORMANCE_PROFILES",
@@ -155,7 +154,6 @@ CAP_GET_CAPABILITIES_FOR_MODEL = "get_capabilities_for_model"
 
 # Authentication Capabilities
 CAP_BASIC_AUTH = "basic_auth"
-CAP_ASYMMETRIC_AUTH = "asymmetric_auth"
 
 # Advanced Feature Capabilities
 CAP_IMMERSION_COOLING = "immersion_cooling"

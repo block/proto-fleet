@@ -1,6 +1,6 @@
 # Proto Miner Plugin
 
-A Fleet plugin for the Proto mining system, implementing SDK v1 with authentication and testing.
+A Fleet plugin for the Proto mining system, implementing SDK v1 with credentials-based authentication and testing.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This plugin provides Proto miner integration for the Fleet mining system. It dem
 
 - Architecture with separation of concerns
 - Patterns for error handling, logging, and testing
-- Authentication with Ed25519 key pairs and JWT token management
+- Credentials-based authentication and token refresh
 - Testing with unit tests, integration tests, and containerized testing
 - Compatibility with Proto sim-miners and production devices
 
@@ -50,17 +50,14 @@ plugin/proto/                  # Plugin root
     ├── unit/                 # Unit tests
     │   ├── plugin_test.go    # Core functionality tests
     │   └── auth_persistence_test.go  # Authentication tests
-    ├── integration_test.go   # Full integration tests with containers
-    └── testutils/            # Testing utilities
-        ├── jwt.go            # Ed25519 key pair and JWT generation
-        └── jwt_test.go       # JWT utility tests
+    └── integration_test.go   # Full integration tests with containers
 ```
 
 ## Key Features
 
 ### ✅ **Features**
-- Device discovery and pairing with Ed25519 public key authentication
-- JWT-based device authentication for secure operations
+- Device discovery and pairing with username/password credentials
+- Token-based session management with automatic re-login on expiry
 - Mining control (start/stop) with real-time status monitoring
 - Comprehensive telemetry collection (hashrate, power, temperature)
 - Pool configuration with priority-based failover
@@ -70,18 +67,16 @@ plugin/proto/                  # Plugin root
 - TLS/HTTP2 support with configurable security settings
 
 ### 🔐 **Authentication & Security**
-- Ed25519 key pair generation for cryptographic pairing
-- JWT token management with proper signing and validation
-- Bearer token authentication for API operations
+- Username/password login with factory-default auto-pairing (`admin`/`proto`)
+- Cached access tokens with automatic re-login when the rig rejects a token
+- Default-password lockout handling via the `UpdateMinerPassword` flow
 - TLS certificate verification with configurable bypass for development
-- Context-based auth injection for all API calls
 - Secure credential handling through SDK SecretBundle interface
 
 ### 🧪 **Testing & Quality**
 - Unit tests for authentication, client operations, and core functionality
 - Integration tests with containerized Proto sim-miners using testcontainers
 - Real miner testing support with environment variable configuration
-- JWT test utilities for Ed25519 key generation and token validation
 - Authentication persistence testing for credential management
 - Error handling and edge case coverage
 
@@ -141,55 +136,28 @@ deviceInfo, err := driver.DiscoverDevice(ctx, "192.168.1.100", "443")
 
 ### Authentication
 
-The plugin supports multiple authentication methods with a focus on security:
+The plugin authenticates to Proto rigs with username/password credentials. The
+factory defaults are `admin` / `proto`; the server auto-pairs with these when the
+operator does not supply credentials (see `GetDefaultCredentials`). The client
+logs in to the rig's `/api/v1/auth/login` endpoint, caches the returned access
+token, and re-logs in automatically when the rig rejects the token.
 
-#### Ed25519 Key Pair Authentication (Pairing)
+#### Credentials Authentication (Pairing and Operations)
 ```go
-// Generate Ed25519 key pair for pairing
-keyPair, err := testutils.GenerateEd25519KeyPair()
-publicKeyBase64, err := keyPair.PublicKeyBase64()
-
-// Use public key for device pairing
-pairingSecret := sdk.SecretBundle{
-    Version: "v1",
-    Kind: sdk.APIKey{
-        Key: publicKeyBase64,
-    },
-}
-```
-
-#### JWT Bearer Token Authentication (Operations)
-```go
-// Generate JWT token signed with Ed25519 private key
-jwtToken, err := keyPair.GenerateJWT(deviceSerialNumber, 1*time.Hour)
-
-// Use JWT token for device operations
-operationSecret := sdk.SecretBundle{
-    Version: "v1",
-    Kind: sdk.BearerToken{
-        Token: jwtToken,
-    },
-}
-```
-
-#### Alternative Authentication Methods
-```go
-// API key (for simple implementations)
-secret := sdk.SecretBundle{
-    Version: "v1", 
-    Kind: sdk.APIKey{Key: "your-key"},
-}
-
-// TLS client certificate (for certificate-based auth)
+// Pair and operate with username/password credentials.
 secret := sdk.SecretBundle{
     Version: "v1",
-    Kind: sdk.TLSClientCert{
-        ClientCertPEM: certPEM,
-        KeyPEM: keyPEM,
-        CACertPEM: caPEM,
+    Kind: sdk.UsernamePassword{
+        Username: "admin",
+        Password: "proto",
     },
 }
 ```
+
+Proto devices without stored credentials are treated as needing authentication
+and are repaired by the normal failed-poll remediation flow. Fleet keeps
+factory-password rigs command-eligible; Proto firmware or the driver may reject
+specific operations until `UpdateMinerPassword` clears the default password.
 
 ## Testing
 
@@ -204,9 +172,6 @@ go test ./tests/unit -v
 # Run specific authentication tests
 go test ./tests/unit -run TestSecretBundleExtraction -v
 go test ./tests/unit -run TestClientAuthInterceptor -v
-
-# Run JWT utility tests
-go test ./tests/testutils -v
 ```
 
 ### Integration Tests
@@ -293,8 +258,7 @@ just lint
 - **Fleet SDK v1**: Full compatibility with current interface
 - **Proto Miner API**: Connect-RPC over HTTP/2 with gRPC compatibility
 - **Go 1.24.2+**: Modern Go features and performance optimizations
-- **Ed25519 Cryptography**: Industry-standard elliptic curve for secure authentication
-- **JWT Authentication**: RFC 7519 compliant tokens with EdDSA signing
+- **Credential Authentication**: Username/password pairing with token refresh for miner sessions
 
 ## Dependencies
 
@@ -303,7 +267,6 @@ Core dependencies for the plugin:
 - `github.com/block/proto-fleet/server` - Fleet server SDK
 - `connectrpc.com/connect` - Connect-RPC client library for API communication
 - `github.com/hashicorp/go-plugin` - Go plugin framework
-- `github.com/golang-jwt/jwt/v5` - JWT authentication and token management
 - `golang.org/x/net` - HTTP/2 support and network utilities
 
 Testing dependencies:
@@ -327,7 +290,6 @@ This plugin serves as a reference implementation for the community. When making 
 
 When working with this plugin:
 
-- Ed25519 keys: Private keys should never be logged or exposed
 - JWT tokens: Tokens should have appropriate expiration times
 - TLS verification: Only disable for development/testing environments
 - Credential storage: Use secure methods for storing authentication materials

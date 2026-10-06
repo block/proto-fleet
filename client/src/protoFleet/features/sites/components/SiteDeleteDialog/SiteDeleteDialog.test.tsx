@@ -5,12 +5,20 @@ import { create } from "@bufbuild/protobuf";
 import SiteDeleteDialog from "./SiteDeleteDialog";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
-const makeSite = (overrides: { deviceCount?: bigint; rackCount?: bigint; buildingCount?: bigint } = {}) =>
+const makeSite = (
+  overrides: {
+    deviceCount?: bigint;
+    rackCount?: bigint;
+    buildingCount?: bigint;
+    infrastructureDeviceCount?: bigint;
+  } = {},
+) =>
   create(SiteWithCountsSchema, {
     site: create(SiteSchema, { id: 1n, name: "North DC" }),
     deviceCount: overrides.deviceCount ?? 0n,
     rackCount: overrides.rackCount ?? 0n,
     buildingCount: overrides.buildingCount ?? 0n,
+    infrastructureDeviceCount: overrides.infrastructureDeviceCount ?? 0n,
   });
 
 describe("SiteDeleteDialog", () => {
@@ -33,6 +41,38 @@ describe("SiteDeleteDialog", () => {
   it("collapses to a bare confirm when all counts are zero", () => {
     render(<SiteDeleteDialog open site={makeSite()} onConfirm={() => undefined} onDismiss={() => undefined} />);
     expect(screen.getByText("Are you sure you want to delete this site?")).toBeInTheDocument();
+  });
+
+  it("warns about infrastructure devices deleted with the site", () => {
+    render(
+      <SiteDeleteDialog
+        open
+        site={makeSite({ deviceCount: 7n, infrastructureDeviceCount: 2n })}
+        onConfirm={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Deleting will unassign 7 miners, 0 racks, and 0 buildings. They will be removed from this site. 2 infrastructure devices will also be deleted.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows cascade copy when infrastructure devices are the only attachment", () => {
+    render(
+      <SiteDeleteDialog
+        open
+        site={makeSite({ infrastructureDeviceCount: 1n })}
+        onConfirm={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Deleting will unassign 0 miners, 0 racks, and 0 buildings. They will be removed from this site. 1 infrastructure device will also be deleted.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("singularizes the cascade rows when each count is exactly 1", () => {

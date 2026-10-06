@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/plugin/antminer/internal/types"
 	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer"
@@ -68,6 +69,8 @@ func mockClientFactoryWithAssertions(t *testing.T, mockClient antminer.AntminerC
 // setupMockForDeviceCreation sets up standard mock expectations for device creation (New only)
 func setupMockForDeviceCreation(mockClient *mocks.MockAntminerClient) {
 	mockClient.EXPECT().SetCredentials(sdk.UsernamePassword{Username: testUsername, Password: testPassword}).Return(nil)
+	// These shared fixtures focus on status/control, not firmware freshness.
+	mockClient.EXPECT().GetVersion(gomock.Any()).Return(&rpc.VersionResponse{Version: []rpc.VersionInfo{{BMMiner: testFirmware}}}, nil).AnyTimes()
 }
 
 // setupMockForDeviceConnection sets up standard mock expectations for device connection (Connect)
@@ -450,13 +453,20 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	mockClient := mocks.NewMockAntminerClient(ctrl)
 	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
+	mockClient.EXPECT().GetDeviceInfo(gomock.Any()).Return(&antminer.DeviceInfo{
+		SerialNumber: "serial-1",
+		MacAddress:   "aa:bb:cc:dd:ee:ff",
+	}, nil)
 
 	// Test DescribeDevice
 	info, capabilities, err := device.DescribeDevice(t.Context())
 	require.NoError(t, err)
 
 	// Verify device info
-	assert.Equal(t, testDeviceInfo(), info)
+	expectedInfo := testDeviceInfo()
+	expectedInfo.SerialNumber = "serial-1"
+	expectedInfo.MacAddress = "aa:bb:cc:dd:ee:ff"
+	assert.Equal(t, expectedInfo, info)
 
 	// Verify capabilities
 	assert.True(t, capabilities[sdk.CapabilityPollingHost])
@@ -468,6 +478,18 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityMiningStop])
 	assert.True(t, capabilities[sdk.CapabilityCurtailFull])
 	assert.False(t, capabilities[sdk.CapabilityCurtailEfficiency])
+}
+
+func TestDevice_DescribeDeviceReturnsIdentityReadFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+	mockClient.EXPECT().GetDeviceInfo(gomock.Any()).Return(nil, assert.AnError)
+
+	_, _, err := device.DescribeDevice(t.Context())
+
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 func ptrFloat64(v float64) *float64 {
@@ -1171,4 +1193,30 @@ func TestDevice_GetErrors(t *testing.T) {
 		assert.Len(t, errors.Errors, 1, "Expected awake device to keep reporting not-hashing errors")
 		assert.Equal(t, "Hashboard 0 is not producing hashrate", errors.Errors[0].Summary)
 	})
+}
+
+// Fleet Node creates a fresh handle for each telemetry sample. A stored version
+// must not restart the firmware throttle and hide an already completed upgrade.
+func TestFreshHandlesVerifyFirmwareAndThrottleSubsequentReads(t *testing.T) {
+	for range 3 {
+		ctrl := gomock.NewController(t)
+		client := mocks.NewMockAntminerClient(ctrl)
+		client.EXPECT().SetCredentials(testCredentials()).Return(nil)
+		client.EXPECT().GetStatus(gomock.Any()).Return(defaultStatus(), nil).Times(3)
+		client.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil).Times(3)
+		client.EXPECT().GetVersion(gomock.Any()).Return(&rpc.VersionResponse{Version: []rpc.VersionInfo{{BMMiner: "updated-firmware"}}}, nil).Times(2)
+		client.EXPECT().Close()
+		dev, err := New(testDeviceID, testDeviceInfo(), testCredentials(), mockClientFactory(client))
+		require.NoError(t, err)
+		dev.statusTTL = 0
+		require.NoError(t, dev.Connect(t.Context()))
+		metrics, err := dev.Status(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "updated-firmware", metrics.FirmwareVersion)
+		dev.lastFirmwareCheckAt = time.Now().Add(-firmwareRefreshInterval)
+		metrics, err = dev.Status(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "updated-firmware", metrics.FirmwareVersion)
+		require.NoError(t, dev.Close(t.Context()))
+	}
 }

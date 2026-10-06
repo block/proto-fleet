@@ -13,10 +13,199 @@ import (
 	"github.com/lib/pq"
 )
 
+const assignDevicesToSite = `-- name: AssignDevicesToSite :execrows
+UPDATE device
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $2
+  AND device_identifier = ANY($3::text[])
+  AND deleted_at IS NULL
+`
+
+type AssignDevicesToSiteParams struct {
+	TargetSiteID      sql.NullInt64
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Bulk update of device.site_id for the given identifiers within the
+// org. Caller is expected to have already validated that no device is
+// in a rack at a different site (see FindDeviceSiteConflicts).
+// target_site_id NULL = move to Unassigned.
+func (q *Queries) AssignDevicesToSite(ctx context.Context, arg AssignDevicesToSiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.assignDevicesToSiteStmt, assignDevicesToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const countBuildingsBySite = `-- name: CountBuildingsBySite :one
+SELECT COUNT(*)::bigint
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countBuildingsBySiteStmt, countBuildingsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countCurtailmentResponseProfilesBySite = `-- name: CountCurtailmentResponseProfilesBySite :one
+WITH scoped_profiles AS (
+  SELECT profile.id
+  FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND (
+      profile.site_id = $2
+      OR (
+        profile.scope_json ? 'site_id'
+        AND (profile.scope_json->>'site_id')::BIGINT = $2
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array' THEN profile.scope_json->'site_ids'
+            ELSE '[]'::jsonb
+          END
+        ) AS scope_site(site_id)
+        WHERE scope_site.site_id::BIGINT = $2
+      )
+    )
+)
+SELECT COUNT(*)::BIGINT
+FROM scoped_profiles
+`
+
+type CountCurtailmentResponseProfilesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCurtailmentResponseProfilesBySiteStmt, countCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countInfrastructureDevicesBySite = `-- name: CountInfrastructureDevicesBySite :one
+SELECT COUNT(*)::BIGINT
+FROM infrastructure_device
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountInfrastructureDevicesBySiteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+func (q *Queries) CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countInfrastructureDevicesBySiteStmt, countInfrastructureDevicesBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countInventoryPartsBySite = `-- name: CountInventoryPartsBySite :one
+SELECT COUNT(*)::bigint
+FROM inventory_part
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountInventoryPartsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countInventoryPartsBySiteStmt, countInventoryPartsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRacksBySite = `-- name: CountRacksBySite :one
+SELECT COUNT(*)::bigint
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.site_id = $2
+  AND ds.deleted_at IS NULL
+`
+
+type CountRacksBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRacksBySiteStmt, countRacksBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRepairTicketsBySite = `-- name: CountRepairTicketsBySite :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+  AND status <> 5
+`
+
+type CountRepairTicketsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Only unfinished work blocks deletion; completed tickets retain historical links.
+func (q *Queries) CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRepairTicketsBySiteStmt, countRepairTicketsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countResponseProfilesByInfrastructureDevices = `-- name: CountResponseProfilesByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = $1
+  AND facility_fan_device_ids && $2::bigint[]
+`
+
+type CountResponseProfilesByInfrastructureDevicesParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+func (q *Queries) CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error) {
+	row := q.queryRow(ctx, q.countResponseProfilesByInfrastructureDevicesStmt, countResponseProfilesByInfrastructureDevices, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,
     name,
+    slug,
     location_city,
     location_state,
     timezone,
@@ -36,15 +225,17 @@ INSERT INTO site (
     $7,
     $8,
     $9,
-    COALESCE($10::text, 'US'),
-    $11
+    $10,
+    COALESCE($11::text, 'US'),
+    $12
 )
-RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone
+RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
 `
 
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
+	Slug            string
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	Timezone        sql.NullString
@@ -63,6 +254,7 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 	row := q.queryRow(ctx, q.createSiteStmt, createSite,
 		arg.OrgID,
 		arg.Name,
+		arg.Slug,
 		arg.LocationCity,
 		arg.LocationState,
 		arg.Timezone,
@@ -90,7 +282,70 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		&i.Country,
 		&i.Notes,
 		&i.Timezone,
+		&i.Slug,
+		&i.InfrastructureControlSubnets,
 	)
+	return i, err
+}
+
+const deleteCurtailmentResponseProfilesBySite = `-- name: DeleteCurtailmentResponseProfilesBySite :one
+WITH scoped_profiles AS (
+  SELECT profile.id
+  FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND (
+      profile.site_id = $2
+      OR (
+        profile.scope_json ? 'site_id'
+        AND (profile.scope_json->>'site_id')::BIGINT = $2
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array' THEN profile.scope_json->'site_ids'
+            ELSE '[]'::jsonb
+          END
+        ) AS scope_site(site_id)
+        WHERE scope_site.site_id::BIGINT = $2
+      )
+    )
+),
+blocking_rules AS (
+  SELECT rule.id
+  FROM curtailment_automation_rule rule
+  JOIN scoped_profiles profile
+    ON profile.id = rule.response_profile_id
+  WHERE rule.org_id = $1
+),
+deleted_profiles AS (
+  DELETE FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND profile.id IN (SELECT id FROM scoped_profiles)
+    AND NOT EXISTS (SELECT 1 FROM blocking_rules)
+  RETURNING 1
+)
+SELECT
+  (SELECT COUNT(*) FROM deleted_profiles)::BIGINT AS deleted_count,
+  (SELECT COUNT(*) FROM blocking_rules)::BIGINT AS blocking_rule_count
+`
+
+type DeleteCurtailmentResponseProfilesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+type DeleteCurtailmentResponseProfilesBySiteRow struct {
+	DeletedCount      int64
+	BlockingRuleCount int64
+}
+
+// Deletes reusable response profiles tied to a site as part of the
+// site delete cascade so they cannot outlive a soft-deleted site.
+func (q *Queries) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (DeleteCurtailmentResponseProfilesBySiteRow, error) {
+	row := q.queryRow(ctx, q.deleteCurtailmentResponseProfilesBySiteStmt, deleteCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
+	var i DeleteCurtailmentResponseProfilesBySiteRow
+	err := row.Scan(&i.DeletedCount, &i.BlockingRuleCount)
 	return i, err
 }
 
@@ -154,8 +409,86 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 	return items, nil
 }
 
+const findDevicesInSiteLessRacks = `-- name: FindDevicesInSiteLessRacks :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.site_id IS NULL
+`
+
+type FindDevicesInSiteLessRacksParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns device identifiers sitting in a live rack that has NO site (a
+// fully-unassigned rack — building implies a site, so a NULL site means
+// no building either). The site peer of FindDeviceSiteConflicts, which
+// only returns racks WITH a site. Used by AssignDevicesToSite (and the
+// building flow, which cascades site): a device can't take a direct site
+// while remaining in a site-less rack without breaking device/rack site
+// lockstep, so the service flags these as a clearable conflict and the
+// force-clear path drops the rack membership before the move.
+func (q *Queries) FindDevicesInSiteLessRacks(ctx context.Context, arg FindDevicesInSiteLessRacksParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesInSiteLessRacksStmt, findDevicesInSiteLessRacks, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInfrastructureControlSubnets = `-- name: GetInfrastructureControlSubnets :one
+SELECT infrastructure_control_subnets
+FROM site
+WHERE id = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetInfrastructureControlSubnetsParams struct {
+	ID    int64
+	OrgID int64
+}
+
+// Dedicated sensitive read: this field is intentionally not projected through
+// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
+// as the same not-found result.
+func (q *Queries) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
+	row := q.queryRow(ctx, q.getInfrastructureControlSubnetsStmt, getInfrastructureControlSubnets, arg.ID, arg.OrgID)
+	var infrastructure_control_subnets string
+	err := row.Scan(&infrastructure_control_subnets)
+	return infrastructure_control_subnets, err
+}
+
 const getSite = `-- name: GetSite :one
-SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
 FROM site
 WHERE id = $1
   AND org_id = $2
@@ -186,6 +519,46 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 		&i.Country,
 		&i.Notes,
 		&i.Timezone,
+		&i.Slug,
+		&i.InfrastructureControlSubnets,
+	)
+	return i, err
+}
+
+const getSiteBySlug = `-- name: GetSiteBySlug :one
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
+FROM site
+WHERE slug = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetSiteBySlugParams struct {
+	Slug  string
+	OrgID int64
+}
+
+func (q *Queries) GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error) {
+	row := q.queryRow(ctx, q.getSiteBySlugStmt, getSiteBySlug, arg.Slug, arg.OrgID)
+	var i Site
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.LocationCity,
+		&i.LocationState,
+		&i.PowerCapacityMw,
+		&i.NetworkConfig,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Address,
+		&i.PostalCode,
+		&i.Country,
+		&i.Notes,
+		&i.Timezone,
+		&i.Slug,
+		&i.InfrastructureControlSubnets,
 	)
 	return i, err
 }
@@ -205,7 +578,7 @@ type ListExistingDeviceIdentifiersParams struct {
 
 // Filters the requested identifier list down to those that actually
 // exist as live devices in the org. Used to surface "device_not_found"
-// conflicts in ReassignDevicesToSite without an N+1 lookup.
+// conflicts in AssignDevicesToSite without an N+1 lookup.
 func (q *Queries) ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listExistingDeviceIdentifiersStmt, listExistingDeviceIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -275,12 +648,44 @@ func (q *Queries) ListSiteNetworkConfigsForOverlap(ctx context.Context, arg List
 	return items, nil
 }
 
+const listSiteSlugs = `-- name: ListSiteSlugs :many
+SELECT slug
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+ORDER BY slug
+`
+
+func (q *Queries) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error) {
+	rows, err := q.query(ctx, q.listSiteSlugsStmt, listSiteSlugs, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSites = `-- name: ListSites :many
 SELECT
-    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone,
+    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone, s.slug, s.infrastructure_control_subnets,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
@@ -307,34 +712,45 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
+    FROM infrastructure_device
+    WHERE infrastructure_device.org_id = $1
+      AND infrastructure_device.deleted_at IS NULL
+    GROUP BY infrastructure_device.site_id
+) i ON i.site_id = s.id
 WHERE s.org_id = $1
   AND s.deleted_at IS NULL
 ORDER BY s.name
 `
 
 type ListSitesRow struct {
-	ID              int64
-	OrgID           int64
-	Name            string
-	LocationCity    sql.NullString
-	LocationState   sql.NullString
-	PowerCapacityMw sql.NullString
-	NetworkConfig   sql.NullString
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       sql.NullTime
-	Address         sql.NullString
-	PostalCode      sql.NullString
-	Country         string
-	Notes           sql.NullString
-	Timezone        sql.NullString
-	DeviceCount     int64
-	BuildingCount   int64
-	RackCount       int64
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	LocationCity                 sql.NullString
+	LocationState                sql.NullString
+	PowerCapacityMw              sql.NullString
+	NetworkConfig                sql.NullString
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	DeletedAt                    sql.NullTime
+	Address                      sql.NullString
+	PostalCode                   sql.NullString
+	Country                      string
+	Notes                        sql.NullString
+	Timezone                     sql.NullString
+	Slug                         string
+	InfrastructureControlSubnets string
+	DeviceCount                  int64
+	BuildingCount                int64
+	RackCount                    int64
+	InfrastructureDeviceCount    int64
 }
 
 // Returns each site with attachment counts so the delete-confirm dialog
-// can show "N miners, M buildings, K racks" without an extra round trip.
+// can show "N miners, M buildings, K racks, J infrastructure devices"
+// without an extra round trip.
 func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error) {
 	rows, err := q.query(ctx, q.listSitesStmt, listSites, orgID)
 	if err != nil {
@@ -360,9 +776,12 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.Country,
 			&i.Notes,
 			&i.Timezone,
+			&i.Slug,
+			&i.InfrastructureControlSubnets,
 			&i.DeviceCount,
 			&i.BuildingCount,
 			&i.RackCount,
+			&i.InfrastructureDeviceCount,
 		); err != nil {
 			return nil, err
 		}
@@ -391,7 +810,7 @@ type LockBuildingForWriteParams struct {
 }
 
 // Row-locks a specific building so concurrent mutations (DeleteSite,
-// AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+// AssignBuildingsToSite, DeleteBuilding) serialize. Returns the building
 // id when alive; sql.ErrNoRows when soft-deleted or missing.
 func (q *Queries) LockBuildingForWrite(ctx context.Context, arg LockBuildingForWriteParams) (int64, error) {
 	row := q.queryRow(ctx, q.lockBuildingForWriteStmt, lockBuildingForWrite, arg.ID, arg.OrgID)
@@ -405,6 +824,7 @@ SELECT id FROM building
 WHERE org_id = $1
   AND site_id = $2
   AND deleted_at IS NULL
+ORDER BY id ASC
 FOR UPDATE
 `
 
@@ -415,7 +835,7 @@ type LockBuildingsBySiteForWriteParams struct {
 
 // Row-locks every live building under the given site so DeleteSite's
 // cascade can rewrite their racks without a concurrent
-// AssignBuildingToSite slipping a building out from under it. Returns
+// AssignBuildingsToSite slipping a building out from under it. Returns
 // the locked ids (result is informational; the FOR UPDATE side-effect
 // is what matters).
 func (q *Queries) LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error) {
@@ -446,6 +866,7 @@ SELECT id FROM device
 WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND deleted_at IS NULL
+ORDER BY id
 FOR UPDATE
 `
 
@@ -460,6 +881,46 @@ type LockDevicesForReassignParams struct {
 // identifiers exist; the caller still wants the lock side-effect.
 func (q *Queries) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.lockDevicesForReassignStmt, lockDevicesForReassign, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockInfrastructureDevicesBySiteForWrite = `-- name: LockInfrastructureDevicesBySiteForWrite :many
+SELECT id
+FROM infrastructure_device
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type LockInfrastructureDevicesBySiteForWriteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+// DeleteSite locks these rows before checking surviving response-profile
+// references and before soft-deleting the devices.
+func (q *Queries) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, arg LockInfrastructureDevicesBySiteForWriteParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockInfrastructureDevicesBySiteForWriteStmt, lockInfrastructureDevicesBySiteForWrite, arg.OrgID, arg.SiteID)
 	if err != nil {
 		return nil, err
 	}
@@ -504,33 +965,6 @@ func (q *Queries) LockSiteForWrite(ctx context.Context, arg LockSiteForWritePara
 	return id, err
 }
 
-const reassignDevicesToSite = `-- name: ReassignDevicesToSite :execrows
-UPDATE device
-SET site_id = $1,
-    updated_at = CURRENT_TIMESTAMP
-WHERE org_id = $2
-  AND device_identifier = ANY($3::text[])
-  AND deleted_at IS NULL
-`
-
-type ReassignDevicesToSiteParams struct {
-	TargetSiteID      sql.NullInt64
-	OrgID             int64
-	DeviceIdentifiers []string
-}
-
-// Bulk update of device.site_id for the given identifiers within the
-// org. Caller is expected to have already validated that no device is
-// in a rack at a different site (see FindDeviceSiteConflicts).
-// target_site_id NULL = move to Unassigned.
-func (q *Queries) ReassignDevicesToSite(ctx context.Context, arg ReassignDevicesToSiteParams) (int64, error) {
-	result, err := q.exec(ctx, q.reassignDevicesToSiteStmt, reassignDevicesToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const reassignDevicesUnderBuilding = `-- name: ReassignDevicesUnderBuilding :execrows
 UPDATE device d
 SET site_id = $1,
@@ -569,6 +1003,42 @@ func (q *Queries) ReassignDevicesUnderBuilding(ctx context.Context, arg Reassign
 	return result.RowsAffected()
 }
 
+const reassignDevicesUnderBuildingsBulk = `-- name: ReassignDevicesUnderBuildingsBulk :execrows
+UPDATE device d
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = dsm.org_id
+WHERE d.id = dsm.device_id
+  AND d.org_id = dsm.org_id
+  AND dsm.device_set_type = 'rack'
+  AND d.org_id = $2
+  AND dsr.building_id = ANY($3::bigint[])
+  AND d.deleted_at IS NULL
+`
+
+type ReassignDevicesUnderBuildingsBulkParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingIds  []int64
+}
+
+// Bulk variant of ReassignDevicesUnderBuilding. Sets device.site_id =
+// $target for every device in any live rack of any building in
+// @building_ids. Caller wraps in the same tx as the building UPDATE.
+func (q *Queries) ReassignDevicesUnderBuildingsBulk(ctx context.Context, arg ReassignDevicesUnderBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignDevicesUnderBuildingsBulkStmt, reassignDevicesUnderBuildingsBulk, arg.TargetSiteID, arg.OrgID, pq.Array(arg.BuildingIds))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const reassignRacksUnderBuilding = `-- name: ReassignRacksUnderBuilding :execrows
 UPDATE device_set_rack dsr
 SET site_id = $1
@@ -600,6 +1070,61 @@ func (q *Queries) ReassignRacksUnderBuilding(ctx context.Context, arg ReassignRa
 	return result.RowsAffected()
 }
 
+const reassignRacksUnderBuildingsBulk = `-- name: ReassignRacksUnderBuildingsBulk :execrows
+UPDATE device_set_rack dsr
+SET site_id = $1
+WHERE dsr.org_id = $2
+  AND dsr.building_id = ANY($3::bigint[])
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  )
+`
+
+type ReassignRacksUnderBuildingsBulkParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingIds  []int64
+}
+
+// Bulk variant of ReassignRacksUnderBuilding. Sets rack.site_id =
+// $target for every live rack pointing at any of @building_ids in one
+// statement. Caller wraps in the same tx as the building UPDATE so
+// the building/rack/device site_ids stay in lockstep.
+func (q *Queries) ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignRacksUnderBuildingsBulkStmt, reassignRacksUnderBuildingsBulk, arg.TargetSiteID, arg.OrgID, pq.Array(arg.BuildingIds))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setInfrastructureControlSubnets = `-- name: SetInfrastructureControlSubnets :one
+UPDATE site
+SET infrastructure_control_subnets = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+RETURNING infrastructure_control_subnets
+`
+
+type SetInfrastructureControlSubnetsParams struct {
+	InfrastructureControlSubnets string
+	ID                           int64
+	OrgID                        int64
+}
+
+// Explicitly replaces the commissioned OT allowlist. Empty text
+// decommissions the site. Canonicalization happens in the sites domain.
+func (q *Queries) SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error) {
+	row := q.queryRow(ctx, q.setInfrastructureControlSubnetsStmt, setInfrastructureControlSubnets, arg.InfrastructureControlSubnets, arg.ID, arg.OrgID)
+	var infrastructure_control_subnets string
+	err := row.Scan(&infrastructure_control_subnets)
+	return infrastructure_control_subnets, err
+}
+
 const siteBelongsToOrg = `-- name: SiteBelongsToOrg :one
 SELECT EXISTS(
     SELECT 1 FROM site
@@ -619,6 +1144,46 @@ func (q *Queries) SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgPara
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const sitesByIDs = `-- name: SitesByIDs :many
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY($2::bigint[])
+`
+
+type SitesByIDsParams struct {
+	OrgID int64
+	Ids   []int64
+}
+
+// Returns the subset of requested IDs that correspond to live sites
+// in the org. Caller diffs against the requested set to detect
+// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
+// bulk-validate rack-list site_ids filter references in one round trip.
+func (q *Queries) SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.sitesByIDsStmt, sitesByIDs, arg.OrgID, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const softDeleteBuildingsBySite = `-- name: SoftDeleteBuildingsBySite :execrows
@@ -644,6 +1209,30 @@ func (q *Queries) SoftDeleteBuildingsBySite(ctx context.Context, arg SoftDeleteB
 	return result.RowsAffected()
 }
 
+const softDeleteInfrastructureDevicesBySite = `-- name: SoftDeleteInfrastructureDevicesBySite :execrows
+UPDATE infrastructure_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type SoftDeleteInfrastructureDevicesBySiteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+// Soft-deletes every live infrastructure device under the given site
+// so controllable facility devices cannot outlive their site. Caller
+// wraps this in the same tx as the SoftDeleteSite + cascade.
+func (q *Queries) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, arg SoftDeleteInfrastructureDevicesBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteInfrastructureDevicesBySiteStmt, softDeleteInfrastructureDevicesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const softDeleteSite = `-- name: SoftDeleteSite :execrows
 UPDATE site
 SET deleted_at = CURRENT_TIMESTAMP
@@ -658,7 +1247,7 @@ type SoftDeleteSiteParams struct {
 }
 
 // Caller is expected to also cascade-unassign attached devices/racks and
-// soft-delete buildings in the same transaction (cascade — see plan J3).
+// soft-delete buildings in the same transaction (cascade).
 func (q *Queries) SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteSiteStmt, softDeleteSite, arg.ID, arg.OrgID)
 	if err != nil {
@@ -765,23 +1354,25 @@ func (q *Queries) UnassignRacksFromSite(ctx context.Context, arg UnassignRacksFr
 const updateSite = `-- name: UpdateSite :exec
 UPDATE site
 SET name              = $1,
-    location_city     = $2,
-    location_state    = $3,
-    timezone          = $4,
-    power_capacity_mw = $5,
-    network_config    = $6,
-    address           = $7,
-    postal_code       = $8,
-    country           = COALESCE($9::text, country),
-    notes             = $10,
+    slug              = $2,
+    location_city     = $3,
+    location_state    = $4,
+    timezone          = $5,
+    power_capacity_mw = $6,
+    network_config    = $7,
+    address           = $8,
+    postal_code       = $9,
+    country           = COALESCE($10::text, country),
+    notes             = $11,
     updated_at        = CURRENT_TIMESTAMP
-WHERE id = $11
-  AND org_id = $12
+WHERE id = $12
+  AND org_id = $13
   AND deleted_at IS NULL
 `
 
 type UpdateSiteParams struct {
 	Name            string
+	Slug            string
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	Timezone        sql.NullString
@@ -795,9 +1386,14 @@ type UpdateSiteParams struct {
 	OrgID           int64
 }
 
+// The slug is not user-editable but tracks the name: the service regenerates
+// it on a rename and re-sends the unchanged slug otherwise. A slug
+// unique-violation (uk_site_org_slug) maps to a collision sentinel so the
+// service can retry with the next suffix, mirroring CreateSite.
 func (q *Queries) UpdateSite(ctx context.Context, arg UpdateSiteParams) error {
 	_, err := q.exec(ctx, q.updateSiteStmt, updateSite,
 		arg.Name,
+		arg.Slug,
 		arg.LocationCity,
 		arg.LocationState,
 		arg.Timezone,

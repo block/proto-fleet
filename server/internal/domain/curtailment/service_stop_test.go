@@ -140,6 +140,110 @@ func TestService_Stop_ForceBypassesMinDuration(t *testing.T) {
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
+func TestService_Stop_RejectsAutomationOwnedEventWhileOffAsserted(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
+	assert.Contains(t, fleetErr.DebugMessage, "OFF asserted")
+	assert.Equal(t, 1, f.store.automationDemandGuardCheckRuns)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_DoesNotTrustExternalAutomationAttribution(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorUser
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByExternalRef[externalReference] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.store.automationDemandGuardCheckRuns)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_AllowsAutomationOwnedEventWhenLatestSignalIsOn(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOn
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.store.automationDemandGuardCheckRuns)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_ForceBypassesAutomationOffDemandGuard(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID, Force: true})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.store.automationDemandGuardCheckRuns)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
 func TestService_Stop_EmergencyPriorityNoLongerBypasses(t *testing.T) {
 	t.Parallel()
 	// Pre-existing EMERGENCY events still go through the min-duration gate;
@@ -216,12 +320,14 @@ func TestComputeEffectiveBatchSize(t *testing.T) {
 		nonTerminalCount int32
 		want             int32
 	}{
-		{"small_fleet_floors_to_10", 0, 50, 10},
-		{"five_thousand_picks_50", 10, 5000, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
-		{"twenty_thousand_still_at_100", 10, 20_000, 100},
-		{"restore_batch_size_floors_formula", 60, 1000, 60},
-		{"negative_restore_batch_size_floors_to_10", -5, 50, 10},
+		{"immediate_restore_claims_all_pending", 0, 50, 50},
+		{"immediate_restore_is_safety_limited", 0, RestoreBatchSizeMax + 1, RestoreBatchSizeMax},
+		{"immediate_restore_empty_selection_is_zero", 0, 0, 0},
+		{"positive_restore_batch_size_used_verbatim", 10, 5000, 10},
+		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
+		{"large_positive_restore_batch_size_used_verbatim", 10_000, 20_000, 10_000},
+		{"positive_restore_batch_size_not_increased_by_formula", 60, 1000, 60},
+		{"negative_restore_batch_size_defensively_matches_immediate", -5, 50, 50},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

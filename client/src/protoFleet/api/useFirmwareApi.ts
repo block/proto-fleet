@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
+import { fetchSessionJson } from "@/protoFleet/api/fetchSessionJson";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
 import { useLogout } from "@/protoFleet/store";
 
@@ -9,6 +10,7 @@ const API_BASE = `${API_PROXY_BASE}/api/v1/firmware`;
 
 const DEFAULT_MAX_FILE_SIZE = 500 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
+export const FIRMWARE_TARGET_REQUIRED_MESSAGE = "Manufacturer, model, and firmware version are required.";
 
 export interface FirmwareConfig {
   allowedExtensions: string[];
@@ -65,7 +67,13 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
   return configPromise;
 }
 
-export interface FirmwareUploadOptions {
+export interface FirmwareMetadataInput {
+  targetManufacturer: string;
+  targetModel: string;
+  firmwareVersion: string;
+}
+
+export interface FirmwareUploadOptions extends FirmwareMetadataInput {
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -96,11 +104,28 @@ export interface FirmwareFileInfo {
   filename: string;
   size: number;
   uploaded_at: string;
+  target_manufacturer: string;
+  target_model: string;
+  firmware_version?: string;
+  sha256?: string;
 }
 
 interface CheckFirmwareResponse {
   exists: boolean;
   firmware_file_id?: string;
+}
+
+/** The client mirror of the server's upload metadata completeness rule. */
+export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
+  return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
+}
+
+function firmwareMetadataFields(target: FirmwareMetadataInput): Record<string, string> {
+  return {
+    target_manufacturer: target.targetManufacturer.trim(),
+    target_model: target.targetModel.trim(),
+    firmware_version: target.firmwareVersion.trim(),
+  };
 }
 
 export const useFirmwareApi = () => {
@@ -112,12 +137,16 @@ export const useFirmwareApi = () => {
   }, [logout]);
 
   const checkFirmwareFile = useCallback(
-    async (sha256: string, signal?: AbortSignal): Promise<{ exists: boolean; firmwareFileId?: string }> => {
+    async (
+      sha256: string,
+      target: FirmwareMetadataInput,
+      signal?: AbortSignal,
+    ): Promise<{ exists: boolean; firmwareFileId?: string }> => {
       const response = await fetch(`${API_BASE}/check`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sha256 }),
+        body: JSON.stringify({ sha256, ...firmwareMetadataFields(target) }),
         signal,
       });
 
@@ -144,8 +173,14 @@ export const useFirmwareApi = () => {
   );
 
   const uploadFirmwareFile = useCallback(
-    async (file: File, options?: FirmwareUploadOptions): Promise<string> => {
+    async (file: File, options: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
+      const { targetManufacturer = "", targetModel = "", firmwareVersion = "" } = options ?? {};
+      const target = { targetManufacturer, targetModel, firmwareVersion };
+      if (!hasCompleteFirmwareTarget(target)) {
+        throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
+      }
+      const metadataFields = firmwareMetadataFields(target);
 
       let data: unknown;
       const useChunked = file.size > config.chunkSizeBytes;
@@ -153,6 +188,7 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
+          initiateFields: metadataFields,
           chunked: {
             enabled: true,
             chunkSize: config.chunkSizeBytes,
@@ -165,6 +201,7 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
+          formFields: metadataFields,
         });
       }
 
@@ -179,27 +216,12 @@ export const useFirmwareApi = () => {
 
   const listFirmwareFiles = useCallback(
     async (signal?: AbortSignal): Promise<FirmwareFileInfo[]> => {
-      const response = await fetch(`${API_BASE}/files`, {
-        method: "GET",
-        credentials: "include",
+      const data = await fetchSessionJson<{ files?: FirmwareFileInfo[] }>(`${API_BASE}/files`, {
         signal,
+        logout,
+        errorMessage: "Failed to list firmware files",
       });
-
-      if (response.status === 401) {
-        logout();
-        throw new Error("Session expired. Please log in again.");
-      }
-
-      if (!response.ok) {
-        const message = await extractFetchError(
-          response,
-          `Failed to list firmware files: ${response.status} ${response.statusText}`,
-        );
-        throw new Error(message);
-      }
-
-      const data = await response.json();
-      return (data.files ?? []) as FirmwareFileInfo[];
+      return data.files ?? [];
     },
     [logout],
   );
@@ -221,6 +243,35 @@ export const useFirmwareApi = () => {
         const message = await extractFetchError(
           response,
           `Failed to delete firmware file: ${response.status} ${response.statusText}`,
+        );
+        throw new Error(message);
+      }
+    },
+    [logout],
+  );
+
+  const updateFirmwareMetadata = useCallback(
+    async (fileId: string, metadata: FirmwareMetadataInput, signal?: AbortSignal): Promise<void> => {
+      if (!hasCompleteFirmwareTarget(metadata)) {
+        throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
+      }
+      const response = await fetch(`${API_BASE}/files/${encodeURIComponent(fileId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(firmwareMetadataFields(metadata)),
+        signal,
+      });
+
+      if (response.status === 401) {
+        logout();
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        const message = await extractFetchError(
+          response,
+          `Couldn't update firmware metadata: ${response.status} ${response.statusText}`,
         );
         throw new Error(message);
       }
@@ -260,9 +311,18 @@ export const useFirmwareApi = () => {
       checkFirmwareFile,
       uploadFirmwareFile,
       listFirmwareFiles,
+      updateFirmwareMetadata,
       deleteFirmwareFile,
       deleteAllFirmwareFiles,
     }),
-    [getConfig, checkFirmwareFile, uploadFirmwareFile, listFirmwareFiles, deleteFirmwareFile, deleteAllFirmwareFiles],
+    [
+      getConfig,
+      checkFirmwareFile,
+      uploadFirmwareFile,
+      listFirmwareFiles,
+      updateFirmwareMetadata,
+      deleteFirmwareFile,
+      deleteAllFirmwareFiles,
+    ],
   );
 };

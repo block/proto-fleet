@@ -1,4 +1,4 @@
-import { isValidCidr, isValidIpv4, isValidIpv6 } from "./networkDiscovery";
+import { categorizeIpEntry, isValidCidr, isValidIpv4, isValidIpv6, isValidIpv6Cidr } from "./ipParsing";
 
 export type NumericRangeValue = {
   min?: number;
@@ -54,24 +54,6 @@ export const validateNumericRange = (value: NumericRangeValue, bounds: NumericRa
   return errors;
 };
 
-const parseCidrLine = (line: string): { ip: string; mask: number } | null => {
-  const slashIndex = line.lastIndexOf("/");
-  if (slashIndex <= 0 || slashIndex === line.length - 1) return null;
-
-  const ip = line.slice(0, slashIndex);
-  const maskStr = line.slice(slashIndex + 1);
-  if (!/^\d+$/.test(maskStr)) return null;
-
-  return { ip, mask: Number(maskStr) };
-};
-
-const isValidIpv6Cidr = (value: string): boolean => {
-  const parsed = parseCidrLine(value);
-  if (!parsed) return false;
-
-  return isValidIpv6(parsed.ip) && parsed.mask >= 0 && parsed.mask <= 128;
-};
-
 /**
  * Returns null if the line is a valid IPv4/IPv6 CIDR or bare IP address
  * (treated as /32 or /128). Returns a human-readable error string otherwise.
@@ -122,4 +104,74 @@ export const normalizeCidrLine = (line: string): string => {
   const network = ipInt & maskInt;
   const networkOctets = [(network >>> 24) & 0xff, (network >>> 16) & 0xff, (network >>> 8) & 0xff, network & 0xff];
   return `${networkOctets.join(".")}/${mask}`;
+};
+
+/**
+ * Validates a subnet-filter line. Superset of {@link validateCidrLine}: also
+ * accepts an IPv4 range in the same syntax the onboarding discovery flow uses —
+ * short (`10.0.0.10-20`) or full (`10.0.0.10-10.0.0.20`), optional spaces around
+ * the dash. Hostnames are intentionally rejected here (the fleet filter matches
+ * by IP, not name). Returns null when valid, else an error string. Built on the
+ * shared {@link categorizeIpEntry}, so it accepts exactly what discovery parses.
+ */
+export const validateSubnetLine = (line: string): string | null => {
+  const entry = categorizeIpEntry(line);
+  switch (entry.kind) {
+    case "ipv4":
+    case "ipv6":
+    case "cidr":
+    case "range":
+      return null;
+    case "hostname":
+      return "Hostnames aren't supported here — use an IP, CIDR, or range";
+    case "invalid":
+      return entry.reason;
+  }
+};
+
+/**
+ * Normalizes a subnet-filter line for display/dedup. Ranges canonicalize to
+ * their full `start-end` form (so short and full inputs dedup together); a bare
+ * IP is echoed back as typed (no /32 or /128 suffix); a CIDR is masked to its
+ * canonical network address. Assumes the line already passed
+ * {@link validateSubnetLine}.
+ */
+export const normalizeSubnetLine = (line: string): string => {
+  const entry = categorizeIpEntry(line);
+  switch (entry.kind) {
+    case "range":
+      return `${entry.startIp}-${entry.endIp}`;
+    case "ipv4":
+    case "ipv6":
+      return entry.value;
+    case "cidr":
+      return normalizeCidrLine(entry.value);
+    default:
+      return line.trim();
+  }
+};
+
+/**
+ * A normalized subnet-filter line resolves to either a CIDR/IP
+ * (→ MinerListFilter.ip_cidrs) or an inclusive IPv4 range
+ * (→ MinerListFilter.ip_ranges). Ranges travel natively (no CIDR
+ * decomposition). A bare IP is sent prefix-less — the server treats it as /32
+ * (IPv4) or /128 (IPv6) — so what the user typed is what the chip shows.
+ * Returns null for anything the filter can't match on (hostnames, invalid input).
+ */
+export type SubnetLineKind = { kind: "cidr"; cidr: string } | { kind: "range"; startIp: string; endIp: string };
+
+export const classifySubnetLine = (line: string): SubnetLineKind | null => {
+  const entry = categorizeIpEntry(line);
+  switch (entry.kind) {
+    case "range":
+      return { kind: "range", startIp: entry.startIp, endIp: entry.endIp };
+    case "ipv4":
+    case "ipv6":
+      return { kind: "cidr", cidr: entry.value };
+    case "cidr":
+      return { kind: "cidr", cidr: normalizeCidrLine(entry.value) };
+    default:
+      return null;
+  }
 };

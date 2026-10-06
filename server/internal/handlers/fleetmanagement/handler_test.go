@@ -1,13 +1,47 @@
-package fleetmanagement_test
+package fleetmanagement
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func refreshAuthContext(ctx context.Context, userID, orgID int64, assignments ...authz.Assignment) context.Context {
+	info := &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         userID,
+		OrganizationID: orgID,
+	}
+	return middleware.WithEffectivePermissions(authn.SetInfo(ctx, info), authz.NewEffectivePermissions(assignments))
+}
+
+func orgAssignment(permissions ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  permissions,
+	}
+}
+
+func siteAssignment(siteID int64, permissions ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 2,
+		ScopeType:    authz.ScopeSite,
+		SiteID:       &siteID,
+		Permissions:  permissions,
+	}
+}
 
 func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 	tests := []struct {
@@ -88,4 +122,61 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequireRefreshMinerRead_UsesSiteScopedMinerRead(t *testing.T) {
+	const (
+		userID   = int64(1)
+		orgID    = int64(2)
+		siteID   = int64(3)
+		deviceID = "site-scoped-device"
+	)
+
+	ctx := refreshAuthContext(
+		t.Context(),
+		userID,
+		orgID,
+		orgAssignment(authz.PermMinerRead),
+		siteAssignment(siteID),
+	)
+
+	err := requireRefreshMinerRead(ctx, map[string]authz.ResourceContext{
+		deviceID: {SiteID: ptr(siteID)},
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr))
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestRequireRefreshMinerRead_RequiresOrgReadForMissingContextFallback(t *testing.T) {
+	const (
+		userID        = int64(1)
+		orgID         = int64(2)
+		siteID        = int64(3)
+		visibleID     = "visible-device"
+		orgFallbackID = "missing-device"
+	)
+
+	ctx := refreshAuthContext(
+		t.Context(),
+		userID,
+		orgID,
+		siteAssignment(siteID, authz.PermMinerRead),
+	)
+
+	err := requireRefreshMinerRead(ctx, map[string]authz.ResourceContext{
+		visibleID:     {SiteID: ptr(siteID)},
+		orgFallbackID: {},
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr))
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }

@@ -28,7 +28,7 @@ func NewSQLDiscoveredDeviceStore(conn *sql.DB) *SQLDiscoveredDeviceStore {
 	}
 }
 
-func (s *SQLDiscoveredDeviceStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLDiscoveredDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -75,7 +75,7 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 		DriverName:       device.Device.DriverName,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %w", err)
 	}
 
 	// Fetch the complete record to get timestamps and other fields
@@ -84,7 +84,7 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 		OrgID: doi.OrgID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch discovered device after upsert: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to fetch discovered device after upsert: %w", err)
 	}
 
 	return toDiscoveredDevice(dbDevice), nil

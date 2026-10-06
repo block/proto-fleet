@@ -28,6 +28,9 @@ const useHardware = () => {
 
     setPending(true);
     authRetry({
+      // New firmware exposes /hardware publicly, but old firmware still requires
+      // auth. Keep auth retry until the minimum supported firmware no longer
+      // needs authenticated hardware loading after pairing/login.
       request: (params) => api.getHardware(params),
       onSuccess: (res) => {
         const responseData = res?.data["hardware-info"];

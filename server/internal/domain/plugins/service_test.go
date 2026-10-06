@@ -431,7 +431,7 @@ func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {
 
 	// Arrange
 	protoCaps := sdk.Capabilities{
-		sdk.CapabilityAsymmetricAuth:     true,
+		sdk.CapabilityBasicAuth:          true,
 		sdk.CapabilityReboot:             true,
 		sdk.CapabilityMiningStart:        true,
 		sdk.CapabilityMiningStop:         true,

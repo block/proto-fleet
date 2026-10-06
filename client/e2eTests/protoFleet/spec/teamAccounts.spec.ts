@@ -60,7 +60,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     }
   });
 
-  test("Add team member", async ({ settingsPage, settingsTeamPage, commonSteps }) => {
+  test("Add team member", { tag: "@smoke" }, async ({ settingsPage, settingsTeamPage, commonSteps }) => {
     await test.step("Log in as admin", async () => {
       await commonSteps.loginAsAdmin();
     });
@@ -125,7 +125,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("New member log in", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
+  test("New member log in", { tag: "@smoke" }, async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
     let username = generateRandomUsername();
     let tempPassword: string;
 

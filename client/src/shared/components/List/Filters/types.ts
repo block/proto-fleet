@@ -8,6 +8,11 @@ export type { NumericRangeBounds, NumericRangeValue };
 export type DropdownOption = {
   id: string;
   label: string;
+  /**
+   * Draws a thick divider AFTER this option in nested checkbox submenus so long
+   * option lists can be visually bucketed without adding extra category rows.
+   */
+  showGroupDivider?: boolean;
 };
 
 export type FilterType = "button" | "dropdown" | "nestedFilterDropdown" | "numericRange" | "textareaList";
@@ -88,7 +93,11 @@ export type NestedFilterDropdownItem = BaseFilterItem & {
 
 export type NestedFilterChildItem = DropdownFilterItem | NumericRangeFilterItem | TextareaListFilterItem;
 
-export type FilterItem = ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem;
+// Standalone (top-level) filters. Dropdown/button render as inline controls;
+// textareaList renders as a trigger that opens the shared modal (the same
+// component the nestedFilterDropdown uses for its children).
+export type FilterItem =
+  ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem | NumericRangeFilterItem | TextareaListFilterItem;
 
 /**
  * Submenu category passed into `NestedDropdownFilter`. Discriminated by

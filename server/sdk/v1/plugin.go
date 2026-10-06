@@ -21,7 +21,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const errDeviceDoesNotSupportCurtailment = "device does not support curtailment"
+const (
+	errDeviceDoesNotSupportCurtailment = "device does not support curtailment"
+	newDeviceCleanupTimeout            = 10 * time.Second
+)
 
 func grpcStatusError(label string, code codes.Code, message string) error {
 	return fmt.Errorf("%s: %w", label, status.Error(code, message))
@@ -282,6 +285,18 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	result, err := s.Impl.NewDevice(ctx, req.DeviceId, deviceInfo, secret)
 	if err != nil {
 		return nil, sdkErrorToGRPCStatus(err)
+	}
+	if result.Device == nil {
+		return nil, errors.New("driver returned no device")
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), newDeviceCleanupTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Warn("failed to close device created after request cancellation", "device_id", req.DeviceId, "error", closeErr)
+		}
+		ctxStatus := status.FromContextError(ctxErr)
+		return nil, grpcStatusError("new device request canceled", ctxStatus.Code(), ctxStatus.Message())
 	}
 
 	// Verify the device uses the provided ID
@@ -569,8 +584,10 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 
 	firmware := FirmwareFile{
 		Reader:   file,
+		ID:       fw.Id,
 		Filename: fw.OriginalFilename,
 		Size:     fw.FileSize,
+		SHA256:   fw.Sha256,
 		FilePath: fw.FilePath,
 	}
 
@@ -682,6 +699,27 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 	}
 
 	err := curtailer.Uncurtail(ctx, UncurtailRequest{})
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
+}
+
+func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.ApplyCurtailmentConfigRequest) (*emptypb.Empty, error) {
+	if req == nil || req.Ref == nil || req.Config == nil {
+		return nil, grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")
+	}
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	configurator, ok := device.(DeviceCurtailmentConfigurator)
+	if !ok {
+		return nil, grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration")
+	}
+
+	err := configurator.ApplyCurtailmentConfig(ctx, curtailmentConfigFromProto(req.Config))
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
@@ -988,6 +1026,13 @@ func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, devic
 	}, nil
 }
 
+// CloseDevice compensates for an uncertain NewDevice RPC outcome. A not-found
+// response is harmless: it means the plugin never retained the requested ID.
+func (c *DriverGRPCClient) CloseDevice(ctx context.Context, deviceID string) error {
+	_, err := c.client.CloseDevice(ctx, &pb.DeviceRef{DeviceId: deviceID})
+	return err
+}
+
 // DeviceGRPCClient implements Device interface as a proxy to the plugin
 type DeviceGRPCClient struct {
 	client   pb.DriverClient
@@ -1164,6 +1209,8 @@ func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware Firmware
 			FilePath:         firmware.FilePath,
 			OriginalFilename: firmware.Filename,
 			FileSize:         firmware.Size,
+			Id:               firmware.ID,
+			Sha256:           firmware.SHA256,
 		},
 	})
 	return err
@@ -1222,6 +1269,76 @@ func (d *DeviceGRPCClient) Uncurtail(ctx context.Context, _ UncurtailRequest) er
 		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
 	})
 	return err
+}
+
+func (d *DeviceGRPCClient) ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error {
+	_, err := d.client.ApplyCurtailmentConfig(ctx, &pb.ApplyCurtailmentConfigRequest{
+		Ref:    &pb.DeviceRef{DeviceId: d.deviceID},
+		Config: curtailmentConfigToProto(config),
+	})
+	return err
+}
+
+func curtailmentConfigFromProto(config *pb.CurtailmentConfig) CurtailmentConfig {
+	if config == nil {
+		return CurtailmentConfig{}
+	}
+	providers := make([]CurtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		if provider == nil {
+			continue
+		}
+		providers = append(providers, CurtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			QOS:              provider.Qos,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return CurtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NATSURL:               config.NatsUrl,
+		MCDDGRPCAddress:       config.McddGrpcAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
+}
+
+func curtailmentConfigToProto(config CurtailmentConfig) *pb.CurtailmentConfig {
+	providers := make([]*pb.CurtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		providers = append(providers, &pb.CurtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			Qos:              provider.QOS,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return &pb.CurtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NatsUrl:               config.NATSURL,
+		McddGrpcAddress:       config.MCDDGRPCAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
 }
 
 func (d *DeviceGRPCClient) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
@@ -1332,10 +1449,11 @@ func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-ch
 // deviceMetricsToProto converts SDK DeviceMetrics to protobuf DeviceMetrics
 func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 	pbMetrics := &pb.DeviceMetrics{
-		DeviceId:        dm.DeviceID,
-		Timestamp:       timestamppb.New(dm.Timestamp),
-		Health:          pb.HealthStatus(safeIntToInt32(int(dm.Health))),
-		FirmwareVersion: dm.FirmwareVersion,
+		DeviceId:              dm.DeviceID,
+		Timestamp:             timestamppb.New(dm.Timestamp),
+		Health:                pb.HealthStatus(safeIntToInt32(int(dm.Health))),
+		FirmwareVersion:       dm.FirmwareVersion,
+		DefaultPasswordActive: dm.DefaultPasswordActive,
 	}
 
 	if dm.HealthReason != nil {
@@ -1362,10 +1480,11 @@ func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 // deviceMetricsFromProto converts protobuf DeviceMetrics to SDK DeviceMetrics
 func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
 	dm := DeviceMetrics{
-		DeviceID:        pb.DeviceId,
-		Timestamp:       pb.Timestamp.AsTime(),
-		Health:          HealthStatus(pb.Health),
-		FirmwareVersion: pb.FirmwareVersion,
+		DeviceID:              pb.DeviceId,
+		Timestamp:             pb.Timestamp.AsTime(),
+		Health:                HealthStatus(pb.Health),
+		FirmwareVersion:       pb.FirmwareVersion,
+		DefaultPasswordActive: pb.DefaultPasswordActive,
 	}
 
 	if pb.HealthReason != nil {
@@ -1706,12 +1825,6 @@ func secretBundleToProto(s SecretBundle) *pb.SecretBundle {
 	}
 
 	switch kind := s.Kind.(type) {
-	case APIKey:
-		pbSecret.Kind = &pb.SecretBundle_ApiKey{
-			ApiKey: &pb.APIKey{
-				Key: kind.Key,
-			},
-		}
 	case UsernamePassword:
 		pbSecret.Kind = &pb.SecretBundle_UserPass{
 			UserPass: &pb.UsernamePassword{
@@ -1749,10 +1862,6 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 	}
 
 	switch kind := p.Kind.(type) {
-	case *pb.SecretBundle_ApiKey:
-		secret.Kind = APIKey{
-			Key: kind.ApiKey.Key,
-		}
 	case *pb.SecretBundle_UserPass:
 		secret.Kind = UsernamePassword{
 			Username: kind.UserPass.Username,
@@ -1776,27 +1885,29 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 // DeviceInfo conversion functions
 func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 	return &pb.DeviceInfo{
-		Host:            d.Host,
-		Port:            d.Port,
-		UrlScheme:       d.URLScheme,
-		SerialNumber:    d.SerialNumber,
-		Model:           d.Model,
-		Manufacturer:    d.Manufacturer,
-		MacAddress:      d.MacAddress,
-		FirmwareVersion: d.FirmwareVersion,
+		Host:                  d.Host,
+		Port:                  d.Port,
+		UrlScheme:             d.URLScheme,
+		SerialNumber:          d.SerialNumber,
+		Model:                 d.Model,
+		Manufacturer:          d.Manufacturer,
+		MacAddress:            d.MacAddress,
+		FirmwareVersion:       d.FirmwareVersion,
+		DefaultPasswordActive: d.DefaultPasswordActive,
 	}
 }
 
 func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 	return DeviceInfo{
-		Host:            p.Host,
-		Port:            p.Port,
-		URLScheme:       p.UrlScheme,
-		SerialNumber:    p.SerialNumber,
-		Model:           p.Model,
-		Manufacturer:    p.Manufacturer,
-		MacAddress:      p.MacAddress,
-		FirmwareVersion: p.FirmwareVersion,
+		Host:                  p.Host,
+		Port:                  p.Port,
+		URLScheme:             p.UrlScheme,
+		SerialNumber:          p.SerialNumber,
+		Model:                 p.Model,
+		Manufacturer:          p.Manufacturer,
+		MacAddress:            p.MacAddress,
+		FirmwareVersion:       p.FirmwareVersion,
+		DefaultPasswordActive: p.DefaultPasswordActive,
 	}
 }
 

@@ -72,14 +72,38 @@ The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ru
 
 ### Pre-Push Checks
 
-The pre-push hooks also run repository checks before a branch can be pushed:
+The pre-push hook runs checks selected from committed, staged, unstaged, and
+untracked files. It always checks diff whitespace, then routes affected paths to:
 
-- `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
-- `server`: `golangci-lint run -c .golangci.yaml`
-- `plugin/proto`: `golangci-lint run -c .golangci.yaml`
-- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
+- Protobuf linting
+- Client linting and TypeScript typechecking
+- Server linting
+- Proto plugin linting
+- Antminer plugin linting
+- Developer-workflow configuration and shared-agent-skill parity tests
+
+Run targeted tests while editing. When pushing, let the enabled pre-push
+hook run `just check-changed` as the final broad changed-path validation;
+do not run the same command manually immediately before pushing. For
+local-only completion, run `just check-changed` manually once edits are
+complete. The hook does not replace relevant targeted tests. Repeat passing
+checks only after relevant inputs change or a new concern appears, and keep
+hooks enabled on every push. If a hook fails, fix the failure and retry with
+hooks enabled.
 
 ## Git Workflow
+
+### Planning and Documentation
+
+Keep implementation plans, TDDs, PRDs, and task scratchpads out of Git.
+Use issue/PR discussions, external documents, or ignored local
+`docs/plans/` files for planning. Commit maintained documentation that describes
+the current system, such as architecture, API behavior, runbooks, and reusable
+development guidance. When work ships, update those documents with the lasting
+decisions and behavior.
+
+RFCs remain committed under `docs/rfcs/` using the existing
+[RFC process and template](docs/rfcs/README.md).
 
 ### Branch Naming
 
@@ -112,22 +136,19 @@ Prefixes:
 
 ### Pull Requests
 
-Create PRs with a clear summary and test plan:
-
-```bash
-gh pr create --title "Brief description" --body "## Summary
-- Bullet point summary of changes
-
-## Test Plan
-- How to verify the changes work"
-```
+Follow the [PR description standard](docs/development/pr-descriptions.md),
+including the reviewable diff, architecture, diagrams, and validation evidence.
+Scale the detail to the change while retaining the required structure.
+Claude Code users can generate a conforming description with `/pr-describe`;
+Codex users can run the same shared skill with `$pr-describe`.
 
 ## Cross-Component Workflows
 
 ### Adding a New API Endpoint
 
 1. Define the API in the appropriate `.proto` file in `proto/`
-2. Run `just gen` to regenerate TypeScript and Go code
+2. Run `just gen-protos` from the repo root to regenerate TypeScript and Go code
+   (see [Code Generation](#code-generation) for command selection)
 3. Implement the server handler in `server/internal/handlers/`
 4. Register the handler in `server/cmd/fleetd/main.go`
 5. Create a client hook in `client/src/{app}/api/`
@@ -138,8 +159,9 @@ gh pr create --title "Brief description" --body "## Summary
 
 1. Create a migration: `cd server && just db-migration-new <name>`
 2. Write both up and down migrations in `server/migrations/`
-3. Run `just gen` to regenerate sqlc bindings
-4. Update queries in `server/sqlc/queries/` if needed
+3. Update queries in `server/sqlc/queries/` if needed
+4. Run `just gen-db-queries` from the repo root to regenerate sqlc bindings
+   (see [Code Generation](#code-generation) for command selection)
 5. **Never modify existing migrations after they have been deployed**
 
 ### Adding Features to the Client
@@ -159,11 +181,11 @@ gh pr create --title "Brief description" --body "## Summary
 
 ## Code Generation
 
-All generated code must be committed to Git. Run `just gen` after:
-
-- Modifying protobuf definitions in `proto/`
-- Changing database migrations in `server/migrations/`
-- Adding or modifying sqlc queries in `server/sqlc/queries/`
+Follow the [generation skill](.agents/skills/code-generation/SKILL.md) to
+select the command for protobuf, SQL schema/query, Go generator input, or
+generator configuration changes. Use full `just gen` for changes spanning
+generators or their configuration. Validate affected consumers and commit
+generated output together with its sources.
 
 Never manually edit generated files in:
 

@@ -1,9 +1,9 @@
 # Use the official Go image as a base image
-FROM golang:1.25.4-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 
 RUN apk add git
 
-RUN go install github.com/go-delve/delve/cmd/dlv@v1.25.2
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.27.0
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -21,9 +21,6 @@ COPY server/ ./
 RUN go build -gcflags="all=-N -l" -o out/ -v ./...
 
 FROM alpine:3.22.0 AS runner
-
-# Install Nmap
-RUN apk add --no-cache nmap
 
 # Set the working directory
 WORKDIR /app

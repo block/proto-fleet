@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/testutil"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -16,13 +15,15 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver for the unconnected test handle
 )
 
 // Global counter for generating unique test IPs
 // Using atomic operations ensures uniqueness even in parallel tests
 var testDeviceIPCounter uint32
 
-func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *token.Service) {
+func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 	t.Helper()
 
 	testConfig, err := testutil.GetTestConfig()
@@ -38,16 +39,32 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *toke
 	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err, "Failed to create files service")
 
-	tokenService, err := token.NewService(token.Config{
-		ClientToken: token.AuthTokenConfig{
-			SecretKey:        testConfig.AuthTokenSecretKey,
-			ExpirationPeriod: 5 * time.Minute,
-		},
-		MinerTokenExpirationPeriod: 5 * time.Minute,
-	})
-	require.NoError(t, err, "Failed to create token service")
+	return db, encryptService, filesService
+}
 
-	return db, encryptService, filesService, tokenService
+// newServiceDepsNoDB builds NewMinerService dependencies WITHOUT provisioning a
+// database. The returned *sql.DB is a valid but unconnected handle, for tests
+// that never query it (constructor guards and the empty-identifier
+// short-circuit) — this avoids the per-test migrated-DB cost.
+func newServiceDepsNoDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
+	t.Helper()
+
+	testConfig, err := testutil.GetTestConfig()
+	require.NoError(t, err, "Failed to get test config")
+
+	db, err := sql.Open("pgx", "postgres://127.0.0.1:1/invalid?sslmode=disable")
+	require.NoError(t, err, "Failed to open unconnected db handle")
+	t.Cleanup(func() { _ = db.Close() })
+
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: testConfig.ServiceMasterKey,
+	})
+	require.NoError(t, err, "Failed to create encrypt service")
+
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err, "Failed to create files service")
+
+	return db, encryptService, filesService
 }
 
 func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer string, deviceType string) int64 {
@@ -61,8 +78,8 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM organization WHERE id = $1)`, orgID).Scan(&exists)
 	require.NoError(t, err, "Failed to check organization existence")
 	if !exists {
-		_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES ($1, $2, $3, $4)`,
-			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID), "dummy-key-for-testing")
+		_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, $2, $3)`,
+			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID))
 		require.NoError(t, err, "Failed to insert organization")
 	}
 

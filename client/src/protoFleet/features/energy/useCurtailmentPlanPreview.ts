@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import {
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeSelectionCount,
+} from "@/protoFleet/api/curtailmentScopes";
 import {
   CurtailmentMode,
   CurtailmentPriority,
@@ -9,12 +14,14 @@ import {
   type PreviewCurtailmentPlanRequest,
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
+import {
+  buildForceInclusionFields,
+  curtailmentExecutionSchemaVersion,
+  getResponseProfileExecutionFields,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -23,20 +30,31 @@ interface UseCurtailmentPlanPreviewOptions {
   values: CurtailmentFormValues;
   disabled?: boolean;
   debounceMs?: number;
+  refreshIntervalMs?: number;
 }
 
 type CurtailmentPlanPreviewRequestValues = Pick<
   CurtailmentFormValues,
   | "scopeType"
   | "scopeId"
+  | "siteSelection"
   | "siteId"
+  | "siteIds"
+  | "buildingTargetIds"
+  | "rackTargetIds"
+  | "groupTargetIds"
   | "deviceSetIds"
   | "deviceIdentifiers"
+  | "minerSelectionMode"
+  | "responseProfileId"
+  | "responseProfileRevision"
   | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
   | "priority"
+  | "postEventCooldownSec"
   | "includeMaintenance"
+  | "forceIncludeAllPairedMiners"
 >;
 
 interface CurtailmentPlanPreviewResult {
@@ -71,6 +89,8 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
 
 interface CurtailmentPlanPreviewSource {
   selectedMinerCount: number;
+  facilityFanDeviceCount?: number;
+  unavailableMinerCount?: number;
   targetKw?: number;
   estimatedReductionKw: number;
 }
@@ -110,59 +130,44 @@ function toApiPriority(priority: CurtailmentFormValues["priority"]): Curtailment
 function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): CurtailmentPlanPreviewRequestValues {
   return {
     ...values,
+    siteIds: values.siteIds ? [...values.siteIds] : undefined,
+    buildingTargetIds: values.buildingTargetIds ? [...values.buildingTargetIds] : undefined,
+    rackTargetIds: values.rackTargetIds ? [...values.rackTargetIds] : undefined,
+    groupTargetIds: values.groupTargetIds ? [...values.groupTargetIds] : undefined,
     deviceSetIds: [...values.deviceSetIds],
     deviceIdentifiers: [...values.deviceIdentifiers],
   };
 }
 
-function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
-  switch (values.scopeType) {
-    case "wholeOrg":
-      return {
-        case: "wholeOrg",
-        value: create(ScopeWholeOrgSchema, {}),
-      };
-    case "site": {
-      const siteId = parseCurtailmentSiteId(values.siteId);
-      if (siteId === undefined) {
-        return undefined;
-      }
-      return {
-        case: "site",
-        value: create(ScopeSiteSchema, { siteId }),
-      };
-    }
-    case "deviceSet":
-      return undefined;
-    case "explicitMiners":
-      if (values.deviceIdentifiers.length === 0) {
-        return undefined;
-      }
-      return {
-        case: "deviceIdentifiers",
-        value: create(ScopeDeviceListSchema, {
-          deviceIdentifiers: values.deviceIdentifiers,
-        }),
-      };
-  }
+function hasPreviewTargets(response: PreviewCurtailmentPlanResponse): boolean {
+  return response.candidates.length > 0 || response.policyTargetCount > 0;
 }
 
 export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
-  const scope = buildScope(values);
+  const scopes = buildCurtailmentScopes(values);
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
 
-  if (scope === undefined) {
+  if (scopes === undefined || responseProfileExecutionFields === undefined) {
     return undefined;
   }
-
+  const postEventCooldownSec = parseNonNegativeInteger(values.postEventCooldownSec ?? "");
+  if (postEventCooldownSec !== undefined && postEventCooldownSec > curtailmentNumericFieldLimits.postEventCooldownSec) {
+    return undefined;
+  }
   if (values.curtailmentMode === "fullFleet") {
+    // Mirror the Start request builder so preview counts match what a
+    // subsequent Start will actually target.
     return create(PreviewCurtailmentPlanRequestSchema, {
-      scope,
+      scopes,
+      scopeSchemaVersion: curtailmentScopeSchemaVersion,
+      executionSchemaVersion: curtailmentExecutionSchemaVersion,
+      ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
-      includeMaintenance: values.includeMaintenance,
-      forceIncludeMaintenance: values.includeMaintenance,
+      postEventCooldownSec,
+      ...buildForceInclusionFields(values),
     });
   }
 
@@ -173,9 +178,13 @@ export function buildPreviewCurtailmentPlanRequest(
   }
 
   return create(PreviewCurtailmentPlanRequestSchema, {
-    scope,
+    scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
+    ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
+    postEventCooldownSec,
     modeParams: {
       case: "fixedKw",
       value: create(FixedKwParamsSchema, {
@@ -185,6 +194,7 @@ export function buildPreviewCurtailmentPlanRequest(
     },
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: false,
   });
 }
 
@@ -204,10 +214,46 @@ function formatSelectedScopeLabel(count: number, singular: string): string {
   return count === 1 ? `from 1 selected ${singular}` : `from ${count} selected ${singular}s`;
 }
 
+function formatSelectedMinerScopeLabel(count: number): string {
+  return count === 1 ? "from the selected miner" : "from selected miners";
+}
+
 function formatScopeLabel(values: CurtailmentFormValues): string {
+  if (values.minerSelectionMode === "all") {
+    return "across the fleet";
+  }
+
+  const selectedMinerCount = values.deviceIdentifiers?.length ?? 0;
+  const selectedSiteIds =
+    values.siteSelection === "site" || values.siteSelection === "allSites"
+      ? values.siteIds?.length
+        ? values.siteIds
+        : values.siteId
+          ? [values.siteId]
+          : []
+      : [];
+  const selectedSiteLabel =
+    values.siteSelection === "allSites"
+      ? "all sites"
+      : selectedSiteIds.length === 1
+        ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
+        : `${selectedSiteIds.length} selected sites`;
+  const siteLabel = `from ${selectedSiteLabel}`;
+  const canonicalScopeCount = getCurtailmentScopeSelectionCount(values) ?? 0;
+  if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
+    return formatSelectedMinerScopeLabel(selectedMinerCount);
+  }
+  if (values.scopeType === "site" && selectedSiteIds.length > 0) {
+    return siteLabel;
+  }
+
   switch (values.scopeType) {
-    case "site":
-      return values.siteId ? `at site ${values.siteId}` : "at one site";
+    case "building":
+      return formatSelectedScopeLabel(canonicalScopeCount, "building");
+    case "rack":
+      return formatSelectedScopeLabel(canonicalScopeCount, "rack");
+    case "group":
+      return formatSelectedScopeLabel(canonicalScopeCount, "group");
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
@@ -216,10 +262,9 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
       if (values.scopeId === "groups") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "group");
       }
-
       return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "set");
+    case "site":
     case "explicitMiners":
-      return formatSelectedScopeLabel(values.deviceIdentifiers?.length ?? 0, "miner");
     case "wholeOrg":
     default:
       return "across the fleet";
@@ -252,39 +297,73 @@ function formatDurationEstimate(seconds: number, approximate = true): string {
   return `${prefix}${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
 }
 
-function estimateCurtailDuration(values: CurtailmentFormValues): string {
-  const minDurationSec = parseNonNegativeInteger(values.minDurationSec);
-  const maxDurationSec = parseNonNegativeInteger(values.maxDurationSec);
-  const hasMinDuration = minDurationSec !== undefined && minDurationSec > 0;
-  const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
-
-  if (hasMinDuration && hasMaxDuration) {
-    return minDurationSec === maxDurationSec
-      ? formatDurationEstimate(minDurationSec, false)
-      : `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
+function formatDurationWithInfrastructureDelay(
+  minerDurationSec: number | undefined,
+  infrastructureDelaySec: number,
+): string {
+  if (minerDurationSec !== undefined) {
+    return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
   }
 
-  if (hasMinDuration) {
-    return `${formatDurationEstimate(minDurationSec, false)} - server default`;
-  }
-
-  if (hasMaxDuration) {
-    return `Up to ${formatDurationEstimate(maxDurationSec, false)}`;
-  }
-
-  return "Server default";
-}
-
-function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  const restoreBatchSize = parsePositiveInteger(values.restoreBatchSize);
-  const restoreIntervalSec = parsePositiveInteger(values.restoreIntervalSec);
-
-  if (restoreBatchSize === undefined || restoreIntervalSec === undefined) {
+  if (infrastructureDelaySec === 0) {
     return "Server default";
   }
 
-  const restoreBatchCount = Math.ceil(selectedMinerCount / restoreBatchSize);
-  return formatDurationEstimate(Math.max(restoreBatchCount - 1, 0) * restoreIntervalSec);
+  return `Server default + ${formatDurationEstimate(infrastructureDelaySec, false)}`;
+}
+
+function facilityFanDelaySeconds(
+  facilityFanDeviceIds: CurtailmentFormValues["facilityFanDeviceIds"],
+  delaySecValue: string | undefined,
+): number {
+  if ((facilityFanDeviceIds?.length ?? 0) === 0) {
+    return 0;
+  }
+
+  return parseNonNegativeInteger(delaySecValue ?? "") ?? 0;
+}
+
+function estimateConfiguredBatchDurationSeconds(
+  batchSizeValue: string,
+  intervalSecValue: string,
+  selectedMinerCount: number,
+): number | undefined {
+  const batchSize = parsePositiveInteger(batchSizeValue);
+  const intervalSec = parseNonNegativeInteger(intervalSecValue);
+
+  if (batchSize === undefined || intervalSec === undefined) {
+    return undefined;
+  }
+
+  return estimateBatchDurationSeconds(batchSize, intervalSec, selectedMinerCount);
+}
+
+function estimateBatchDurationSeconds(batchSize: number, intervalSec: number, selectedMinerCount: number): number {
+  const batchCount = Math.ceil(selectedMinerCount / batchSize);
+  return Math.max(batchCount - 1, 0) * intervalSec;
+}
+
+function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
+  const minerDurationSec = estimateConfiguredBatchDurationSeconds(
+    values.curtailBatchSize,
+    values.curtailBatchIntervalSec,
+    selectedMinerCount,
+  );
+  const infrastructureDelaySec = facilityFanDelaySeconds(values.facilityFanDeviceIds, values.fanOffDelaySec);
+
+  return formatDurationWithInfrastructureDelay(minerDurationSec, infrastructureDelaySec);
+}
+
+function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
+  const batchSize = parseNonNegativeInteger(values.restoreBatchSize) ?? 0;
+  const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
+  const infrastructureDelaySec = facilityFanDelaySeconds(values.facilityFanDeviceIds, values.fanRestoreDelaySec);
+  if (intervalSec === 0) {
+    return formatDurationEstimate(infrastructureDelaySec);
+  }
+  const effectiveBatchSize = batchSize === 0 ? curtailmentNumericFieldLimits.restoreBatchSize : batchSize;
+  const minerDurationSec = estimateBatchDurationSeconds(effectiveBatchSize, intervalSec, selectedMinerCount);
+  return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
 }
 
 export function createCurtailmentPlanPreview(
@@ -292,6 +371,10 @@ export function createCurtailmentPlanPreview(
   source: CurtailmentPlanPreviewSource,
 ): CurtailmentPlanPreview {
   const selectedMinerCount = Number.isFinite(source.selectedMinerCount) ? source.selectedMinerCount : 0;
+  const facilityFanDeviceCount =
+    source.facilityFanDeviceCount !== undefined && Number.isFinite(source.facilityFanDeviceCount)
+      ? source.facilityFanDeviceCount
+      : (values.facilityFanDeviceIds?.length ?? 0);
   const fallbackTargetKw =
     values.curtailmentMode === "fullFleet" && Number.isFinite(source.estimatedReductionKw)
       ? source.estimatedReductionKw
@@ -302,9 +385,14 @@ export function createCurtailmentPlanPreview(
 
   return {
     selectedMinerCount,
+    facilityFanDeviceCount,
+    unavailableMinerCount:
+      source.unavailableMinerCount !== undefined && Number.isFinite(source.unavailableMinerCount)
+        ? source.unavailableMinerCount
+        : undefined,
     targetKw,
     estimatedReductionKw,
-    curtailEstimate: estimateCurtailDuration(values),
+    curtailEstimate: estimateCurtailDuration(values, selectedMinerCount),
     restoreEstimate: estimateRestoreDuration(values, selectedMinerCount),
     scopeLabel: formatScopeLabel(values),
   };
@@ -322,7 +410,8 @@ function toCurtailmentPlanPreview(
       : undefined);
 
   return createCurtailmentPlanPreview(values, {
-    selectedMinerCount: response.candidates.length,
+    selectedMinerCount: response.policyTargetCount > 0 ? response.policyTargetCount : response.candidates.length,
+    unavailableMinerCount: response.unavailableTargetCount,
     targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
   });
@@ -333,30 +422,52 @@ export function useCurtailmentPlanPreview({
   values,
   disabled = false,
   debounceMs = 300,
+  refreshIntervalMs = 10_000,
 }: UseCurtailmentPlanPreviewOptions): CurtailmentPlanPreviewResult {
   const { handleAuthErrors } = useAuthErrors();
   const [state, setState] = useState<CurtailmentPlanPreviewState>(emptyPreviewState);
+  const requestGenerationRef = useRef(0);
   const requestValues = useMemo<CurtailmentPlanPreviewRequestValues>(
     () => ({
       scopeType: values.scopeType,
       scopeId: values.scopeId,
+      siteSelection: values.siteSelection,
       siteId: values.siteId,
+      siteIds: values.siteIds,
+      buildingTargetIds: values.buildingTargetIds,
+      rackTargetIds: values.rackTargetIds,
+      groupTargetIds: values.groupTargetIds,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
+      minerSelectionMode: values.minerSelectionMode,
+      responseProfileId: values.responseProfileId,
+      responseProfileRevision: values.responseProfileRevision,
       curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
       priority: values.priority,
+      postEventCooldownSec: values.postEventCooldownSec,
       includeMaintenance: values.includeMaintenance,
+      forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
     [
+      values.buildingTargetIds,
       values.deviceSetIds,
       values.deviceIdentifiers,
+      values.groupTargetIds,
+      values.minerSelectionMode,
+      values.responseProfileId,
+      values.responseProfileRevision,
       values.curtailmentMode,
       values.includeMaintenance,
+      values.forceIncludeAllPairedMiners,
       values.priority,
+      values.postEventCooldownSec,
+      values.rackTargetIds,
       values.scopeId,
+      values.siteSelection,
       values.siteId,
+      values.siteIds,
       values.scopeType,
       values.targetKw,
       values.toleranceKw,
@@ -386,6 +497,8 @@ export function useCurtailmentPlanPreview({
     let isActive = true;
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => {
+      const requestGeneration = requestGenerationRef.current + 1;
+      requestGenerationRef.current = requestGeneration;
       setState((current) => ({
         ...current,
         previewError: undefined,
@@ -396,11 +509,11 @@ export function useCurtailmentPlanPreview({
       void curtailmentClient
         .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
         .then((response) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
-          if (response.candidates.length === 0) {
+          if (!hasPreviewTargets(response)) {
             setState({
               response: undefined,
               responseRequestKey: undefined,
@@ -422,14 +535,14 @@ export function useCurtailmentPlanPreview({
           });
         })
         .catch((error) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
           handleAuthErrors({
             error,
             onError: (err) => {
-              if (!isActive) {
+              if (!isActive || requestGeneration !== requestGenerationRef.current) {
                 return;
               }
 
@@ -452,6 +565,90 @@ export function useCurtailmentPlanPreview({
       abortController.abort();
     };
   }, [debounceMs, disabled, handleAuthErrors, open, requestState, requestValues]);
+
+  useEffect(() => {
+    if (!open || disabled || refreshIntervalMs <= 0 || requestState === undefined) {
+      return;
+    }
+
+    let isActive = true;
+    let refreshInFlight = false;
+    const abortControllers = new Set<AbortController>();
+    const intervalId = setInterval(() => {
+      if (refreshInFlight) {
+        return;
+      }
+
+      refreshInFlight = true;
+      const requestGeneration = requestGenerationRef.current + 1;
+      requestGenerationRef.current = requestGeneration;
+      const abortController = new AbortController();
+      abortControllers.add(abortController);
+
+      void curtailmentClient
+        .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
+        .then((response) => {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
+            return;
+          }
+
+          if (!hasPreviewTargets(response)) {
+            setState({
+              response: undefined,
+              responseRequestKey: undefined,
+              responseRequestValues: undefined,
+              previewError: emptyCandidatesPreviewError,
+              isPreviewLoading: false,
+              requestKey: requestState.requestKey,
+            });
+            return;
+          }
+
+          setState({
+            response,
+            responseRequestKey: requestState.requestKey,
+            responseRequestValues: cloneRequestValues(requestValues),
+            previewError: undefined,
+            isPreviewLoading: false,
+            requestKey: requestState.requestKey,
+          });
+        })
+        .catch((error) => {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
+            return;
+          }
+
+          handleAuthErrors({
+            error,
+            onError: (err) => {
+              if (!isActive || requestGeneration !== requestGenerationRef.current) {
+                return;
+              }
+
+              setState({
+                response: undefined,
+                responseRequestKey: undefined,
+                responseRequestValues: undefined,
+                previewError: getErrorMessage(err, "Preview is unavailable."),
+                isPreviewLoading: false,
+                requestKey: requestState.requestKey,
+              });
+            },
+          });
+        })
+        .finally(() => {
+          refreshInFlight = false;
+          abortControllers.delete(abortController);
+        });
+    }, refreshIntervalMs);
+
+    return () => {
+      isActive = false;
+      clearInterval(intervalId);
+      abortControllers.forEach((abortController) => abortController.abort());
+      abortControllers.clear();
+    };
+  }, [disabled, handleAuthErrors, open, refreshIntervalMs, requestState, requestValues]);
 
   if (!open || disabled) {
     return emptyPreviewResult;

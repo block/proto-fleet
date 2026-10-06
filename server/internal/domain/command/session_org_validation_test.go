@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,9 +36,9 @@ func sessionCtxWithOrg(orgID int64) context.Context {
 func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 	// Constructing a Service struct directly (same-package test) so we never
 	// reach the DB layer -- validation must short-circuit before then. The
-	// executionService is pre-marked running so the IsRunning() check passes
+	// executionService is pre-marked running so startup does not reach the queue
 	// and control reaches the validation we care about.
-	es := &ExecutionService{queueProcessorRunning: true}
+	es := &ExecutionService{run: newExecutionRun(context.Background())}
 	svc := &Service{config: &Config{}, executionService: es}
 
 	cases := []struct {
@@ -63,7 +64,7 @@ func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 }
 
 func TestReapplyCurrentPoolsWithWorkerNames_RejectsMissingOrgID(t *testing.T) {
-	es := &ExecutionService{queueProcessorRunning: true}
+	es := &ExecutionService{run: newExecutionRun(context.Background())}
 	svc := &Service{config: &Config{}, executionService: es}
 
 	ctx := sessionCtxWithOrg(0)
@@ -74,4 +75,20 @@ func TestReapplyCurrentPoolsWithWorkerNames_RejectsMissingOrgID(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
 	assert.Contains(t, err.Error(), "session missing organization_id")
+}
+
+func TestCommandServiceDoesNotRestartExecutionFromPassiveTraffic(t *testing.T) {
+	execution := &ExecutionService{}
+	svc := &Service{config: &Config{}, executionService: execution}
+
+	_, err := svc.processCommand(sessionCtxWithOrg(1), &Command{
+		commandType:    commandtype.Reboot,
+		deviceSelector: &pb.DeviceSelector{},
+	})
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	require.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
+	require.Contains(t, fleetErr.DebugMessage, "not active")
+	require.False(t, execution.IsRunning())
 }

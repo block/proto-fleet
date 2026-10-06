@@ -76,11 +76,11 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
     };
 
     return (
-      <div className="flex w-full flex-row overflow-hidden rounded-xl bg-surface-base dark:bg-core-primary-5 phone:flex-col phone:gap-6">
-        <ChartWidget stats={stat} className="w-1/2 rounded-none! bg-transparent dark:bg-transparent phone:w-full">
+      <div className="flex w-full flex-row overflow-hidden rounded-xl bg-surface-elevated-base shadow-100 phone:flex-col phone:gap-6">
+        <ChartWidget stats={stat} className="w-1/2 rounded-none! bg-transparent! shadow-none! phone:w-full">
           <SkeletonBar className="h-60 w-full" />
         </ChartWidget>
-        <div className="flex w-1/2 flex-col justify-center gap-16 space-y-3 rounded-xl bg-transparent p-10 dark:bg-transparent phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
+        <div className="flex w-1/2 flex-col justify-center gap-16 space-y-3 rounded-xl bg-transparent p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
           <SkeletonBar className="h-20 w-full" />
           <SkeletonBar className="h-20 w-full" />
         </div>

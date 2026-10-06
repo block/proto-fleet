@@ -1,13 +1,16 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
+import clsx from "clsx";
 
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import ActionSheet from "@/shared/components/ActionSheet";
+import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 export interface RowAction {
   label: string;
@@ -16,6 +19,8 @@ export interface RowAction {
   // Thick divider rendered below the row; suppressed on the last row.
   showGroupDivider?: boolean;
   hidden?: boolean;
+  disabled?: boolean;
+  danger?: boolean;
   testId?: string;
 }
 
@@ -26,6 +31,12 @@ interface RowActionsMenuProps {
   // Falls back to `${testIdPrefix}-trigger` / `row-actions-menu-trigger`.
   triggerTestId?: string;
   disabled?: boolean;
+  triggerLabel?: string;
+  triggerClassName?: string;
+  triggerVariant?: ButtonVariant;
+  triggerSuffixIcon?: ReactNode;
+  onOpenChange?: (open: boolean) => void;
+  popoverTestId?: string;
 }
 
 const RowActionsMenu = ({
@@ -34,6 +45,12 @@ const RowActionsMenu = ({
   testIdPrefix,
   triggerTestId,
   disabled,
+  triggerLabel,
+  triggerClassName,
+  triggerVariant,
+  triggerSuffixIcon,
+  onOpenChange,
+  popoverTestId,
 }: RowActionsMenuProps) => (
   <PopoverProvider>
     <RowActionsMenuInner
@@ -42,6 +59,12 @@ const RowActionsMenu = ({
       testIdPrefix={testIdPrefix}
       triggerTestId={triggerTestId}
       disabled={disabled}
+      triggerLabel={triggerLabel}
+      triggerClassName={triggerClassName}
+      triggerVariant={triggerVariant}
+      triggerSuffixIcon={triggerSuffixIcon}
+      onOpenChange={onOpenChange}
+      popoverTestId={popoverTestId}
     />
   </PopoverProvider>
 );
@@ -52,48 +75,103 @@ const RowActionsMenuInner = ({
   testIdPrefix,
   triggerTestId,
   disabled,
+  triggerLabel,
+  triggerClassName,
+  triggerVariant,
+  triggerSuffixIcon,
+  onOpenChange,
+  popoverTestId: popoverTestIdProp,
 }: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> &
-  Pick<RowActionsMenuProps, "testIdPrefix" | "triggerTestId" | "disabled">) => {
+  Pick<
+    RowActionsMenuProps,
+    | "testIdPrefix"
+    | "triggerTestId"
+    | "disabled"
+    | "triggerLabel"
+    | "triggerClassName"
+    | "triggerVariant"
+    | "triggerSuffixIcon"
+    | "onOpenChange"
+    | "popoverTestId"
+  >) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
+  const { isPhone } = useWindowDimensions();
   const [isOpen, setIsOpen] = useState(false);
+  const resolvedTriggerTestId =
+    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
+  const popoverTestId = popoverTestIdProp ?? (testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover");
 
   // Portal-fixed keeps the popover above the list's overflow scroll containers.
   useEffect(() => {
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
 
-  // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
+  // Disabled hard-closes; re-enable doesn't resurrect, operator must reopen.
   const open = isOpen && !disabled;
 
-  const onClickOutside = useCallback(() => setIsOpen(false), []);
+  const setMenuOpen = useCallback(
+    (nextOpen: boolean) => {
+      setIsOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
+  const onClickOutside = useCallback(() => setMenuOpen(false), [setMenuOpen]);
   useClickOutside({
     ref: triggerRef,
     onClickOutside,
-    ignoreSelectors: [".popover-content"],
+    ignoreSelectors: [".popover-content", `[data-testid="${popoverTestId}"]`],
   });
 
   const visibleActions = actions.filter((action) => !action.hidden);
   if (visibleActions.length === 0) return null;
 
-  const resolvedTriggerTestId =
-    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
-  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
-
   return (
     <div className="relative" ref={triggerRef}>
       <Button
-        className="-my-[10px] !p-[14px]"
+        className={triggerClassName ?? "-my-[10px] !p-[14px]"}
         size={sizes.compact}
-        variant={variants.textOnly}
-        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        variant={triggerVariant ?? variants.textOnly}
+        prefixIcon={triggerLabel ? undefined : <Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        suffixIcon={triggerSuffixIcon}
         ariaLabel={ariaLabel}
+        ariaHasPopup="menu"
+        ariaExpanded={open}
         testId={resolvedTriggerTestId}
         disabled={disabled}
-        onClick={() => setIsOpen((prev) => !prev)}
-      />
-      {open ? (
+        onClick={() => setMenuOpen(!open)}
+      >
+        {triggerLabel}
+      </Button>
+      {open && isPhone ? (
+        <ActionSheet
+          items={visibleActions.map((action) => ({
+            disabled: action.disabled,
+            danger: action.danger,
+            icon: action.icon,
+            label: action.label,
+            onClick: action.onClick,
+            showGroupDivider: action.showGroupDivider,
+            testId: action.testId,
+          }))}
+          onClose={() => setMenuOpen(false)}
+          contentTestId={popoverTestId}
+          testId={`${popoverTestId}-sheet`}
+        />
+      ) : null}
+      {open && !isPhone ? (
         <Popover
+          // Cap to the visible viewport (8px off top + bottom) and scroll internally
+          // so a menu taller than the screen stays fully reachable. `constrainHeightToViewport`
+          // caps + scrolls the popover wrapper and tracks `visualViewport`, so the cap holds
+          // under pinch-zoom / browser-chrome collapse where a CSS `100vh` cap would exceed
+          // the tappable area. Pairs with the portal-fixed flip/clamp, which pins a capped
+          // menu 8px off both edges (#727).
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          constrainHeightToViewport
+          closeIgnoreSelectors={[`[data-testid="${resolvedTriggerTestId}"]`]}
+          closePopover={() => setMenuOpen(false)}
           position={positions["bottom right"]}
           size={popoverSizes.small}
           offset={8}
@@ -103,13 +181,14 @@ const RowActionsMenuInner = ({
             <Fragment key={action.testId ?? `${action.label}-${index}`}>
               <div className="px-4">
                 <Row
-                  className="text-emphasis-300"
+                  className={clsx("text-emphasis-300", action.danger && "text-intent-critical-fill")}
                   prefixIcon={action.icon}
                   testId={action.testId}
                   onClick={() => {
-                    setIsOpen(false);
+                    setMenuOpen(false);
                     action.onClick();
                   }}
+                  disabled={action.disabled}
                   compact
                   divider={false}
                 >

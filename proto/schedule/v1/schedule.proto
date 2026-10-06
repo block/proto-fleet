@@ -111,17 +111,22 @@ enum ScheduleTargetType {
     SCHEDULE_TARGET_TYPE_RACK = 1;
     SCHEDULE_TARGET_TYPE_MINER = 2;
     SCHEDULE_TARGET_TYPE_GROUP = 3;
+    // Site and building targets expand to all paired miners currently at the
+    // site / building at execution time (dynamic, not a create-time snapshot).
+    SCHEDULE_TARGET_TYPE_SITE = 4;
+    SCHEDULE_TARGET_TYPE_BUILDING = 5;
 }
 
-// Target for a schedule (rack, group, or individual miner)
+// Target for a schedule (rack, group, individual miner, site, or building)
 message ScheduleTarget {
-    // Type of target: rack, group, or miner
+    // Type of target: rack, group, miner, site, or building
     ScheduleTargetType target_type = 1 [(buf.validate.field).enum = {
         defined_only: true
         not_in: [0]
     }];
 
-    // Identifier for the target (rack ID, group ID, or miner device identifier)
+    // Identifier for the target: rack ID, group ID, site ID, or building ID
+    // (decimal string), or a miner device identifier.
     string target_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 

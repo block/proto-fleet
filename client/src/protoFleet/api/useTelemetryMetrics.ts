@@ -20,6 +20,10 @@ interface TelemetryMetricsOptions {
   duration: FleetDuration;
   enabled?: boolean;
   pollIntervalMs?: number;
+  /** Scope metrics to specific sites (OR). Empty = all sites. */
+  siteIds?: bigint[];
+  /** Include metrics for devices with no site assignment. */
+  includeUnassigned?: boolean;
 }
 
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
@@ -33,7 +37,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
   const hasLoadedRef = useRef(false);
 
   // Reset when scope changes — invalidate in-flight requests so stale responses can't land
-  const scopeKey = `${options.duration}-${options.deviceIds?.join(",") ?? "all"}`;
+  const siteScopeKey = `${options.siteIds?.map(String).join(",") ?? ""}|${options.includeUnassigned ?? false}`;
+  const scopeKey = `${options.duration}-${options.deviceIds?.join(",") ?? "all"}-${siteScopeKey}`;
   const prevScopeRef = useRef(scopeKey);
   if (prevScopeRef.current !== scopeKey) {
     prevScopeRef.current = scopeKey;
@@ -89,6 +94,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
         },
         pageSize: 10000,
         pageToken: "",
+        siteIds: options.siteIds ?? [],
+        includeUnassigned: options.includeUnassigned ?? false,
       });
 
       const response = await telemetryClient.getCombinedMetrics(request);
@@ -125,6 +132,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
     options.aggregations,
     options.duration,
     options.enabled,
+    options.siteIds,
+    options.includeUnassigned,
     handleAuthErrors,
   ]);
 

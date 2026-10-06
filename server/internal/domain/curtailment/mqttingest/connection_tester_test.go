@@ -129,7 +129,7 @@ func TestMQTTConnectionTester_TestConnectionConnectsAndSubscribesBothBrokers(t *
 		assert.Equal(t, brokerTransportTCP, client.transport)
 		assert.Equal(t, "operator", client.username)
 		assert.Equal(t, "secret", client.password)
-		assert.Equal(t, "maestro/curtailment", client.topic)
+		assert.Equal(t, "maestro/target", client.topic)
 		assert.NotEmpty(t, client.clientIdentity)
 		assert.Equal(t, 50*time.Millisecond, client.disconnectDeadline)
 		client.mu.Unlock()

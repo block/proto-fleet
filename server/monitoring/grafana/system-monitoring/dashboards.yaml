@@ -1,0 +1,16 @@
+# Dashboard provider for the system-monitoring overlays; bind-mounted over
+# the empty placeholder at provisioning/dashboards/system-monitoring.yaml.
+# The JSON lives outside the provisioning tree so plain-alerts stacks (which
+# mount all of provisioning/) never ship it.
+apiVersion: 1
+
+providers:
+  - name: system-monitoring
+    folder: System Monitoring
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards/system-monitoring
+      foldersFromFilesStructure: false

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net/netip"
+	"strings"
 	"testing"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -78,6 +79,20 @@ func TestParseFilter_NilFilter(t *testing.T) {
 	assert.Empty(t, filter.FirmwareVersions)
 	assert.Empty(t, filter.ZoneKeys)
 	assert.Empty(t, filter.BuildingIDs)
+}
+
+func TestParseFilter_SearchQuery(t *testing.T) {
+	filter, err := callParseFilter(t, &pb.MinerListFilter{SearchQuery: "  worker-42  "})
+
+	require.NoError(t, err)
+	assert.Equal(t, "worker-42", filter.SearchQuery)
+}
+
+func TestParseFilter_SearchQueryTooLong(t *testing.T) {
+	_, err := callParseFilter(t, &pb.MinerListFilter{SearchQuery: strings.Repeat("x", maxMinerSearchQueryLength+1)})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "search_query exceeds maximum")
 }
 
 func TestParseFilter_FirmwareVersions(t *testing.T) {
@@ -404,7 +419,7 @@ func TestParseFilter_NewFiltersCombineWithExisting(t *testing.T) {
 
 // TestParseFilter_SiteIDs covers the multi-site filter split: site_ids
 // is a repeated list (OR logic) and include_unassigned is an independent
-// bool. Plan §"device/" filter notes — the four allowed combos are
+// bool. The four allowed combinations are
 // (none), site_ids only, include_unassigned only, both.
 func TestParseFilter_SiteIDs(t *testing.T) {
 	t.Run("specific sites", func(t *testing.T) {
@@ -811,6 +826,93 @@ func TestParseFilter_IPCIDRs_AcceptsMaxSizedArray(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, filter.IPCIDRs, maxFreeFormFilterValues)
+}
+
+func TestParseFilter_IPRanges_HappyPath(t *testing.T) {
+	pbFilter := &pb.MinerListFilter{
+		IpRanges: []*pb.IpRange{
+			{StartIp: "10.0.0.10", EndIp: "10.0.0.20"},
+			{StartIp: "192.168.1.1", EndIp: "192.168.1.5"},
+		},
+	}
+
+	filter, err := callParseFilter(t, pbFilter)
+
+	require.NoError(t, err)
+	require.Len(t, filter.IPRanges, 2)
+	assert.Equal(t, netip.MustParseAddr("10.0.0.10"), filter.IPRanges[0].Start)
+	assert.Equal(t, netip.MustParseAddr("10.0.0.20"), filter.IPRanges[0].End)
+	assert.Equal(t, netip.MustParseAddr("192.168.1.1"), filter.IPRanges[1].Start)
+	assert.Equal(t, netip.MustParseAddr("192.168.1.5"), filter.IPRanges[1].End)
+}
+
+func TestParseFilter_IPRanges_RejectsInvalid(t *testing.T) {
+	cases := []struct {
+		name  string
+		start string
+		end   string
+	}{
+		{name: "empty start", start: "", end: "10.0.0.20"},
+		{name: "empty end", start: "10.0.0.10", end: ""},
+		{name: "malformed start", start: "foo", end: "10.0.0.20"},
+		{name: "malformed end", start: "10.0.0.10", end: "999.999.999.999"},
+		{name: "end before start", start: "10.0.0.20", end: "10.0.0.10"},
+		{name: "mixed family", start: "10.0.0.10", end: "2001:db8::1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pbFilter := &pb.MinerListFilter{
+				IpRanges: []*pb.IpRange{{StartIp: tc.start, EndIp: tc.end}},
+			}
+			_, err := callParseFilter(t, pbFilter)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
+}
+
+func TestParseFilter_IPRanges_RejectsOversizedArray(t *testing.T) {
+	ranges := make([]*pb.IpRange, maxFreeFormFilterValues+1)
+	for i := range ranges {
+		ranges[i] = &pb.IpRange{StartIp: "10.0.0.10", EndIp: "10.0.0.20"}
+	}
+	pbFilter := &pb.MinerListFilter{IpRanges: ranges}
+
+	_, err := callParseFilter(t, pbFilter)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestParseFilter_IPRanges_RejectsIPv6(t *testing.T) {
+	// ip_ranges is documented IPv4-only; an IPv6 start/end pair must be rejected
+	// even though it parses as a valid same-family range.
+	pbFilter := &pb.MinerListFilter{
+		IpRanges: []*pb.IpRange{{StartIp: "2001:db8::1", EndIp: "2001:db8::ff"}},
+	}
+
+	_, err := callParseFilter(t, pbFilter)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestParseFilter_Subnet_RejectsCombinedOversize(t *testing.T) {
+	// ip_cidrs + ip_ranges are one subnet surface; their combined size is
+	// capped, so splitting entries across both fields can't bypass the limit.
+	cidrs := make([]string, maxFreeFormFilterValues)
+	for i := range cidrs {
+		cidrs[i] = "10.0.0.0/8"
+	}
+	pbFilter := &pb.MinerListFilter{
+		IpCidrs:  cidrs,
+		IpRanges: []*pb.IpRange{{StartIp: "10.0.0.10", EndIp: "10.0.0.20"}},
+	}
+
+	_, err := callParseFilter(t, pbFilter)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 func TestParseFilter_NumericAndCIDR_CombineWithExistingFilters(t *testing.T) {

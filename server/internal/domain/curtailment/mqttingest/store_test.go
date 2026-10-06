@@ -56,3 +56,29 @@ func TestSourceStateFromRow_RehydratesProcessedTarget(t *testing.T) {
 	assert.Equal(t, TargetOn, st.LastProcessedTarget,
 		"processed target survives restart, distinct from the settled target")
 }
+
+func TestSourceStateFromRow_RehydratesReassertOffPendingEdge(t *testing.T) {
+	t.Parallel()
+
+	targetAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	receivedAt := targetAt.Add(500 * time.Millisecond)
+	retryAt := receivedAt.Add(time.Minute)
+
+	st := sourceStateFromRow(sqlc.CurtailmentMqttSourceState{
+		PendingDirection:      sql.NullString{String: "reassert_off", Valid: true},
+		PendingTarget:         sql.NullString{String: "OFF", Valid: true},
+		PendingTargetAt:       sql.NullTime{Time: targetAt, Valid: true},
+		PendingReceivedAt:     sql.NullTime{Time: receivedAt, Valid: true},
+		PendingReceivedBroker: sql.NullString{String: "mqtt-primary", Valid: true},
+		PendingRetryAt:        sql.NullTime{Time: retryAt, Valid: true},
+	})
+
+	if assert.NotNil(t, st.PendingEdge) {
+		assert.Equal(t, EdgeReassertOff, st.PendingEdge.Direction)
+		assert.Equal(t, TargetOff, st.PendingEdge.Target)
+		assert.Equal(t, targetAt, st.PendingEdge.TargetAt)
+		assert.Equal(t, receivedAt, st.PendingEdge.ReceivedAt)
+		assert.Equal(t, "mqtt-primary", st.PendingEdge.ReceivedBroker)
+		assert.Equal(t, retryAt, st.PendingEdge.RetryAt)
+	}
+}

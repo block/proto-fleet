@@ -5,9 +5,11 @@ use std::time::Duration;
 use asic_rs::MinerFactory;
 use asic_rs_core::config::pools::{PoolConfig, PoolGroupConfig};
 use asic_rs_core::config::tuning::TuningConfig;
+use asic_rs_core::data::command::MinerCommand;
+use asic_rs_core::data::message::{MessageSeverity, MinerComponent, MinerMessage};
 use asic_rs_core::data::miner::{MinerData, MiningMode, TuningTarget};
 use asic_rs_core::data::pool::PoolURL;
-use asic_rs_core::traits::miner::{Miner, MinerAuth};
+use asic_rs_core::traits::miner::{APIClient, Miner, MinerAuth, SetFaultLight};
 use futures::FutureExt;
 use proto_fleet_plugin::capabilities::*;
 use tokio::sync::Mutex;
@@ -313,6 +315,36 @@ impl AsicRsDevice {
         }
     }
 
+    /// Read live recovery identity and check the firmware's control-access
+    /// authentication before the endpoint is accepted (a session for LuxOS).
+    pub async fn inspect_recovery(&self) -> anyhow::Result<MinerData> {
+        let data = self.get_data().await?;
+        let guard = self.connected_miner().await?;
+        let miner = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
+        if crate::capabilities::detect_variant(&data.device_info.make, &data.device_info.firmware)
+            == crate::capabilities::VARIANT_LUXOS
+        {
+            probe_recovery_luxos_session(miner.as_ref()).await?;
+            return Ok(data);
+        }
+        match WriteAccessProbeStrategy::for_miner(
+            &data.device_info.make,
+            &data.device_info.firmware,
+            miner.supports_set_fault_light(),
+        ) {
+            WriteAccessProbeStrategy::Led => {
+                probe_recovery_led(miner.as_ref(), data.light_flashing).await?
+            }
+            WriteAccessProbeStrategy::Hostname => {
+                probe_hostname(miner.as_ref(), Some(&data)).await?
+            }
+            WriteAccessProbeStrategy::None => {}
+        }
+        Ok(data)
+    }
+
     /// Convert MinerData to proto DeviceMetrics.
     pub fn to_device_metrics(&self, data: &MinerData) -> pb::DeviceMetrics {
         let now = std::time::SystemTime::now();
@@ -482,6 +514,7 @@ impl AsicRsDevice {
             fan_metrics,
             sensor_metrics: vec![],
             firmware_version,
+            default_password_active: None,
         }
     }
 
@@ -493,7 +526,7 @@ impl AsicRsDevice {
             .messages
             .iter()
             .map(|msg| {
-                let (miner_error, severity, component_type) = classify_error(&msg.message);
+                let (miner_error, severity, component_type) = classify_error(msg.clone());
 
                 let mut vendor_attributes = std::collections::HashMap::new();
                 if msg.code != 0 {
@@ -888,28 +921,81 @@ pub async fn validate_write_access(
         "write-access probe: starting"
     );
     match strategy {
-        WriteAccessProbeStrategy::Led => probe_led(miner).await,
+        WriteAccessProbeStrategy::Led => {
+            probe_led(miner, true).await?;
+            let _ = probe_led(miner, false).await;
+            Ok(())
+        }
         WriteAccessProbeStrategy::Hostname => probe_hostname(miner, cached_data).await,
         WriteAccessProbeStrategy::None => Ok(()),
     }
 }
 
-/// Probe write access via fault light toggle.
+/// Match LuxOS's control-session acquisition without writing its LED mode.
+/// asic-rs 0.5.4 uses session/logon for control access; LuxOS does not consume
+/// MinerAuth credentials. Its boolean light state loses the exact LED mode.
+async fn probe_recovery_luxos_session(miner: &(impl APIClient + ?Sized)) -> anyhow::Result<()> {
+    let result = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, async {
+        for command in ["session", "logon"] {
+            if let Ok(data) = miner
+                .get_api_result(&MinerCommand::RPC {
+                    command,
+                    parameters: None,
+                })
+                .await
+            {
+                if data
+                    .pointer("/SESSION/0/SessionID")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|session| !session.is_empty())
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(anyhow::anyhow!(
+            "[unauthenticated] LuxOS control session unavailable"
+        ))
+    }))
+    .await;
+    match result {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(anyhow::anyhow!(
+            "[unavailable] LuxOS session probe timed out"
+        )),
+        Err(_) => Err(anyhow::anyhow!(
+            "[unavailable] LuxOS session probe panicked"
+        )),
+    }
+}
+
+/// Recovery replays the observed state only for firmware with a boolean LED
+/// mode. LuxOS must use the separate session probe above.
+async fn probe_recovery_led(
+    miner: &(impl SetFaultLight + Sync + ?Sized),
+    light_flashing: Option<bool>,
+) -> anyhow::Result<()> {
+    let light_flashing = light_flashing.ok_or_else(|| {
+        anyhow::anyhow!(
+            "[unavailable] fault-light state is unknown, cannot safely probe write access"
+        )
+    })?;
+    probe_led(miner, light_flashing).await
+}
+
+/// Probe write access by setting the fault light to the requested state.
 /// LED is auth-gated on stock, Braiins, and LuxOS firmware.
-async fn probe_led(miner: &dyn Miner) -> anyhow::Result<()> {
+async fn probe_led(
+    miner: &(impl SetFaultLight + Sync + ?Sized),
+    flashing: bool,
+) -> anyhow::Result<()> {
     let result = catch_panic(tokio::time::timeout(
         WRITE_PROBE_TIMEOUT,
-        miner.set_fault_light(true),
+        miner.set_fault_light(flashing),
     ))
     .await;
     match result {
-        Ok(Ok(Ok(true))) => {
-            let _ = catch_panic(tokio::time::timeout(
-                WRITE_PROBE_TIMEOUT,
-                miner.set_fault_light(false),
-            ))
-            .await;
-        }
+        Ok(Ok(Ok(true))) => {}
         Ok(Ok(Ok(false))) => {
             return Err(anyhow::anyhow!(
                 "[unauthenticated] LED command returned false, credentials may lack write permission"
@@ -1060,74 +1146,143 @@ fn determine_board_status(board: &asic_rs_core::data::board::BoardData) -> pb::C
     pb::ComponentStatus::Offline
 }
 
-/// Classify an error message into (MinerError, Severity, ComponentType).
-fn classify_error(msg: &str) -> (pb::MinerError, pb::Severity, pb::ComponentType) {
-    let lower = msg.to_lowercase();
+/// Whether a vendor message indicates a component is physically absent, rather
+/// than merely being scoped to that component. asic-rs attaches a component to
+/// locate where a fault was reported; that does not imply the part is missing.
+fn indicates_absence(lower: &str) -> bool {
+    [
+        "not present",
+        "absent",
+        "missing",
+        "not detected",
+        "not found",
+    ]
+    .iter()
+    .any(|kw| lower.contains(kw))
+}
 
-    let miner_error = if lower.contains("fan") {
-        pb::MinerError::FanFailed
-    } else if lower.contains("psu") || lower.contains("power supply") {
-        pb::MinerError::PsuFaultGeneric
-    } else if lower.contains("over temperature") || lower.contains("overheat") {
-        pb::MinerError::DeviceOverTemperature
-    } else if lower.contains("hashboard") || lower.contains("hash board") {
-        pb::MinerError::HashboardNotPresent
+/// Convert an asic_rs `MinerMessage` into a recognized `MinerError`
+fn message_into_error(m: MinerMessage) -> pb::MinerError {
+    let lower = m.message.to_lowercase();
+
+    if lower.contains("over temperature") || lower.contains("overheat") {
+        return pb::MinerError::DeviceOverTemperature;
     } else if lower.contains("eeprom") {
-        pb::MinerError::EepromReadFailure
-    } else if lower.contains("control board") {
-        pb::MinerError::ControlBoardFailure
+        return pb::MinerError::EepromReadFailure;
     } else if lower.contains("firmware") {
-        pb::MinerError::FirmwareImageInvalid
-    } else {
-        pb::MinerError::VendorErrorUnmapped
+        return pb::MinerError::FirmwareImageInvalid;
     };
 
-    let severity = if [
+    match m.component {
+        Some(MinerComponent::ControlBoard { .. }) => pb::MinerError::ControlBoardFailure,
+        Some(MinerComponent::HashBoard { chip_idx: None, .. }) => {
+            if indicates_absence(&lower) {
+                pb::MinerError::HashboardNotPresent
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
+        }
+        Some(MinerComponent::HashBoard {
+            chip_idx: Some(_), ..
+        }) => {
+            if indicates_absence(&lower) {
+                pb::MinerError::HashboardMissingChips
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
+        }
+        Some(MinerComponent::Fan { .. }) => pb::MinerError::FanFailed,
+        Some(MinerComponent::PowerSupply { .. }) => pb::MinerError::PsuFaultGeneric,
+        None => {
+            if lower.contains("fan") {
+                pb::MinerError::FanFailed
+            } else if lower.contains("psu") || lower.contains("power supply") {
+                pb::MinerError::PsuFaultGeneric
+            } else if (lower.contains("hashboard") || lower.contains("hash board"))
+                && indicates_absence(&lower)
+            {
+                pb::MinerError::HashboardNotPresent
+            } else if lower.contains("control board") {
+                pb::MinerError::ControlBoardFailure
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
+        }
+    }
+}
+
+fn message_into_severity(m: MinerMessage) -> pb::Severity {
+    let lower = m.message.to_lowercase();
+
+    let critical_keywords = [
         "over temperature",
         "short",
         "protection",
         "fault",
         "failed",
         "overcurrent",
-    ]
-    .iter()
-    .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Critical
-    } else if ["deviation", "warning", "ambient", "low"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Minor
-    } else {
-        pb::Severity::Major
-    };
+    ];
 
-    let component_type = if lower.contains("fan") {
-        pb::ComponentType::Fan
-    } else if ["hashboard", "hash board", "chip", "asic", "chain"]
+    match m.severity {
+        MessageSeverity::Error => {
+            if critical_keywords.iter().any(|kw| lower.contains(kw)) {
+                pb::Severity::Critical
+            } else {
+                pb::Severity::Major
+            }
+        }
+        MessageSeverity::Warning => pb::Severity::Minor,
+        MessageSeverity::Info => pb::Severity::Info,
+    }
+}
+
+fn message_into_component(m: MinerMessage) -> pb::ComponentType {
+    let lower = m.message.to_lowercase();
+
+    if ["eeprom", "firmware", "checksum"]
         .iter()
         .any(|kw| lower.contains(kw))
     {
-        pb::ComponentType::HashBoard
-    } else if ["psu", "power supply", "power", "voltage", "current"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::Psu
-    } else if ["eeprom", "firmware", "checksum"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::Eeprom
-    } else if ["control board", "mac", "network"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::ControlBoard
-    } else {
-        pb::ComponentType::Unspecified
-    };
+        return pb::ComponentType::Eeprom;
+    } else if ["mac", "network"].iter().any(|kw| lower.contains(kw)) {
+        return pb::ComponentType::ControlBoard;
+    }
+
+    match m.component {
+        Some(MinerComponent::ControlBoard { .. }) => pb::ComponentType::ControlBoard,
+        Some(MinerComponent::HashBoard { chip_idx: None, .. }) => pb::ComponentType::HashBoard,
+        Some(MinerComponent::HashBoard {
+            chip_idx: Some(_), ..
+        }) => pb::ComponentType::HashBoard,
+        Some(MinerComponent::Fan { .. }) => pb::ComponentType::Fan,
+        Some(MinerComponent::PowerSupply { .. }) => pb::ComponentType::Psu,
+        None => {
+            if lower.contains("fan") {
+                pb::ComponentType::Fan
+            } else if ["hashboard", "hash board", "chip", "asic", "chain"]
+                .iter()
+                .any(|kw| lower.contains(kw))
+            {
+                pb::ComponentType::HashBoard
+            } else if ["psu", "power supply", "power", "voltage", "current"]
+                .iter()
+                .any(|kw| lower.contains(kw))
+            {
+                pb::ComponentType::Psu
+            } else if ["control board"].iter().any(|kw| lower.contains(kw)) {
+                pb::ComponentType::ControlBoard
+            } else {
+                pb::ComponentType::Unspecified
+            }
+        }
+    }
+}
+
+/// Classify an error message into (MinerError, Severity, ComponentType).
+fn classify_error(msg: MinerMessage) -> (pb::MinerError, pb::Severity, pb::ComponentType) {
+    let miner_error = message_into_error(msg.clone());
+    let severity = message_into_severity(msg.clone());
+    let component_type = message_into_component(msg);
 
     (miner_error, severity, component_type)
 }
@@ -1136,39 +1291,348 @@ fn classify_error(msg: &str) -> (pb::MinerError, pb::Severity, pb::ComponentType
 mod tests {
     use super::*;
 
+    struct ProbeLuxosSession {
+        calls: std::sync::Mutex<Vec<&'static str>>,
+        session: Result<serde_json::Value, &'static str>,
+        logon: Result<serde_json::Value, &'static str>,
+    }
+
+    #[tonic::async_trait]
+    impl APIClient for ProbeLuxosSession {
+        async fn get_api_result(
+            &self,
+            command: &MinerCommand,
+        ) -> anyhow::Result<serde_json::Value> {
+            let MinerCommand::RPC {
+                command,
+                parameters: None,
+            } = command
+            else {
+                panic!("unexpected recovery command: {command:?}");
+            };
+            self.calls.lock().unwrap().push(command);
+            match *command {
+                "session" => self.session.clone(),
+                "logon" => self.logon.clone(),
+                _ => panic!("recovery must not issue LED or other control commands"),
+            }
+            .map_err(|err| anyhow::anyhow!(err))
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_reuses_existing_session_without_led_write() {
+        let miner = ProbeLuxosSession {
+            calls: Default::default(),
+            session: Ok(serde_json::json!({"SESSION": [{"SessionID": "existing"}]})),
+            logon: Err("must not log on when a session exists"),
+        };
+        probe_recovery_luxos_session(&miner).await.unwrap();
+        assert_eq!(*miner.calls.lock().unwrap(), vec!["session"]);
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_logs_on_when_session_is_unavailable() {
+        for session in [
+            Err("denied"),
+            Ok(serde_json::json!({})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": ""}]})),
+        ] {
+            let miner = ProbeLuxosSession {
+                calls: Default::default(),
+                session,
+                logon: Ok(serde_json::json!({"SESSION": [{"SessionID": "new"}]})),
+            };
+            probe_recovery_luxos_session(&miner).await.unwrap();
+            assert_eq!(*miner.calls.lock().unwrap(), vec!["session", "logon"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_luxos_rejects_failed_or_malformed_logon_without_exposing_response() {
+        for logon in [
+            Err("secret-session-token"),
+            Ok(serde_json::json!({})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": ""}]})),
+            Ok(serde_json::json!({"SESSION": [{"SessionID": 42}]})),
+        ] {
+            let miner = ProbeLuxosSession {
+                calls: Default::default(),
+                session: Err("secret-session-token"),
+                logon,
+            };
+            let err = probe_recovery_luxos_session(&miner).await.unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "[unauthenticated] LuxOS control session unavailable"
+            );
+            assert_eq!(*miner.calls.lock().unwrap(), vec!["session", "logon"]);
+        }
+    }
+
+    struct ProbeLight {
+        calls: std::sync::Mutex<Vec<bool>>,
+        result: Result<bool, &'static str>,
+    }
+
+    #[tonic::async_trait]
+    impl SetFaultLight for ProbeLight {
+        async fn set_fault_light(&self, flashing: bool) -> anyhow::Result<bool> {
+            self.calls.lock().unwrap().push(flashing);
+            self.result.map_err(|err| anyhow::anyhow!(err))
+        }
+
+        fn supports_set_fault_light(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_led_preserves_observed_state() {
+        for flashing in [true, false] {
+            let miner = ProbeLight {
+                calls: Default::default(),
+                result: Ok(true),
+            };
+
+            probe_recovery_led(&miner, Some(flashing)).await.unwrap();
+
+            assert_eq!(*miner.calls.lock().unwrap(), vec![flashing]);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_led_does_not_write_when_state_is_unknown() {
+        let miner = ProbeLight {
+            calls: Default::default(),
+            result: Ok(true),
+        };
+
+        let err = probe_recovery_led(&miner, None).await.unwrap_err();
+
+        assert!(err.to_string().contains("[unavailable]"));
+        assert!(miner.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn recovery_led_requires_command_success_without_cleanup_write() {
+        for result in [Ok(false), Err("authentication rejected")] {
+            let miner = ProbeLight {
+                calls: Default::default(),
+                result,
+            };
+
+            let err = probe_recovery_led(&miner, Some(true)).await.unwrap_err();
+
+            assert!(err.to_string().contains("[unauthenticated]"));
+            assert_eq!(*miner.calls.lock().unwrap(), vec![true]);
+        }
+    }
+
     #[test]
-    fn test_classify_error_fan_failure() {
-        let (error, severity, component) = classify_error("Fan 1 speed is too low");
+    fn test_classify_error_fan_failure_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Fan 1 speed is too low".to_string(),
+            severity: MessageSeverity::Warning,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::FanFailed));
         assert!(matches!(component, pb::ComponentType::Fan));
         assert!(matches!(severity, pb::Severity::Minor));
     }
 
     #[test]
-    fn test_classify_error_psu_fault() {
-        let (error, severity, component) = classify_error("PSU output voltage fault detected");
+    fn test_classify_error_fan_failure_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "error".to_string(),
+            severity: MessageSeverity::Warning,
+            component: Some(MinerComponent::Fan { idx: 1 }),
+        };
+
+        let (error, severity, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::FanFailed));
+        assert!(matches!(component, pb::ComponentType::Fan));
+        assert!(matches!(severity, pb::Severity::Minor));
+    }
+
+    #[test]
+    fn test_classify_error_psu_fault_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "PSU output voltage fault detected".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::PsuFaultGeneric));
         assert!(matches!(severity, pb::Severity::Critical));
         assert!(matches!(component, pb::ComponentType::Psu));
     }
 
     #[test]
+    fn test_classify_error_psu_fault_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "error".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::PowerSupply { idx: 1 }),
+        };
+
+        let (error, severity, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::PsuFaultGeneric));
+        assert!(matches!(severity, pb::Severity::Major));
+        assert!(matches!(component, pb::ComponentType::Psu));
+    }
+
+    #[test]
     fn test_classify_error_over_temperature() {
-        let (error, severity, _) = classify_error("Over temperature protection triggered");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Over temperature protection triggered".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, severity, _) = classify_error(message);
         assert!(matches!(error, pb::MinerError::DeviceOverTemperature));
         assert!(matches!(severity, pb::Severity::Critical));
     }
 
     #[test]
-    fn test_classify_error_hashboard() {
-        let (error, _, component) = classify_error("Hashboard 2 not responding");
+    fn test_classify_error_hashboard_not_present_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 2 not present".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::HashboardNotPresent));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
 
     #[test]
+    fn test_classify_error_hashboard_message_without_absence_unmapped() {
+        // A hashboard-scoped message that does not signal absence keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as a missing board.
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 2 not responding".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_from_component() {
+        // A hashboard-scoped message that does not signal absence keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as a missing board (e.g. WhatsMiner code 301, a temp-sensor fault).
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Slot 1 temperature sensor detection error".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_missing_from_component_and_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 1 not present".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::HashboardNotPresent));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_missing_chips_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Chip 3 missing".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: Some(3),
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::HashboardMissingChips));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_chip_scoped_without_absence_unmapped() {
+        // A chip-scoped message that does not signal a missing chip keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as missing chips.
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Chip 3 clock instability".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: Some(3),
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
     fn test_classify_error_unknown() {
-        let (error, severity, component) = classify_error("Something unexpected happened");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Something unexpected happened".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
         assert!(matches!(severity, pb::Severity::Major));
         assert!(matches!(component, pb::ComponentType::Unspecified));
@@ -1176,7 +1640,15 @@ mod tests {
 
     #[test]
     fn test_classify_error_empty_string() {
-        let (error, _, _) = classify_error("");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, _) = classify_error(message);
         assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
     }
 

@@ -1,6 +1,6 @@
 -- name: CreateOrganization :one
-INSERT INTO organization (org_id, name, miner_auth_private_key)
-VALUES ($1, $2, $3)
+INSERT INTO organization (org_id, name)
+VALUES ($1, $2)
 RETURNING id;
 
 -- name: GetOrganizationByID :one
@@ -46,8 +46,3 @@ WHERE id = $1;
 DELETE
 FROM organization
 WHERE id = $1;
-
--- name: GetOrganizationPrivateKey :one
-SELECT miner_auth_private_key
-FROM organization
-where id = $1;

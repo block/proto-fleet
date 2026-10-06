@@ -10,12 +10,7 @@ import type {
 
 // Union type for component hardware data
 export type ComponentHardware =
-  | FanHardwareData
-  | PsuHardwareData
-  | HashboardHardwareData
-  | ControlBoardHardwareData
-  | undefined
-  | null;
+  FanHardwareData | PsuHardwareData | HashboardHardwareData | ControlBoardHardwareData | undefined | null;
 
 /**
  * Hook to fetch component hardware data reactively

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Copy, Lock, Success } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup/constants";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -103,9 +103,15 @@ const ResetPasswordModal = ({
         <div className="flex-1 font-mono text-300 break-all" data-testid="temporary-password">
           {temporaryPassword}
         </div>
-        <button onClick={handleCopyPassword} className="shrink-0 text-text-primary" aria-label="Copy password">
-          <Copy />
-        </button>
+        <Button
+          ariaLabel="Copy password"
+          variant={variants.textOnly}
+          size={sizes.textOnly}
+          prefixIcon={<Copy />}
+          textOnlyUnderlineOnHover={false}
+          className="shrink-0 text-text-primary hover:!opacity-70"
+          onClick={handleCopyPassword}
+        />
       </div>
     </Dialog>
   );

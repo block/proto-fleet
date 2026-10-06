@@ -4,10 +4,11 @@ import { useApiKeys } from "@/protoFleet/api/useApiKeys";
 import type { ApiKeyItem } from "@/protoFleet/api/useApiKeys";
 import CreateApiKeyModal from "@/protoFleet/features/settings/components/CreateApiKeyModal";
 import RevokeApiKeyDialog from "@/protoFleet/features/settings/components/RevokeApiKeyDialog";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useHasPermission } from "@/protoFleet/store";
 import { Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -144,18 +145,22 @@ const ApiKeys = () => {
   // Redirect callers without apikey:manage away — placed after all
   // hooks to satisfy rules-of-hooks.
   if (!canManageApiKeys) {
-    return <Navigate to="/settings/general" replace />;
+    return <Navigate to="/settings/network" replace />;
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Header title="API Keys" titleSize="text-heading-300" />
+      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+        <SettingsPageHeader
+          title="Integrations"
+          description="Create and manage API keys for tools that integrate with Fleet."
+        />
         <Button
           variant={variants.primary}
           size={sizes.compact}
           text="Create API key"
           onClick={() => setShowCreateModal(true)}
+          className="shrink-0 phone:w-full"
         />
       </div>
 
@@ -171,9 +176,10 @@ const ApiKeys = () => {
           total={apiKeys.length}
           itemName={{ singular: "key", plural: "keys" }}
           noDataElement={
-            <div className="py-10 text-center text-text-primary-50">
-              No API keys yet. Create your first key to enable programmatic access to the Fleet API.
-            </div>
+            <SettingsEmptyState
+              title="No API keys yet"
+              description="Create your first key to enable programmatic access to the Fleet API."
+            />
           }
           actions={availableActions}
         />

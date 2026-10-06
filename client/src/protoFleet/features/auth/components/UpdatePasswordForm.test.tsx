@@ -170,4 +170,20 @@ describe("UpdatePasswordForm", () => {
       getByText("You logged in with a temporary password. Enter your new password to continue."),
     ).toBeInTheDocument();
   });
+
+  it("refocuses the new password input when the user chooses to create a stronger password", async () => {
+    const { getByLabelText, getByText, findByText, queryByText } = render(
+      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
+    );
+
+    fireEvent.change(getByLabelText("New password"), { target: { value: "aaaaaaaa" } });
+    fireEvent.change(getByLabelText("Confirm password"), { target: { value: "aaaaaaaa" } });
+    fireEvent.click(getByText("Continue"));
+
+    const returnButton = await findByText("Create a stronger password");
+    fireEvent.click(returnButton);
+
+    expect(queryByText("Create a stronger password")).not.toBeInTheDocument();
+    expect(getByLabelText("New password")).toHaveFocus();
+  });
 });

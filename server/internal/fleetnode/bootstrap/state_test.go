@@ -18,16 +18,14 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "state.yaml")
 	expectedTime := time.Date(2026, 5, 7, 12, 34, 56, 0, time.UTC)
 	original := &State{
-		ServerURL:                 "http://localhost:4000",
-		FleetNodeID:               42,
-		IdentityFingerprint:       "a1b2c3d4e5f60718",
-		IdentityPrivateKeyHex:     "aabbccdd",
-		IdentityPublicKeyHex:      "1122334455",
-		MinerSigningPrivateKeyHex: "ddeeff00",
-		MinerSigningPublicKeyHex:  "9988776655",
-		APIKey:                    "fleet_aabbccdd_xyz",
-		SessionToken:              "session-xxx",
-		SessionExpiresAt:          expectedTime,
+		ServerURL:             "http://localhost:4000",
+		FleetNodeID:           42,
+		IdentityFingerprint:   "a1b2c3d4e5f60718",
+		IdentityPrivateKeyHex: "aabbccdd",
+		IdentityPublicKeyHex:  "1122334455",
+		APIKey:                "fleet_aabbccdd_xyz",
+		SessionToken:          "session-xxx",
+		SessionExpiresAt:      expectedTime,
 	}
 
 	// Act

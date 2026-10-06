@@ -1,7 +1,7 @@
 # MQTT Curtailment Simulator
 
 This devtool runs two local Mosquitto brokers and a small browser UI for
-publishing MaestroOS-style curtailment targets.
+publishing MaestroOS-compatible MQTT curtailment targets.
 
 The Docker Compose ports are bound to host loopback only. The brokers are still
 reachable from other Docker Compose services on `fleet-network` through their
@@ -52,7 +52,7 @@ The simulator publishes this payload shape:
 
 `target: 100` means ON/full power. `target: 0` means OFF/curtail. The loop mode
 publishes the selected target every 30 seconds by default to match the MaestroOS
-API notes.
+MQTT publish contract.
 
 Useful commands:
 

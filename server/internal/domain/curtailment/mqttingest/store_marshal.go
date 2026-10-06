@@ -102,6 +102,8 @@ func edgeDirectionFromNullString(n sql.NullString) EdgeDirection {
 	switch n.String {
 	case EdgeOnToOff.String():
 		return EdgeOnToOff
+	case EdgeReassertOff.String():
+		return EdgeReassertOff
 	case EdgeOffToOn.String():
 		return EdgeOffToOn
 	case EdgeWatchdogOff.String():

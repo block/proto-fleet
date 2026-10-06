@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deviceActions, settingsActions } from "../components/MinerActionsMenu/constants";
-import { hasReachedExpectedStatus, isActionLoading } from "./batchStatusCheck";
+import { hasReachedExpectedStatus, isActionLoading, isStatusChangingBatchAction } from "./batchStatusCheck";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
@@ -14,6 +14,22 @@ function createBatch(overrides: Partial<BatchOperation> = {}): BatchOperation {
     ...overrides,
   };
 }
+
+describe("isStatusChangingBatchAction", () => {
+  it("returns true for actions that remain active until status transitions", () => {
+    expect(isStatusChangingBatchAction(settingsActions.miningPool)).toBe(true);
+    expect(isStatusChangingBatchAction(deviceActions.shutdown)).toBe(true);
+    expect(isStatusChangingBatchAction(deviceActions.wakeUp)).toBe(true);
+    expect(isStatusChangingBatchAction(deviceActions.reboot)).toBe(true);
+    expect(isStatusChangingBatchAction(deviceActions.firmwareUpdate)).toBe(true);
+  });
+
+  it("returns false for transient actions", () => {
+    expect(isStatusChangingBatchAction(deviceActions.blinkLEDs)).toBe(false);
+    expect(isStatusChangingBatchAction(settingsActions.coolingMode)).toBe(false);
+    expect(isStatusChangingBatchAction("unknown-action")).toBe(false);
+  });
+});
 
 describe("hasReachedExpectedStatus", () => {
   describe("mining pool action", () => {

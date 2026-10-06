@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { ChevronDown } from "@/shared/assets/icons";
@@ -22,10 +22,14 @@ interface SelectProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  emptyMessage?: string;
   error?: boolean | string;
+  placeholder?: string;
   testId?: string;
   className?: string;
+  variant?: "field" | "filter";
   showSelectedIndicator?: boolean;
+  suffixAction?: ReactNode;
   // Default behavior flips the popover above the trigger when more space is
   // available there. Set forceBelow when the caller knows the dropdown must
   // open downward (e.g. inside a modal whose footer would otherwise hide it).
@@ -39,10 +43,14 @@ const SelectContent = ({
   value,
   onChange,
   disabled,
+  emptyMessage = "No options",
   error,
+  placeholder,
   testId,
   className,
+  variant = "field",
   showSelectedIndicator = true,
+  suffixAction,
   forceBelow,
 }: SelectProps) => {
   const [open, setOpen] = useState(false);
@@ -57,6 +65,8 @@ const SelectContent = ({
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? "";
   const hasValue = selectedLabel.length > 0;
+  const displayLabel = selectedLabel || placeholder || "";
+  const hasDisplayValue = displayLabel.length > 0;
 
   // Track trigger width so the portal-rendered popover matches
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>();
@@ -133,7 +143,10 @@ const SelectContent = ({
           disabled={disabled}
           onClick={() => !disabled && setOpen((prev) => !prev)}
           className={clsx(
-            "peer flex h-14 w-full items-center justify-between rounded-lg pr-4 pl-4 text-left outline-hidden",
+            "peer flex items-center justify-between text-left outline-hidden",
+            variant === "filter"
+              ? "h-8 gap-2 rounded-full px-3 text-emphasis-300 text-text-primary-70"
+              : "h-14 w-full rounded-lg pr-4 pl-4",
             "transition duration-200 ease-in-out",
             { "bg-surface-base": !disabled },
             { "bg-core-primary-5": disabled },
@@ -145,23 +158,35 @@ const SelectContent = ({
             { "cursor-default": disabled },
           )}
         >
-          <div className="flex min-w-0 flex-col pt-[18px]">
-            <span
-              className={clsx(
-                "absolute text-text-primary-50",
-                "transition-[top] duration-150 ease-in-out",
-                hasValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
-              )}
-            >
-              {label}
-            </span>
-            {hasValue ? <span className="truncate text-300 text-text-primary">{selectedLabel}</span> : null}
-          </div>
+          {variant === "filter" ? (
+            <span className="truncate">{value ? displayLabel : label}</span>
+          ) : (
+            <div className="flex min-w-0 flex-col pt-[18px]">
+              <span
+                className={clsx(
+                  "absolute text-text-primary-50",
+                  "transition-[top] duration-150 ease-in-out",
+                  hasDisplayValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
+                )}
+              >
+                {label}
+              </span>
+              {hasDisplayValue ? (
+                <span className={clsx("truncate text-300", hasValue ? "text-text-primary" : "text-text-primary-50")}>
+                  {displayLabel}
+                </span>
+              ) : null}
+            </div>
+          )}
           <ChevronDown
             width="w-3"
-            className={clsx("shrink-0 text-text-primary-70 transition-transform", { "rotate-180": open })}
+            className={clsx("shrink-0 text-text-primary-70 transition-transform", {
+              "mr-8": suffixAction,
+              "rotate-180": open,
+            })}
           />
         </button>
+        {suffixAction ? <div className="absolute top-1/2 right-4 z-10 -translate-y-1/2">{suffixAction}</div> : null}
       </div>
       {open ? (
         <Popover
@@ -184,29 +209,33 @@ const SelectContent = ({
               maxHeight: popoverMaxHeight,
             }}
           >
-            {options.map((opt) => (
-              <div
-                key={opt.value}
-                role="option"
-                aria-selected={value === opt.value ? "true" : "false"}
-                className={clsx(
-                  "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                  "transition-[background-color] duration-200 ease-in-out",
-                  "text-text-primary hover:bg-core-primary-5",
-                  { "gap-3": showSelectedIndicator },
-                )}
-                onClick={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-              >
-                {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
-                <div className="min-w-0 grow">
-                  <div className="truncate text-emphasis-300">{opt.label}</div>
-                  {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+            {options.length === 0 ? (
+              <div className="rounded-xl p-3 text-300 text-text-primary-50">{emptyMessage}</div>
+            ) : (
+              options.map((opt) => (
+                <div
+                  key={opt.value}
+                  role="option"
+                  aria-selected={value === opt.value ? "true" : "false"}
+                  className={clsx(
+                    "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+                    "transition-[background-color] duration-200 ease-in-out",
+                    "text-text-primary hover:bg-core-primary-5",
+                    { "gap-3": showSelectedIndicator },
+                  )}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                >
+                  {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
+                  <div className="min-w-0 grow">
+                    <div className="truncate text-emphasis-300">{opt.label}</div>
+                    {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Popover>
       ) : null}
