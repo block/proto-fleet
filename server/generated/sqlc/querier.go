@@ -785,7 +785,7 @@ type Querier interface {
 	GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error)
 	GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error)
 	GetHostedAccountPool(ctx context.Context, arg GetHostedAccountPoolParams) (HostedAccountPool, error)
-	GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (HostedAccountPoolProfile, error)
+	GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (GetHostedAccountPoolProfileRow, error)
 	GetHostedAccountPoolRevision(ctx context.Context, arg GetHostedAccountPoolRevisionParams) (HostedAccountPoolRevision, error)
 	GetHostedAccountPoolRevisionByID(ctx context.Context, arg GetHostedAccountPoolRevisionByIDParams) (HostedAccountPoolRevision, error)
 	// Dedicated sensitive read: this field is intentionally not projected through

@@ -58,6 +58,17 @@ func TestHostedRPCIncomingPoolProfileRequiresServerStepUp(t *testing.T) {
 	profile, err = f.client.GetIncomingPoolProfile(t.Context(), rpcRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
 	require.NoError(t, err)
 	require.Equal(t, revisionID, profile.Msg.Profile.RevisionId)
+
+	require.Equal(t, created.Msg.Revision.PoolId, profile.Msg.Profile.PoolId)
+	changed, err := f.client.RevisePoolConfiguration(t.Context(), rpcRequest(&pb.RevisePoolConfigurationRequest{AccountId: account.AccountID, PoolId: created.Msg.Revision.PoolId, ExpectedRevisionId: revisionID, Configuration: &pb.PoolRevisionInput{Name: "Edited", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://new.customer.example:3333", Username: "new.wallet"}}}}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.NotEqual(t, revisionID, changed.Msg.Revision.RevisionId)
+	profile, err = f.client.GetIncomingPoolProfile(t.Context(), rpcRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	pinned, err := f.client.GetPoolRevision(t.Context(), rpcRequest(&pb.GetPoolRevisionRequest{AccountId: account.AccountID, PoolId: profile.Msg.Profile.PoolId, RevisionId: &profile.Msg.Profile.RevisionId}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Equal(t, revisionID, pinned.Msg.Revision.RevisionId)
+	require.Equal(t, "Default", pinned.Msg.Revision.Name)
 	_, err = f.client.ArchivePoolConfiguration(t.Context(), rpcRequest(&pb.ArchivePoolConfigurationRequest{AccountId: account.AccountID, PoolId: created.Msg.Revision.PoolId}, f.cookie, account.AccountID))
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	_, err = f.client.SetIncomingPoolProfile(t.Context(), rpcRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, Password: rpcPassword}, f.cookie, account.AccountID))
@@ -66,6 +77,7 @@ func TestHostedRPCIncomingPoolProfileRequiresServerStepUp(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, profile.Msg.Profile, "clearing retains a monotonic witness for future assignments")
 	require.Empty(t, profile.Msg.Profile.RevisionId)
+	require.Empty(t, profile.Msg.Profile.PoolId)
 	require.Equal(t, int64(2), profile.Msg.Profile.Revision)
 }
 

@@ -110,7 +110,7 @@ func (h *Handler) GetIncomingPoolProfile(ctx context.Context, req *connect.Reque
 	}
 	result := &pb.GetIncomingPoolProfileResponse{}
 	if profile.Revision > 0 {
-		result.Profile = &pb.IncomingPoolProfile{RevisionId: profile.RevisionID, Revision: profile.Revision, UpdatedAt: timestamppb.New(profile.UpdatedAt)}
+		result.Profile = &pb.IncomingPoolProfile{PoolId: profile.PoolID, RevisionId: profile.RevisionID, Revision: profile.Revision, UpdatedAt: timestamppb.New(profile.UpdatedAt)}
 	}
 	return connect.NewResponse(result), nil
 }

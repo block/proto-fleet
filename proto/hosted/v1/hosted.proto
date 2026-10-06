@@ -346,6 +346,8 @@ message ArchivePoolConfigurationRequest {
 }
 message ArchivePoolConfigurationResponse {}
 message IncomingPoolProfile {
+  // Owning configuration permits fetching the exact pinned revision. Empty after clear.
+  string pool_id = 4;
   string revision_id = 1;
   int64 revision = 2;
   google.protobuf.Timestamp updated_at = 3;

@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	domainauth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -151,9 +152,11 @@ func TestPoolOwnershipPaginationAndLiveKeyRevocation(t *testing.T) {
 	a := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	b := f.client(t, "Sibling", f.host, hostedaccounts.AllCapabilities)
 	pools, keys, credentials, _, ctx := poolFixture(t, f)
+	var createdIDs []string
 	for range 3 {
-		_, err := pools.Create(ctx, f.user, f.org, a.AccountID, poolOptions(nil))
+		created, err := pools.Create(ctx, f.user, f.org, a.AccountID, poolOptions(nil))
 		require.NoError(t, err)
+		createdIDs = append(createdIDs, created.PoolID)
 	}
 	page, err := pools.List(ctx, f.user, f.org, a.AccountID, "", 2, false)
 	require.NoError(t, err)
@@ -162,7 +165,8 @@ func TestPoolOwnershipPaginationAndLiveKeyRevocation(t *testing.T) {
 	next, err := pools.List(ctx, f.user, f.org, a.AccountID, page.NextPageToken, 2, false)
 	require.NoError(t, err)
 	require.Len(t, next.Configurations, 1)
-	require.NotEqual(t, page.Configurations[0].PoolID, next.Configurations[0].PoolID)
+	require.ElementsMatch(t, createdIDs, []string{page.Configurations[0].PoolID, page.Configurations[1].PoolID, next.Configurations[0].PoolID})
+	require.Empty(t, next.NextPageToken)
 	_, err = pools.List(ctx, f.host, f.org, b.AccountID, page.NextPageToken, 2, false)
 	require.Error(t, err)
 	_, err = pools.List(ctx, f.user, f.org, a.AccountID, page.NextPageToken, 2, true)
@@ -215,9 +219,14 @@ func TestPoolRevisionRaceHasOneWinner(t *testing.T) {
 	for err := range errs {
 		if err == nil {
 			winners++
+		} else {
+			require.True(t, fleeterror.IsFailedPreconditionError(err), "the losing revision must report an optimistic conflict: %v", err)
 		}
 	}
 	require.Equal(t, 1, winners)
+	latest, err := pools.Get(ctx, f.user, f.org, a.AccountID, first.PoolID, "")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), latest.Number)
 }
 
 func TestPoolValidationRejectsCredentialsAndInvalidDestinationsWithoutEchoingSecrets(t *testing.T) {
@@ -291,4 +300,41 @@ func TestPoolCeilingsAndExplicitAncestorGrantsStayLive(t *testing.T) {
 	require.NoError(t, f.svc.ConfigureChild(ctx, f.host, f.org, parent.AccountID, hostedaccounts.AllCapabilities, true))
 	_, err = pools.List(ctx, f.user, f.org, child.AccountID, "", 0, false)
 	require.Error(t, err, "suspension blocks reads")
+}
+
+type rotatingPoolVerifier struct {
+	hostedaccounts.CredentialsVerifier
+	rotate func() error
+}
+
+func (v rotatingPoolVerifier) VerifySessionCredentials(ctx context.Context, username, password string) error {
+	if err := v.CredentialsVerifier.VerifySessionCredentials(ctx, username, password); err != nil {
+		return err
+	}
+	return v.rotate()
+}
+
+func TestPoolProfileRejectsPasswordResetAfterStepUpVerification(t *testing.T) {
+	f := setup(t)
+	a := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	pools, keys, _, cipher, ctx := poolFixture(t, f)
+	first, err := pools.Create(ctx, f.user, f.org, a.AccountID, poolOptions(nil))
+	require.NoError(t, err)
+	store := sqlstores.NewSQLUserStore(f.db)
+	verifier := domainauth.NewService(store, store, sqlstores.NewSQLTransactor(f.db), nil, nil, nil, nil, authz.NewPermissionResolver(f.db))
+	newHash, err := bcrypt.GenerateFromPassword([]byte("replacement-password"), bcrypt.MinCost)
+	require.NoError(t, err)
+	rotating := rotatingPoolVerifier{verifier, func() error {
+		_, err := f.db.ExecContext(ctx, `UPDATE "user" SET password_hash=$1,password_updated_at=clock_timestamp() WHERE id=$2`, string(newHash), f.user)
+		require.NoError(t, err)
+		return nil
+	}}
+	pools = hostedaccounts.NewPoolService(f.svc, cipher, keys, rotating)
+	require.Error(t, pools.SetIncomingProfile(ctx, f.user, f.org, a.AccountID, first.RevisionID, "actor-password"), "a reset after successful verification invalidates its proof")
+	profile, err := pools.IncomingProfile(ctx, f.user, f.org, a.AccountID)
+	require.NoError(t, err)
+	require.Zero(t, profile.Revision, "rejected step-up must not change the profile witness")
+	var successful int
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM activity_log WHERE organization_id=$1 AND event_type='set_hosted_account_pool_profile'`, f.org).Scan(&successful))
+	require.Zero(t, successful)
 }

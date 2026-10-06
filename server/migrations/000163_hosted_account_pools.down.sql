@@ -2,6 +2,7 @@
 -- This preflight runs before ANY destructive DDL, preserving every row on refusal.
 DO $$
 BEGIN
+    LOCK TABLE hosted_account_pool, hosted_account_pool_revision, hosted_account_pool_profile IN ACCESS EXCLUSIVE MODE;
     IF EXISTS (SELECT 1 FROM hosted_account_pool)
        OR EXISTS (SELECT 1 FROM hosted_account_pool_revision)
        OR EXISTS (SELECT 1 FROM hosted_account_pool_profile) THEN

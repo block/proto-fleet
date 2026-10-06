@@ -44,7 +44,10 @@ WHERE p.organization_id=$1 AND p.account_id=$2 AND p.pool_id=$3
  );
 
 -- name: GetHostedAccountPoolProfile :one
-SELECT * FROM hosted_account_pool_profile WHERE organization_id=$1 AND account_id=$2;
+SELECT f.*, r.pool_id FROM hosted_account_pool_profile f
+LEFT JOIN hosted_account_pool_revision r ON r.revision_id=f.revision_id
+ AND r.organization_id=f.organization_id AND r.account_id=f.account_id
+WHERE f.organization_id=$1 AND f.account_id=$2;
 
 -- name: SetHostedAccountPoolProfile :one
 INSERT INTO hosted_account_pool_profile (organization_id,account_id,revision_id)

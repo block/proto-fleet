@@ -74,4 +74,3 @@ CREATE TABLE hosted_account_pool_profile (
     FOREIGN KEY (organization_id, account_id, revision_id)
         REFERENCES hosted_account_pool_revision(organization_id, account_id, revision_id) ON DELETE CASCADE
 );
-

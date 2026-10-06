@@ -3318,8 +3318,8 @@ func (q *retryingQuerier) GetHostedAccountPool(ctx context.Context, arg GetHoste
 	return result, err
 }
 
-func (q *retryingQuerier) GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (HostedAccountPoolProfile, error) {
-	var result HostedAccountPoolProfile
+func (q *retryingQuerier) GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (GetHostedAccountPoolProfileRow, error) {
+	var result GetHostedAccountPoolProfileRow
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPoolProfile", func() error {
 		callResult, callErr := q.next.GetHostedAccountPoolProfile(ctx, arg)
 		if callErr == nil {

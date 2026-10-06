@@ -125,7 +125,10 @@ func (q *Queries) GetHostedAccountPool(ctx context.Context, arg GetHostedAccount
 }
 
 const getHostedAccountPoolProfile = `-- name: GetHostedAccountPoolProfile :one
-SELECT organization_id, account_id, revision_id, revision, updated_at FROM hosted_account_pool_profile WHERE organization_id=$1 AND account_id=$2
+SELECT f.organization_id, f.account_id, f.revision_id, f.revision, f.updated_at, r.pool_id FROM hosted_account_pool_profile f
+LEFT JOIN hosted_account_pool_revision r ON r.revision_id=f.revision_id
+ AND r.organization_id=f.organization_id AND r.account_id=f.account_id
+WHERE f.organization_id=$1 AND f.account_id=$2
 `
 
 type GetHostedAccountPoolProfileParams struct {
@@ -133,15 +136,25 @@ type GetHostedAccountPoolProfileParams struct {
 	AccountID      int64
 }
 
-func (q *Queries) GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (HostedAccountPoolProfile, error) {
+type GetHostedAccountPoolProfileRow struct {
+	OrganizationID int64
+	AccountID      int64
+	RevisionID     sql.NullString
+	Revision       int64
+	UpdatedAt      time.Time
+	PoolID         sql.NullString
+}
+
+func (q *Queries) GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (GetHostedAccountPoolProfileRow, error) {
 	row := q.queryRow(ctx, q.getHostedAccountPoolProfileStmt, getHostedAccountPoolProfile, arg.OrganizationID, arg.AccountID)
-	var i HostedAccountPoolProfile
+	var i GetHostedAccountPoolProfileRow
 	err := row.Scan(
 		&i.OrganizationID,
 		&i.AccountID,
 		&i.RevisionID,
 		&i.Revision,
 		&i.UpdatedAt,
+		&i.PoolID,
 	)
 	return i, err
 }

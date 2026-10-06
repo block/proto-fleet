@@ -57,6 +57,7 @@ type PoolListPage struct {
 }
 
 type PoolProfile struct {
+	PoolID     string
 	RevisionID string
 	Revision   int64
 	UpdatedAt  time.Time
@@ -266,7 +267,7 @@ func (s *PoolService) IncomingProfile(ctx context.Context, actorID, orgID int64,
 	if err != nil {
 		return PoolProfile{}, poolStorageError(err)
 	}
-	return PoolProfile{RevisionID: row.RevisionID.String, Revision: row.Revision, UpdatedAt: row.UpdatedAt}, nil
+	return PoolProfile{PoolID: row.PoolID.String, RevisionID: row.RevisionID.String, Revision: row.Revision, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // SetIncomingProfile selects a pinned revision for future incoming allocations.
@@ -283,6 +284,14 @@ func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int
 	if s.verifier == nil {
 		return fleeterror.NewInternalError("credential verification is unavailable")
 	}
+	// Bind the proof to the credential observed before verification. A reset
+	// during verification or lock acquisition invalidates it; hashing remains
+	// outside the organization lock. The locked actor prevents a later reset
+	// from racing the actual profile mutation.
+	credential, err := s.accounts.queries.GetUserById(ctx, actorID)
+	if err != nil {
+		return denied()
+	}
 	if err := s.verifier.VerifySessionCredentials(ctx, info.Username, password); err != nil {
 		return err
 	}
@@ -290,6 +299,9 @@ func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int
 		actor, account, err := s.authorizeWrite(ctx, q, actorID, orgID, accountID, ChangePools)
 		if err != nil {
 			return err
+		}
+		if actor.PasswordHash != credential.PasswordHash || actor.Username != credential.Username || actor.PasswordUpdatedAt != credential.PasswordUpdatedAt {
+			return fleeterror.NewForbiddenError("credentials changed; verify again")
 		}
 		if revisionID != "" {
 			revision, err := q.GetHostedAccountPoolRevisionByID(ctx, sqlc.GetHostedAccountPoolRevisionByIDParams{OrganizationID: orgID, AccountID: account.ID, RevisionID: revisionID})
