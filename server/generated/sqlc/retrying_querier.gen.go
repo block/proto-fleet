@@ -2190,6 +2190,30 @@ func (q *retryingQuerier) GetContainerModuleScope(ctx context.Context, arg GetCo
 	return result, err
 }
 
+func (q *retryingQuerier) GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error) {
+	var result []GetContainerTankHistoryRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerTankHistory", func() error {
+		callResult, callErr := q.next.GetContainerTankHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerTankScope(ctx context.Context, arg GetContainerTankScopeParams) (sql.NullInt64, error) {
+	var result sql.NullInt64
+	err := q.retrier.RetryQuery(ctx, "GetContainerTankScope", func() error {
+		callResult, callErr := q.next.GetContainerTankScope(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
 	var result GetCurtailmentAutomationRuleByOrgRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationRuleByOrg", func() error {

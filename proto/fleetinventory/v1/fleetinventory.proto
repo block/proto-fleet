@@ -10,10 +10,12 @@ import "buildings/v1/buildings.proto";
 import "device_set/v1/device_set.proto";
 import "containers/v1/containers.proto";
 import "google/protobuf/timestamp.proto";
+import "telemetry/v1/telemetry.proto";
 
 // Read-only mixed inventory. Physical entities retain their own lifecycle.
 service FleetInventoryService {
   rpc ListInventory(ListInventoryRequest) returns (ListInventoryResponse);
+  rpc GetTankHistory(GetTankHistoryRequest) returns (GetTankHistoryResponse);
   rpc ListModuleHistory(ListModuleHistoryRequest) returns (ListModuleHistoryResponse);
 }
 
@@ -172,4 +174,24 @@ message ModuleIssue {
  string cause = 3;
  string severity = 4;
  google.protobuf.Timestamp observed_at = 5;
+}
+
+// Bounded chart history for the tank's current, non-retired modules. The server
+// averages each module within UTC/Unix-epoch-aligned buckets before summing
+// modules. Hashrate/power min/max sum per-module extrema (bounds, not coincident
+// observations); efficiency bounds use paired power/hashrate extrema. Missing/non-finite readings are excluded
+// per metric; buckets without any readings remain gaps. Efficiency uses modules
+// with both hashrate and power, weighted by hashrate. Expired history is never
+// filled. At most 1000 buckets (four metrics each).
+message GetTankHistoryRequest {
+  string container_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  int64 tank_id = 2 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 4 [(buf.validate.field).required = true];
+  int32 granularity_seconds = 5 [(buf.validate.field).int32 = {gte: 1, lte: 86400}];
+}
+
+message GetTankHistoryResponse {
+  // TH/s, kW, J/TH, and degrees C, matching the telemetry chart contract.
+  repeated telemetry.v1.Metric metrics = 1 [(buf.validate.field).repeated.max_items = 4000];
 }

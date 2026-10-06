@@ -1,5 +1,6 @@
 import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
+import { type TankMetric, tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -16,6 +17,15 @@ import {
 export function InventoryCell({ item, column }: { item: InventoryItem; column: string }) {
   const unit = useTemperatureUnit();
   const stats = item.listStats;
+  const metricValue = (metric: TankMetric, value: string) => {
+    const coverage = value === "—" ? undefined : tankMetricCoverage(item, metric);
+    return (
+      <span>
+        <span className="block">{value}</span>
+        {coverage ? <span className="text-100 block text-text-primary-70">{coverage}</span> : null}
+      </span>
+    );
+  };
   switch (column) {
     case "name":
       return (
@@ -32,25 +42,23 @@ export function InventoryCell({ item, column }: { item: InventoryItem; column: s
     case "miners":
       return <span>{item.assetCount.toString()}</span>;
     case "hashrate":
-      return <span>{formatHashrateOrDash(item.hashrateThs ?? null)}</span>;
+      return metricValue("hashrate", formatHashrateOrDash(item.hashrateThs ?? null));
     case "power":
     case "powerUsage":
-      return (
-        <span>
-          {item.ref?.kind === EntityKind.CONTAINER
-            ? formatPowerMwOrDash(item.powerKw ?? null)
-            : formatPowerKwOrDash(item.powerKw)}
-        </span>
+      return metricValue(
+        "power",
+        item.ref?.kind === EntityKind.CONTAINER
+          ? formatPowerMwOrDash(item.powerKw ?? null)
+          : formatPowerKwOrDash(item.powerKw),
       );
     case "efficiency":
-      return <span>{formatEfficiencyOrDash(item.efficiencyJth ?? null)}</span>;
+      return metricValue("efficiency", formatEfficiencyOrDash(item.efficiencyJth ?? null));
     case "temperature":
-      return (
-        <span>
-          {item.minTemperatureC === undefined || item.maxTemperatureC === undefined
-            ? "—"
-            : formatTempRange(item.minTemperatureC, item.maxTemperatureC, unit)}
-        </span>
+      return metricValue(
+        "temperature",
+        item.minTemperatureC === undefined || item.maxTemperatureC === undefined
+          ? "—"
+          : formatTempRange(item.minTemperatureC, item.maxTemperatureC, unit),
       );
     case "issues":
       return item.ref?.kind === EntityKind.MODULE ? <ModuleIssues item={item} /> : <span>—</span>;

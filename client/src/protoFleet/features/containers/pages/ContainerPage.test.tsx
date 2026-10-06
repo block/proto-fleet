@@ -169,10 +169,10 @@ describe("native container detail", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("opens the scoped asset list using the stable tank ID", () => {
+  it("opens the native tank detail using the stable tank ID", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "View Tank 1" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/north/fleet/miners?tank=81");
+    expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1/tanks/81");
   });
 
   it("uses building-style breadcrumbs and unassigned scope without a site", () => {
@@ -181,7 +181,7 @@ describe("native container detail", () => {
     renderPage();
     expect(screen.getByRole("link", { name: "Buildings" })).toHaveAttribute("href", "/fleet/buildings");
     fireEvent.click(screen.getByRole("button", { name: "View Tank 1" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/unassigned/fleet/miners?tank=81");
+    expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1/tanks/81");
   });
 
   it("keeps the overview visible with a retry on a transient refresh failure", () => {

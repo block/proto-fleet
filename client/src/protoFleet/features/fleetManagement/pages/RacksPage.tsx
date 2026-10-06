@@ -33,6 +33,7 @@ import {
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { tankPath } from "@/protoFleet/features/containers/buildTankOverview";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
@@ -78,7 +79,6 @@ import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/Lis
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
@@ -137,7 +137,13 @@ const RacksPage = () => {
   const canReadInventoryFleet = useHasPermission("fleet:read");
   const canReadInventoryMiners = useHasPermission("miner:read");
   const useInventory = canReadSiteCatalog && canReadInventoryFleet && canReadInventoryMiners;
-  const openTank = useCallback((item: InventoryItem) => navigate(`/fleet/miners?tank=${item.ref?.id}`), [navigate]);
+  const openTank = useCallback(
+    (item: InventoryItem) => {
+      if (item.ref?.kind === EntityKind.TANK && item.deviceIdentifier)
+        navigate(tankPath(item.deviceIdentifier, item.ref.id.toString()));
+    },
+    [navigate],
+  );
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
   const canManageSitePlacement = useHasPermission("site:manage");
@@ -1085,11 +1091,6 @@ const RacksPage = () => {
     [buildingNameById],
   );
 
-  // Responsive grid measurement
-  const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
-  const RACK_CARD_MIN_WIDTH_PX = 300;
-  const numColumns = Math.max(1, Math.floor((contentRect.width || RACK_CARD_MIN_WIDTH_PX) / RACK_CARD_MIN_WIDTH_PX));
-
   // Polling — refresh current page every 60s, paused while modals are open
   const isModalOpen = !!manageRackFormData || showRackSettingsModal;
   useEffect(() => {
@@ -1401,7 +1402,7 @@ const RacksPage = () => {
             />
           </div>
         ) : (
-          <div className="px-6 laptop:px-10">
+          <div className={clsx("px-6 laptop:px-10", PAGE_SCROLL_CHROME_WIDTH)}>
             {isLoading && displayedCount === 0 ? (
               <div className="flex items-center justify-center py-20">
                 <ProgressCircular indeterminate />
@@ -1409,61 +1410,51 @@ const RacksPage = () => {
             ) : displayedCount === 0 ? (
               <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
             ) : (
-              <div ref={measureRef}>
-                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                  {(gridItems ?? racks).map((entry) => {
-                    if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
-                      return (
-                        <button
-                          type="button"
-                          key={`tank:${entry.ref.id}`}
-                          className="rounded-xl border border-border-5 bg-surface-base p-6 text-left"
-                          onClick={() => openTank(entry)}
-                        >
-                          <InventoryCell item={entry} column="name" />
-                          <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
-                          <InventoryCell item={entry} column="health" />
-                          <div className="grid grid-cols-2 gap-3 pt-4">
-                            <InventoryCell item={entry} column="hashrate" />
-                            <InventoryCell item={entry} column="power" />
-                          </div>
-                        </button>
-                      );
-                    const rack =
-                      "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;
-                    if (!rack) return null;
-                    const stats = (useInventory ? inventory.statsMap : statsMap).get(rack.id);
-                    const {
-                      zone,
-                      rows,
-                      cols,
-                      loading,
-                      statusSegments,
-                      slots,
-                      hashrate,
-                      efficiency,
-                      power,
-                      temperature,
-                    } = mapRackToCardProps(rack, stats, temperatureUnit);
+              // Bound the grid to the scroll viewport: FleetLayout's desktop
+              // max-content width must not feed back into the column count.
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-1">
+                {(gridItems ?? racks).map((entry) => {
+                  if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
                     return (
-                      <RackCard
-                        key={rack.id.toString()}
-                        label={rack.label}
-                        zone={zone}
-                        cols={cols}
-                        rows={rows}
-                        slots={slots}
-                        loading={loading}
-                        statusSegments={statusSegments}
-                        hashrate={hashrate}
-                        efficiency={efficiency}
-                        power={power}
-                        temperature={temperature}
-                        onClick={() => navigate(`/racks/${rack.id}`)}
-                      />
+                      <button
+                        type="button"
+                        key={`tank:${entry.ref.id}`}
+                        className="rounded-xl border border-border-5 bg-surface-base p-6 text-left"
+                        onClick={() => openTank(entry)}
+                      >
+                        <InventoryCell item={entry} column="name" />
+                        <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
+                        <InventoryCell item={entry} column="health" />
+                        <div className="grid grid-cols-2 gap-3 pt-4">
+                          <InventoryCell item={entry} column="hashrate" />
+                          <InventoryCell item={entry} column="power" />
+                        </div>
+                      </button>
                     );
-                  })}
-                </div>
+                  const rack =
+                    "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;
+                  if (!rack) return null;
+                  const stats = (useInventory ? inventory.statsMap : statsMap).get(rack.id);
+                  const { zone, rows, cols, loading, statusSegments, slots, hashrate, efficiency, power, temperature } =
+                    mapRackToCardProps(rack, stats, temperatureUnit);
+                  return (
+                    <RackCard
+                      key={rack.id.toString()}
+                      label={rack.label}
+                      zone={zone}
+                      cols={cols}
+                      rows={rows}
+                      slots={slots}
+                      loading={loading}
+                      statusSegments={statusSegments}
+                      hashrate={hashrate}
+                      efficiency={efficiency}
+                      power={power}
+                      temperature={temperature}
+                      onClick={() => navigate(`/racks/${rack.id}`)}
+                    />
+                  );
+                })}
               </div>
             )}
             {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (

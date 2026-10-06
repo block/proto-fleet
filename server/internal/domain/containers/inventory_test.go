@@ -213,8 +213,13 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 			if item.Ref.Kind == inventorypb.EntityKind_ENTITY_KIND_BUILDING || item.Ref.Kind == inventorypb.EntityKind_ENTITY_KIND_RACK {
 				require.NotNil(t, item.HashrateThs)
 				require.Equal(t, 80.0, *item.HashrateThs)
+			} else if item.Ref.Kind == inventorypb.EntityKind_ENTITY_KIND_TANK {
+				require.NotNil(t, item.HashrateThs)
+				require.Equal(t, 300.0, *item.HashrateThs, "tank totals exclude modules without readings")
+				require.EqualValues(t, 1, item.HashrateReportingCount)
+				require.EqualValues(t, 2, item.AssetCount)
 			} else {
-				require.Nil(t, item.HashrateThs, "partial module coverage must not look like a complete parent total")
+				require.Nil(t, item.HashrateThs, "container totals still require complete coverage")
 			}
 		}
 	}

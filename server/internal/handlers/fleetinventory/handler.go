@@ -61,3 +61,15 @@ func (h *Handler) ListModuleHistory(ctx context.Context, req *connect.Request[pb
 	}
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) GetTankHistory(ctx context.Context, req *connect.Request[pb.GetTankHistoryRequest]) (*connect.Response[pb.GetTankHistoryResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.TankHistory(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}

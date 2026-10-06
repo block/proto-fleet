@@ -40,6 +40,7 @@ import {
   importSettingsTeam,
   importSettingsUpdates,
   importSiteDetailPage,
+  importTankPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
@@ -96,6 +97,7 @@ const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
+const TankPage = lazy(importTankPage);
 const ContainerPage = lazy(importContainerPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -257,6 +259,8 @@ const router = createBrowserRouter([
   { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId", <TankPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <TankPage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),

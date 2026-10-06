@@ -116,6 +116,19 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	history, err := handler.ListModuleHistory(authorized, historyRequest)
 	require.NoError(t, err)
 	require.Len(t, history.Msg.Samples, 1)
+	var tankID int64
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT id FROM container_tank WHERE device_id=$1 AND position=1", container.Msg.Container.Id).Scan(&tankID))
+	tankHistoryRequest := connect.NewRequest(&pb.GetTankHistoryRequest{ContainerIdentifier: d.DeviceIdentifier, TankId: tankID, StartTime: timestamppb.New(now.Add(-time.Minute)), EndTime: timestamppb.New(now.Add(time.Minute)), GranularitySeconds: 90})
+	tankHistory, err := handler.GetTankHistory(authorized, tankHistoryRequest)
+	require.NoError(t, err)
+	require.Len(t, tankHistory.Msg.Metrics, 4, "tank history requires no rack permission")
+	for i := range read {
+		incomplete := append(append([]string{}, read[:i]...), read[i+1:]...)
+		_, err = handler.GetTankHistory(withPermissions(incomplete, site.ID), tankHistoryRequest)
+		require.Error(t, err, "every container read permission is required")
+	}
+	_, err = handler.GetTankHistory(ctx, tankHistoryRequest)
+	require.Error(t, err, "unauthenticated requests are rejected")
 
 	for _, view := range []pb.InventoryView{pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS} {
 		response, err := handler.ListInventory(withPermissions(read, other.ID), connect.NewRequest(&pb.ListInventoryRequest{View: view}))
@@ -137,4 +150,7 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	}
 	_, err = handler.ListModuleHistory(authorized, historyRequest)
 	require.True(t, fleeterror.IsForbiddenError(err), "history must follow the container's current site, got %v", err)
+	_, err = handler.GetTankHistory(authorized, tankHistoryRequest)
+	require.True(t, fleeterror.IsForbiddenError(err), "tank history follows current site: %v", err)
+
 }

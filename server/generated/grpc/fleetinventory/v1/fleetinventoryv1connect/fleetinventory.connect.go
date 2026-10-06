@@ -37,6 +37,9 @@ const (
 	// FleetInventoryServiceListInventoryProcedure is the fully-qualified name of the
 	// FleetInventoryService's ListInventory RPC.
 	FleetInventoryServiceListInventoryProcedure = "/fleetinventory.v1.FleetInventoryService/ListInventory"
+	// FleetInventoryServiceGetTankHistoryProcedure is the fully-qualified name of the
+	// FleetInventoryService's GetTankHistory RPC.
+	FleetInventoryServiceGetTankHistoryProcedure = "/fleetinventory.v1.FleetInventoryService/GetTankHistory"
 	// FleetInventoryServiceListModuleHistoryProcedure is the fully-qualified name of the
 	// FleetInventoryService's ListModuleHistory RPC.
 	FleetInventoryServiceListModuleHistoryProcedure = "/fleetinventory.v1.FleetInventoryService/ListModuleHistory"
@@ -45,6 +48,7 @@ const (
 // FleetInventoryServiceClient is a client for the fleetinventory.v1.FleetInventoryService service.
 type FleetInventoryServiceClient interface {
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
+	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
 }
 
@@ -63,6 +67,11 @@ func NewFleetInventoryServiceClient(httpClient connect.HTTPClient, baseURL strin
 			baseURL+FleetInventoryServiceListInventoryProcedure,
 			opts...,
 		),
+		getTankHistory: connect.NewClient[v1.GetTankHistoryRequest, v1.GetTankHistoryResponse](
+			httpClient,
+			baseURL+FleetInventoryServiceGetTankHistoryProcedure,
+			opts...,
+		),
 		listModuleHistory: connect.NewClient[v1.ListModuleHistoryRequest, v1.ListModuleHistoryResponse](
 			httpClient,
 			baseURL+FleetInventoryServiceListModuleHistoryProcedure,
@@ -74,12 +83,18 @@ func NewFleetInventoryServiceClient(httpClient connect.HTTPClient, baseURL strin
 // fleetInventoryServiceClient implements FleetInventoryServiceClient.
 type fleetInventoryServiceClient struct {
 	listInventory     *connect.Client[v1.ListInventoryRequest, v1.ListInventoryResponse]
+	getTankHistory    *connect.Client[v1.GetTankHistoryRequest, v1.GetTankHistoryResponse]
 	listModuleHistory *connect.Client[v1.ListModuleHistoryRequest, v1.ListModuleHistoryResponse]
 }
 
 // ListInventory calls fleetinventory.v1.FleetInventoryService.ListInventory.
 func (c *fleetInventoryServiceClient) ListInventory(ctx context.Context, req *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error) {
 	return c.listInventory.CallUnary(ctx, req)
+}
+
+// GetTankHistory calls fleetinventory.v1.FleetInventoryService.GetTankHistory.
+func (c *fleetInventoryServiceClient) GetTankHistory(ctx context.Context, req *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error) {
+	return c.getTankHistory.CallUnary(ctx, req)
 }
 
 // ListModuleHistory calls fleetinventory.v1.FleetInventoryService.ListModuleHistory.
@@ -91,6 +106,7 @@ func (c *fleetInventoryServiceClient) ListModuleHistory(ctx context.Context, req
 // service.
 type FleetInventoryServiceHandler interface {
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
+	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
 }
 
@@ -105,6 +121,11 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 		svc.ListInventory,
 		opts...,
 	)
+	fleetInventoryServiceGetTankHistoryHandler := connect.NewUnaryHandler(
+		FleetInventoryServiceGetTankHistoryProcedure,
+		svc.GetTankHistory,
+		opts...,
+	)
 	fleetInventoryServiceListModuleHistoryHandler := connect.NewUnaryHandler(
 		FleetInventoryServiceListModuleHistoryProcedure,
 		svc.ListModuleHistory,
@@ -114,6 +135,8 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 		switch r.URL.Path {
 		case FleetInventoryServiceListInventoryProcedure:
 			fleetInventoryServiceListInventoryHandler.ServeHTTP(w, r)
+		case FleetInventoryServiceGetTankHistoryProcedure:
+			fleetInventoryServiceGetTankHistoryHandler.ServeHTTP(w, r)
 		case FleetInventoryServiceListModuleHistoryProcedure:
 			fleetInventoryServiceListModuleHistoryHandler.ServeHTTP(w, r)
 		default:
@@ -127,6 +150,10 @@ type UnimplementedFleetInventoryServiceHandler struct{}
 
 func (UnimplementedFleetInventoryServiceHandler) ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.ListInventory is not implemented"))
+}
+
+func (UnimplementedFleetInventoryServiceHandler) GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.GetTankHistory is not implemented"))
 }
 
 func (UnimplementedFleetInventoryServiceHandler) ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error) {

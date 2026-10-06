@@ -13,11 +13,15 @@ WITH parents AS (
   WHERE t.present AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
 ), aggregates AS (
   SELECT ma.org_id, ma.group_kind, ma.group_id, count(*)::bigint AS asset_count,
+         count(ma.temperature_c)::bigint AS temperature_reporting_count,
+         count(*) FILTER (WHERE ma.hashrate_hs IS NOT NULL AND ma.power_w IS NOT NULL)::bigint AS efficiency_reporting_count,
          count(ma.hashrate_hs)::bigint AS hashrate_reporting_count, count(ma.power_w)::bigint AS power_reporting_count,
-         CASE WHEN count(ma.hashrate_hs) = count(*) THEN sum(ma.hashrate_hs) / 1e12 END::double precision AS hashrate_ths,
-         CASE WHEN count(ma.power_w) = count(*) THEN sum(ma.power_w) / 1e3 END::double precision AS power_kw,
-         CASE WHEN count(ma.temperature_c) = count(*) THEN min(ma.temperature_c) END::double precision AS min_temperature_c,
-         CASE WHEN count(ma.temperature_c) = count(*) THEN max(ma.temperature_c) END::double precision AS max_temperature_c,
+         CASE WHEN ma.group_kind = 4 OR count(ma.hashrate_hs) = count(*) THEN sum(ma.hashrate_hs) / 1e12 END::double precision AS hashrate_ths,
+         CASE WHEN ma.group_kind = 4 OR count(ma.power_w) = count(*) THEN sum(ma.power_w) / 1e3 END::double precision AS power_kw,
+         CASE WHEN ma.group_kind = 4 OR count(ma.temperature_c) = count(*) THEN min(ma.temperature_c) END::double precision AS min_temperature_c,
+         CASE WHEN ma.group_kind = 4 OR count(ma.temperature_c) = count(*) THEN max(ma.temperature_c) END::double precision AS max_temperature_c,
+         (sum(ma.power_w) FILTER (WHERE ma.hashrate_hs IS NOT NULL) * 1e12 /
+          NULLIF(sum(ma.hashrate_hs) FILTER (WHERE ma.power_w IS NOT NULL), 0))::double precision AS paired_efficiency_jth,
          min(ma.observed_at) AS observed_at
   FROM fleet_mining_asset ma
   WHERE ma.org_id = sqlc.arg('org_id') AND ma.group_id IS NOT NULL
@@ -36,10 +40,12 @@ WITH parents AS (
    CASE WHEN access.telemetry_allowed THEN a.min_temperature_c END AS min_temperature_c,
    CASE WHEN access.telemetry_allowed THEN a.max_temperature_c END AS max_temperature_c,
    CASE WHEN access.telemetry_allowed THEN a.observed_at END AS observed_at,
-   CASE WHEN access.telemetry_allowed THEN (a.power_kw * 1000 / NULLIF(a.hashrate_ths, 0))::double precision END AS efficiency_jth,
+   CASE WHEN access.telemetry_allowed THEN (CASE WHEN r.kind = 4 THEN a.paired_efficiency_jth ELSE a.power_kw * 1000 / NULLIF(a.hashrate_ths, 0) END)::double precision END AS efficiency_jth,
    COALESCE(a.asset_count, 0)::bigint AS asset_count,
    CASE WHEN access.telemetry_allowed THEN COALESCE(a.hashrate_reporting_count, 0) ELSE 0 END::bigint AS hashrate_reporting_count,
    CASE WHEN access.telemetry_allowed THEN COALESCE(a.power_reporting_count, 0) ELSE 0 END::bigint AS power_reporting_count,
+   CASE WHEN access.telemetry_allowed THEN COALESCE(a.temperature_reporting_count, 0) ELSE 0 END::bigint AS temperature_reporting_count,
+   CASE WHEN access.telemetry_allowed THEN COALESCE(a.efficiency_reporting_count, 0) ELSE 0 END::bigint AS efficiency_reporting_count,
    access.telemetry_allowed AS telemetry_allowed,
    issues.issue_count, issues.issue_types
  FROM parents r
