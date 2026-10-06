@@ -227,3 +227,75 @@ func TestHTTPModelClientRefusesPlainHTTPForCredentialProviders(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTPS is required")
 }
+
+func TestHTTPModelClientOllamaToolRoundTrip(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		assert.Equal(t, "/api/chat", req.URL.Path)
+		var body struct {
+			Messages []struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolName  string `json:"tool_name"`
+				ToolCalls []struct {
+					Function struct {
+						Name      string         `json:"name"`
+						Arguments map[string]any `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Errorf("Ollama requires object tool arguments: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requests == 1 {
+			assert.Len(t, body.Messages, 1)
+			_, err := w.Write([]byte(`{"message":{"role":"assistant","tool_calls":[{"function":{"name":"list_sites","arguments":{"limit":2}}},{"function":{"name":"list_pools","arguments":{}}}]}}`))
+			assert.NoError(t, err)
+			return
+		}
+		if !assert.Len(t, body.Messages, 4) || !assert.Len(t, body.Messages[1].ToolCalls, 2) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		assert.Equal(t, "assistant", body.Messages[1].Role)
+		assert.Equal(t, "list_sites", body.Messages[1].ToolCalls[0].Function.Name)
+		assert.Equal(t, map[string]any{"limit": float64(2)}, body.Messages[1].ToolCalls[0].Function.Arguments)
+		assert.Equal(t, map[string]any{}, body.Messages[1].ToolCalls[1].Function.Arguments)
+		assert.Equal(t, "tool", body.Messages[2].Role)
+		assert.Equal(t, "list_pools", body.Messages[2].ToolName)
+		assert.Equal(t, "Primary pool", body.Messages[2].Content)
+		assert.Equal(t, "tool", body.Messages[3].Role)
+		assert.Equal(t, "list_sites", body.Messages[3].ToolName)
+		assert.Equal(t, "North and South", body.Messages[3].Content)
+		_, err := w.Write([]byte(`{"message":{"role":"assistant","content":"North and South use the Primary pool."}}`))
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client := NewHTTPModelClient(ProviderEgressConfig{})
+	config := RuntimeConfig{Provider: ProviderOllama, BaseURL: server.URL, Model: "llama-test"}
+	messages := []Message{{Role: "user", Content: "List sites and pools"}}
+	tools := []ToolDefinition{
+		{Name: "list_sites", InputSchema: map[string]any{"type": "object"}},
+		{Name: "list_pools", InputSchema: map[string]any{"type": "object"}},
+	}
+	first, err := client.Complete(t.Context(), config, messages, tools)
+	require.NoError(t, err)
+	require.Len(t, first.ToolCalls, 2)
+	messages = append(messages,
+		Message{Role: "assistant", Content: first.Content, ToolCalls: first.ToolCalls},
+		Message{Role: "tool", ToolCallID: first.ToolCalls[1].ID, Content: "Primary pool"},
+		Message{Role: "tool", ToolCallID: first.ToolCalls[0].ID, Content: "North and South"},
+	)
+
+	second, err := client.Complete(t.Context(), config, messages, tools)
+	require.NoError(t, err)
+	assert.Equal(t, "North and South use the Primary pool.", second.Content)
+	assert.Empty(t, second.ToolCalls)
+	assert.Equal(t, 2, requests)
+}

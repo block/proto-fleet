@@ -380,24 +380,51 @@ func (c *HTTPModelClient) completeAnthropic(ctx context.Context, config RuntimeC
 	return completion, nil
 }
 
+type ollamaMessage struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+	ToolName  string           `json:"tool_name,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Function ollamaFunctionCall `json:"function"`
+}
+
+type ollamaFunctionCall struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+func toOllamaMessages(messages []Message) []ollamaMessage {
+	out := make([]ollamaMessage, 0, len(messages))
+	toolNames := make(map[string]string)
+	for _, message := range messages {
+		converted := ollamaMessage{Role: message.Role, Content: message.Content}
+		for _, call := range message.ToolCalls {
+			toolNames[call.ID] = call.Name
+			converted.ToolCalls = append(converted.ToolCalls, ollamaToolCall{
+				Function: ollamaFunctionCall{Name: call.Name, Arguments: call.Arguments},
+			})
+		}
+		if message.Role == "tool" {
+			converted.ToolName = toolNames[message.ToolCallID]
+		}
+		out = append(out, converted)
+	}
+	return out
+}
+
 func (c *HTTPModelClient) completeOllama(ctx context.Context, config RuntimeConfig, messages []Message, tools []ToolDefinition) (Completion, error) {
 	payload := map[string]any{
 		"model":    config.Model,
-		"messages": toOpenAIMessages(messages),
+		"messages": toOllamaMessages(messages),
 		"stream":   false,
 		"tools":    openAITools(tools),
 		"options":  map[string]any{"temperature": config.Temperature},
 	}
 	var response struct {
-		Message struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
-				Function struct {
-					Name      string          `json:"name"`
-					Arguments json.RawMessage `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls"`
-		} `json:"message"`
+		Message ollamaMessage `json:"message"`
 	}
 	endpoint := providerEndpoint(config.BaseURL, "/api/chat")
 	if err := c.doJSON(ctx, config.Provider, endpoint, nil, payload, &response); err != nil {
