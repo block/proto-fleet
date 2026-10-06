@@ -46,6 +46,10 @@ it("shows cause and component, and opens all timestamped details without opening
   expect(screen.getByTestId("module-issues")).toHaveTextContent("MAC address: aa:bb");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Fault · Observed");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Warning");
+  expect(screen.getByTestId("alert-icon")).toHaveClass("text-intent-critical-fill");
+  expect(screen.getByTestId("alert-icon").parentElement).not.toHaveClass("bg-surface-5");
+  expect(screen.getByTestId("hashboard-icon").parentElement?.parentElement).toHaveClass("text-text-primary-70");
+  expect(screen.getByTestId("lightning-alt-icon").parentElement?.parentElement).toHaveClass("text-text-primary-70");
   expect(screen.getByTestId("module-issues")).toHaveTextContent(
     "Issue report is partial. Additional issues may be missing.",
   );
@@ -74,6 +78,7 @@ it("distinguishes mixed-state observations from faults", () => {
   fireEvent.click(screen.getByRole("button"));
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Observation");
   expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Fault");
+  expect(screen.queryByTestId("alert-icon")).not.toBeInTheDocument();
 });
 
 it.each(["missing", "partial", "stale"])("does not imply health for %s evidence", (kind) => {

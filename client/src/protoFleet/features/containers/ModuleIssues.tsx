@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { InventoryItem, ModuleIssue } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import { Alert, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 const componentName = (issue: ModuleIssue) =>
   issue.component === "psu" ? "PSU" : issue.component === "hashboard" ? "Hashboard" : "Module";
@@ -15,6 +17,16 @@ const causeName = (cause: string) => {
 };
 const issueName = (issue: ModuleIssue) => `${componentName(issue)} · ${causeName(issue.cause)}`;
 const timestampMs = (at: ModuleIssue["observedAt"]) => (at ? Number(at.seconds) * 1000 + at.nanos / 1e6 : undefined);
+const componentIcon = (issue: ModuleIssue) =>
+  issue.component === "hashboard" ? (
+    <Hashboard />
+  ) : issue.component === "psu" ? (
+    <LightningAlt />
+  ) : issue.severity === "observation" ? (
+    <Info />
+  ) : (
+    <Alert />
+  );
 
 export function ModuleIssues({ item }: { item: InventoryItem }) {
   const [open, setOpen] = useState(false);
@@ -44,6 +56,11 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
     return at !== undefined && !expiredTimes.includes(at);
   });
   const unavailable = stale || !evidence || !evidence.complete || sourceMs === undefined;
+  const intent = issues.some((issue) => issue.severity === "fault")
+    ? "critical"
+    : issues.some((issue) => issue.severity === "warning")
+      ? "warning"
+      : "info";
   const availability = issues.length
     ? "Issue report is partial. Additional issues may be missing."
     : stale
@@ -76,6 +93,16 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
           open
           testId="module-issues"
           title={`${item.name} issues`}
+          icon={
+            intent === "info" ? (
+              <Info width={iconSizes.xLarge} className="text-intent-info-fill" />
+            ) : (
+              <Alert
+                width={iconSizes.xLarge}
+                className={intent === "critical" ? "text-intent-critical-fill" : "text-intent-warning-fill"}
+              />
+            )
+          }
           onDismiss={() => setOpen(false)}
           buttons={[{ text: "Close", variant: variants.secondary, onClick: () => setOpen(false) }]}
         >
@@ -83,21 +110,26 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
           {!issues.length ? <p>{unavailable ? "No current issue details available." : summary}</p> : null}
           <ul className="space-y-3 py-3">
             {issues.map((issue) => (
-              <li key={`${issue.component}:${issue.componentId}:${issue.cause}`}>
-                <p>{issueName(issue)}</p>
-                {issue.component === "hashboard" && issue.componentId ? (
-                  <p className="text-200 text-text-primary-70">MAC address: {issue.componentId}</p>
-                ) : null}
-                <p className="text-200 text-text-primary-70">
-                  {issue.severity === "observation"
-                    ? "Observation"
-                    : issue.severity === "warning"
-                      ? "Warning"
-                      : "Fault"}
-                  {issue.observedAt
-                    ? ` · Observed ${new Date(Number(issue.observedAt.seconds) * 1000).toLocaleString()}`
-                    : ""}
-                </p>
+              <li key={`${issue.component}:${issue.componentId}:${issue.cause}`} className="flex items-start gap-3">
+                <div className="shrink-0 text-text-primary-70">
+                  <DialogIcon>{componentIcon(issue)}</DialogIcon>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p>{issueName(issue)}</p>
+                  {issue.component === "hashboard" && issue.componentId ? (
+                    <p className="text-200 text-text-primary-70">MAC address: {issue.componentId}</p>
+                  ) : null}
+                  <p className="text-200 text-text-primary-70">
+                    {issue.severity === "observation"
+                      ? "Observation"
+                      : issue.severity === "warning"
+                        ? "Warning"
+                        : "Fault"}
+                    {issue.observedAt
+                      ? ` · Observed ${new Date(Number(issue.observedAt.seconds) * 1000).toLocaleString()}`
+                      : ""}
+                  </p>
+                </div>
               </li>
             ))}
           </ul>
