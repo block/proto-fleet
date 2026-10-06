@@ -274,6 +274,9 @@ small evidence payload; separate source watermarks prevent an older component
 sample from replacing newer evidence, even when the aggregate oldest timestamp
 ties. Inventory collection order still guards topology changes. Replacement
 modules get fresh Fleet identities and their own issue sets and watermarks.
+Source timestamps must be nonzero and no more than five seconds ahead of collection.
+Watermarks advance only with accepted evidence; a rejected mixed-age report cannot
+block a corrected report carrying the same newer component sample.
 Missing cause arrays, missing PSU state, or incomplete evidence withdraw health
 confirmation while preserving source ordering; only advancing source evidence
 restores it. Fresh complete clear

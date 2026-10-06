@@ -145,6 +145,29 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 	module.Issues = evidence(base.Add(7*time.Second), "OLD_BOARD_FAULT")
 	write()
 	require.Empty(t, read().ModuleIssues.Items, "an older individual board cannot resurrect its fault")
+	// Rejecting a regressed board must not advance another board's watermark.
+	snapshot.ObservedAt = base.Add(10 * time.Second)
+	module.Issues = evidence(base.Add(6*time.Second), "NEW_BOARD_FAULT")
+	module.Issues.SourceTimes["hashboard:right"] = snapshot.ObservedAt
+	write()
+	require.Empty(t, read().ModuleIssues.Items)
+	snapshot.ObservedAt = base.Add(11 * time.Second)
+	module.Issues = evidence(base.Add(7*time.Second), "NEW_BOARD_FAULT")
+	module.Issues.SourceTimes["hashboard:right"] = base.Add(10 * time.Second)
+	write()
+	require.Len(t, read().ModuleIssues.Items, 1, "correcting the regressed board must admit the same new fault timestamp")
+	// Rejected partial evidence withdraws confirmation without consuming newer sources.
+	snapshot.ObservedAt = base.Add(12 * time.Second)
+	module.Issues = evidence(base.Add(6*time.Second), "NEXT_BOARD_FAULT")
+	module.Issues.Complete = false
+	module.Issues.SourceTimes["hashboard:right"] = snapshot.ObservedAt
+	write()
+	require.Nil(t, read().ModuleIssues)
+	snapshot.ObservedAt = base.Add(13 * time.Second)
+	module.Issues = evidence(base.Add(7*time.Second), "NEXT_BOARD_FAULT")
+	module.Issues.SourceTimes["hashboard:right"] = base.Add(12 * time.Second)
+	write()
+	require.Len(t, read().ModuleIssues.Items, 1)
 	// Site-scoped inventory cannot expose the controller's child issue evidence.
 	result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS}, []fleetinventory.Scope{{Sites: []int64{999}}})
 	require.NoError(t, err)
