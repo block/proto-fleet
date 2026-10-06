@@ -52,14 +52,14 @@ func newHandleTestGRPCDriver(t *testing.T, impl sdk.Driver, opts ...grpc.ServerO
 	return driver
 }
 
-func newHandleTestTelemetryFetcher(t *testing.T, driver sdk.Driver) *pluginTelemetryFetcher {
+func newHandleTestTelemetryFetcher(t *testing.T, driver sdk.Driver, deviceHandles *deviceHandlePool) *pluginTelemetryFetcher {
 	t.Helper()
 	manager := plugins.NewManager(&plugins.Config{})
 	require.NoError(t, manager.RegisterPluginForTest(&plugins.LoadedPlugin{
 		Name: "handle-test", Identifier: sdk.DriverIdentifier{DriverName: "virtual"}, Driver: driver,
 		Caps: sdk.Capabilities{sdk.CapabilityRealtimeTelemetry: true},
 	}))
-	fetcher, err := newPluginTelemetryFetcher(manager, nodeSecretProvider{})
+	fetcher, err := newPluginTelemetryFetcher(manager, nodeSecretProvider{}, deviceHandles)
 	require.NoError(t, err)
 	return fetcher
 }
@@ -168,7 +168,7 @@ func TestMinerCommandHandleSurvivesTelemetryAndConcurrentCommand(t *testing.T) {
 	}()
 	requireHandleTestSignal(t, ctx, gateway.started)
 
-	sample, err := newHandleTestTelemetryFetcher(t, driver).Fetch(ctx, handleTestTelemetryRequest())
+	sample, err := newHandleTestTelemetryFetcher(t, driver, r.getDeviceHandlePool()).Fetch(ctx, handleTestTelemetryRequest())
 	require.NoError(t, err)
 	requirePhysicalTelemetryIdentity(t, sample)
 	assert.Equal(t, "2.0.0", sample.GetFirmwareVersion())
@@ -232,7 +232,8 @@ func TestTelemetryHandleSurvivesPreviousSampleDelayedClose(t *testing.T) {
 				return sdk.NewDeviceResult{Device: dev}, nil
 			})
 	}
-	fetcher := newHandleTestTelemetryFetcher(t, newHandleTestGRPCDriver(t, impl, grpc.UnaryInterceptor(interceptor)))
+	fetcher := newHandleTestTelemetryFetcher(t, newHandleTestGRPCDriver(t, impl, grpc.UnaryInterceptor(interceptor)),
+		newDeviceHandlePool(t.Context(), maxOwnedDeviceHandles))
 	first, err := fetcher.Fetch(ctx, handleTestTelemetryRequest())
 	require.NoError(t, err)
 	requirePhysicalTelemetryIdentity(t, first)
@@ -301,22 +302,25 @@ func TestNodeCleansUpUncertainDeviceRegistration(t *testing.T) {
 					return response, err
 				}
 				driver := newHandleTestGRPCDriver(t, impl, grpc.UnaryInterceptor(interceptor))
+				pool := newCleanupTestPool(t, 1)
 				if operation == "command" {
-					r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+					r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
 					ack := &captureAcker{}
 					r.handleMinerCommand(ctx, nil, ack, "cmd-1", withTarget(&pb.MinerCommand{
 						Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
 					}), discardLogger(t))
 					assert.False(t, ack.only(t).GetSucceeded())
 				} else {
-					_, err := newHandleTestTelemetryFetcher(t, driver).Fetch(ctx, handleTestTelemetryRequest())
+					_, err := newHandleTestTelemetryFetcher(t, driver, pool).Fetch(ctx, handleTestTelemetryRequest())
 					require.Error(t, err)
 				}
+				// Cleanup runs after the caller returns; ctx may already be canceled.
 				select {
 				case <-closed:
-				default:
+				case <-time.After(5 * time.Second):
 					t.Fatal("uncertain registration was not closed")
 				}
+				require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
 			})
 		}
 	}

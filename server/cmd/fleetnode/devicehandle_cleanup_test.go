@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -9,12 +11,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
 type cleanupTestDriver struct {
@@ -67,6 +71,8 @@ func newCleanupTestPool(t *testing.T, capacity int) *deviceHandlePool {
 	pool.closeTimeout = 20 * time.Millisecond
 	pool.retryInterval = 5 * time.Millisecond
 	pool.maxRetryInterval = 10 * time.Millisecond
+	pool.creationGrace = 30 * time.Millisecond
+	pool.creationRetryInterval = 2 * time.Millisecond
 	t.Cleanup(pool.shutdown)
 	return pool
 }
@@ -94,9 +100,7 @@ func newCleanupTestOperations(t *testing.T, impl sdk.Driver, pool *deviceHandleP
 	t.Helper()
 	driver := newHandleTestGRPCDriver(t, impl, grpc.UnaryInterceptor(interceptor))
 	run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
-	fetcher := newHandleTestTelemetryFetcher(t, driver)
-	fetcher.deviceHandles = pool
-	return run, fetcher
+	return run, newHandleTestTelemetryFetcher(t, driver, pool)
 }
 
 func TestSuccessfulOperationRetriesCloseBeforeRegistryRemoval(t *testing.T) {
@@ -234,17 +238,22 @@ func TestAbsentFailedRegistrationsDoNotExhaustCleanupCapacity(t *testing.T) {
 	impl := &cleanupTestDriver{}
 	impl.rejectCreation.Store(true)
 	pool := newCleanupTestPool(t, 1)
-	interceptor := func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	var closeAttempts atomic.Int32
+	interceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if strings.HasSuffix(info.FullMethod, "/CloseDevice") {
+			closeAttempts.Add(1)
+		}
 		return handler(ctx, req)
 	}
 	run, fetcher := newCleanupTestOperations(t, impl, pool, interceptor)
 	// More failures than capacity, through both callers. The real SDK returns
 	// NotFound for cleanup because NewDevice failed before registry insertion.
-	for _, operation := range []string{"command", "telemetry"} {
+	for i, operation := range []string{"command", "telemetry"} {
 		code := runCleanupTestOperation(t, t.Context(), operation, run, fetcher)
 		require.NotEqual(t, pb.AckCode_ACK_CODE_OK, code)
-		require.NotEqual(t, pb.AckCode_ACK_CODE_BUSY, code, "ordinary failed creation must release its reservation after cleanup grace")
-		require.Empty(t, pool.slots)
+		require.NotEqual(t, pb.AckCode_ACK_CODE_BUSY, code, "ordinary failed creation must release its reservation once absence is confirmed")
+		require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 2*time.Millisecond)
+		require.EqualValues(t, i+1, closeAttempts.Load(), "a handler-reported Unavailable needs only one NotFound to confirm absence")
 	}
 	require.EqualValues(t, 2, impl.created.Load())
 	impl.rejectCreation.Store(false)
@@ -271,4 +280,150 @@ func TestCallerCancellationDoesNotCancelOwnedCleanup(t *testing.T) {
 			require.Zero(t, impl.canceledCloses.Load(), "cleanup must use the plugin lifecycle, not the canceled operation")
 		})
 	}
+}
+
+func TestLostCreationResponseRetainsCapacityUntilCloseSucceeds(t *testing.T) {
+	for _, operation := range []string{"command", "telemetry"} {
+		t.Run(operation, func(t *testing.T) {
+			impl := &cleanupTestDriver{}
+			pool := newCleanupTestPool(t, 1)
+			var closeRecovered atomic.Bool
+			var closeAttempts atomic.Int32
+			interceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+				switch {
+				case strings.HasSuffix(info.FullMethod, "/NewDevice"):
+					response, err := handler(ctx, req)
+					if err == nil && impl.created.Load() == 1 {
+						// Registration succeeds, but its response never reaches the caller.
+						return nil, grpcstatus.Error(codes.Unavailable, "lost NewDevice response")
+					}
+					return response, err
+				case strings.HasSuffix(info.FullMethod, "/CloseDevice"):
+					closeAttempts.Add(1)
+					if !closeRecovered.Load() {
+						return nil, grpcstatus.Error(codes.Unavailable, "plugin close transport unavailable")
+					}
+				}
+				return handler(ctx, req)
+			}
+			run, fetcher := newCleanupTestOperations(t, impl, pool, interceptor)
+			code := runCleanupTestOperation(t, t.Context(), operation, run, fetcher)
+			require.NotEqual(t, pb.AckCode_ACK_CODE_OK, code)
+			require.NotEqual(t, pb.AckCode_ACK_CODE_BUSY, code)
+			require.Eventually(t, func() bool { return closeAttempts.Load() >= 3 }, time.Second, 2*time.Millisecond)
+			require.Never(t, func() bool { return len(pool.slots) == 0 }, 4*pool.creationGrace, 2*time.Millisecond,
+				"a registration whose response was lost must keep its capacity past the cleanup grace")
+			require.Equal(t, pb.AckCode_ACK_CODE_BUSY, runCleanupTestOperation(t, t.Context(), operation, run, fetcher))
+			require.EqualValues(t, 1, impl.created.Load(), "BUSY must precede the SDK NewDevice RPC")
+			closeRecovered.Store(true)
+			require.Eventually(t, func() bool { return impl.closed.Load() == 1 && len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, runCleanupTestOperation(t, t.Context(), operation, run, fetcher))
+			require.Eventually(t, func() bool { return impl.closed.Load() == 2 && len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
+		})
+	}
+}
+
+type cleanupFuncDriver struct {
+	sdk.Driver
+	closeDevice func(context.Context, string) error
+}
+
+func (d cleanupFuncDriver) CloseDevice(ctx context.Context, deviceID string) error {
+	return d.closeDevice(ctx, deviceID)
+}
+
+func TestFailedCreationCleanupConfirmsAbsence(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		callerCanceled     bool
+		err                error
+		lateRegistration   bool
+		minCalls, maxCalls int32
+	}{
+		{"handler unavailable stops at first NotFound", false, grpcstatus.Error(codes.Unavailable, "identity endpoint unavailable"), true, 1, 1},
+		{"deadline retries early NotFound", false, grpcstatus.Error(codes.DeadlineExceeded, "lost response"), true, 2, 2},
+		{"canceled caller retries early NotFound", true, context.Canceled, true, 2, 2},
+		{"absent late registration releases after grace", false, grpcstatus.Error(codes.DeadlineExceeded, "lost response"), false, 2, 20},
+		{"definitive failure skips cleanup", false, grpcstatus.Error(codes.InvalidArgument, "bad request"), true, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.callerCanceled {
+				cancel()
+			}
+			pool := newCleanupTestPool(t, 1)
+			lease, err := pool.acquire()
+			require.NoError(t, err)
+			var calls atomic.Int32
+			driver := cleanupFuncDriver{closeDevice: func(context.Context, string) error {
+				// With a late registration, the first close runs before it lands.
+				if calls.Add(1) > 1 && tc.lateRegistration {
+					return nil
+				}
+				return grpcstatus.Error(codes.NotFound, "device not registered")
+			}}
+			lease.releaseAfterFailedCreation(ctx, driver, "telemetry-handle", tc.err)
+			require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 2*time.Millisecond)
+			require.GreaterOrEqual(t, calls.Load(), tc.minCalls)
+			require.LessOrEqual(t, calls.Load(), tc.maxCalls)
+		})
+	}
+}
+
+type blockingCreationDriver struct{ sdk.Driver }
+
+func (blockingCreationDriver) NewDevice(ctx context.Context, _ string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+	<-ctx.Done()
+	return sdk.NewDeviceResult{}, fmt.Errorf("create blocked test device: %w", ctx.Err())
+}
+
+func TestUncertainCreationCleanupDoesNotDelayTelemetryResult(t *testing.T) {
+	pool := newCleanupTestPool(t, 1)
+	// Keep the production grace: waiting it out inline would overrun the supervisor.
+	pool.creationGrace = time.Second
+	fetcher := newHandleTestTelemetryFetcher(t, newHandleTestGRPCDriver(t, blockingCreationDriver{}), pool)
+	_, err := supervisedTelemetryFetch(t.Context(), fetcher, handleTestTelemetryRequest(), 50*time.Millisecond, discardLogger(t))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "supervisor budget exceeded")
+	require.Contains(t, err.Error(), "create telemetry device")
+	require.Len(t, pool.slots, 1, "the uncertain registration keeps its capacity while cleanup continues")
+}
+
+type failingCleanupCloser struct{ attempts *atomic.Int32 }
+
+func (c failingCleanupCloser) Close(context.Context) error {
+	c.attempts.Add(1)
+	return errors.New("plugin close unavailable")
+}
+
+func TestPluginBootstrapSharesHandleBudgetAndShutsItDown(t *testing.T) {
+	pool := newCleanupTestPool(t, 1)
+	run := &RunCmd{
+		// No NewDevice expectation: the command must be refused before registration.
+		driverGetter:  fakeDriverGetter{d: mocks.NewMockDriver(gomock.NewController(t))},
+		minerSecrets:  nodeSecretProvider{},
+		deviceHandles: pool,
+	}
+	cleanup, err := run.startPluginComponents(t.Context(), t.TempDir(), 1, &credentialCodec{key: bytes.Repeat([]byte{7}, credentialKeySize)})
+	require.NoError(t, err)
+	fetcher, ok := run.telemetry.(*pluginTelemetryFetcher)
+	require.True(t, ok)
+	telemetryLease, err := fetcher.deviceHandles.acquire()
+	require.NoError(t, err)
+
+	ack := &captureAcker{}
+	run.handleMinerCommand(t.Context(), nil, ack, "shared-budget", withTarget(&pb.MinerCommand{
+		Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
+	}), discardLogger(t))
+	require.Equal(t, pb.AckCode_ACK_CODE_BUSY, ack.only(t).GetCode(), "telemetry and commands must share one handle budget")
+
+	var attempts atomic.Int32
+	telemetryLease.close(failingCleanupCloser{attempts: &attempts})
+	require.Eventually(t, func() bool { return attempts.Load() >= 2 }, time.Second, 2*time.Millisecond)
+	cleanup()
+	require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 2*time.Millisecond,
+		"plugin shutdown must stop cleanup retries and free their capacity")
+	_, err = pool.acquire()
+	require.Error(t, err, "no handle may be registered after plugin shutdown")
 }

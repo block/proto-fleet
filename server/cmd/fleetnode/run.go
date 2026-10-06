@@ -172,6 +172,24 @@ func (r *RunCmd) validateHeartbeatInterval() error {
 	return nil
 }
 
+// startPluginComponents loads plugins once and installs the components that
+// share them. Commands and telemetry draw from the same device handle pool.
+func (r *RunCmd) startPluginComponents(ctx context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec) (func(), error) {
+	disc, prr, tf, cleanup, err := newPluginComponents(ctx, pluginsDir, fleetNodeID, credentials, r.getDeviceHandlePool())
+	if err != nil {
+		return nil, err
+	}
+	r.discoverer = disc
+	// Same plugin manager powers discovery, command execution, and pairing; don't
+	// load plugins twice.
+	if r.driverGetter == nil {
+		r.driverGetter = disc.svc.GetManager()
+	}
+	r.pairer = prr
+	r.telemetry = tf
+	return cleanup, nil
+}
+
 func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir string, logger *slog.Logger) error {
 	path := bootstrap.StatePath(c.StateDir)
 	st, exists, err := bootstrap.LoadState(path)
@@ -202,17 +220,11 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if credentialErr != nil {
 			return operatorActionRequired(fmt.Errorf("prepare credential key: %w", credentialErr))
 		}
-		disc, prr, tf, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
+		cleanup, bootstrapErr := r.startPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
 		defer cleanup()
-		r.discoverer = disc
-		// Same plugin manager powers discovery, command execution, and pairing; don't
-		// load plugins twice.
-		if r.driverGetter == nil {
-			r.driverGetter = disc.svc.GetManager()
-		}
 		if r.minerSecrets == nil {
 			r.minerSecrets = credentials
 		}
@@ -223,9 +235,6 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 			}
 			r.passwordUpdatePrivateKey = privateKey
 		}
-		r.pairer = prr
-		r.telemetry = tf
-		r.deviceHandles = tf.deviceHandles
 	}
 
 	tokenSource := func() string {

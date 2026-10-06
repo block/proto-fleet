@@ -64,17 +64,20 @@ type telemetrySlot struct {
 	released         bool
 }
 
-func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider) (*pluginTelemetryFetcher, error) {
+func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider, deviceHandles *deviceHandlePool) (*pluginTelemetryFetcher, error) {
 	if manager == nil {
 		return nil, fmt.Errorf("plugin manager is required")
 	}
 	if minerSecrets == nil {
 		return nil, fmt.Errorf("miner secret provider is required")
 	}
+	if deviceHandles == nil {
+		return nil, fmt.Errorf("device handle pool is required")
+	}
 	return &pluginTelemetryFetcher{
 		manager:       manager,
 		minerSecrets:  minerSecrets,
-		deviceHandles: newDeviceHandlePool(context.Background(), maxOwnedDeviceHandles),
+		deviceHandles: deviceHandles,
 	}, nil
 }
 
@@ -191,8 +194,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	handleID := "telemetry-" + uuid.NewString()
 	created, err := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
 	if err != nil {
-		cleanupUncertainDeviceCreation(ctx, plugin.Driver, handleID, err)
-		lease.release()
+		lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, err)
 		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}

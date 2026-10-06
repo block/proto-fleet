@@ -17,8 +17,21 @@ import (
 )
 
 func TestBoundClientDoesNotFollowRedirects(t *testing.T) {
-	for _, path := range []string{pairingInfoPath, "/api/v1/auth/login", "/api/v1/system/reboot", "/api/v1/auth/change-password", "/api/v1/system/update"} {
-		t.Run(path, func(t *testing.T) {
+	type redirectCase struct {
+		status int
+		path   string
+	}
+	var cases []redirectCase
+	// net/http never follows 307/308 for a streamed body without GetBody, so
+	// only 302 proves the firmware upload client refuses redirects itself.
+	for _, status := range []int{http.StatusFound, http.StatusTemporaryRedirect} {
+		for _, path := range []string{pairingInfoPath, "/api/v1/auth/login", "/api/v1/system/reboot", "/api/v1/auth/change-password", "/api/v1/system/update"} {
+			cases = append(cases, redirectCase{status: status, path: path})
+		}
+	}
+	for _, tc := range cases {
+		status, path := tc.status, tc.path
+		t.Run(fmt.Sprintf("%d%s", status, path), func(t *testing.T) {
 			var redirectedRequests atomic.Int32
 			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				redirectedRequests.Add(1)
@@ -28,7 +41,7 @@ func TestBoundClientDoesNotFollowRedirects(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.URL.Path == path {
-					http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+					http.Redirect(w, r, target.URL+r.URL.Path, status)
 					return
 				}
 				switch r.URL.Path {

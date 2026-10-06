@@ -25,6 +25,10 @@ type deviceHandlePool struct {
 	closeTimeout     time.Duration
 	retryInterval    time.Duration
 	maxRetryInterval time.Duration
+	// A canceled or timed-out NewDevice may still register shortly after its
+	// caller stops waiting, so NotFound proves absence only after this grace.
+	creationGrace         time.Duration
+	creationRetryInterval time.Duration
 }
 
 func newDeviceHandlePool(parent context.Context, capacity int) *deviceHandlePool {
@@ -32,6 +36,7 @@ func newDeviceHandlePool(parent context.Context, capacity int) *deviceHandlePool
 	return &deviceHandlePool{
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, capacity),
 		closeTimeout: 5 * time.Second, retryInterval: 100 * time.Millisecond, maxRetryInterval: 5 * time.Second,
+		creationGrace: time.Second, creationRetryInterval: 10 * time.Millisecond,
 	}
 }
 
@@ -49,6 +54,8 @@ func (p *deviceHandlePool) acquire() (*deviceHandleLease, error) {
 	}
 }
 
+// getDeviceHandlePool returns the node's only handle pool. Plugin bootstrap
+// gives this pool to telemetry and shuts it down with the plugin processes.
 func (r *RunCmd) getDeviceHandlePool() *deviceHandlePool {
 	r.deviceHandlesOnce.Do(func() {
 		if r.deviceHandles == nil {
@@ -74,8 +81,38 @@ func (l *deviceHandleLease) release() {
 }
 
 func (l *deviceHandleLease) close(device deviceHandleCloser) <-chan struct{} {
-	l.cleanupOnce.Do(func() { go l.cleanup(device) })
+	l.cleanupOnce.Do(func() { go l.retainUntilRemoved(device.Close, closedOrAbsent, l.pool.retryInterval) })
 	return l.firstAttemptDone
+}
+
+// NewDevice completed successfully before this worker was started, so
+// NotFound confirms this registration no longer exists in the plugin.
+func closedOrAbsent(err error) bool {
+	return err == nil || grpcstatus.Code(err) == codes.NotFound
+}
+
+// releaseAfterFailedCreation frees the reservation unless the failed NewDevice
+// may have left handleID registered. A cleanup worker then keeps it until the
+// plugin confirms the handle is gone, so the caller can return without waiting.
+func (l *deviceHandleLease) releaseAfterFailedCreation(ctx context.Context, driver sdk.Driver, handleID string, err error) {
+	cleaner, ok := driver.(deviceHandleCleaner)
+	mayStillRegister := creationMayStillRegister(ctx, err)
+	// The SDK registers a handle only while its request context is live. After a
+	// live-context Unavailable, registration either completed with a lost
+	// response or never happened, so the first NotFound confirms absence.
+	if !ok || (!mayStillRegister && grpcstatus.Code(err) != codes.Unavailable) {
+		l.release()
+		return
+	}
+	graceEnds := time.Now().Add(l.pool.creationGrace)
+	removed := func(closeErr error) bool {
+		if closeErr == nil {
+			return true
+		}
+		return grpcstatus.Code(closeErr) == codes.NotFound && (!mayStillRegister || !time.Now().Before(graceEnds))
+	}
+	closeDevice := func(closeCtx context.Context) error { return cleaner.CloseDevice(closeCtx, handleID) }
+	l.cleanupOnce.Do(func() { go l.retainUntilRemoved(closeDevice, removed, l.pool.creationRetryInterval) })
 }
 
 // Commands already acknowledge their result before deferred cleanup. Preserve
@@ -91,7 +128,9 @@ func (l *deviceHandleLease) closeAndWait(device deviceHandleCloser) {
 	}
 }
 
-func (l *deviceHandleLease) cleanup(device deviceHandleCloser) {
+// retainUntilRemoved keeps the lease's capacity until removed accepts a close
+// result or the plugin shuts down, retrying with capped exponential backoff.
+func (l *deviceHandleLease) retainUntilRemoved(attempt func(context.Context) error, removed func(error) bool, delay time.Duration) {
 	defer l.release()
 	firstAttempt := true
 	defer func() {
@@ -99,24 +138,22 @@ func (l *deviceHandleLease) cleanup(device deviceHandleCloser) {
 			close(l.firstAttemptDone)
 		}
 	}()
-	delay := l.pool.retryInterval
+	warned := false
 	for l.pool.ctx.Err() == nil {
 		closeCtx, cancel := context.WithTimeout(l.pool.ctx, l.pool.closeTimeout)
 		// Call directly in this one worker. A context-ignoring implementation
 		// keeps its lease; timing out must not spawn another Close for it.
-		err := device.Close(closeCtx)
+		err := attempt(closeCtx)
 		cancel()
-		initialAttempt := firstAttempt
 		if firstAttempt {
 			firstAttempt = false
 			close(l.firstAttemptDone)
 		}
-		// NewDevice completed successfully before this worker was started, so
-		// NotFound confirms this registration no longer exists in the plugin.
-		if err == nil || grpcstatus.Code(err) == codes.NotFound {
+		if removed(err) {
 			return
 		}
-		if initialAttempt && l.pool.ctx.Err() == nil {
+		if !warned && grpcstatus.Code(err) != codes.NotFound && l.pool.ctx.Err() == nil {
+			warned = true
 			slog.Warn("plugin device close failed; retaining handle for retry", "err", err)
 		}
 		timer := time.NewTimer(delay)
@@ -134,14 +171,12 @@ type deviceHandleCleaner interface {
 	CloseDevice(ctx context.Context, deviceID string) error
 }
 
-func cleanupUncertainDeviceCreation(ctx context.Context, driver sdk.Driver, handleID string, err error) {
+// creationMayStillRegister reports whether a failed NewDevice may still be
+// running in the plugin and register its handle after the caller gave up.
+func creationMayStillRegister(ctx context.Context, err error) bool {
 	code := grpcstatus.Code(err)
-	uncertain := ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		code == codes.Canceled || code == codes.DeadlineExceeded || code == codes.Unavailable
-	if cleaner, ok := driver.(deviceHandleCleaner); ok && uncertain {
-		// The registration may exist even though its response was canceled or lost.
-		closeUncertainDevice(ctx, cleaner, handleID)
-	}
+	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		code == codes.Canceled || code == codes.DeadlineExceeded
 }
 
 func closeUncertainDevice(ctx context.Context, cleaner deviceHandleCleaner, deviceID string) {

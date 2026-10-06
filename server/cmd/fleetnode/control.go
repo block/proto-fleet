@@ -758,8 +758,11 @@ type pluginDiscoverer struct {
 }
 
 // newPluginComponents builds the discoverer, pairer, and telemetry fetcher over one shared manager
-// so the node loads plugins only once.
-func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec) (*pluginDiscoverer, *pluginPairer, *pluginTelemetryFetcher, func(), error) {
+// so the node loads plugins only once. Cleanup cancels deviceHandles' retries with the plugins.
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec, deviceHandles *deviceHandlePool) (*pluginDiscoverer, *pluginPairer, *pluginTelemetryFetcher, func(), error) {
+	if deviceHandles == nil {
+		return nil, nil, nil, func() {}, errors.New("device handle pool is required")
+	}
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -780,24 +783,20 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCancel()
 		return nil, nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
-	var deviceHandles *deviceHandlePool
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
 	cleanup := func() {
-		if deviceHandles != nil {
-			deviceHandles.shutdown()
-		}
+		deviceHandles.shutdown()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		_ = manager.Shutdown(shutdownCtx)
 	}
 	prr := newPluginPairer(manager, credentials)
-	tf, err := newPluginTelemetryFetcher(manager, credentials)
+	tf, err := newPluginTelemetryFetcher(manager, credentials, deviceHandles)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, func() {}, fmt.Errorf("init telemetry fetcher: %w", err)
 	}
-	deviceHandles = tf.deviceHandles
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),

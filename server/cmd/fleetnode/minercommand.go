@@ -157,8 +157,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}, bundle)
 	if err != nil {
-		cleanupUncertainDeviceCreation(cmdCtx, driver, handleID, err)
-		lease.release()
+		lease.releaseAfterFailedCreation(cmdCtx, driver, handleID, err)
 		code, msg := classifyMinerCommandError("connect to miner", err)
 		r.sendAck(stream, commandID, code, msg, logger)
 		return

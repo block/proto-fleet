@@ -317,10 +317,9 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		Host: endpoint.ip, Port: port, URLScheme: scheme,
 	}, bundle)
 	if err != nil {
-		code := grpcstatus.Code(err)
-		uncertain := ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-			code == codes.Canceled || code == codes.DeadlineExceeded
-		if cleaner, ok := driver.(deviceHandleCleaner); ok && uncertain {
+		// Recovery cleans up inline during its endpoint scan and holds no handle
+		// capacity, so it waits only for creations that may still be registering.
+		if cleaner, ok := driver.(deviceHandleCleaner); ok && creationMayStillRegister(ctx, err) {
 			closeUncertainDevice(ctx, cleaner, deviceID)
 		}
 		return stableidentity.Identity{}, err
