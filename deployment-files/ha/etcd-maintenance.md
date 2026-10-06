@@ -1,85 +1,64 @@
 # etcd capacity and retention
 
-Applies to both VIP and external-endpoint HA. The shared etcd Compose service
-targets one hour of revision history with periodic automatic compaction. Successful
-cycles run hourly, so retained history can approach two hours between cycles. Current
-keys and leases remain; this is not a key deletion or a backup policy. Fleet
-reads current DCS snapshots and lease TTLs, without historical revisions.
+Both VIP and external-endpoint HA use periodic compaction with one-hour
+retention. Successful cycles run hourly, so history can approach two hours.
+Current keys and leases remain. Fleet reads current snapshots;
 [Patroni 4.1.4](https://github.com/patroni/patroni/blob/v4.1.4/patroni/dcs/etcd3.py)
-rebuilds its prefix cache and resumes watching from the new revision after a
-canceled watch. One hour leaves a reconnect window while bounding ordinary DCS
-history. Additional consumers requiring older revisions must be checked before
-adoption. It is a default for this profile, not a measured capacity guarantee.
+re-lists its cache after watch cancellation. Check other consumers before
+adoption; this default is not a measured capacity guarantee or backup policy.
 
-Compaction makes old pages reusable; it does not shrink the backend file.
-Defragmentation returns unused pages to the filesystem and blocks that member's
-reads/writes while running. We do not schedule automatic defragmentation: steady
-DCS churn can reuse compacted pages, and a background blocking operation needs
-separate operational qualification. Never schedule per-host defrag jobs.
-See [etcd 3.6 maintenance](https://etcd.io/docs/v3.6/op-guide/maintenance/).
+Compaction makes pages reusable but does not shrink the backend. Defrag reclaims
+space and blocks that member's reads/writes. It remains operator-controlled;
+never schedule per-host defrag jobs. See [etcd maintenance](https://etcd.io/docs/v3.6/op-guide/maintenance/).
 
-## Check capacity without Fleet
+## Monitor capacity
 
 ```bash
 sudo /opt/proto-fleet/deployment/ha/fleet-ha etcd-status
 ```
 
-This bounded, read-only check works on any host, including the witness, without
-Fleet or PostgreSQL. It uses the installed CA and `fleet-observer` credential
-from protected files. JSON reports allocated `db_size_bytes`,
-`db_size_in_use_bytes` (current data **plus retained history**), and
-`db_size_quota_bytes` for each member. Their difference is reusable space.
-A failed probe has `available: false`, zero measurements and `warning: true`;
-zero is not free space. Missing members report quorum/redundancy degradation
-without claiming measured space pressure.
-Nonzero exit means a missing/unhealthy member, an etcd-reported error/alarm,
-unknown quota, or **70% allocated quota** on any member. At 85%, arrange urgent
-maintenance; do not wait for NOSPACE. Inspect all three members, not just an
-average. In-use growth after compaction needs investigation of current key sizes,
-write rate and retention; fragmentation alone calls for defrag, not deletion.
+This bounded, read-only check uses the installed CA and protected
+`fleet-observer` credential. It works on the witness without Fleet or PostgreSQL.
+Each member reports allocated `db_size_bytes`, `db_size_in_use_bytes` (current
+data plus retained history), and `db_size_quota_bytes`. Allocated minus in-use
+bytes is reusable space. Failed probes report `available: false`, zero sizes and
+`warning: true`; zero does not mean free space.
 
-`fleet-ha status` includes the same member values and `etcd_space_pressure`.
-Pressure makes `failover_ready` false and reaches the existing HA readiness
-alert; it does not revoke Fleet's active lease or set `control_ready` false.
-Target-release `update-preflight` checks etcd health and capacity before the
-installed binary stops either application. Members at or above 70% allocated
-quota, missing measurements, or unhealthy members refuse the update while the
-current application remains online, including upgrades from older binaries
-without this check. Inspect `etcd-status` and complete supervised capacity
-recovery below before retrying. Compaction alone does not lower allocated bytes.
-This check is a point-in-time gate; pressure arising later still blocks rolling
-update readiness and requires investigation before continuing.
+Nonzero exit means a missing/unhealthy member, an etcd error/alarm, unknown
+quota, or **at least 70% allocated quota**. At 85%, arrange urgent maintenance.
+Inspect all three members. Investigate in-use growth after compaction; reclaim
+fragmentation with defrag, not key deletion.
 
-The Fleet alert pipeline is not an independent infrastructure monitor. Configure
-an existing external host monitor to run `fleet-ha etcd-status` every minute on a
-host with this binary (prefer the witness), alert on nonzero exit and on missing
-results for three minutes, and retain the JSON. Alert separately on failed
-scheduled probes and etcd auto-compaction errors in the container journal/logs.
-Check monitoring with Fleet stopped during disposable/staging qualification.
-Do not mark rollout complete until this independent alert is wired and tested.
-For cloud deployments the smallest separate `tf-protofleet` follow-up is the
-existing host-monitor job plus its failed/stale-result alarm and log routing;
-this PR does not change cloud infrastructure or install a second monitoring
-stack. Existing installations need the new checker binary explicitly staged on
-the monitored host; the application updater does not update the witness.
+`fleet-ha status` exposes the same sizes. Measured pressure adds
+`etcd_space_pressure` and clears `failover_ready`, triggering the existing HA
+alert without changing `control_ready` or the active lease. Missing members
+report quorum/redundancy degradation instead of measured pressure.
+Target-release `update-preflight` rejects unhealthy etcd or pressure before the
+installed binary stops an application, including upgrades from older binaries.
+Recover capacity before retrying; pressure arising after preflight still blocks
+rolling-update readiness.
+
+**Rollout requires independent monitoring:** stage the new checker on the
+monitoring host (prefer the witness; application updates do not update it).
+Run every minute, retain JSON, and alert on failed/nonzero probes, results missing
+for three minutes, and etcd auto-compaction errors. Test alert delivery with
+Fleet stopped. Cloud host-monitor, alarm and log-routing wiring is a separate
+`tf-protofleet` follow-up; the Fleet alert alone does not satisfy this gate.
 
 ## Adopt on an existing cluster
 
-Application updates leave `/etc/proto-fleet/ha/compose.yaml` and the running etcd
-container unchanged. **Do not copy a new release's whole infrastructure Compose
-file**: that can silently upgrade etcd or Patroni. Retention adoption is a
-separately approved infrastructure operation. Use a verified release containing
-this helper and a matching-architecture `fleet-ha` binary; commands below use
-`/secure/verified-release/ha` as that staged directory. Do not run the installer
-again on an existing cluster.
+This separately approved operation changes installed infrastructure; application
+updates do not. Use a verified release staged at `/secure/verified-release/ha`
+with a matching-architecture checker. **Do not rerun the installer or copy the
+release's whole Compose file**, which can upgrade datastore images.
 
-1. Reserve one cluster-wide maintenance window/operator; prevent concurrent
-   installers, restarts, failovers and defrags. Record all member IDs, leader,
-   terms, applied indices, versions, quota and disk headroom. Require all three
-   distinct members healthy in one cluster, plus both database hosts' Fleet and
-   Patroni readiness. If close to quota, complete the recovery procedure below
-   before waiting for automatic compaction. Take and verify a protected snapshot.
-2. On each host, back up the installed Compose file, then patch **only that file**:
+1. Reserve one cluster-wide operator/window; exclude concurrent installers,
+   restarts, failovers and defrags. Record member IDs, leader, terms, applied
+   indices, versions, quota and disk headroom. Require three distinct healthy
+   members in one cluster and Fleet/Patroni readiness on both database hosts.
+   Verify a protected snapshot using the recovery procedure below. If near
+   quota, recover capacity before waiting for automatic compaction.
+2. On each host, back up and patch the installed Compose file:
 
    ```bash
    sudo cp -p /etc/proto-fleet/ha/compose.yaml /etc/proto-fleet/ha/compose.before-retention.yaml
@@ -88,11 +67,11 @@ again on an existing cluster.
    ```
 
    Expect only `--auto-compaction-mode=periodic` and
-   `--auto-compaction-retention=1h`. The helper refuses unfamiliar/partial
-   settings and is idempotent. It preserves the image, permissions and all other
-   bytes; it does not restart anything. Preserve the original backup on retries.
-3. Recreate **one etcd member at a time**, followers first, re-reading leadership
-   before each operation. Use the installed image; never pull or build:
+   `--auto-compaction-retention=1h`. The idempotent helper refuses unfamiliar or
+   partial settings, preserves all other bytes and permissions, and never
+   restarts services. Preserve the original backup on retries.
+3. Recreate **one etcd member at a time, followers first**, re-reading leadership
+   before each operation. Keep the installed image:
 
    ```bash
    sudo /opt/proto-fleet/deployment/ha/fleet-ha compose \
@@ -101,76 +80,70 @@ again on an existing cluster.
      up -d --no-deps --no-build --pull never etcd
    ```
 
-   Verify the running command contains both flags, and all three authenticated
-   endpoints are healthy, caught up, alarm-free and agree on leadership before
-   proceeding. Recheck Fleet and Patroni readiness. If leadership changes,
-   reclassify remaining members; stop on any failure or ambiguous recovery.
-   Never restart the HA systemd unit or run an unscoped `compose up` for adoption.
-4. Allow at least one hour after the last recreation for the initial retention
-   warm-up, then require a completed automatic compaction in the logs and stable
-   current keys and capacity. Successful cycles run hourly; six minutes is the
-   revision-sampling and failure-retry interval, not the compaction cycle. Stage the new checker on the monitoring host and wire the
-   independent monitor above. Rollback restores the saved Compose and recreates
-   members serially; discarded historical revisions cannot be restored by
-   disabling retention. Current keys do not need restoring.
+   Before proceeding, verify both running flags, all three authenticated
+   endpoints healthy/caught up/alarm-free with agreed leadership, and Fleet and
+   Patroni readiness. Reclassify followers if leadership changes; stop on any
+   failure or ambiguous recovery. Never restart the HA systemd unit or run an
+   unscoped `compose up`.
+4. Wait at least one hour after the last recreation, then verify completed
+   automatic compaction in logs and stable current keys/capacity. Wire and test
+   independent monitoring above. Rollback restores the saved Compose and
+   recreates members serially; disabling retention cannot restore discarded
+   history. Current keys need no restore.
 
-## Immediate capacity recovery (separate approval)
+## Recover capacity (separate approval)
 
-Use matching etcd 3.6 `etcdctl` and `etcdutl` binaries on a trusted administration
-host. Set `ETCDCTL_CACERT` to the protected cluster CA and `ETCDCTL_ENDPOINTS` to
-the three HTTPS private endpoints. Use `--user root` to **prompt** for the offline
-root password; never use `root:password`, shell tracing, a password argument, or
-publish snapshots. Routine monitoring must keep the read-only observer identity.
-Run in a private directory with `umask 077` and enough disk for the snapshot and
-defrag temporary space. Do not log key values.
+Use matching etcd 3.6 `etcdctl`/`etcdutl` on a trusted administration host.
+Set `ETCDCTL_CACERT` to the protected CA and `ETCDCTL_ENDPOINTS` to the three
+HTTPS private endpoints. `--user root` prompts for the offline password; never
+put it in arguments, enable shell tracing, or log key values. Keep monitoring
+on the read-only observer. Use a private directory, `umask 077`, and sufficient
+disk for snapshots and defrag temporary space. Serialize under the same
+single-operator window as adoption.
 
 1. Inspect authenticated `endpoint status --write-out=json`, `endpoint health`
-   and `alarm list`. Record current revision and sizes. NOSPACE can make the
-   health write check fail; require responding, agreed membership/leader and
-   caught-up Raft indices instead, and stop for other faults. Serialize the
-   entire procedure under the same single-operator maintenance window.
-2. Snapshot **one** healthy endpoint and verify it before compaction:
+   and `alarm list`; record revision and sizes. NOSPACE can fail the health
+   write check: require responding members, agreed membership/leader and
+   caught-up Raft indices instead. Stop for other faults.
+2. Snapshot one healthy endpoint before compaction:
 
    ```bash
    etcdctl --user root --endpoints="$SNAPSHOT_ENDPOINT" snapshot save snapshot.db
    etcdutl snapshot status snapshot.db --write-out=table
    ```
 
-   Verify hash, revision, key count and size; retain an encrypted/off-host copy.
-   A successful status check is not a restore drill. If snapshot/verification
-   fails, stop. Never reset the cluster or restore over a live member to reclaim
-   space.
-3. Choose `SAFE_REVISION` from a recorded revision at least one hour old. If none
-   exists and capacity permits, record one now and wait an hour. At imminent
-   NOSPACE, explicitly approve a shorter recovery retention after checking all
-   clients can re-list; do not blindly compact to latest. Compact once:
+   Verify hash, revision, key count and size; keep an encrypted off-host copy,
+   never publish it. Stop if verification fails. This is not a restore drill;
+   never reset the cluster or restore over a live member to reclaim space.
+3. Choose `SAFE_REVISION` recorded at least one hour ago; otherwise record one
+   and wait if capacity permits. At imminent NOSPACE, explicitly approve shorter
+   retention only after checking all clients can re-list. Do not compact blindly
+   to latest. Compact once:
 
    ```bash
    etcdctl --user root compact "$SAFE_REVISION"
    ```
 
-4. Re-read leadership, then defrag each follower individually, health/space
-   checking after each, and the leader last:
+4. Re-read leadership; defrag each follower separately, then the leader:
 
    ```bash
    etcdctl --user root --endpoints="$ONE_MEMBER_ENDPOINT" --command-timeout=60s defrag
    ```
 
-   Never use `--cluster` or multiple endpoints for this step. Require the other
-   two members healthy before each operation. Re-read leadership before choosing
-   each next member; stop on any new fault. A timeout/disconnection does **not**
-   prove server-side defrag stopped: do not retry or move to another member until
-   the affected member responds, catches up, and its completion is confirmed in
-   logs. Escalate if that cannot be established. Check Patroni and Fleet recovery
-   between members; allow no concurrent restart or failover.
-5. Recheck all three sizes, quota headroom, membership, health and alarms. Only
-   if NOSPACE was actually present and every member has restored capacity:
+   Never use `--cluster` or multiple endpoints. Require the other two members
+   healthy before each operation; check space, leadership and Fleet/Patroni
+   recovery between members. Stop on new faults; allow no concurrent restart or
+   failover. A timeout does not stop server-side defrag: do not retry or advance
+   until the member responds, catches up and logs confirm completion. Escalate
+   if recovery cannot be established.
+5. Recheck every member's capacity, membership, health and alarms. Disarm only
+   if NOSPACE was present and all members have restored headroom:
 
    ```bash
    etcdctl --user root alarm disarm
    ```
 
-   Recheck writes, empty alarms, leader lease, Patroni synchronous replication,
-   and Fleet active/passive, `control_ready` and `failover_ready` on both hosts.
-   VIP or external endpoint HTTP success alone is insufficient. Adopt retention
-   separately above and retain before/after evidence without credentials/keys.
+   Verify writes, empty alarms, leader lease, Patroni synchronous replication,
+   Fleet active/passive roles, `control_ready` and `failover_ready` on both hosts.
+   HTTP success alone is insufficient. Adopt retention separately and retain
+   before/after evidence without credentials or keys.

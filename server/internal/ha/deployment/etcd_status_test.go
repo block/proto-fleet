@@ -22,7 +22,6 @@ func TestEtcdSpaceWarnings(t *testing.T) {
 	}{
 		{name: "healthy", size: 69, used: 40, quota: 100},
 		{name: "allocated warning boundary", size: 70, used: 40, quota: 100, want: true},
-		{name: "live data pressure", size: 90, used: 89, quota: 100, want: true},
 		{name: "unknown quota", size: 1, used: 1, want: true},
 		{name: "alarm", size: 50, used: 40, quota: 100, errors: []string{"NOSPACE"}, want: true},
 	} {

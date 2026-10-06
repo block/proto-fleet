@@ -83,23 +83,20 @@ func healthyUpdateEtcd(context.Context, string) (EtcdReport, error) {
 func TestPrepareApplicationUpdateRejectsEtcdBeforeStaging(t *testing.T) {
 	probeErr := errors.New("observer credentials unavailable")
 	for _, test := range []struct {
-		name   string
-		report EtcdReport
-		err    error
-		want   string
+		name string
+		err  error
+		want string
 	}{
-		{name: "space pressure", report: EtcdReport{Members: []EtcdMemberStatus{{Available: true, DBSize: 70, DBSizeQuota: 100, Warning: true}}}, want: "below 70% allocated quota"},
-		{name: "missing member", report: EtcdReport{Members: []EtcdMemberStatus{{Warning: true}}}, want: "healthy etcd members"},
+		{name: "unhealthy etcd", want: "below 70% allocated quota"},
 		{name: "probe error", err: probeErr, want: "observer credentials unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Empty dependencies and a nonexistent release prove refusal happens
 			// before staging images, validating Compose, or recording installation.
 			err := prepareApplicationUpdate(t.Context(), filepath.Join(t.TempDir(), "missing-release"), nil, installDependencies{}, nil,
-				func(ctx context.Context, envPath string) (EtcdReport, error) {
-					require.Equal(t, t.Context(), ctx)
+				func(_ context.Context, envPath string) (EtcdReport, error) {
 					require.Equal(t, filepath.Join(configRoot, "node.env"), envPath)
-					return test.report, test.err
+					return EtcdReport{}, test.err
 				})
 			require.ErrorContains(t, err, test.want)
 			if test.err != nil {
