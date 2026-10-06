@@ -92,3 +92,35 @@ func TestCustomerOnlyKeyLosesAccessImmediatelyWithMembership(t *testing.T) {
 	_, err = f.client.GetAccount(t.Context(), keyRequest(&pb.GetAccountRequest{AccountId: account.AccountID}, issued.Msg.Secret, account.AccountID))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 }
+
+func TestAccountKeyRPCSitePolicyStaysInsideSelectedTarget(t *testing.T) {
+	f := newRPCFixture(t)
+	parent := f.account(t, "Parent", f.host, domain.AllCapabilities)
+	child, err := f.accounts.CreateChild(t.Context(), f.host, f.org, parent.AccountID, "Child", f.host, domain.DefaultCapabilities)
+	require.NoError(t, err)
+	sibling := f.account(t, "Sibling", f.host, domain.DefaultCapabilities)
+	var siteID int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO site (name,org_id,slug) VALUES ('Customer site',$1,'key-policy-site') RETURNING id`, f.org).Scan(&siteID))
+	require.NoError(t, f.accounts.ConfigureSites(t.Context(), f.host, f.org, parent.AccountID, true, []int64{siteID}))
+	issued, err := f.client.CreateAccountKey(t.Context(), rpcRequest(&pb.CreateAccountKeyRequest{AccountId: parent.AccountID, Name: "Policy reader", Capabilities: 1, DescendantAccountIds: []string{child.AccountID}}, f.cookie, parent.AccountID))
+	require.NoError(t, err)
+	policy, err := f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: parent.AccountID}, issued.Msg.Secret, parent.AccountID))
+	require.NoError(t, err)
+	require.True(t, policy.Msg.SitePolicy.Restricted)
+	require.Equal(t, []int64{siteID}, policy.Msg.EffectiveSiteIds)
+	_, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: parent.AccountID, ChildAccountId: &child.AccountID}, issued.Msg.Secret, parent.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "a descendant bound does not widen the selected request target")
+	policy, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: child.AccountID}, issued.Msg.Secret, child.AccountID))
+	require.NoError(t, err)
+	require.Equal(t, []int64{siteID}, policy.Msg.EffectiveSiteIds)
+	_, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: sibling.AccountID}, issued.Msg.Secret, sibling.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: parent.AccountID}, issued.Msg.Secret, ""))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	organizationKey, _, err := f.keys.Create(t.Context(), f.host, f.org, "host", "host", "Organization", nil)
+	require.NoError(t, err)
+	for _, selected := range []string{"", parent.AccountID} {
+		_, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: parent.AccountID}, organizationKey, selected))
+		require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	}
+}

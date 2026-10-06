@@ -3,9 +3,11 @@ package hostedaccounts_test
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,4 +110,24 @@ func TestAccountKeyLifecycleStaysPrivateAndCannotBecomeHostCredentials(t *testin
 	require.False(t, isHost, "removing a scope must not downgrade its credential kind")
 	_, err = keys.Authorize(t.Context(), record.ID, f.host, f.org, account.AccountID)
 	require.Error(t, err)
+}
+
+func TestAccountKeyExpiryUsesExecutionTimeInsideAnOlderTransaction(t *testing.T) {
+	f := setup(t)
+	account := f.client(t, "Customer", f.host, hostedaccounts.DefaultCapabilities)
+	credentials := apikey.NewService(sqlstores.NewSQLApiKeyStore(f.db), nil)
+	keys := hostedaccounts.NewKeyService(f.svc, credentials)
+	issued, err := keys.Create(t.Context(), f.host, f.org, account.AccountID, hostedaccounts.KeyOptions{Name: "Expiring", Capabilities: hostedaccounts.View})
+	require.NoError(t, err)
+	record, err := credentials.Validate(t.Context(), issued.Secret)
+	require.NoError(t, err)
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT pg_sleep(0.01)`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `UPDATE api_key SET expires_at=clock_timestamp() WHERE id=$1`, record.ID)
+	require.NoError(t, err)
+	_, err = keys.Authorize(db.WithTxQueries(t.Context(), sqlc.New(tx)), record.ID, f.host, f.org, account.AccountID)
+	require.Error(t, err, "an expired key must fail even when the transaction started before expiry")
 }

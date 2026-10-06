@@ -12,7 +12,7 @@ FROM hosted_account_key h
 JOIN api_key k ON k.id=h.api_key_id AND k.organization_id=h.organization_id
 JOIN hosted_account a ON a.id=h.account_id AND a.organization_id=h.organization_id
 WHERE h.api_key_id=$1 AND h.organization_id=$2 AND k.user_id=$3
- AND k.subject_kind='account' AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>CURRENT_TIMESTAMP);
+ AND k.subject_kind='account' AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>statement_timestamp());
 
 -- name: ListHostedAccountKeys :many
 SELECT k.key_id, k.name, k.prefix, k.created_at, k.expires_at, k.last_used_at,
