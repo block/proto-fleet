@@ -614,14 +614,16 @@ class SetPowerTargetRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., performance_mode: _Optional[_Union[PerformanceMode, str]] = ...) -> None: ...
 
 class MiningPool(_message.Message):
-    __slots__ = ("priority", "url", "worker_name")
+    __slots__ = ("priority", "url", "worker_name", "password")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     WORKER_NAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     worker_name: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ...) -> None: ...
+    password: str
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
 
 class UpdateMiningPoolsRequest(_message.Message):
     __slots__ = ("ref", "pools")
@@ -632,14 +634,16 @@ class UpdateMiningPoolsRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., pools: _Optional[_Iterable[_Union[MiningPool, _Mapping]]] = ...) -> None: ...
 
 class ConfiguredPool(_message.Message):
-    __slots__ = ("priority", "url", "username")
+    __slots__ = ("priority", "url", "username", "password")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     username: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ...) -> None: ...
+    password: str
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
 
 class GetMiningPoolsRequest(_message.Message):
     __slots__ = ("ref",)

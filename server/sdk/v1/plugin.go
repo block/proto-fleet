@@ -569,6 +569,7 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 			Priority:   pool.Priority,
 			URL:        pool.Url,
 			WorkerName: pool.WorkerName,
+			Password:   pool.Password,
 		}
 	}
 
@@ -596,6 +597,7 @@ func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMining
 			Priority: pool.Priority,
 			Url:      pool.URL,
 			Username: pool.Username,
+			Password: pool.Password,
 		}
 	}
 
@@ -1232,6 +1234,7 @@ func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []Mining
 			Priority:   pool.Priority,
 			Url:        pool.URL,
 			WorkerName: pool.WorkerName,
+			Password:   pool.Password,
 		}
 	}
 
@@ -1256,6 +1259,7 @@ func (d *DeviceGRPCClient) GetMiningPools(ctx context.Context) ([]ConfiguredPool
 			Priority: pool.Priority,
 			URL:      pool.Url,
 			Username: pool.Username,
+			Password: pool.Password,
 		}
 	}
 

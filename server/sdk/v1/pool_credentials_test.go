@@ -1,0 +1,132 @@
+package sdk
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
+)
+
+// storedPoolDevice simulates firmware storage, with password visibility
+// independently controlled from the values accepted by UpdateMiningPools.
+type storedPoolDevice struct {
+	fakeDevice
+	mu              sync.Mutex
+	pools           []MiningPoolConfig
+	hiddenPasswords map[int32]bool
+}
+
+func (d *storedPoolDevice) UpdateMiningPools(_ context.Context, pools []MiningPoolConfig) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pools = append([]MiningPoolConfig(nil), pools...)
+	return nil
+}
+
+func (d *storedPoolDevice) GetMiningPools(context.Context) ([]ConfiguredPool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	pools := make([]ConfiguredPool, len(d.pools))
+	for i, pool := range d.pools {
+		pools[i] = ConfiguredPool{Priority: pool.Priority, URL: pool.URL, Username: pool.WorkerName}
+		if !d.hiddenPasswords[pool.Priority] {
+			pools[i].Password = ptr(pool.Password)
+		}
+	}
+	return pools, nil
+}
+
+func TestMiningPoolCredentialsGRPCTransport(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	device := &storedPoolDevice{}
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	pb.RegisterDriverServer(server, &DriverGRPCServer{
+		Impl: fakeDriver{newDeviceFunc: func(context.Context, string, DeviceInfo, SecretBundle) (NewDeviceResult, error) {
+			return NewDeviceResult{Device: device}, nil
+		}},
+		devices: make(map[string]Device),
+	})
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		server.Stop()
+		assert.NoError(t, listener.Close())
+		assert.NoError(t, <-serveDone)
+	})
+	conn, err := grpc.NewClient("passthrough:///pool-credentials-test",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
+	driver := &DriverGRPCClient{client: pb.NewDriverClient(conn)}
+	created, err := driver.NewDevice(ctx, "device-123", DeviceInfo{}, SecretBundle{})
+	require.NoError(t, err)
+	client := created.Device
+
+	pools := []MiningPoolConfig{
+		{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", WorkerName: "primary.worker", Password: "primary-password"},
+		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", WorkerName: "backup1.worker", Password: "backup-password"},
+		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", WorkerName: "backup2.worker", Password: ""},
+	}
+	require.NoError(t, client.UpdateMiningPools(ctx, pools))
+	device.mu.Lock()
+	stored := append([]MiningPoolConfig(nil), device.pools...)
+	device.mu.Unlock()
+	require.Equal(t, pools, stored, "the actual device must receive every write credential, including empty")
+
+	readback, err := client.GetMiningPools(ctx)
+	require.NoError(t, err)
+	require.Len(t, readback, len(pools))
+	for i, pool := range pools {
+		assert.Equal(t, pool.Priority, readback[i].Priority)
+		assert.Equal(t, pool.URL, readback[i].URL)
+		assert.Equal(t, pool.WorkerName, readback[i].Username)
+		require.NotNil(t, readback[i].Password)
+		assert.Equal(t, pool.Password, *readback[i].Password)
+	}
+
+	// Firmware may withhold a password or report a changed stored value.
+	// Neither result may be replaced with the last desired write credential.
+	device.mu.Lock()
+	device.hiddenPasswords = map[int32]bool{0: true}
+	device.pools[1].Password = "firmware-changed-password"
+	device.mu.Unlock()
+	readback, err = client.GetMiningPools(ctx)
+	require.NoError(t, err)
+	require.Len(t, readback, 3)
+	assert.Nil(t, readback[0].Password, "unproven readback must remain absent")
+	require.NotNil(t, readback[1].Password)
+	assert.Equal(t, "firmware-changed-password", *readback[1].Password)
+	require.NotNil(t, readback[2].Password, "explicit stored empty password must remain present")
+	assert.Empty(t, *readback[2].Password)
+}
+
+func TestMiningPoolCredentialsRedactedWhenFormattedAndLogged(t *testing.T) {
+	password := "secret-must-not-be-logged"
+	values := []any{
+		MiningPoolConfig{Priority: 0, URL: "stratum+tcp://pool.example:3333", WorkerName: "worker", Password: password},
+		ConfiguredPool{Priority: 0, URL: "stratum+tcp://pool.example:3333", Username: "worker", Password: &password},
+	}
+	for _, value := range values {
+		for _, format := range []string{"%v", "%+v", "%#v"} {
+			assert.NotContains(t, fmt.Sprintf(format, value), password)
+		}
+		var output strings.Builder
+		slog.New(slog.NewJSONHandler(&output, nil)).Info("pool", "config", value)
+		assert.NotContains(t, output.String(), password)
+	}
+}
