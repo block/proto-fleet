@@ -14,26 +14,40 @@ const causeName = (cause: string) => {
   return name.charAt(0).toUpperCase() + name.slice(1);
 };
 const issueName = (issue: ModuleIssue) => `${componentName(issue)} · ${causeName(issue.cause)}`;
+const timestampMs = (at: ModuleIssue["observedAt"]) => (at ? Number(at.seconds) * 1000 + at.nanos / 1e6 : undefined);
 
 export function ModuleIssues({ item }: { item: InventoryItem }) {
   const [open, setOpen] = useState(false);
   const evidence = item.moduleIssues;
-  const sourceKey = evidence?.observedAt ? `${evidence.observedAt.seconds}:${evidence.observedAt.nanos}` : undefined;
-  const [expiredSource, setExpiredSource] = useState<string>();
+  const sourceMs = timestampMs(evidence?.observedAt);
+  const [expiredTimes, setExpiredTimes] = useState<number[]>([]);
   useEffect(() => {
-    if (!sourceKey || !evidence?.observedAt) return;
-    const sourceMs = Number(evidence.observedAt.seconds) * 1000 + evidence.observedAt.nanos / 1e6;
-    const age = Date.now() - sourceMs;
-    const timer = setTimeout(() => setExpiredSource(sourceKey), age < -5000 ? 0 : Math.max(0, 120_000 - age));
+    const times = [sourceMs, ...(evidence?.items ?? []).map((issue) => timestampMs(issue.observedAt))].filter(
+      (at): at is number => at !== undefined,
+    );
+    if (!times.length) return;
+    const now = Date.now();
+    const delay = Math.min(...times.map((at) => (at > now + 5000 ? 0 : Math.max(0, at + 120_000 - now))));
+    let timer: ReturnType<typeof setTimeout>;
+    const expire = () => {
+      const now = Date.now();
+      setExpiredTimes(times.filter((at) => at > now + 5000 || now - at >= 120_000));
+      const next = times.filter((at) => at <= now + 5000 && at + 120_000 > now);
+      if (next.length) timer = setTimeout(expire, Math.ceil(Math.min(...next) + 120_000 - now));
+    };
+    timer = setTimeout(expire, Math.ceil(delay));
     return () => clearTimeout(timer);
-  }, [sourceKey, evidence?.observedAt]);
-  const stale = evidence?.stale || (sourceKey !== undefined && sourceKey === expiredSource);
-  const issues = stale ? [] : (evidence?.items ?? []);
-  const unavailable = stale || !evidence || !evidence.complete || !sourceKey;
-  const availability = stale
-    ? "Issue evidence is stale. Current health is not confirmed."
-    : issues.length
-      ? "Issue report is partial. Additional issues may be missing."
+  }, [sourceMs, evidence?.items]);
+  const stale = evidence?.stale || (sourceMs !== undefined && expiredTimes.includes(sourceMs));
+  const issues = (evidence?.items ?? []).filter((issue) => {
+    const at = timestampMs(issue.observedAt);
+    return at !== undefined && !expiredTimes.includes(at);
+  });
+  const unavailable = stale || !evidence || !evidence.complete || sourceMs === undefined;
+  const availability = issues.length
+    ? "Issue report is partial. Additional issues may be missing."
+    : stale
+      ? "Issue evidence is stale. Current health is not confirmed."
       : "Issue evidence is incomplete or unavailable. Current health is not confirmed.";
   let summary = "No reported issues";
   if (issues.length) {

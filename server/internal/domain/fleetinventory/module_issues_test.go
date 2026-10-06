@@ -35,3 +35,18 @@ func TestProjectModuleIssues(t *testing.T) {
 	}
 	require.Nil(t, projectModuleIssues(nil, &now, now))
 }
+
+func TestProjectModuleIssuesKeepsFreshCausesWithStaleBoard(t *testing.T) {
+	now := time.Now().UTC()
+	old := now.Add(-3 * time.Minute)
+	evidence := &sdk.ContainerModuleIssues{ObservedAt: old, Complete: true, SourceTimes: map[string]time.Time{"hashboard:left": old, "hashboard:right": now}, Items: []sdk.ContainerModuleIssue{
+		{Component: "hashboard", ComponentID: "left", Cause: "OLD_FAULT", Severity: "fault", ObservedAt: old},
+		{Component: "hashboard", ComponentID: "right", Cause: "BOARD_OVER_CURRENT", Severity: "fault", ObservedAt: now},
+	}}
+	got := projectModuleIssues(evidence, &now, now)
+	require.True(t, got.Stale)
+	require.False(t, got.Complete)
+	require.Len(t, got.Items, 1)
+	require.Equal(t, "right", got.Items[0].ComponentId)
+	require.Empty(t, projectModuleIssues(evidence, &old, now).Items, "stale collection still hides all current faults")
+}

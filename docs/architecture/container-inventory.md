@@ -286,10 +286,11 @@ Repeating identical partial evidence retains those causes without advancing its
 source timestamps or extending their freshness.
 
 The inventory API includes module evidence directly in the authorized page read.
-It hides current entries after two minutes based on the oldest required source
-and module last-seen time. Unknown and stale evidence are distinct from a complete
+It hides each cause after two minutes based on its own source time, and hides all
+causes when module collection is stale. An outdated board withdraws health
+confirmation without hiding fresh causes from other components. Unknown and stale evidence are distinct from a complete
 observation with no reported causes. Fleet's Issues cell opens all causes,
 components, severity (fault, warning, or observation), and source timestamps.
-Cached client evidence also expires if list refreshes stop.
+Cached client causes also expire independently if list refreshes stop.
 This is current evidence only; historical issue lifecycle, parent issue rollups,
 and the existing miner-specific component filters remain separate concerns.

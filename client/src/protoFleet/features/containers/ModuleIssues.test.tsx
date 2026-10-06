@@ -24,7 +24,13 @@ it("shows cause and component, and opens all timestamped details without opening
           severity: "fault",
           observedAt: timestampFromDate(new Date()),
         },
-        { component: "psu", componentId: "psu", cause: "PSU_OVER_TEMPERATURE_WARNING", severity: "warning" },
+        {
+          component: "psu",
+          componentId: "psu",
+          cause: "PSU_OVER_TEMPERATURE_WARNING",
+          severity: "warning",
+          observedAt: timestampFromDate(new Date()),
+        },
       ],
     },
   }).moduleIssues!.items;
@@ -54,7 +60,14 @@ it("distinguishes mixed-state observations from faults", () => {
     moduleIssues: {
       observedAt: timestampFromDate(new Date()),
       complete: true,
-      items: [{ component: "module", cause: "MIXED_BOARD_STATES", severity: "observation" }],
+      items: [
+        {
+          component: "module",
+          cause: "MIXED_BOARD_STATES",
+          severity: "observation",
+          observedAt: timestampFromDate(new Date()),
+        },
+      ],
     },
   });
   render(<ModuleIssues item={value} />);
@@ -86,13 +99,63 @@ it("expires cached issue evidence when refreshes stop", () => {
       moduleIssues: {
         observedAt: timestampFromDate(new Date()),
         complete: true,
-        items: [{ component: "psu", cause: "PSU_OVER_TEMPERATURE", severity: "fault" }],
+        items: [
+          {
+            component: "psu",
+            cause: "PSU_OVER_TEMPERATURE",
+            severity: "fault",
+            observedAt: timestampFromDate(new Date()),
+          },
+        ],
       },
     });
     render(<ModuleIssues item={value} />);
     expect(screen.getByRole("button")).toHaveTextContent("PSU · Over temperature");
     act(() => vi.advanceTimersByTime(120_000));
     expect(screen.getByRole("button")).toHaveTextContent("Issues stale");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("shows fresh faults alongside stale board evidence and expires each cause independently", () => {
+  vi.useFakeTimers();
+  try {
+    const now = Date.now();
+    const value = create(InventoryItemSchema, {
+      name: "Module",
+      moduleIssues: {
+        observedAt: timestampFromDate(new Date(now - 180_000)),
+        complete: false,
+        stale: true,
+        items: [
+          {
+            component: "hashboard",
+            componentId: "right",
+            cause: "BOARD_OVER_CURRENT",
+            severity: "fault",
+            observedAt: timestampFromDate(new Date(now)),
+          },
+          {
+            component: "psu",
+            cause: "PSU_OVER_TEMPERATURE",
+            severity: "fault",
+            observedAt: timestampFromDate(new Date(now - 30_000)),
+          },
+        ],
+      },
+    });
+    render(<ModuleIssues item={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Module issues: Hashboard · Over current (+1)" }));
+    expect(screen.getByTestId("module-issues")).toHaveTextContent(
+      "Issue report is partial. Additional issues may be missing.",
+    );
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.getByRole("button", { name: "Module issues: Hashboard · Over current" })).toBeInTheDocument();
+    expect(screen.getByTestId("module-issues")).not.toHaveTextContent("PSU · Over temperature");
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(screen.getByRole("button", { name: "Module issues: Issues stale" })).toBeInTheDocument();
+    expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Hashboard · Over current");
   } finally {
     vi.useRealTimers();
   }

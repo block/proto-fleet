@@ -20,7 +20,7 @@ func projectModuleIssues(evidence *sdk.ContainerModuleIssues, lastSeen *time.Tim
 		out.ObservedAt = timestamppb.New(evidence.ObservedAt)
 	}
 	out.Stale = !evidence.ObservedAt.IsZero() && (!fresh(evidence.ObservedAt) || lastSeen == nil || !fresh(*lastSeen))
-	if out.Stale || lastSeen == nil || !fresh(*lastSeen) {
+	if lastSeen == nil || !fresh(*lastSeen) {
 		out.Complete = false
 		return out
 	}
