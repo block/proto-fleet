@@ -211,8 +211,8 @@ Repository selection does **not** implement private-repository authentication.
 Release discovery and updater downloads currently make unauthenticated requests;
 Fleet Node also disables implicit curl configuration. CI credentials are used
 only by publishing jobs and are never embedded in artifacts. A private fork
-needs a separately designed and tested authentication flow. Custom internal
-prerelease channels (including `-internal.N`) remain outside this feature.
+needs a separately designed and tested authentication flow. Custom
+prerelease channels remain outside this feature.
 
 ## Resetting the SUPER_ADMIN password
 
