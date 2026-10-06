@@ -72,10 +72,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      # Docker cache is computed before the plugin build so the gitignored
-      # `server/plugins/*` binaries (not a Docker build input) don't enter
-      # the hash and spuriously bust the cache.
-      #
+      # The server tree includes paths as well as contents: a migration rename
+      # must invalidate images even when its SQL bytes are unchanged. Gitignored
+      # plugin binaries are excluded from the tree.
+      - name: Compute Docker image inputs
+        id: docker-image-inputs
+        run: echo "server-tree=$(git rev-parse HEAD:server)" >> "$GITHUB_OUTPUT"
+
       # Scheduled runs skip restore + save so they rebuild against fresh
       # upstream base images without polluting the cache namespace with
       # one-off entries that would evict other workflow caches.
@@ -85,9 +88,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
-          # `server/**` because the Dockerfile does `COPY server/ ./`
-          # (e.g. go:embed migrations).
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ steps.docker-image-inputs.outputs.server-tree }}
 
       - name: Build E2E Docker images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
@@ -117,7 +118,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ steps.docker-image-inputs.outputs.server-tree }}
 
       - name: Build plugins for CI (Linux AMD64)
         run: |
