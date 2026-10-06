@@ -12,3 +12,9 @@ var Migrations embed.FS
 //
 //go:embed bridges/*.sql
 var Bridges embed.FS
+
+// Current is the compacted sequence. Legacy SQL above remains embedded for
+// explicit upgrade waypoints and reviewed reconciliation recipes only.
+//
+//go:embed current/*.sql
+var Current embed.FS

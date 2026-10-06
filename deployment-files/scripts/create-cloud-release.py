@@ -37,7 +37,7 @@ def fingerprint(root, names):
 
 
 def metadata(root):
-    migrations = sorted((root / "server/migrations").glob("*.sql"))
+    migrations = sorted((root / "server/migrations/current").glob("*.sql"))
     versions = {"up": set(), "down": set()}
     for path in migrations:
         match = re.fullmatch(r"([0-9]+)_.+\.(up|down)\.sql", path.name)
@@ -46,12 +46,19 @@ def metadata(root):
         versions[match[2]].add(int(match[1]))
     if not versions["up"] or versions["up"] != versions["down"]:
         raise ValueError("Require nonempty matching up/down migrations")
-    bridge_sql = sorted((root / "server/migrations/bridges").rglob("*.sql"))
+    # Retained upgrades and the one-time reconciliation are part of compatibility
+    # even though only the current source determines the application version.
+    compatibility_files = sorted((root / "server/migrations").rglob("*.sql"))
+    compatibility_files += sorted(
+        path
+        for path in (root / "server/internal/infrastructure/db/baseline").rglob("*")
+        if path.is_file() or path.is_symlink()
+    )
     return {
         "schema_version": max(versions["up"]),
         "compatibility_sha256": fingerprint(
             root,
-            [str(path.relative_to(root)) for path in migrations + bridge_sql]
+            [str(path.relative_to(root)) for path in compatibility_files]
             + list(DATABASE_FILES),
         ),
     }

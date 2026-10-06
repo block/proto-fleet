@@ -1670,7 +1670,10 @@ func (m *Manager) waitForQualificationBarrier(ctx context.Context, name string) 
 
 func (m *Manager) runPreflight(ctx context.Context, deployment string, output io.Writer) error {
 	if m.cfg.DeploymentMode == DeploymentModeHA {
-		return m.runHACommand(ctx, m.cfg.PreflightTimeout, deployment, output, "update-preflight")
+		if err := m.runHACommand(ctx, m.cfg.PreflightTimeout, deployment, output, "update-preflight"); err != nil {
+			return err
+		}
+		return m.runHACommand(ctx, m.cfg.PreflightTimeout, deployment, output, "schema-check")
 	}
 	return m.runCommand(ctx, m.cfg.PreflightTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only")
 }

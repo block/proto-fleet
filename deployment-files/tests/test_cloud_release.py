@@ -19,7 +19,7 @@ class CompatibilityTests(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("database dependency\n")
-            migrations = root / "server/migrations"
+            migrations = root / "server/migrations/current"
             migrations.mkdir(parents=True)
             up = migrations / "000001_initial.up.sql"
             up.write_text("CREATE TABLE example (id int);\n")
@@ -42,7 +42,20 @@ class CompatibilityTests(unittest.TestCase):
                     path.write_text("changed database input\n")
                     self.assertNotEqual(cloud.metadata(root), changed)
                     path.write_text(original)
-            bridge = migrations / "bridges/000001_bridge.sql"
+            legacy = root / "server/migrations/000999_retained.up.sql"
+            legacy.write_text("legacy SQL\n")
+            with_legacy = cloud.metadata(root)
+            self.assertEqual(with_legacy["schema_version"], 1)
+            self.assertNotEqual(with_legacy, changed)
+            legacy.unlink()
+            assertion = (
+                root / "server/internal/infrastructure/db/baseline/assertions.json"
+            )
+            assertion.parent.mkdir(parents=True)
+            assertion.write_text('{"schema": "checked"}\n')
+            self.assertNotEqual(cloud.metadata(root), changed)
+            assertion.unlink()
+            bridge = migrations.parent / "bridges/000001_bridge.sql"
             bridge.parent.mkdir()
             bridge.write_text("SELECT 1;\n")
             with_bridge = cloud.metadata(root)
